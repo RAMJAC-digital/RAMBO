@@ -16,6 +16,7 @@ const std = @import("std");
 const ines = @import("ines.zig");
 const MapperMod = @import("Mapper.zig");
 const Mapper0 = @import("mappers/Mapper0.zig").Mapper0;
+const ChrProvider = @import("../memory/ChrProvider.zig").ChrProvider;
 
 pub const InesHeader = ines.InesHeader;
 pub const Mirroring = ines.Mirroring;
@@ -166,6 +167,40 @@ pub const Cartridge = struct {
     /// Only valid for CHR RAM
     pub fn ppuWrite(self: *Cartridge, address: u16, value: u8) void {
         self.mapper.ppuWrite(self, address, value);
+    }
+
+    /// Get CHR provider interface for PPU
+    ///
+    /// Returns a ChrProvider interface that allows the PPU to access
+    /// cartridge CHR ROM/RAM without depending on the Cartridge concrete type.
+    ///
+    /// This enables proper dependency injection and testability.
+    ///
+    /// Usage:
+    /// ```zig
+    /// const provider = cartridge.chrProvider();
+    /// const pattern_byte = provider.read(0x0000);
+    /// ```
+    pub fn chrProvider(self: *Cartridge) ChrProvider {
+        return .{
+            .ptr = self,
+            .vtable = &.{
+                .read = ppuReadImpl,
+                .write = ppuWriteImpl,
+            },
+        };
+    }
+
+    /// CHR read implementation for ChrProvider interface
+    fn ppuReadImpl(ptr: *anyopaque, address: u16) u8 {
+        const self: *Cartridge = @ptrCast(@alignCast(ptr));
+        return self.ppuRead(address);
+    }
+
+    /// CHR write implementation for ChrProvider interface
+    fn ppuWriteImpl(ptr: *anyopaque, address: u16, value: u8) void {
+        const self: *Cartridge = @ptrCast(@alignCast(ptr));
+        self.ppuWrite(address, value);
     }
 
     /// Reset cartridge to power-on state

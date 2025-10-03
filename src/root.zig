@@ -64,6 +64,9 @@ pub const CartridgeType = Cartridge.Cartridge;
 /// Nametable mirroring mode
 pub const MirroringType = Cartridge.Mirroring;
 
+/// PPU type (from Ppu module)
+pub const PpuType = Ppu.Ppu;
+
 // ============================================================================
 // Test reference (for zig build test)
 // ============================================================================

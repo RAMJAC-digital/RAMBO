@@ -208,6 +208,20 @@ pub fn build(b: *std.Build) void {
 
     const run_cartridge_tests = b.addRunArtifact(cartridge_tests);
 
+    // PPU CHR integration tests
+    const chr_integration_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/ppu/chr_integration_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+
+    const run_chr_integration_tests = b.addRunArtifact(chr_integration_tests);
+
     // ========================================================================
     // Test Step Configuration
     // ========================================================================
@@ -218,6 +232,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_rmw_tests.step);
     test_step.dependOn(&run_unofficial_opcodes_tests.step);
     test_step.dependOn(&run_cartridge_tests.step);
+    test_step.dependOn(&run_chr_integration_tests.step);
 
     // Separate step for just unit tests
     const unit_test_step = b.step("test-unit", "Run unit tests only");
@@ -229,6 +244,7 @@ pub fn build(b: *std.Build) void {
     integration_test_step.dependOn(&run_rmw_tests.step);
     integration_test_step.dependOn(&run_unofficial_opcodes_tests.step);
     integration_test_step.dependOn(&run_cartridge_tests.step);
+    integration_test_step.dependOn(&run_chr_integration_tests.step);
 
     // Cycle trace test
     const cycle_trace_test = b.addTest(.{

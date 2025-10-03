@@ -105,15 +105,16 @@ pub const Mapper0 = struct {
     fn ppuWriteImpl(mapper_ptr: *Mapper, cart: *Cartridge, address: u16, value: u8) void {
         _ = mapper_ptr;
 
-        // CHR writes only valid for CHR RAM
-        // If chr_data exists and is mutable, allow writes
+        // CHR writes only valid for CHR RAM (chr_rom_size == 0)
+        // CHR ROM writes are ignored (chr_rom_size > 0)
         const chr_addr = @as(usize, address & 0x1FFF);
 
-        if (cart.chr_data.len > 0 and chr_addr < cart.chr_data.len) {
+        // Only allow writes if this is CHR RAM (no CHR ROM in header)
+        if (cart.header.chr_rom_size == 0 and chr_addr < cart.chr_data.len) {
             cart.chr_data[chr_addr] = value;
         }
 
-        // Writes to CHR ROM are ignored
+        // Writes to CHR ROM are silently ignored (correct NES behavior)
     }
 
     fn resetImpl(mapper_ptr: *Mapper, cart: *Cartridge) void {
