@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **RAMBO** is a cycle-accurate NES emulator written in Zig 0.15.1, targeting the comprehensive AccuracyCoin test suite (128 tests covering CPU, PPU, APU, and timing accuracy).
 
-**Current Status:** CPU 100% complete - All 256 opcodes implemented (151 official + 105 unofficial), PPU 40% complete (registers done, VRAM missing), Bus 85% complete (missing controller I/O), cartridge loading functional (Mapper 0 only), passing all current tests (112+ tests).
+**Current Status:** CPU 100% complete (256 opcodes), PPU 60% complete (registers, VRAM, background rendering - sprites pending), Bus 85% complete (missing controller I/O), cartridge loading functional (Mapper 0 only), passing all tests (375 tests). Video subsystem architecture designed and ready for implementation.
 
 **Key Requirement:** Hardware-accurate 6502 emulation with cycle-level precision for AccuracyCoin compatibility.
 
@@ -190,22 +190,27 @@ Tests verify:
 ### AccuracyCoin Integration
 AccuracyCoin.nes is loaded and accessible. Full execution requires:
 - ✅ All 256 opcodes implemented (151 official + 105 unofficial)
-- 🟡 PPU implementation (40% complete, VRAM access missing)
+- ✅ PPU VRAM system (100% complete with ChrProvider abstraction)
+- ✅ PPU Background rendering (tile fetching, shift registers, scroll)
+- 🟡 Video display (designed, ready for implementation)
 - ❌ Controller I/O (not implemented)
+- ❌ Sprite rendering (not implemented)
 - ❌ APU implementation (not started)
 
 ## Implementation Priorities
 
 ### HIGH (Critical Path to Playability)
-1. **VRAM Access** - PPU cannot initialize graphics without this (6-8 hours)
-2. **Controller I/O** ($4016/$4017) - Cannot play games without input (3-4 hours)
-3. **OAM DMA** ($4014) - Required for sprite rendering (2-3 hours)
-4. **MMC1 Mapper** - Adds 28% game compatibility (6-8 hours)
-5. **Minimal Rendering** - Background tiles first (12-16 hours)
+1. ✅ **VRAM Access** - COMPLETE (ChrProvider interface, all tests passing)
+2. ✅ **Background Rendering** - COMPLETE (tile fetching, shift registers, pixel output)
+3. **Video Subsystem** - OpenGL backend for frame display (20-25 hours) - NEXT PRIORITY
+   - See: docs/06-implementation-notes/design-decisions/video-subsystem-architecture.md
+4. **Controller I/O** ($4016/$4017) - Cannot play games without input (3-4 hours)
+5. **OAM DMA** ($4014) - Required for sprite rendering (2-3 hours)
+6. **Sprite Rendering** - Complete graphics output (12-16 hours)
+7. **MMC1 Mapper** - Adds 28% game compatibility (6-8 hours)
 
 ### MEDIUM (Enhanced Compatibility)
-6. **MMC3 Mapper** - Critical for popular games, adds 25% coverage (12-16 hours)
-7. **Sprite Rendering** - Complete graphics output (12-16 hours)
+7. **MMC3 Mapper** - Critical for popular games, adds 25% coverage (12-16 hours)
 8. **Fix absolute,X/Y timing** - Remove +1 cycle deviation (3-4 hours)
 9. **Complete interrupt sequence** - 7-cycle implementation (2-3 hours)
 10. **Scrolling** - Coarse and fine scroll (8 hours)
@@ -231,10 +236,10 @@ Session notes in `docs/06-implementation-notes/sessions/` document development p
 - **AccuracyCoin.nes location:** `AccuracyCoin/AccuracyCoin.nes` (not in repo, external)
 - **Zig version:** 0.15.1 (check with `zig version`)
 - **libxev dependency:** Integrated but not yet used (future async I/O)
-- **All tests passing:** 112+ tests (all passing)
+- **All tests passing:** 375 tests (all passing)
 - **Test coverage:** 100% for implemented features
 - **CPU Implementation:** ✅ Complete - 256/256 opcodes (100%)
-- **PPU Implementation:** 🟡 40% complete (registers done, VRAM missing)
+- **PPU Implementation:** 🟡 60% complete (registers, VRAM, background rendering complete - sprites pending)
 - **Bus Implementation:** 🟡 85% complete (missing controller I/O)
 
 ## Development Workflow

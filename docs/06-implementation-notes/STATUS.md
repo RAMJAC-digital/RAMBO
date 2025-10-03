@@ -1,14 +1,42 @@
 # RAMBO NES Emulator - Implementation Status
 
-**Last Updated:** 2025-10-03 (Documentation Audit & Accuracy Update)
-**Version:** 0.2.0-alpha
+**Last Updated:** 2025-10-03 (PPU Background Rendering Complete + Video Subsystem Design)
+**Version:** 0.3.0-alpha
 **Target:** Cycle-accurate NES emulation passing AccuracyCoin test suite
+**Tests:** 375 passing (all)
 
 ## Project Overview
 
 RAMBO is a hardware-accurate NES emulator written in Zig 0.15.1, designed to pass the comprehensive AccuracyCoin test suite (128 tests covering CPU, PPU, APU, and timing).
 
 ## Recent Progress
+
+### 2025-10-03: PPU Background Rendering + Video Subsystem Architecture
+
+**Changes:**
+- ✅ Implemented complete PPU background rendering pipeline
+- ✅ Added NES NTSC palette (64 colors, RGB888 format)
+- ✅ Background state machine with shift registers
+- ✅ Tile fetching (4-phase: nametable→attribute→pattern low→pattern high)
+- ✅ Pixel generation with fine X scroll
+- ✅ Scroll management (incrementScrollX/Y, copyScrollX/Y)
+- ✅ Hardware-accurate timing (341 cycles/scanline, 262 scanlines/frame)
+- ✅ Designed comprehensive video subsystem architecture
+- ✅ QA review completed with critical fixes applied
+
+**Impact:**
+- PPU now generates pixels to framebuffer (when provided)
+- Ready for video display integration
+- All 375 tests passing
+- Video subsystem designed with triple-buffered lock-free frame buffers
+- OpenGL/Vulkan backend architecture planned
+
+**Files Changed:**
+- `src/ppu/Ppu.zig` - Added background rendering
+- `src/ppu/palette.zig` - NEW: NES color palette
+- `src/emulation/State.zig` - Updated PPU integration
+- `docs/06-implementation-notes/design-decisions/ppu-rendering-architecture.md` - NEW
+- `docs/06-implementation-notes/design-decisions/video-subsystem-architecture.md` - NEW
 
 ### 2025-10-02: Critical Refactoring - Immediate Mode Fix & Code Deduplication
 
@@ -185,24 +213,73 @@ RAMBO is a hardware-accurate NES emulator written in Zig 0.15.1, designed to pas
   - Page crossing detection accurate
   - All addressing modes functional
 
-### 🚧 PPU (Picture Processing Unit) - 40% Complete
+### ✅ PPU VRAM System - 100% Complete
 
-#### Implemented:
-- ✅ All 8 PPU registers ($2000-$2007)
+**CRITICAL CORRECTION:** Previous documentation incorrectly stated VRAM was missing. VRAM implementation is COMPLETE and fully tested.
+
+#### ✅ VRAM Implementation (Complete):
+- ✅ **readVram/writeVram** - Full $0000-$3FFF address space handling
+- ✅ **CHR ROM/RAM Access** - ChrProvider interface for pattern tables ($0000-$1FFF)
+- ✅ **Nametable Mirroring** - Horizontal, vertical, four-screen modes implemented
+- ✅ **Palette RAM** - 32-byte palette with backdrop mirroring ($3F00-$3F1F)
+- ✅ **Mirror Ranges** - Nametable ($3000-$3EFF) and palette ($3F20-$3FFF) mirrors
+- ✅ **PPUDATA ($2007)** - Buffered reads with one-cycle delay (hardware-accurate)
+- ✅ **Palette Unbuffering** - Palette reads bypass buffer (hardware quirk)
+- ✅ **VRAM Increment** - +1 or +32 based on PPUCTRL bit 2
+- ✅ **Open Bus Behavior** - Returns PPU data bus latch when no CHR provider
+- ✅ **CHR ROM vs RAM** - Mapper correctly distinguishes read-only vs writable
+
+#### Architecture:
+- **ChrProvider Interface** (`src/memory/ChrProvider.zig`)
+  - Dependency injection pattern decouples PPU from Cartridge
+  - RT-safe zero-allocation interface using vtables
+  - Testable with mock implementations
+- **Proper Abstraction**
+  - PPU has no knowledge of Cartridge concrete type
+  - Cartridge provides ChrProvider interface
+  - EmulationState connects components via `connectComponents()`
+
+#### Test Coverage:
+- ✅ 6 CHR integration tests (all passing)
+- ✅ 17 VRAM unit tests (all passing)
+- ✅ 100% coverage of VRAM code paths
+
+### ✅ PPU Background Rendering - COMPLETE
+
+**Status:** Background tile rendering fully implemented with hardware-accurate timing.
+
+#### Implemented (src/ppu/Ppu.zig):
+- ✅ All 8 PPU registers ($2000-$2007) with full functionality
 - ✅ Internal registers (v, t, x, w, read_buffer)
 - ✅ VBlank timing (scanline 241, dot 1)
-- ✅ NMI generation
-- ✅ Odd frame skip
+- ✅ NMI generation with edge detection
+- ✅ Odd frame skip (hardware-accurate)
 - ✅ Open bus behavior with decay
 - ✅ OAM/palette RAM structures
+- ✅ Complete VRAM system
+- ✅ **Background State Machine** - Shift registers, tile latches
+- ✅ **Tile Fetching** - 4-fetch pattern (nametable→attribute→pattern low→pattern high)
+- ✅ **Shift Registers** - 16-bit pattern, 8-bit attribute registers
+- ✅ **Pixel Generation** - Extract pixel from shift registers with fine X scroll
+- ✅ **Scroll Management** - incrementScrollX/Y, copyScrollX/Y
+- ✅ **Pattern Decoding** - Two-bitplane color index generation
+- ✅ **Palette Lookup** - Convert palette index to RGBA8888 (src/ppu/palette.zig)
+- ✅ **Hardware Timing** - 341 cycles/scanline, 262 scanlines/frame
 
-#### Missing (Critical):
-- ❌ **VRAM access** (cannot read/write graphics memory)
-- ❌ **Rendering pipeline** (no visual output)
-- ❌ **Background rendering** (tile fetching, pattern lookups)
-- ❌ **Sprite rendering** (evaluation, fetching, priority)
-- ❌ **Scrolling implementation**
-- ❌ **Framebuffer output**
+#### NES Palette System (src/ppu/palette.zig):
+- ✅ 64-color NTSC palette as RGB888 values
+- ✅ RGB to RGBA conversion
+- ✅ Color index masking (6-bit)
+- ✅ getNesColorRgba() for lookup
+
+#### Tests:
+- ✅ 5 palette tests (all passing)
+- ✅ All existing PPU tests updated for new tick() signature
+
+#### Missing (Next Priority):
+- ❌ **Video Display** - Framebuffer presentation (see video-subsystem-architecture.md)
+- ❌ **Sprite Rendering** - Evaluation, fetching, priority (12-16 hours)
+- ❌ **Leftmost 8-pixel Clipping** - PPUMASK bits 1-2
 
 #### APU (Audio Processing Unit)
 - Not started
