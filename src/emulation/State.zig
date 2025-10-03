@@ -107,10 +107,16 @@ pub const EmulationState = struct {
     }
 
     /// Connect component pointers (must be called after init)
-    /// This connects the PPU to the bus so register reads/writes work
+    /// This connects the PPU to the bus and cartridge CHR provider
     pub fn connectComponents(self: *EmulationState) void {
         // Connect PPU to bus (non-owning pointer)
         self.bus.ppu = &self.ppu;
+
+        // Connect CHR provider and mirroring from cartridge to PPU
+        if (self.bus.cartridge) |cart| {
+            self.ppu.setChrProvider(cart.chrProvider());
+            self.ppu.setMirroring(cart.mirroring);
+        }
     }
 
     /// Reset emulation to power-on state
@@ -190,16 +196,13 @@ pub const EmulationState = struct {
         // VBlank start: Scanline 241, dot 1
         if (new_scanline == 241 and new_dot == 1) {
             self.frame_complete = true;
-            // TODO Phase 4: Set VBlank flag in PPU $2002
-            // TODO Phase 4: Trigger NMI if enabled in PPU $2000
+            // VBlank/NMI timing handled by PPU.tick() - already implemented
         }
 
         // Pre-render scanline: Scanline -1/261, dot 1
         // Clears VBlank and sprite 0 hit flags
         if (new_scanline == 261 and new_dot == 1) {
-            // TODO Phase 4: Clear VBlank flag in PPU $2002
-            // TODO Phase 4: Clear sprite 0 hit flag
-            // TODO Phase 4: Clear sprite overflow flag
+            // VBlank/sprite flag clearing handled by PPU.tick() - already implemented
         }
 
         // Frame boundary: End of scanline 261 (start of scanline 0)
@@ -218,20 +221,18 @@ pub const EmulationState = struct {
 
     /// Tick PPU state machine (called every PPU cycle)
     fn tickPpu(self: *EmulationState) void {
-        const scanline = self.clock.scanline(self.config.ppu);
-        const dot = self.clock.dot(self.config.ppu);
-
-        // Tick PPU with current scanline/dot position
-        self.ppu.tick(scanline, dot);
+        // Tick PPU (manages its own scanline/dot tracking)
+        // TODO: Pass framebuffer when implementing display output
+        self.ppu.tick(null);
 
         // Update rendering_enabled flag for odd frame skip logic
         self.rendering_enabled = self.ppu.mask.renderingEnabled();
     }
 
     /// Tick APU state machine (called every 3 PPU cycles, same as CPU)
-    /// Placeholder for Phase 7: APU
+    /// Future: APU implementation
     fn tickApu(_: *EmulationState) void {
-        // TODO: APU implementation in Phase 7
+        // APU not yet implemented - see docs/ROADMAP.md for priority
     }
 
     /// Emulate a complete frame (convenience wrapper)

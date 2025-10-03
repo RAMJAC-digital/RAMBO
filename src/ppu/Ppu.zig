@@ -19,8 +19,9 @@
 //! - Zero coupling (communicates via Bus only)
 
 const std = @import("std");
-const Cartridge = @import("../cartridge/Cartridge.zig").Cartridge;
 const Mirroring = @import("../cartridge/ines.zig").Mirroring;
+const ChrProvider = @import("../memory/ChrProvider.zig").ChrProvider;
+const palette = @import("palette.zig");
 
 /// PPU Control Register ($2000)
 /// VPHB SINN
@@ -200,6 +201,53 @@ pub const InternalRegisters = struct {
     }
 };
 
+/// Background rendering state
+/// Contains shift registers and latches for tile fetching pipeline
+///
+/// NES PPU fetches tiles 2 tiles ahead of rendering (pipelined):
+/// - Shift registers contain current + next tile data
+/// - Every 8 pixels, latches are loaded into shift registers
+/// - Every cycle, shift registers shift by 1 bit to output next pixel
+pub const BackgroundState = struct {
+    /// Pattern shift registers (16 bits = 2 tiles)
+    /// Shift left every cycle, reload low 8 bits every 8 cycles
+    pattern_shift_lo: u16 = 0,
+    pattern_shift_hi: u16 = 0,
+
+    /// Attribute shift registers (8 bits with internal latch)
+    /// Duplicates attribute bits for 8 pixels
+    attribute_shift_lo: u8 = 0,
+    attribute_shift_hi: u8 = 0,
+
+    /// Tile data latches (loaded during fetch, transferred to shift regs)
+    nametable_latch: u8 = 0,  // Tile index from nametable
+    attribute_latch: u8 = 0,   // Palette bits from attribute table
+    pattern_latch_lo: u8 = 0,  // Pattern bitplane 0
+    pattern_latch_hi: u8 = 0,  // Pattern bitplane 1
+
+    /// Load shift registers from latches
+    /// Called every 8 pixels after fetching next tile
+    pub fn loadShiftRegisters(self: *BackgroundState) void {
+        // Load pattern data into low 8 bits of shift registers
+        self.pattern_shift_lo = (self.pattern_shift_lo & 0xFF00) | self.pattern_latch_lo;
+        self.pattern_shift_hi = (self.pattern_shift_hi & 0xFF00) | self.pattern_latch_hi;
+
+        // Extend attribute bits to cover 8 pixels
+        // Each attribute bit controls 8 pixels, so duplicate it
+        self.attribute_shift_lo = if ((self.attribute_latch & 0x01) != 0) 0xFF else 0x00;
+        self.attribute_shift_hi = if ((self.attribute_latch & 0x02) != 0) 0xFF else 0x00;
+    }
+
+    /// Shift registers by 1 pixel
+    /// Called every PPU cycle during visible scanline
+    pub fn shift(self: *BackgroundState) void {
+        self.pattern_shift_lo <<= 1;
+        self.pattern_shift_hi <<= 1;
+        self.attribute_shift_lo <<= 1;
+        self.attribute_shift_hi <<= 1;
+    }
+};
+
 /// Mirror nametable address based on mirroring mode
 /// Returns address in 0-2047 range (2KB VRAM)
 ///
@@ -311,15 +359,27 @@ pub const Ppu = struct {
     /// Determines how nametable addresses map to physical VRAM
     mirroring: Mirroring = .horizontal,
 
-    /// Cartridge (for CHR ROM/RAM access)
-    /// Non-owning pointer, managed by EmulationState or Bus
-    /// Mutable for CHR RAM writes (CHR ROM writes are ignored by mapper)
-    cartridge: ?*Cartridge = null,
+    /// CHR memory provider (for CHR ROM/RAM access)
+    /// Interface abstraction decouples PPU from Cartridge implementation
+    /// Non-owning pointer managed by EmulationState
+    chr_provider: ?ChrProvider = null,
 
     /// NMI occurred flag
     /// Set when VBlank starts and NMI is enabled
     /// Cleared when NMI is serviced
     nmi_occurred: bool = false,
+
+    /// Background rendering state (shift registers and latches)
+    bg_state: BackgroundState = .{},
+
+    /// Current scanline (0-261, where 261 is pre-render line)
+    scanline: u16 = 0,
+
+    /// Current dot/cycle within scanline (0-340)
+    dot: u16 = 0,
+
+    /// Frame counter (for odd frame skip)
+    frame: u64 = 0,
 
     /// Initialize PPU to power-on state
     pub fn init() Ppu {
@@ -336,6 +396,39 @@ pub const Ppu = struct {
         self.nmi_occurred = false;
     }
 
+    /// Set CHR provider for pattern table access
+    ///
+    /// This method connects the CHR memory provider (typically from cartridge)
+    /// to enable PPU access to pattern tables at $0000-$1FFF.
+    ///
+    /// Parameters:
+    /// - provider: ChrProvider interface from cartridge or test implementation
+    ///
+    /// Notes:
+    /// - Must be called after loading cartridge
+    /// - Provider is a non-owning interface (cartridge lifetime managed elsewhere)
+    /// - Can be set to null to disconnect (for hot-swapping cartridges)
+    pub fn setChrProvider(self: *Ppu, provider: ?ChrProvider) void {
+        self.chr_provider = provider;
+    }
+
+    /// Set nametable mirroring mode
+    ///
+    /// Updates the mirroring mode used for nametable address translation.
+    /// This is typically set from the cartridge header but can change at runtime
+    /// for mappers like MMC1 that support dynamic mirroring.
+    ///
+    /// Parameters:
+    /// - mode: Mirroring mode (horizontal, vertical, or four_screen)
+    ///
+    /// Notes:
+    /// - Horizontal: NT0/NT1 map to first 1KB, NT2/NT3 to second 1KB
+    /// - Vertical: NT0/NT2 map to first 1KB, NT1/NT3 to second 1KB
+    /// - Four-screen: Requires 4KB VRAM on cartridge (limited support)
+    pub fn setMirroring(self: *Ppu, mode: Mirroring) void {
+        self.mirroring = mode;
+    }
+
     /// Read from PPU VRAM address space ($0000-$3FFF)
     /// Handles CHR ROM/RAM, nametables, and palette RAM with proper mirroring
     pub fn readVram(self: *Ppu, address: u16) u8 {
@@ -343,13 +436,13 @@ pub const Ppu = struct {
 
         return switch (addr) {
             // CHR ROM/RAM ($0000-$1FFF) - Pattern tables
-            // Accessed via cartridge mapper
+            // Accessed via CHR provider interface
             0x0000...0x1FFF => blk: {
-                if (self.cartridge) |cart| {
-                    break :blk cart.ppuRead(addr);
+                if (self.chr_provider) |provider| {
+                    break :blk provider.read(addr);
                 }
-                // No cartridge - return open bus (current data bus value)
-                break :blk 0x00;
+                // No CHR provider - return PPU open bus (data bus latch)
+                break :blk self.open_bus.read();
             },
 
             // Nametables ($2000-$2FFF)
@@ -389,11 +482,11 @@ pub const Ppu = struct {
 
         switch (addr) {
             // CHR ROM/RAM ($0000-$1FFF)
-            // CHR ROM is read-only, CHR RAM is writable via cartridge
+            // CHR ROM is read-only, CHR RAM is writable via CHR provider
             0x0000...0x1FFF => {
-                if (self.cartridge) |cart| {
-                    // Cartridge handles write (ignores if CHR ROM)
-                    cart.ppuWrite(addr, value);
+                if (self.chr_provider) |provider| {
+                    // Provider handles write (ignores if CHR ROM)
+                    provider.write(addr, value);
                 }
             },
 
@@ -586,9 +679,282 @@ pub const Ppu = struct {
         }
     }
 
+    /// Increment coarse X scroll (every 8 pixels)
+    /// Handles horizontal nametable wrapping
+    fn incrementScrollX(self: *Ppu) void {
+        if (!self.mask.renderingEnabled()) return;
+
+        // Coarse X is bits 0-4 of v register
+        if ((self.internal.v & 0x001F) == 31) {
+            // Coarse X = 31, wrap to 0 and switch horizontal nametable
+            self.internal.v &= ~@as(u16, 0x001F);  // Clear coarse X
+            self.internal.v ^= 0x0400;              // Switch horizontal nametable
+        } else {
+            // Increment coarse X
+            self.internal.v += 1;
+        }
+    }
+
+    /// Increment Y scroll (end of scanline)
+    /// Handles vertical nametable wrapping
+    fn incrementScrollY(self: *Ppu) void {
+        if (!self.mask.renderingEnabled()) return;
+
+        // Fine Y is bits 12-14 of v register
+        if ((self.internal.v & 0x7000) != 0x7000) {
+            // Increment fine Y
+            self.internal.v += 0x1000;
+        } else {
+            // Fine Y = 7, reset to 0 and increment coarse Y
+            self.internal.v &= ~@as(u16, 0x7000);  // Clear fine Y
+
+            // Coarse Y is bits 5-9
+            var coarse_y = (self.internal.v >> 5) & 0x1F;
+            if (coarse_y == 29) {
+                // Coarse Y = 29, wrap to 0 and switch vertical nametable
+                coarse_y = 0;
+                self.internal.v ^= 0x0800;  // Switch vertical nametable
+            } else if (coarse_y == 31) {
+                // Out of bounds, wrap without nametable switch
+                coarse_y = 0;
+            } else {
+                coarse_y += 1;
+            }
+
+            // Write coarse Y back to v register
+            self.internal.v = (self.internal.v & ~@as(u16, 0x03E0)) | (coarse_y << 5);
+        }
+    }
+
+    /// Copy horizontal scroll bits from t to v
+    /// Called at dot 257 of each visible scanline
+    fn copyScrollX(self: *Ppu) void {
+        if (!self.mask.renderingEnabled()) return;
+
+        // Copy bits 0-4 (coarse X) and bit 10 (horizontal nametable)
+        self.internal.v = (self.internal.v & 0xFBE0) | (self.internal.t & 0x041F);
+    }
+
+    /// Copy vertical scroll bits from t to v
+    /// Called at dot 280-304 of pre-render scanline
+    fn copyScrollY(self: *Ppu) void {
+        if (!self.mask.renderingEnabled()) return;
+
+        // Copy bits 5-9 (coarse Y), bits 12-14 (fine Y), bit 11 (vertical nametable)
+        self.internal.v = (self.internal.v & 0x841F) | (self.internal.t & 0x7BE0);
+    }
+
+    /// Get pattern table address for current tile
+    /// high_bitplane: false = bitplane 0, true = bitplane 1
+    fn getPatternAddress(self: *Ppu, high_bitplane: bool) u16 {
+        // Pattern table base from PPUCTRL ($0000 or $1000)
+        const pattern_base: u16 = if (self.ctrl.bg_pattern) 0x1000 else 0x0000;
+
+        // Tile index from nametable latch
+        const tile_index: u16 = self.bg_state.nametable_latch;
+
+        // Fine Y from v register (bits 12-14)
+        const fine_y: u16 = (self.internal.v >> 12) & 0x07;
+
+        // Bitplane offset (bitplane 1 is +8 bytes from bitplane 0)
+        const bitplane_offset: u16 = if (high_bitplane) 8 else 0;
+
+        // Each tile is 16 bytes (8 bytes per bitplane)
+        return pattern_base + (tile_index * 16) + fine_y + bitplane_offset;
+    }
+
+    /// Get attribute table address for current tile
+    fn getAttributeAddress(self: *Ppu) u16 {
+        // Attribute table is at +$03C0 from nametable base
+        // Each attribute byte controls a 4×4 tile area (32×32 pixels)
+        const v = self.internal.v;
+        return 0x23C0 |
+            (v & 0x0C00) |                    // Nametable select (bits 10-11)
+            ((v >> 4) & 0x38) |               // High 3 bits of coarse Y
+            ((v >> 2) & 0x07);                // High 3 bits of coarse X
+    }
+
+    /// Fetch background tile data for current cycle
+    /// Implements 4-cycle fetch pattern: nametable → attribute → pattern low → pattern high
+    fn fetchBackgroundTile(self: *Ppu) void {
+        // Tile fetching occurs in 8-cycle chunks
+        // Each chunk fetches: NT byte (2 cycles), AT byte (2 cycles),
+        // pattern low (2 cycles), pattern high (2 cycles)
+        const fetch_cycle = self.dot & 0x07;
+
+        switch (fetch_cycle) {
+            // Cycles 1, 3, 5, 7: Idle (hardware accesses nametable but doesn't use value)
+            1, 3, 5, 7 => {},
+
+            // Cycle 0: Fetch nametable byte (tile index)
+            0 => {
+                const nt_addr = 0x2000 | (self.internal.v & 0x0FFF);
+                self.bg_state.nametable_latch = self.readVram(nt_addr);
+            },
+
+            // Cycle 2: Fetch attribute byte (palette select)
+            2 => {
+                const attr_addr = self.getAttributeAddress();
+                const attr_byte = self.readVram(attr_addr);
+
+                // Extract 2-bit palette for this 16×16 pixel quadrant
+                // Attribute byte layout: BR BL TR TL (2 bits each)
+                const coarse_x = self.internal.v & 0x1F;
+                const coarse_y = (self.internal.v >> 5) & 0x1F;
+                const shift = ((coarse_y & 0x02) << 1) | (coarse_x & 0x02);
+                self.bg_state.attribute_latch = (attr_byte >> @intCast(shift)) & 0x03;
+            },
+
+            // Cycle 4: Fetch pattern table tile low byte (bitplane 0)
+            4 => {
+                const pattern_addr = self.getPatternAddress(false);
+                self.bg_state.pattern_latch_lo = self.readVram(pattern_addr);
+            },
+
+            // Cycle 6: Fetch pattern table tile high byte (bitplane 1)
+            6 => {
+                const pattern_addr = self.getPatternAddress(true);
+                self.bg_state.pattern_latch_hi = self.readVram(pattern_addr);
+
+                // Load shift registers with fetched data
+                self.bg_state.loadShiftRegisters();
+
+                // Increment coarse X after loading tile
+                self.incrementScrollX();
+            },
+
+            else => unreachable,
+        }
+    }
+
+    /// Get background pixel from shift registers
+    /// Returns palette index (0-31), or 0 for transparent
+    fn getBackgroundPixel(self: *Ppu) u8 {
+        if (!self.mask.show_bg) return 0;
+
+        // Apply fine X scroll (0-7)
+        // Shift amount is 15 - fine_x (range: 8-15)
+        const shift_amount = @as(u4, 15) - self.internal.x;
+
+        // Extract bits from pattern shift registers
+        const bit0 = (self.bg_state.pattern_shift_lo >> shift_amount) & 1;
+        const bit1 = (self.bg_state.pattern_shift_hi >> shift_amount) & 1;
+        const pattern: u8 = @intCast((bit1 << 1) | bit0);
+
+        if (pattern == 0) return 0;  // Transparent
+
+        // Extract palette bits from attribute shift registers
+        const attr_bit0 = (self.bg_state.attribute_shift_lo >> 7) & 1;
+        const attr_bit1 = (self.bg_state.attribute_shift_hi >> 7) & 1;
+        const palette_select: u8 = @intCast((attr_bit1 << 1) | attr_bit0);
+
+        // Combine into palette RAM index ($00-$0F for background)
+        return (palette_select << 2) | pattern;
+    }
+
+    /// Get final pixel color from palette
+    /// Converts palette index to RGBA8888 color
+    fn getPaletteColor(self: *Ppu, palette_index: u8) u32 {
+        // Read NES color index from palette RAM
+        const nes_color = self.palette_ram[palette_index & 0x1F];
+
+        // Convert to RGBA using standard NES palette
+        return palette.getNesColorRgba(nes_color);
+    }
+
     /// Tick PPU by one PPU cycle
-    /// Called from EmulationState.tick()
-    pub fn tick(self: *Ppu, scanline: u16, dot: u16) void {
+    /// Optional framebuffer for pixel output (RGBA8888, 256×240 pixels)
+    pub fn tick(self: *Ppu, framebuffer: ?[]u32) void {
+        // === Cycle Advance (happens FIRST) ===
+        self.dot += 1;
+
+        // End of scanline
+        if (self.dot > 340) {
+            self.dot = 0;
+            self.scanline += 1;
+
+            // End of frame
+            if (self.scanline > 261) {
+                self.scanline = 0;
+                self.frame += 1;
+            }
+        }
+
+        // Odd frame skip: Skip dot 0 of scanline 0 on odd frames when rendering
+        if (self.scanline == 0 and self.dot == 0 and (self.frame & 1) == 1 and self.mask.renderingEnabled()) {
+            self.dot = 1;
+        }
+
+        // Capture current position AFTER advancing
+        const scanline = self.scanline;
+        const dot = self.dot;
+
+        // Visible scanlines (0-239) + pre-render line (261)
+        const is_visible = scanline < 240;
+        const is_prerender = scanline == 261;
+        const is_rendering_line = is_visible or is_prerender;
+
+        // === Background Tile Fetching ===
+        // Occurs during visible scanlines and pre-render line
+        if (is_rendering_line and self.mask.renderingEnabled()) {
+            // Shift registers every cycle (except dot 0)
+            if (dot >= 1 and dot <= 256) {
+                self.bg_state.shift();
+            }
+
+            // Tile fetching (dots 1-256 and 321-336)
+            if ((dot >= 1 and dot <= 256) or (dot >= 321 and dot <= 336)) {
+                self.fetchBackgroundTile();
+            }
+
+            // Dummy nametable fetches (dots 337-340)
+            // Hardware fetches first two tiles of next scanline
+            if (dot == 338 or dot == 340) {
+                const nt_addr = 0x2000 | (self.internal.v & 0x0FFF);
+                _ = self.readVram(nt_addr);
+            }
+
+            // Y increment at dot 256
+            if (dot == 256) {
+                self.incrementScrollY();
+            }
+
+            // Copy horizontal scroll at dot 257
+            if (dot == 257) {
+                self.copyScrollX();
+            }
+
+            // Copy vertical scroll during pre-render scanline
+            if (is_prerender and dot >= 280 and dot <= 304) {
+                self.copyScrollY();
+            }
+        }
+
+        // === Pixel Output ===
+        // Render pixels to framebuffer during visible scanlines
+        if (is_visible and dot >= 1 and dot <= 256) {
+            const pixel_x = dot - 1;
+            const pixel_y = scanline;
+
+            // Get background pixel
+            const bg_pixel = self.getBackgroundPixel();
+
+            // Determine final color
+            const palette_index = if (bg_pixel != 0)
+                bg_pixel
+            else
+                self.palette_ram[0];  // Use backdrop color for transparent
+
+            const color = self.getPaletteColor(palette_index);
+
+            // Write to framebuffer
+            if (framebuffer) |fb| {
+                const fb_index = pixel_y * 256 + pixel_x;
+                fb[fb_index] = color;
+            }
+        }
+
+        // === VBlank Timing ===
         // VBlank start: Scanline 241, dot 1
         if (scanline == 241 and dot == 1) {
             self.status.vblank = true;
@@ -599,6 +965,7 @@ pub const Ppu = struct {
             }
         }
 
+        // === Pre-render Scanline ===
         // Pre-render scanline: Scanline 261, dot 1
         // Clear VBlank and sprite flags
         if (scanline == 261 and dot == 1) {
@@ -720,12 +1087,16 @@ test "Ppu: VBlank NMI generation" {
     var ppu = Ppu.init();
     ppu.ctrl.nmi_enable = true;
 
-    // Before VBlank
-    ppu.tick(240, 340);
+    // Advance to scanline 240, dot 340
+    ppu.scanline = 240;
+    ppu.dot = 340;
+    ppu.tick(null);
     try testing.expect(!ppu.nmi_occurred);
 
-    // VBlank start
-    ppu.tick(241, 1);
+    // Advance to scanline 241, dot 1 (VBlank start)
+    ppu.scanline = 241;
+    ppu.dot = 0;
+    ppu.tick(null);  // This advances to dot 1
     try testing.expect(ppu.status.vblank);
     try testing.expect(ppu.nmi_occurred);
 }
@@ -736,7 +1107,10 @@ test "Ppu: pre-render scanline clears flags" {
     ppu.status.sprite_0_hit = true;
     ppu.status.sprite_overflow = true;
 
-    ppu.tick(261, 1);
+    // Advance to scanline 261, dot 1 (pre-render)
+    ppu.scanline = 261;
+    ppu.dot = 0;
+    ppu.tick(null);
 
     try testing.expect(!ppu.status.vblank);
     try testing.expect(!ppu.status.sprite_0_hit);
