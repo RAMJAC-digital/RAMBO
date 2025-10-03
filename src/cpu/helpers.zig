@@ -4,9 +4,11 @@
 //! across instruction implementations. All helpers are inline for zero-cost
 //! abstraction.
 
-const Cpu = @import("Cpu.zig").Cpu;
+const Cpu = @import("Cpu.zig");
 const Bus = @import("../bus/Bus.zig").Bus;
 const constants = @import("constants.zig");
+
+const State = Cpu.State;
 
 // ============================================================================
 // Memory Access Helpers
@@ -19,15 +21,15 @@ const constants = @import("constants.zig");
 /// - Page cross: Perform actual read from effective_address (5 cycles total)
 ///
 /// Applies to: absolute,X / absolute,Y / indirect,Y
-pub inline fn readWithPageCrossing(cpu: *Cpu, bus: *Bus) u8 {
-    if ((cpu.address_mode == .absolute_x or
-        cpu.address_mode == .absolute_y or
-        cpu.address_mode == .indirect_indexed) and
-        cpu.page_crossed)
+pub inline fn readWithPageCrossing(state: *State, bus: *Bus) u8 {
+    if ((state.address_mode == .absolute_x or
+        state.address_mode == .absolute_y or
+        state.address_mode == .indirect_indexed) and
+        state.page_crossed)
     {
-        return bus.read(cpu.effective_address);
+        return bus.read(state.effective_address);
     }
-    return cpu.temp_value;
+    return state.temp_value;
 }
 
 /// Read operand value for all read instruction addressing modes
@@ -37,28 +39,28 @@ pub inline fn readWithPageCrossing(cpu: *Cpu, bus: *Bus) u8 {
 ///
 /// Usage:
 /// ```zig
-/// pub fn lda(cpu: *Cpu, bus: *Bus) bool {
-///     cpu.a = helpers.readOperand(cpu, bus);
-///     cpu.p.updateZN(cpu.a);
+/// pub fn lda(state: *State, bus: *Bus) bool {
+///     state.a = helpers.readOperand(state, bus);
+///     state.p.updateZN(state.a);
 ///     return true;
 /// }
 /// ```
-pub inline fn readOperand(cpu: *Cpu, bus: *Bus) u8 {
-    return switch (cpu.address_mode) {
+pub inline fn readOperand(state: *State, bus: *Bus) u8 {
+    return switch (state.address_mode) {
         .immediate => blk: {
             // Immediate mode: fetch operand from PC (part of execute cycle)
-            const value = bus.read(cpu.pc);
-            cpu.pc +%= 1;
+            const value = bus.read(state.pc);
+            state.pc +%= 1;
             break :blk value;
         },
-        .zero_page => bus.read(@as(u16, cpu.operand_low)),
-        .zero_page_x, .zero_page_y => bus.read(cpu.effective_address),
+        .zero_page => bus.read(@as(u16, state.operand_low)),
+        .zero_page_x, .zero_page_y => bus.read(state.effective_address),
         .absolute => blk: {
-            const addr = (@as(u16, cpu.operand_high) << 8) | cpu.operand_low;
+            const addr = (@as(u16, state.operand_high) << 8) | state.operand_low;
             break :blk bus.read(addr);
         },
-        .absolute_x, .absolute_y, .indirect_indexed => readWithPageCrossing(cpu, bus),
-        .indexed_indirect => bus.read(cpu.effective_address),
+        .absolute_x, .absolute_y, .indirect_indexed => readWithPageCrossing(state, bus),
+        .indexed_indirect => bus.read(state.effective_address),
         else => unreachable,
     };
 }
@@ -70,21 +72,21 @@ pub inline fn readOperand(cpu: *Cpu, bus: *Bus) u8 {
 ///
 /// Usage:
 /// ```zig
-/// pub fn sta(cpu: *Cpu, bus: *Bus) bool {
-///     helpers.writeOperand(cpu, bus, cpu.a);
+/// pub fn sta(state: *State, bus: *Bus) bool {
+///     helpers.writeOperand(state, bus, state.a);
 ///     return true;
 /// }
 /// ```
-pub inline fn writeOperand(cpu: *Cpu, bus: *Bus, value: u8) void {
-    switch (cpu.address_mode) {
-        .zero_page => bus.write(@as(u16, cpu.operand_low), value),
-        .zero_page_x, .zero_page_y => bus.write(cpu.effective_address, value),
+pub inline fn writeOperand(state: *State, bus: *Bus, value: u8) void {
+    switch (state.address_mode) {
+        .zero_page => bus.write(@as(u16, state.operand_low), value),
+        .zero_page_x, .zero_page_y => bus.write(state.effective_address, value),
         .absolute => {
-            const addr = (@as(u16, cpu.operand_high) << 8) | cpu.operand_low;
+            const addr = (@as(u16, state.operand_high) << 8) | state.operand_low;
             bus.write(addr, value);
         },
-        .absolute_x, .absolute_y => bus.write(cpu.effective_address, value),
-        .indexed_indirect, .indirect_indexed => bus.write(cpu.effective_address, value),
+        .absolute_x, .absolute_y => bus.write(state.effective_address, value),
+        .indexed_indirect, .indirect_indexed => bus.write(state.effective_address, value),
         else => unreachable,
     }
 }

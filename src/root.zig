@@ -53,7 +53,7 @@ pub const BusType = Bus.Bus;
 pub const StatusFlags = Cpu.StatusFlags;
 
 /// CPU State enum
-pub const CpuState = Cpu.CpuState;
+pub const ExecutionState = Cpu.ExecutionState;
 
 /// Addressing modes
 pub const AddressingMode = Cpu.AddressingMode;

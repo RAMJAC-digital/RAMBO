@@ -6,8 +6,8 @@ pub fn main() !void {
     std.debug.print("Initializing...\n", .{});
 
     // Initialize CPU and Bus using proper type exports
-    const cpu = RAMBO.CpuType.init();
-    const bus = RAMBO.BusType.init();
+    const cpu = RAMBO.Cpu.Logic.init();
+    const bus = RAMBO.Bus.Logic.init();
 
     // For now, just verify initialization
     std.debug.print("CPU initialized - PC: 0x{X:0>4}, SP: 0x{X:0>2}\n", .{ cpu.pc, cpu.sp });

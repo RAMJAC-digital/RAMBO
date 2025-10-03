@@ -7,8 +7,10 @@
 //! All are 2-cycle implied mode instructions except BIT (3-4 cycles)
 
 const std = @import("std");
-const Cpu = @import("../Cpu.zig").Cpu;
+const Cpu = @import("../Cpu.zig");
 const Bus = @import("../../bus/Bus.zig").Bus;
+
+const State = Cpu.State;
 
 // ============================================================================
 // Transfer Instructions (2 cycles, implied mode)
@@ -17,59 +19,59 @@ const Bus = @import("../../bus/Bus.zig").Bus;
 /// TAX - Transfer Accumulator to X
 /// X = A
 /// Flags: N, Z
-pub fn tax(cpu: *Cpu, bus: *Bus) bool {
+pub fn tax(state: *State, bus: *Bus) bool {
     _ = bus;
-    cpu.x = cpu.a;
-    cpu.p.updateZN(cpu.x);
+    state.x = state.a;
+    state.p.updateZN(state.x);
     return true;
 }
 
 /// TXA - Transfer X to Accumulator
 /// A = X
 /// Flags: N, Z
-pub fn txa(cpu: *Cpu, bus: *Bus) bool {
+pub fn txa(state: *State, bus: *Bus) bool {
     _ = bus;
-    cpu.a = cpu.x;
-    cpu.p.updateZN(cpu.a);
+    state.a = state.x;
+    state.p.updateZN(state.a);
     return true;
 }
 
 /// TAY - Transfer Accumulator to Y
 /// Y = A
 /// Flags: N, Z
-pub fn tay(cpu: *Cpu, bus: *Bus) bool {
+pub fn tay(state: *State, bus: *Bus) bool {
     _ = bus;
-    cpu.y = cpu.a;
-    cpu.p.updateZN(cpu.y);
+    state.y = state.a;
+    state.p.updateZN(state.y);
     return true;
 }
 
 /// TYA - Transfer Y to Accumulator
 /// A = Y
 /// Flags: N, Z
-pub fn tya(cpu: *Cpu, bus: *Bus) bool {
+pub fn tya(state: *State, bus: *Bus) bool {
     _ = bus;
-    cpu.a = cpu.y;
-    cpu.p.updateZN(cpu.a);
+    state.a = state.y;
+    state.p.updateZN(state.a);
     return true;
 }
 
 /// TSX - Transfer Stack Pointer to X
 /// X = SP
 /// Flags: N, Z
-pub fn tsx(cpu: *Cpu, bus: *Bus) bool {
+pub fn tsx(state: *State, bus: *Bus) bool {
     _ = bus;
-    cpu.x = cpu.sp;
-    cpu.p.updateZN(cpu.x);
+    state.x = state.sp;
+    state.p.updateZN(state.x);
     return true;
 }
 
 /// TXS - Transfer X to Stack Pointer
 /// SP = X
 /// Flags: None
-pub fn txs(cpu: *Cpu, bus: *Bus) bool {
+pub fn txs(state: *State, bus: *Bus) bool {
     _ = bus;
-    cpu.sp = cpu.x;
+    state.sp = state.x;
     return true;
 }
 
@@ -79,58 +81,58 @@ pub fn txs(cpu: *Cpu, bus: *Bus) bool {
 
 /// SEC - Set Carry Flag
 /// C = 1
-pub fn sec(cpu: *Cpu, bus: *Bus) bool {
+pub fn sec(state: *State, bus: *Bus) bool {
     _ = bus;
-    cpu.p.carry = true;
+    state.p.carry = true;
     return true;
 }
 
 /// CLC - Clear Carry Flag
 /// C = 0
-pub fn clc(cpu: *Cpu, bus: *Bus) bool {
+pub fn clc(state: *State, bus: *Bus) bool {
     _ = bus;
-    cpu.p.carry = false;
+    state.p.carry = false;
     return true;
 }
 
 /// SEI - Set Interrupt Disable
 /// I = 1
-pub fn sei(cpu: *Cpu, bus: *Bus) bool {
+pub fn sei(state: *State, bus: *Bus) bool {
     _ = bus;
-    cpu.p.interrupt = true;
+    state.p.interrupt = true;
     return true;
 }
 
 /// CLI - Clear Interrupt Disable
 /// I = 0
-pub fn cli(cpu: *Cpu, bus: *Bus) bool {
+pub fn cli(state: *State, bus: *Bus) bool {
     _ = bus;
-    cpu.p.interrupt = false;
+    state.p.interrupt = false;
     return true;
 }
 
 /// SED - Set Decimal Flag
 /// D = 1
 /// Note: NES CPU ignores decimal mode, but flag can still be set
-pub fn sed(cpu: *Cpu, bus: *Bus) bool {
+pub fn sed(state: *State, bus: *Bus) bool {
     _ = bus;
-    cpu.p.decimal = true;
+    state.p.decimal = true;
     return true;
 }
 
 /// CLD - Clear Decimal Flag
 /// D = 0
-pub fn cld(cpu: *Cpu, bus: *Bus) bool {
+pub fn cld(state: *State, bus: *Bus) bool {
     _ = bus;
-    cpu.p.decimal = false;
+    state.p.decimal = false;
     return true;
 }
 
 /// CLV - Clear Overflow Flag
 /// V = 0
-pub fn clv(cpu: *Cpu, bus: *Bus) bool {
+pub fn clv(state: *State, bus: *Bus) bool {
     _ = bus;
-    cpu.p.overflow = false;
+    state.p.overflow = false;
     return true;
 }
 
@@ -146,25 +148,25 @@ pub fn clv(cpu: *Cpu, bus: *Bus) bool {
 /// - Z = (A & M) == 0
 ///
 /// Supports: Zero Page (3 cycles), Absolute (4 cycles)
-pub fn bit(cpu: *Cpu, bus: *Bus) bool {
+pub fn bit(state: *State, bus: *Bus) bool {
     _ = bus;
     var value: u8 = undefined;
 
-    if (cpu.address_mode == .zero_page) {
-        value = cpu.temp_value;
-    } else if (cpu.address_mode == .absolute) {
-        value = cpu.temp_value;
+    if (state.address_mode == .zero_page) {
+        value = state.temp_value;
+    } else if (state.address_mode == .absolute) {
+        value = state.temp_value;
     } else {
         unreachable; // BIT only supports zero page and absolute
     }
 
     // Set N and V from memory value
-    cpu.p.negative = (value & 0x80) != 0;
-    cpu.p.overflow = (value & 0x40) != 0;
+    state.p.negative = (value & 0x80) != 0;
+    state.p.overflow = (value & 0x40) != 0;
 
     // Set Z from AND result
-    const result = cpu.a & value;
-    cpu.p.zero = (result == 0);
+    const result = state.a & value;
+    state.p.zero = (result == 0);
 
     return true;
 }
@@ -176,163 +178,163 @@ pub fn bit(cpu: *Cpu, bus: *Bus) bool {
 const testing = std.testing;
 
 test "TAX: transfer and update flags" {
-    var cpu = Cpu.init();
+    var state = Cpu.Logic.init();
     var bus = Bus.init();
 
-    cpu.a = 0x42;
-    _ = tax(&cpu, &bus);
+    state.a = 0x42;
+    _ = tax(&state, &bus);
 
-    try testing.expectEqual(@as(u8, 0x42), cpu.x);
-    try testing.expect(!cpu.p.zero);
-    try testing.expect(!cpu.p.negative);
+    try testing.expectEqual(@as(u8, 0x42), state.x);
+    try testing.expect(!state.p.zero);
+    try testing.expect(!state.p.negative);
 }
 
 test "TAX: zero flag" {
-    var cpu = Cpu.init();
+    var state = Cpu.Logic.init();
     var bus = Bus.init();
 
-    cpu.a = 0x00;
-    _ = tax(&cpu, &bus);
+    state.a = 0x00;
+    _ = tax(&state, &bus);
 
-    try testing.expectEqual(@as(u8, 0x00), cpu.x);
-    try testing.expect(cpu.p.zero);
+    try testing.expectEqual(@as(u8, 0x00), state.x);
+    try testing.expect(state.p.zero);
 }
 
 test "TXA: transfer and update flags" {
-    var cpu = Cpu.init();
+    var state = Cpu.Logic.init();
     var bus = Bus.init();
 
-    cpu.x = 0x80;
-    _ = txa(&cpu, &bus);
+    state.x = 0x80;
+    _ = txa(&state, &bus);
 
-    try testing.expectEqual(@as(u8, 0x80), cpu.a);
-    try testing.expect(cpu.p.negative);
+    try testing.expectEqual(@as(u8, 0x80), state.a);
+    try testing.expect(state.p.negative);
 }
 
 test "TAY and TYA: round trip" {
-    var cpu = Cpu.init();
+    var state = Cpu.Logic.init();
     var bus = Bus.init();
 
-    cpu.a = 0x55;
-    _ = tay(&cpu, &bus);
-    try testing.expectEqual(@as(u8, 0x55), cpu.y);
+    state.a = 0x55;
+    _ = tay(&state, &bus);
+    try testing.expectEqual(@as(u8, 0x55), state.y);
 
-    cpu.a = 0x00; // Clear A
-    _ = tya(&cpu, &bus);
-    try testing.expectEqual(@as(u8, 0x55), cpu.a);
+    state.a = 0x00; // Clear A
+    _ = tya(&state, &bus);
+    try testing.expectEqual(@as(u8, 0x55), state.a);
 }
 
 test "TSX: transfer stack pointer" {
-    var cpu = Cpu.init();
+    var state = Cpu.Logic.init();
     var bus = Bus.init();
 
-    cpu.sp = 0xFD;
-    _ = tsx(&cpu, &bus);
+    state.sp = 0xFD;
+    _ = tsx(&state, &bus);
 
-    try testing.expectEqual(@as(u8, 0xFD), cpu.x);
-    try testing.expect(cpu.p.negative); // 0xFD has bit 7 set
+    try testing.expectEqual(@as(u8, 0xFD), state.x);
+    try testing.expect(state.p.negative); // 0xFD has bit 7 set
 }
 
 test "TXS: transfer to stack pointer, no flags" {
-    var cpu = Cpu.init();
+    var state = Cpu.Logic.init();
     var bus = Bus.init();
 
-    cpu.x = 0x80;
-    const old_flags = cpu.p;
+    state.x = 0x80;
+    const old_flags = state.p;
 
-    _ = txs(&cpu, &bus);
+    _ = txs(&state, &bus);
 
-    try testing.expectEqual(@as(u8, 0x80), cpu.sp);
+    try testing.expectEqual(@as(u8, 0x80), state.sp);
     // Flags should be unchanged
-    try testing.expectEqual(old_flags.toByte(), cpu.p.toByte());
+    try testing.expectEqual(old_flags.toByte(), state.p.toByte());
 }
 
 test "SEC and CLC" {
-    var cpu = Cpu.init();
+    var state = Cpu.Logic.init();
     var bus = Bus.init();
 
-    cpu.p.carry = false;
-    _ = sec(&cpu, &bus);
-    try testing.expect(cpu.p.carry);
+    state.p.carry = false;
+    _ = sec(&state, &bus);
+    try testing.expect(state.p.carry);
 
-    _ = clc(&cpu, &bus);
-    try testing.expect(!cpu.p.carry);
+    _ = clc(&state, &bus);
+    try testing.expect(!state.p.carry);
 }
 
 test "SEI and CLI" {
-    var cpu = Cpu.init();
+    var state = Cpu.Logic.init();
     var bus = Bus.init();
 
-    cpu.p.interrupt = false;
-    _ = sei(&cpu, &bus);
-    try testing.expect(cpu.p.interrupt);
+    state.p.interrupt = false;
+    _ = sei(&state, &bus);
+    try testing.expect(state.p.interrupt);
 
-    _ = cli(&cpu, &bus);
-    try testing.expect(!cpu.p.interrupt);
+    _ = cli(&state, &bus);
+    try testing.expect(!state.p.interrupt);
 }
 
 test "SED and CLD" {
-    var cpu = Cpu.init();
+    var state = Cpu.Logic.init();
     var bus = Bus.init();
 
-    cpu.p.decimal = false;
-    _ = sed(&cpu, &bus);
-    try testing.expect(cpu.p.decimal);
+    state.p.decimal = false;
+    _ = sed(&state, &bus);
+    try testing.expect(state.p.decimal);
 
-    _ = cld(&cpu, &bus);
-    try testing.expect(!cpu.p.decimal);
+    _ = cld(&state, &bus);
+    try testing.expect(!state.p.decimal);
 }
 
 test "CLV: clear overflow" {
-    var cpu = Cpu.init();
+    var state = Cpu.Logic.init();
     var bus = Bus.init();
 
-    cpu.p.overflow = true;
-    _ = clv(&cpu, &bus);
-    try testing.expect(!cpu.p.overflow);
+    state.p.overflow = true;
+    _ = clv(&state, &bus);
+    try testing.expect(!state.p.overflow);
 }
 
 test "BIT: zero page mode" {
-    var cpu = Cpu.init();
+    var state = Cpu.Logic.init();
     var bus = Bus.init();
 
-    cpu.a = 0xFF;
-    cpu.temp_value = 0xC0; // Bits 7 and 6 set
-    cpu.address_mode = .zero_page;
+    state.a = 0xFF;
+    state.temp_value = 0xC0; // Bits 7 and 6 set
+    state.address_mode = .zero_page;
 
-    _ = bit(&cpu, &bus);
+    _ = bit(&state, &bus);
 
-    try testing.expect(cpu.p.negative); // Bit 7 of memory
-    try testing.expect(cpu.p.overflow); // Bit 6 of memory
-    try testing.expect(!cpu.p.zero); // A & M != 0
+    try testing.expect(state.p.negative); // Bit 7 of memory
+    try testing.expect(state.p.overflow); // Bit 6 of memory
+    try testing.expect(!state.p.zero); // A & M != 0
 }
 
 test "BIT: zero flag set" {
-    var cpu = Cpu.init();
+    var state = Cpu.Logic.init();
     var bus = Bus.init();
 
-    cpu.a = 0x0F;
-    cpu.temp_value = 0xF0; // No overlap with A
-    cpu.address_mode = .zero_page;
+    state.a = 0x0F;
+    state.temp_value = 0xF0; // No overlap with A
+    state.address_mode = .zero_page;
 
-    _ = bit(&cpu, &bus);
+    _ = bit(&state, &bus);
 
-    try testing.expect(cpu.p.negative); // Bit 7 of 0xF0
-    try testing.expect(cpu.p.overflow); // Bit 6 of 0xF0
-    try testing.expect(cpu.p.zero); // A & M == 0
+    try testing.expect(state.p.negative); // Bit 7 of 0xF0
+    try testing.expect(state.p.overflow); // Bit 6 of 0xF0
+    try testing.expect(state.p.zero); // A & M == 0
 }
 
 test "BIT: flags from memory value" {
-    var cpu = Cpu.init();
+    var state = Cpu.Logic.init();
     var bus = Bus.init();
 
-    cpu.a = 0xFF;
-    cpu.temp_value = 0x00; // All bits clear
-    cpu.address_mode = .zero_page;
+    state.a = 0xFF;
+    state.temp_value = 0x00; // All bits clear
+    state.address_mode = .zero_page;
 
-    _ = bit(&cpu, &bus);
+    _ = bit(&state, &bus);
 
-    try testing.expect(!cpu.p.negative); // Bit 7 of 0x00
-    try testing.expect(!cpu.p.overflow); // Bit 6 of 0x00
-    try testing.expect(cpu.p.zero); // A & M == 0
+    try testing.expect(!state.p.negative); // Bit 7 of 0x00
+    try testing.expect(!state.p.overflow); // Bit 6 of 0x00
+    try testing.expect(state.p.zero); // A & M == 0
 }

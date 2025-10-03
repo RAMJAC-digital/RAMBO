@@ -7,9 +7,11 @@
 //! Reference: https://www.nesdev.org/wiki/CPU_unofficial_opcodes
 
 const std = @import("std");
-const Cpu = @import("../Cpu.zig").Cpu;
+const Cpu = @import("../Cpu.zig");
 const Bus = @import("../../bus/Bus.zig").Bus;
 const helpers = @import("../helpers.zig");
+
+const State = Cpu.State;
 
 // ============================================================================
 // LAX - Load A and X (Combo: LDA + TAX)
@@ -24,11 +26,11 @@ const helpers = @import("../helpers.zig");
 ///
 /// Addressing modes: zero page, zero page,Y, absolute, absolute,Y,
 ///                   indexed indirect, indirect indexed
-pub fn lax(cpu: *Cpu, bus: *Bus) bool {
-    const value = helpers.readOperand(cpu, bus);
-    cpu.a = value;
-    cpu.x = value;
-    cpu.p.updateZN(value);
+pub fn lax(state: *State, bus: *Bus) bool {
+    const value = helpers.readOperand(state, bus);
+    state.a = value;
+    state.x = value;
+    state.p.updateZN(value);
     return true;
 }
 
@@ -44,9 +46,9 @@ pub fn lax(cpu: *Cpu, bus: *Bus) bool {
 /// Does not affect any flags.
 ///
 /// Addressing modes: zero page, zero page,Y, absolute, indexed indirect
-pub fn sax(cpu: *Cpu, bus: *Bus) bool {
-    const value = cpu.a & cpu.x;
-    helpers.writeOperand(cpu, bus, value);
+pub fn sax(state: *State, bus: *Bus) bool {
+    const value = state.a & state.x;
+    helpers.writeOperand(state, bus, value);
     return true;
 }
 
@@ -57,186 +59,186 @@ pub fn sax(cpu: *Cpu, bus: *Bus) bool {
 const testing = std.testing;
 
 test "LAX: zero page" {
-    var cpu = Cpu.init();
+    var state = Cpu.Logic.init();
     var bus = Bus.init();
 
     bus.write(0x0042, 0x55);
-    cpu.address_mode = .zero_page;
-    cpu.operand_low = 0x42;
+    state.address_mode = .zero_page;
+    state.operand_low = 0x42;
 
-    _ = lax(&cpu, &bus);
+    _ = lax(&state, &bus);
 
-    try testing.expectEqual(@as(u8, 0x55), cpu.a);
-    try testing.expectEqual(@as(u8, 0x55), cpu.x);
-    try testing.expect(!cpu.p.zero);
-    try testing.expect(!cpu.p.negative);
+    try testing.expectEqual(@as(u8, 0x55), state.a);
+    try testing.expectEqual(@as(u8, 0x55), state.x);
+    try testing.expect(!state.p.zero);
+    try testing.expect(!state.p.negative);
 }
 
 test "LAX: sets both A and X" {
-    var cpu = Cpu.init();
+    var state = Cpu.Logic.init();
     var bus = Bus.init();
 
-    cpu.a = 0x00;
-    cpu.x = 0xFF;
+    state.a = 0x00;
+    state.x = 0xFF;
     bus.write(0x1234, 0x42);
-    cpu.address_mode = .absolute;
-    cpu.operand_low = 0x34;
-    cpu.operand_high = 0x12;
+    state.address_mode = .absolute;
+    state.operand_low = 0x34;
+    state.operand_high = 0x12;
 
-    _ = lax(&cpu, &bus);
+    _ = lax(&state, &bus);
 
-    try testing.expectEqual(@as(u8, 0x42), cpu.a);
-    try testing.expectEqual(@as(u8, 0x42), cpu.x);
+    try testing.expectEqual(@as(u8, 0x42), state.a);
+    try testing.expectEqual(@as(u8, 0x42), state.x);
 }
 
 test "LAX: zero flag" {
-    var cpu = Cpu.init();
+    var state = Cpu.Logic.init();
     var bus = Bus.init();
 
     bus.write(0x0010, 0x00);
-    cpu.address_mode = .zero_page;
-    cpu.operand_low = 0x10;
+    state.address_mode = .zero_page;
+    state.operand_low = 0x10;
 
-    _ = lax(&cpu, &bus);
+    _ = lax(&state, &bus);
 
-    try testing.expectEqual(@as(u8, 0x00), cpu.a);
-    try testing.expectEqual(@as(u8, 0x00), cpu.x);
-    try testing.expect(cpu.p.zero);
+    try testing.expectEqual(@as(u8, 0x00), state.a);
+    try testing.expectEqual(@as(u8, 0x00), state.x);
+    try testing.expect(state.p.zero);
 }
 
 test "LAX: negative flag" {
-    var cpu = Cpu.init();
+    var state = Cpu.Logic.init();
     var bus = Bus.init();
 
     bus.write(0x0020, 0x80);
-    cpu.address_mode = .zero_page;
-    cpu.operand_low = 0x20;
+    state.address_mode = .zero_page;
+    state.operand_low = 0x20;
 
-    _ = lax(&cpu, &bus);
+    _ = lax(&state, &bus);
 
-    try testing.expectEqual(@as(u8, 0x80), cpu.a);
-    try testing.expectEqual(@as(u8, 0x80), cpu.x);
-    try testing.expect(cpu.p.negative);
+    try testing.expectEqual(@as(u8, 0x80), state.a);
+    try testing.expectEqual(@as(u8, 0x80), state.x);
+    try testing.expect(state.p.negative);
 }
 
 test "LAX: absolute,Y page crossing" {
-    var cpu = Cpu.init();
+    var state = Cpu.Logic.init();
     var bus = Bus.init();
 
-    cpu.address_mode = .absolute_y;
-    cpu.effective_address = 0x1100;
-    cpu.page_crossed = true;
+    state.address_mode = .absolute_y;
+    state.effective_address = 0x1100;
+    state.page_crossed = true;
     bus.write(0x1100, 0xAA);
 
-    _ = lax(&cpu, &bus);
+    _ = lax(&state, &bus);
 
-    try testing.expectEqual(@as(u8, 0xAA), cpu.a);
-    try testing.expectEqual(@as(u8, 0xAA), cpu.x);
+    try testing.expectEqual(@as(u8, 0xAA), state.a);
+    try testing.expectEqual(@as(u8, 0xAA), state.x);
 }
 
 test "LAX: indirect indexed" {
-    var cpu = Cpu.init();
+    var state = Cpu.Logic.init();
     var bus = Bus.init();
 
-    cpu.address_mode = .indirect_indexed;
-    cpu.effective_address = 0x2000;
-    cpu.page_crossed = false;
-    cpu.temp_value = 0x77;
+    state.address_mode = .indirect_indexed;
+    state.effective_address = 0x2000;
+    state.page_crossed = false;
+    state.temp_value = 0x77;
 
-    _ = lax(&cpu, &bus);
+    _ = lax(&state, &bus);
 
-    try testing.expectEqual(@as(u8, 0x77), cpu.a);
-    try testing.expectEqual(@as(u8, 0x77), cpu.x);
+    try testing.expectEqual(@as(u8, 0x77), state.a);
+    try testing.expectEqual(@as(u8, 0x77), state.x);
 }
 
 test "SAX: zero page" {
-    var cpu = Cpu.init();
+    var state = Cpu.Logic.init();
     var bus = Bus.init();
 
-    cpu.a = 0xFF;
-    cpu.x = 0x0F;
-    cpu.address_mode = .zero_page;
-    cpu.operand_low = 0x50;
+    state.a = 0xFF;
+    state.x = 0x0F;
+    state.address_mode = .zero_page;
+    state.operand_low = 0x50;
 
-    _ = sax(&cpu, &bus);
+    _ = sax(&state, &bus);
 
     try testing.expectEqual(@as(u8, 0x0F), bus.read(0x0050));
 }
 
 test "SAX: AND operation" {
-    var cpu = Cpu.init();
+    var state = Cpu.Logic.init();
     var bus = Bus.init();
 
-    cpu.a = 0xF0;
-    cpu.x = 0x0F;
-    cpu.address_mode = .zero_page;
-    cpu.operand_low = 0x60;
+    state.a = 0xF0;
+    state.x = 0x0F;
+    state.address_mode = .zero_page;
+    state.operand_low = 0x60;
 
-    _ = sax(&cpu, &bus);
+    _ = sax(&state, &bus);
 
     // 0xF0 AND 0x0F = 0x00
     try testing.expectEqual(@as(u8, 0x00), bus.read(0x0060));
 }
 
 test "SAX: does not affect flags" {
-    var cpu = Cpu.init();
+    var state = Cpu.Logic.init();
     var bus = Bus.init();
 
-    cpu.a = 0x00;
-    cpu.x = 0x00;
-    cpu.p.zero = false;
-    cpu.p.negative = true;
-    cpu.address_mode = .zero_page;
-    cpu.operand_low = 0x70;
+    state.a = 0x00;
+    state.x = 0x00;
+    state.p.zero = false;
+    state.p.negative = true;
+    state.address_mode = .zero_page;
+    state.operand_low = 0x70;
 
-    _ = sax(&cpu, &bus);
+    _ = sax(&state, &bus);
 
     // Flags should be unchanged
-    try testing.expect(!cpu.p.zero);
-    try testing.expect(cpu.p.negative);
+    try testing.expect(!state.p.zero);
+    try testing.expect(state.p.negative);
 }
 
 test "SAX: absolute mode" {
-    var cpu = Cpu.init();
+    var state = Cpu.Logic.init();
     var bus = Bus.init();
 
-    cpu.a = 0xAA;
-    cpu.x = 0x55;
-    cpu.address_mode = .absolute;
-    cpu.operand_low = 0x34;
-    cpu.operand_high = 0x12;
+    state.a = 0xAA;
+    state.x = 0x55;
+    state.address_mode = .absolute;
+    state.operand_low = 0x34;
+    state.operand_high = 0x12;
 
-    _ = sax(&cpu, &bus);
+    _ = sax(&state, &bus);
 
     // 0xAA AND 0x55 = 0x00
     try testing.expectEqual(@as(u8, 0x00), bus.read(0x1234));
 }
 
 test "SAX: zero page,Y" {
-    var cpu = Cpu.init();
+    var state = Cpu.Logic.init();
     var bus = Bus.init();
 
-    cpu.a = 0xFF;
-    cpu.x = 0xF0;
-    cpu.address_mode = .zero_page_y;
-    cpu.effective_address = 0x0080;
+    state.a = 0xFF;
+    state.x = 0xF0;
+    state.address_mode = .zero_page_y;
+    state.effective_address = 0x0080;
 
-    _ = sax(&cpu, &bus);
+    _ = sax(&state, &bus);
 
     // 0xFF AND 0xF0 = 0xF0
     try testing.expectEqual(@as(u8, 0xF0), bus.read(0x0080));
 }
 
 test "SAX: indexed indirect" {
-    var cpu = Cpu.init();
+    var state = Cpu.Logic.init();
     var bus = Bus.init();
 
-    cpu.a = 0b11110000;
-    cpu.x = 0b10101010;
-    cpu.address_mode = .indexed_indirect;
-    cpu.effective_address = 0x1000;
+    state.a = 0b11110000;
+    state.x = 0b10101010;
+    state.address_mode = .indexed_indirect;
+    state.effective_address = 0x1000;
 
-    _ = sax(&cpu, &bus);
+    _ = sax(&state, &bus);
 
     // 0b11110000 AND 0b10101010 = 0b10100000 = 0xA0
     try testing.expectEqual(@as(u8, 0xA0), bus.read(0x1000));
@@ -251,12 +253,12 @@ test "SAX: indexed indirect" {
 /// Flags: C (equals N), N, Z
 ///
 /// Immediate mode only (2 cycles)
-pub fn anc(cpu: *Cpu, bus: *Bus) bool {
-    const value = bus.read(cpu.pc);
-    cpu.pc +%= 1;
-    cpu.a &= value;
-    cpu.p.carry = (cpu.a & 0x80) != 0; // Carry equals negative flag
-    cpu.p.updateZN(cpu.a);
+pub fn anc(state: *State, bus: *Bus) bool {
+    const value = bus.read(state.pc);
+    state.pc +%= 1;
+    state.a &= value;
+    state.p.carry = (state.a & 0x80) != 0; // Carry equals negative flag
+    state.p.updateZN(state.a);
     return true;
 }
 
@@ -265,13 +267,13 @@ pub fn anc(cpu: *Cpu, bus: *Bus) bool {
 /// Flags: C (from LSR), N, Z
 ///
 /// Immediate mode only (2 cycles)
-pub fn alr(cpu: *Cpu, bus: *Bus) bool {
-    const value = bus.read(cpu.pc);
-    cpu.pc +%= 1;
-    cpu.a &= value;
-    cpu.p.carry = (cpu.a & 0x01) != 0; // Carry from LSR
-    cpu.a >>= 1;
-    cpu.p.updateZN(cpu.a);
+pub fn alr(state: *State, bus: *Bus) bool {
+    const value = bus.read(state.pc);
+    state.pc +%= 1;
+    state.a &= value;
+    state.p.carry = (state.a & 0x01) != 0; // Carry from LSR
+    state.a >>= 1;
+    state.p.updateZN(state.a);
     return true;
 }
 
@@ -281,19 +283,19 @@ pub fn alr(cpu: *Cpu, bus: *Bus) bool {
 ///
 /// Immediate mode only (2 cycles)
 /// Flag behavior is complex: C from bit 6, V from bit 6 XOR bit 5
-pub fn arr(cpu: *Cpu, bus: *Bus) bool {
-    const value = bus.read(cpu.pc);
-    cpu.pc +%= 1;
-    cpu.a &= value;
+pub fn arr(state: *State, bus: *Bus) bool {
+    const value = bus.read(state.pc);
+    state.pc +%= 1;
+    state.a &= value;
 
     // ROR with carry
-    const old_carry = cpu.p.carry;
-    cpu.a = (cpu.a >> 1) | (@as(u8, if (old_carry) 0x80 else 0));
+    const old_carry = state.p.carry;
+    state.a = (state.a >> 1) | (@as(u8, if (old_carry) 0x80 else 0));
 
     // Complex flag behavior
-    cpu.p.carry = (cpu.a & 0x40) != 0; // Carry from bit 6
-    cpu.p.overflow = ((cpu.a & 0x40) != 0) != ((cpu.a & 0x20) != 0); // V = bit 6 XOR bit 5
-    cpu.p.updateZN(cpu.a);
+    state.p.carry = (state.a & 0x40) != 0; // Carry from bit 6
+    state.p.overflow = ((state.a & 0x40) != 0) != ((state.a & 0x20) != 0); // V = bit 6 XOR bit 5
+    state.p.updateZN(state.a);
 
     return true;
 }
@@ -303,13 +305,13 @@ pub fn arr(cpu: *Cpu, bus: *Bus) bool {
 /// Flags: C (from comparison), N, Z
 ///
 /// Immediate mode only (2 cycles)
-pub fn axs(cpu: *Cpu, bus: *Bus) bool {
-    const value = bus.read(cpu.pc);
-    cpu.pc +%= 1;
-    const temp = cpu.a & cpu.x;
-    cpu.x = temp -% value;
-    cpu.p.carry = temp >= value; // Carry as if comparison
-    cpu.p.updateZN(cpu.x);
+pub fn axs(state: *State, bus: *Bus) bool {
+    const value = bus.read(state.pc);
+    state.pc +%= 1;
+    const temp = state.a & state.x;
+    state.x = temp -% value;
+    state.p.carry = temp >= value; // Carry as if comparison
+    state.p.updateZN(state.x);
     return true;
 }
 
@@ -330,10 +332,10 @@ pub fn axs(cpu: *Cpu, bus: *Bus) bool {
 ///
 /// UNSTABLE: High byte calculation sometimes fails on some chip revisions
 /// Addressing modes: absolute,Y ($9F), indirect,Y ($93)
-pub fn sha(cpu: *Cpu, bus: *Bus) bool {
-    const high_byte = @as(u8, @truncate(cpu.effective_address >> 8));
-    const value = cpu.a & cpu.x & (high_byte +% 1);
-    bus.write(cpu.effective_address, value);
+pub fn sha(state: *State, bus: *Bus) bool {
+    const high_byte = @as(u8, @truncate(state.effective_address >> 8));
+    const value = state.a & state.x & (high_byte +% 1);
+    bus.write(state.effective_address, value);
     return true;
 }
 
@@ -343,10 +345,10 @@ pub fn sha(cpu: *Cpu, bus: *Bus) bool {
 ///
 /// UNSTABLE: High byte calculation sometimes fails on some chip revisions
 /// Addressing mode: absolute,Y ($9E)
-pub fn shx(cpu: *Cpu, bus: *Bus) bool {
-    const high_byte = @as(u8, @truncate(cpu.effective_address >> 8));
-    const value = cpu.x & (high_byte +% 1);
-    bus.write(cpu.effective_address, value);
+pub fn shx(state: *State, bus: *Bus) bool {
+    const high_byte = @as(u8, @truncate(state.effective_address >> 8));
+    const value = state.x & (high_byte +% 1);
+    bus.write(state.effective_address, value);
     return true;
 }
 
@@ -356,10 +358,10 @@ pub fn shx(cpu: *Cpu, bus: *Bus) bool {
 ///
 /// UNSTABLE: High byte calculation sometimes fails on some chip revisions
 /// Addressing mode: absolute,X ($9C)
-pub fn shy(cpu: *Cpu, bus: *Bus) bool {
-    const high_byte = @as(u8, @truncate(cpu.effective_address >> 8));
-    const value = cpu.y & (high_byte +% 1);
-    bus.write(cpu.effective_address, value);
+pub fn shy(state: *State, bus: *Bus) bool {
+    const high_byte = @as(u8, @truncate(state.effective_address >> 8));
+    const value = state.y & (high_byte +% 1);
+    bus.write(state.effective_address, value);
     return true;
 }
 
@@ -370,12 +372,12 @@ pub fn shy(cpu: *Cpu, bus: *Bus) bool {
 ///
 /// HIGHLY UNSTABLE: Behavior varies significantly between chip revisions
 /// Addressing mode: absolute,Y ($9B)
-pub fn tas(cpu: *Cpu, bus: *Bus) bool {
-    const temp = cpu.a & cpu.x;
-    cpu.sp = temp;
-    const high_byte = @as(u8, @truncate(cpu.effective_address >> 8));
+pub fn tas(state: *State, bus: *Bus) bool {
+    const temp = state.a & state.x;
+    state.sp = temp;
+    const high_byte = @as(u8, @truncate(state.effective_address >> 8));
     const value = temp & (high_byte +% 1);
-    bus.write(cpu.effective_address, value);
+    bus.write(state.effective_address, value);
     return true;
 }
 
@@ -390,13 +392,13 @@ pub fn tas(cpu: *Cpu, bus: *Bus) bool {
 ///
 /// Relatively stable compared to other unstable opcodes
 /// Addressing mode: absolute,Y ($BB)
-pub fn lae(cpu: *Cpu, bus: *Bus) bool {
-    const value = helpers.readOperand(cpu, bus);
-    const result = value & cpu.sp;
-    cpu.a = result;
-    cpu.x = result;
-    cpu.sp = result;
-    cpu.p.updateZN(result);
+pub fn lae(state: *State, bus: *Bus) bool {
+    const value = helpers.readOperand(state, bus);
+    const result = value & state.sp;
+    state.a = result;
+    state.x = result;
+    state.sp = result;
+    state.p.updateZN(result);
     return true;
 }
 
@@ -407,12 +409,12 @@ pub fn lae(cpu: *Cpu, bus: *Bus) bool {
 /// HIGHLY UNSTABLE: Magic constant varies by chip ($00, $EE, $FF, others)
 /// This implementation uses $EE (most common NMOS behavior)
 /// Addressing mode: immediate ($8B)
-pub fn xaa(cpu: *Cpu, bus: *Bus) bool {
-    const value = bus.read(cpu.pc);
-    cpu.pc +%= 1;
+pub fn xaa(state: *State, bus: *Bus) bool {
+    const value = bus.read(state.pc);
+    state.pc +%= 1;
     const magic: u8 = 0xEE; // Most common NMOS 6502 magic constant
-    cpu.a = (cpu.a | magic) & cpu.x & value;
-    cpu.p.updateZN(cpu.a);
+    state.a = (state.a | magic) & state.x & value;
+    state.p.updateZN(state.a);
     return true;
 }
 
@@ -423,14 +425,14 @@ pub fn xaa(cpu: *Cpu, bus: *Bus) bool {
 /// HIGHLY UNSTABLE: Magic constant varies by chip ($00, $EE, $FF, others)
 /// This implementation uses $EE (most common NMOS behavior)
 /// Addressing mode: immediate ($AB)
-pub fn lxa(cpu: *Cpu, bus: *Bus) bool {
-    const value = bus.read(cpu.pc);
-    cpu.pc +%= 1;
+pub fn lxa(state: *State, bus: *Bus) bool {
+    const value = bus.read(state.pc);
+    state.pc +%= 1;
     const magic: u8 = 0xEE; // Most common NMOS 6502 magic constant
-    const result = (cpu.a | magic) & value;
-    cpu.a = result;
-    cpu.x = result;
-    cpu.p.updateZN(result);
+    const result = (state.a | magic) & value;
+    state.a = result;
+    state.x = result;
+    state.p.updateZN(result);
     return true;
 }
 
@@ -451,9 +453,9 @@ pub fn lxa(cpu: *Cpu, bus: *Bus) bool {
 ///
 /// The CPU will remain halted until a hardware RESET occurs.
 /// NMI and IRQ interrupts are ignored while halted.
-pub fn jam(cpu: *Cpu, bus: *Bus) bool {
+pub fn jam(state: *State, bus: *Bus) bool {
     _ = bus; // JAM doesn't access the bus after opcode fetch
-    cpu.halted = true; // Set CPU halted state
+    state.halted = true; // Set CPU halted state
     // PC does NOT increment - stays at JAM opcode address
     return true; // Instruction completes but CPU is now halted
 }
@@ -473,23 +475,23 @@ pub fn jam(cpu: *Cpu, bus: *Bus) bool {
 /// The RMW addressing mode ALREADY handles the critical dummy write.
 /// This function receives temp_value (the original read value) and
 /// must write back the modified value.
-pub fn slo(cpu: *Cpu, bus: *Bus) bool {
+pub fn slo(state: *State, bus: *Bus) bool {
     // Read current value (addressing already handled RMW sequence)
-    var value = cpu.temp_value;
+    var value = state.temp_value;
 
     // ASL: Shift left
     const carry = (value & 0x80) != 0;
     value <<= 1;
 
     // Write modified value back (RMW addressing handles this)
-    bus.write(cpu.effective_address, value);
+    bus.write(state.effective_address, value);
 
     // ORA: OR with accumulator
-    cpu.a |= value;
+    state.a |= value;
 
     // Update flags
-    cpu.p.carry = carry;
-    cpu.p.updateZN(cpu.a);
+    state.p.carry = carry;
+    state.p.updateZN(state.a);
 
     return true;
 }
@@ -501,23 +503,23 @@ pub fn slo(cpu: *Cpu, bus: *Bus) bool {
 /// This is a Read-Modify-Write instruction that:
 /// 1. Rotates memory left through carry (ROL)
 /// 2. ANDs the result with accumulator (AND)
-pub fn rla(cpu: *Cpu, bus: *Bus) bool {
-    var value = cpu.temp_value;
+pub fn rla(state: *State, bus: *Bus) bool {
+    var value = state.temp_value;
 
     // ROL: Rotate left through carry
-    const old_carry = cpu.p.carry;
+    const old_carry = state.p.carry;
     const new_carry = (value & 0x80) != 0;
     value = (value << 1) | @as(u8, if (old_carry) 1 else 0);
 
     // Write modified value
-    bus.write(cpu.effective_address, value);
+    bus.write(state.effective_address, value);
 
     // AND: AND with accumulator
-    cpu.a &= value;
+    state.a &= value;
 
     // Update flags
-    cpu.p.carry = new_carry;
-    cpu.p.updateZN(cpu.a);
+    state.p.carry = new_carry;
+    state.p.updateZN(state.a);
 
     return true;
 }
@@ -529,22 +531,22 @@ pub fn rla(cpu: *Cpu, bus: *Bus) bool {
 /// This is a Read-Modify-Write instruction that:
 /// 1. Shifts memory right (LSR)
 /// 2. XORs the result with accumulator (EOR)
-pub fn sre(cpu: *Cpu, bus: *Bus) bool {
-    var value = cpu.temp_value;
+pub fn sre(state: *State, bus: *Bus) bool {
+    var value = state.temp_value;
 
     // LSR: Shift right
     const carry = (value & 0x01) != 0;
     value >>= 1;
 
     // Write modified value
-    bus.write(cpu.effective_address, value);
+    bus.write(state.effective_address, value);
 
     // EOR: XOR with accumulator
-    cpu.a ^= value;
+    state.a ^= value;
 
     // Update flags
-    cpu.p.carry = carry;
-    cpu.p.updateZN(cpu.a);
+    state.p.carry = carry;
+    state.p.updateZN(state.a);
 
     return true;
 }
@@ -558,33 +560,33 @@ pub fn sre(cpu: *Cpu, bus: *Bus) bool {
 /// 2. Adds the result to accumulator with carry (ADC)
 ///
 /// CRITICAL: The rotate sets a NEW carry, which is then used by ADC.
-pub fn rra(cpu: *Cpu, bus: *Bus) bool {
-    var value = cpu.temp_value;
+pub fn rra(state: *State, bus: *Bus) bool {
+    var value = state.temp_value;
 
     // ROR: Rotate right through carry
-    const old_carry = cpu.p.carry;
+    const old_carry = state.p.carry;
     const new_carry_from_rotate = (value & 0x01) != 0;
     value = (value >> 1) | (@as(u8, if (old_carry) 0x80 else 0));
 
     // Write modified value
-    bus.write(cpu.effective_address, value);
+    bus.write(state.effective_address, value);
 
     // ADC: Add with carry (using the NEW carry from rotate)
-    const a = cpu.a;
+    const a = state.a;
     const carry_in: u8 = if (new_carry_from_rotate) 1 else 0;
     const result16 = @as(u16, a) + @as(u16, value) + @as(u16, carry_in);
     const result = @as(u8, @truncate(result16));
 
     // Set carry from addition
-    cpu.p.carry = (result16 > 0xFF);
+    state.p.carry = (result16 > 0xFF);
 
     // Set overflow
     const overflow = ((a ^ result) & (value ^ result) & 0x80) != 0;
-    cpu.p.overflow = overflow;
+    state.p.overflow = overflow;
 
     // Update accumulator and flags
-    cpu.a = result;
-    cpu.p.updateZN(result);
+    state.a = result;
+    state.p.updateZN(result);
 
     return true;
 }
@@ -596,20 +598,20 @@ pub fn rra(cpu: *Cpu, bus: *Bus) bool {
 /// This is a Read-Modify-Write instruction that:
 /// 1. Decrements memory (DEC)
 /// 2. Compares accumulator with the result (CMP)
-pub fn dcp(cpu: *Cpu, bus: *Bus) bool {
-    var value = cpu.temp_value;
+pub fn dcp(state: *State, bus: *Bus) bool {
+    var value = state.temp_value;
 
     // DEC: Decrement
     value -%= 1;
 
     // Write modified value
-    bus.write(cpu.effective_address, value);
+    bus.write(state.effective_address, value);
 
     // CMP: Compare A with M
-    const result = cpu.a -% value;
-    cpu.p.carry = cpu.a >= value;
-    cpu.p.zero = cpu.a == value;
-    cpu.p.negative = (result & 0x80) != 0;
+    const result = state.a -% value;
+    state.p.carry = state.a >= value;
+    state.p.zero = state.a == value;
+    state.p.negative = (result & 0x80) != 0;
 
     return true;
 }
@@ -621,29 +623,29 @@ pub fn dcp(cpu: *Cpu, bus: *Bus) bool {
 /// This is a Read-Modify-Write instruction that:
 /// 1. Increments memory (INC)
 /// 2. Subtracts the result from accumulator with borrow (SBC)
-pub fn isc(cpu: *Cpu, bus: *Bus) bool {
-    var value = cpu.temp_value;
+pub fn isc(state: *State, bus: *Bus) bool {
+    var value = state.temp_value;
 
     // INC: Increment
     value +%= 1;
 
     // Write modified value
-    bus.write(cpu.effective_address, value);
+    bus.write(state.effective_address, value);
 
     // SBC: Subtract with carry (A - M - (1 - C))
     // SBC is equivalent to ADC with inverted operand: A + (~M) + C
     const inverted = ~value;
-    const a = cpu.a;
-    const carry: u8 = if (cpu.p.carry) 1 else 0;
+    const a = state.a;
+    const carry: u8 = if (state.p.carry) 1 else 0;
     const result16 = @as(u16, a) + @as(u16, inverted) + @as(u16, carry);
     const result = @as(u8, @truncate(result16));
 
-    cpu.p.carry = (result16 > 0xFF);
+    state.p.carry = (result16 > 0xFF);
     const overflow = ((a ^ result) & (inverted ^ result) & 0x80) != 0;
-    cpu.p.overflow = overflow;
+    state.p.overflow = overflow;
 
-    cpu.a = result;
-    cpu.p.updateZN(result);
+    state.a = result;
+    state.p.updateZN(result);
 
     return true;
 }
@@ -653,212 +655,212 @@ pub fn isc(cpu: *Cpu, bus: *Bus) bool {
 // ============================================================================
 
 test "SLO: shift left and OR with accumulator" {
-    var cpu = Cpu.init();
+    var state = Cpu.Logic.init();
     var bus = Bus.init();
 
     bus.write(0x0050, 0b01010101);
-    cpu.temp_value = 0b01010101;
-    cpu.effective_address = 0x0050;
-    cpu.a = 0b00001111;
-    cpu.p.carry = false;
+    state.temp_value = 0b01010101;
+    state.effective_address = 0x0050;
+    state.a = 0b00001111;
+    state.p.carry = false;
 
-    _ = slo(&cpu, &bus);
+    _ = slo(&state, &bus);
 
     // Memory: 0b01010101 << 1 = 0b10101010
     try testing.expectEqual(@as(u8, 0b10101010), bus.read(0x0050));
     // A: 0b00001111 | 0b10101010 = 0b10101111
-    try testing.expectEqual(@as(u8, 0b10101111), cpu.a);
-    try testing.expect(!cpu.p.carry); // Bit 7 was 0
-    try testing.expect(cpu.p.negative); // Result bit 7 is 1
-    try testing.expect(!cpu.p.zero);
+    try testing.expectEqual(@as(u8, 0b10101111), state.a);
+    try testing.expect(!state.p.carry); // Bit 7 was 0
+    try testing.expect(state.p.negative); // Result bit 7 is 1
+    try testing.expect(!state.p.zero);
 }
 
 test "SLO: sets carry flag" {
-    var cpu = Cpu.init();
+    var state = Cpu.Logic.init();
     var bus = Bus.init();
 
-    cpu.temp_value = 0b10000001;
-    cpu.effective_address = 0x0100;
-    cpu.a = 0x00;
+    state.temp_value = 0b10000001;
+    state.effective_address = 0x0100;
+    state.a = 0x00;
 
-    _ = slo(&cpu, &bus);
+    _ = slo(&state, &bus);
 
     try testing.expectEqual(@as(u8, 0b00000010), bus.read(0x0100));
-    try testing.expectEqual(@as(u8, 0b00000010), cpu.a);
-    try testing.expect(cpu.p.carry); // Bit 7 was 1
+    try testing.expectEqual(@as(u8, 0b00000010), state.a);
+    try testing.expect(state.p.carry); // Bit 7 was 1
 }
 
 test "RLA: rotate left and AND with accumulator" {
-    var cpu = Cpu.init();
+    var state = Cpu.Logic.init();
     var bus = Bus.init();
 
-    cpu.temp_value = 0b01010101;
-    cpu.effective_address = 0x0060;
-    cpu.a = 0b11110000;
-    cpu.p.carry = true; // Will be rotated in
+    state.temp_value = 0b01010101;
+    state.effective_address = 0x0060;
+    state.a = 0b11110000;
+    state.p.carry = true; // Will be rotated in
 
-    _ = rla(&cpu, &bus);
+    _ = rla(&state, &bus);
 
     // Memory: (0b01010101 << 1) | 1 = 0b10101011
     try testing.expectEqual(@as(u8, 0b10101011), bus.read(0x0060));
     // A: 0b11110000 & 0b10101011 = 0b10100000
-    try testing.expectEqual(@as(u8, 0b10100000), cpu.a);
-    try testing.expect(!cpu.p.carry); // Original bit 7 was 0
-    try testing.expect(cpu.p.negative);
+    try testing.expectEqual(@as(u8, 0b10100000), state.a);
+    try testing.expect(!state.p.carry); // Original bit 7 was 0
+    try testing.expect(state.p.negative);
 }
 
 test "RLA: sets carry from rotate" {
-    var cpu = Cpu.init();
+    var state = Cpu.Logic.init();
     var bus = Bus.init();
 
-    cpu.temp_value = 0b11000000;
-    cpu.effective_address = 0x0070;
-    cpu.a = 0xFF;
-    cpu.p.carry = false;
+    state.temp_value = 0b11000000;
+    state.effective_address = 0x0070;
+    state.a = 0xFF;
+    state.p.carry = false;
 
-    _ = rla(&cpu, &bus);
+    _ = rla(&state, &bus);
 
     // Memory: 0b11000000 << 1 = 0b10000000
     try testing.expectEqual(@as(u8, 0b10000000), bus.read(0x0070));
-    try testing.expect(cpu.p.carry); // Original bit 7 was 1
+    try testing.expect(state.p.carry); // Original bit 7 was 1
 }
 
 test "SRE: shift right and XOR with accumulator" {
-    var cpu = Cpu.init();
+    var state = Cpu.Logic.init();
     var bus = Bus.init();
 
-    cpu.temp_value = 0b10101010;
-    cpu.effective_address = 0x0080;
-    cpu.a = 0b11110000;
+    state.temp_value = 0b10101010;
+    state.effective_address = 0x0080;
+    state.a = 0b11110000;
 
-    _ = sre(&cpu, &bus);
+    _ = sre(&state, &bus);
 
     // Memory: 0b10101010 >> 1 = 0b01010101
     try testing.expectEqual(@as(u8, 0b01010101), bus.read(0x0080));
     // A: 0b11110000 ^ 0b01010101 = 0b10100101
-    try testing.expectEqual(@as(u8, 0b10100101), cpu.a);
-    try testing.expect(!cpu.p.carry); // Bit 0 was 0
-    try testing.expect(cpu.p.negative);
+    try testing.expectEqual(@as(u8, 0b10100101), state.a);
+    try testing.expect(!state.p.carry); // Bit 0 was 0
+    try testing.expect(state.p.negative);
 }
 
 test "SRE: sets carry flag" {
-    var cpu = Cpu.init();
+    var state = Cpu.Logic.init();
     var bus = Bus.init();
 
-    cpu.temp_value = 0b00000011;
-    cpu.effective_address = 0x0090;
-    cpu.a = 0x00;
+    state.temp_value = 0b00000011;
+    state.effective_address = 0x0090;
+    state.a = 0x00;
 
-    _ = sre(&cpu, &bus);
+    _ = sre(&state, &bus);
 
     try testing.expectEqual(@as(u8, 0b00000001), bus.read(0x0090));
-    try testing.expect(cpu.p.carry); // Bit 0 was 1
+    try testing.expect(state.p.carry); // Bit 0 was 1
 }
 
 test "RRA: rotate right and add with carry" {
-    var cpu = Cpu.init();
+    var state = Cpu.Logic.init();
     var bus = Bus.init();
 
-    cpu.temp_value = 0b00000010;
-    cpu.effective_address = 0x00A0;
-    cpu.a = 0x10;
-    cpu.p.carry = true; // Will be rotated in
+    state.temp_value = 0b00000010;
+    state.effective_address = 0x00A0;
+    state.a = 0x10;
+    state.p.carry = true; // Will be rotated in
 
-    _ = rra(&cpu, &bus);
+    _ = rra(&state, &bus);
 
     // Memory: (0b00000010 >> 1) | 0x80 = 0b10000001
     try testing.expectEqual(@as(u8, 0b10000001), bus.read(0x00A0));
     // A: 0x10 + 0b10000001 + 0 (new carry from rotate) = 0x91
-    try testing.expectEqual(@as(u8, 0x91), cpu.a);
-    try testing.expect(!cpu.p.carry); // No carry from addition
-    try testing.expect(cpu.p.negative);
+    try testing.expectEqual(@as(u8, 0x91), state.a);
+    try testing.expect(!state.p.carry); // No carry from addition
+    try testing.expect(state.p.negative);
 }
 
 test "RRA: carry from rotate used in ADC" {
-    var cpu = Cpu.init();
+    var state = Cpu.Logic.init();
     var bus = Bus.init();
 
-    cpu.temp_value = 0b00000001; // Bit 0 = 1, will set carry
-    cpu.effective_address = 0x00B0;
-    cpu.a = 0x00;
-    cpu.p.carry = false;
+    state.temp_value = 0b00000001; // Bit 0 = 1, will set carry
+    state.effective_address = 0x00B0;
+    state.a = 0x00;
+    state.p.carry = false;
 
-    _ = rra(&cpu, &bus);
+    _ = rra(&state, &bus);
 
     // Memory: 0b00000001 >> 1 = 0b00000000
     try testing.expectEqual(@as(u8, 0x00), bus.read(0x00B0));
     // A: 0x00 + 0x00 + 1 (carry from rotate) = 0x01
-    try testing.expectEqual(@as(u8, 0x01), cpu.a);
+    try testing.expectEqual(@as(u8, 0x01), state.a);
 }
 
 test "DCP: decrement and compare" {
-    var cpu = Cpu.init();
+    var state = Cpu.Logic.init();
     var bus = Bus.init();
 
-    cpu.temp_value = 0x50;
-    cpu.effective_address = 0x00C0;
-    cpu.a = 0x4F;
+    state.temp_value = 0x50;
+    state.effective_address = 0x00C0;
+    state.a = 0x4F;
 
-    _ = dcp(&cpu, &bus);
+    _ = dcp(&state, &bus);
 
     // Memory: 0x50 - 1 = 0x4F
     try testing.expectEqual(@as(u8, 0x4F), bus.read(0x00C0));
     // Compare: A (0x4F) == M (0x4F)
-    try testing.expect(cpu.p.zero);
-    try testing.expect(cpu.p.carry); // A >= M
-    try testing.expect(!cpu.p.negative);
+    try testing.expect(state.p.zero);
+    try testing.expect(state.p.carry); // A >= M
+    try testing.expect(!state.p.negative);
 }
 
 test "DCP: compare flags when A < M" {
-    var cpu = Cpu.init();
+    var state = Cpu.Logic.init();
     var bus = Bus.init();
 
-    cpu.temp_value = 0x60;
-    cpu.effective_address = 0x00D0;
-    cpu.a = 0x50;
+    state.temp_value = 0x60;
+    state.effective_address = 0x00D0;
+    state.a = 0x50;
 
-    _ = dcp(&cpu, &bus);
+    _ = dcp(&state, &bus);
 
     // Memory: 0x60 - 1 = 0x5F
     try testing.expectEqual(@as(u8, 0x5F), bus.read(0x00D0));
     // Compare: A (0x50) < M (0x5F)
-    try testing.expect(!cpu.p.zero);
-    try testing.expect(!cpu.p.carry); // A < M
-    try testing.expect(cpu.p.negative); // Result is negative
+    try testing.expect(!state.p.zero);
+    try testing.expect(!state.p.carry); // A < M
+    try testing.expect(state.p.negative); // Result is negative
 }
 
 test "ISC: increment and subtract with carry" {
-    var cpu = Cpu.init();
+    var state = Cpu.Logic.init();
     var bus = Bus.init();
 
-    cpu.temp_value = 0x0F;
-    cpu.effective_address = 0x00E0;
-    cpu.a = 0x20;
-    cpu.p.carry = true; // No borrow
+    state.temp_value = 0x0F;
+    state.effective_address = 0x00E0;
+    state.a = 0x20;
+    state.p.carry = true; // No borrow
 
-    _ = isc(&cpu, &bus);
+    _ = isc(&state, &bus);
 
     // Memory: 0x0F + 1 = 0x10
     try testing.expectEqual(@as(u8, 0x10), bus.read(0x00E0));
     // A: 0x20 - 0x10 = 0x10
-    try testing.expectEqual(@as(u8, 0x10), cpu.a);
-    try testing.expect(cpu.p.carry); // No borrow
-    try testing.expect(!cpu.p.zero);
+    try testing.expectEqual(@as(u8, 0x10), state.a);
+    try testing.expect(state.p.carry); // No borrow
+    try testing.expect(!state.p.zero);
 }
 
 test "ISC: subtract with borrow" {
-    var cpu = Cpu.init();
+    var state = Cpu.Logic.init();
     var bus = Bus.init();
 
-    cpu.temp_value = 0x0F;
-    cpu.effective_address = 0x00F0;
-    cpu.a = 0x20;
-    cpu.p.carry = false; // Borrow
+    state.temp_value = 0x0F;
+    state.effective_address = 0x00F0;
+    state.a = 0x20;
+    state.p.carry = false; // Borrow
 
-    _ = isc(&cpu, &bus);
+    _ = isc(&state, &bus);
 
     // Memory: 0x0F + 1 = 0x10
     try testing.expectEqual(@as(u8, 0x10), bus.read(0x00F0));
     // A: 0x20 - 0x10 - 1 = 0x0F
-    try testing.expectEqual(@as(u8, 0x0F), cpu.a);
+    try testing.expectEqual(@as(u8, 0x0F), state.a);
 }

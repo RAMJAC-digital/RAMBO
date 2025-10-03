@@ -1,0 +1,50 @@
+# 07 - Testing Review
+
+**Date:** 2025-10-03
+**Status:** In Progress
+
+## 1. Summary
+
+A robust test suite is critical for developing an accurate NES emulator. The existing tests provide a good foundation, particularly for the CPU. However, there are significant gaps in test coverage that need to be addressed. The `tests/bus` and `tests/integration` directories are empty, and the PPU tests are minimal.
+
+This review provides actionable recommendations for improving the test suite, increasing coverage, and adopting best practices for testing in a Zig project.
+
+## 2. Actionable Items
+
+### 2.1. Implement Bus Tests
+
+*   **Action:** The `tests/bus` directory is empty. Create a comprehensive suite of tests for the memory bus. These tests should cover all aspects of the bus's functionality, including RAM mirroring, PPU and APU register mapping, and cartridge communication.
+*   **Rationale:** The bus is a critical component that connects all the major parts of the emulator. Its behavior must be thoroughly tested to ensure that the components can communicate correctly.
+*   **Status:** **TODO**.
+
+### 2.2. Implement Integration Tests
+
+*   **Action:** The `tests/integration` directory is empty. Create a suite of integration tests that verify the interaction between different components. For example, tests that verify the CPU and PPU can communicate correctly through the bus to generate an NMI.
+*   **Rationale:** Integration tests are essential for finding bugs that arise from the interaction between components. They are a crucial step in verifying the overall correctness of the emulator.
+*   **Status:** **TODO**.
+
+### 2.3. Expand PPU Test Coverage
+
+*   **Action:** The PPU tests are currently minimal. Expand the PPU test suite to cover all aspects of the PPU's functionality, including rendering, sprite evaluation, scrolling, and timing.
+*   **Rationale:** The PPU is one of the most complex components of the NES. A comprehensive test suite is essential for ensuring its correctness.
+*   **Status:** **TODO**.
+
+### 2.4. Use a Test Runner
+
+*   **Action:** The project should use a test runner to automate the process of running tests and reporting results. `zig test` is the built-in test runner and should be used.
+*   **Rationale:** A test runner makes it easy to run all the tests in the project with a single command. This is essential for maintaining a high level of quality and for implementing continuous integration.
+*   **Status:** **TODO**.
+
+### 2.5. Adopt a More Data-Driven Approach to Testing
+
+*   **Action:** Many of the existing tests are very procedural. A more data-driven approach would make the tests more concise and easier to maintain. For example, instead of writing a separate test for each instruction, create a single test that is parameterized with a set of test cases.
+*   **Rationale:** Data-driven tests are more scalable and make it easier to add new test cases. This is particularly important for testing the CPU, which has a large number of instructions and addressing modes.
+*   **Code References:**
+    *   `tests/cpu/instructions_test.zig`: This file could be refactored to use a data-driven approach.
+*   **Status:** **TODO**.
+
+### 2.6. Use Existing Test ROMs
+
+*   **Action:** There are many existing test ROMs for the NES that can be used to verify the emulator's accuracy. The project should integrate these test ROMs into its testing strategy.
+*   **Rationale:** These test ROMs are a valuable resource for finding subtle bugs and for verifying the emulator's accuracy against real hardware.
+*   **Status:** **TODO**.

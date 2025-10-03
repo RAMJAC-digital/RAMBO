@@ -10,9 +10,11 @@
 //! All load instructions update N and Z flags.
 //! Store instructions do not affect any flags.
 
-const Cpu = @import("../Cpu.zig").Cpu;
+const Cpu = @import("../Cpu.zig");
 const Bus = @import("../../bus/Bus.zig").Bus;
 const helpers = @import("../helpers.zig");
+
+const State = Cpu.State;
 
 // ============================================================================
 // Load Instructions
@@ -26,11 +28,11 @@ const helpers = @import("../helpers.zig");
 /// - Immediate, Zero Page, Zero Page,X
 /// - Absolute, Absolute,X, Absolute,Y
 /// - Indexed Indirect, Indirect Indexed
-pub fn lda(cpu: *Cpu, bus: *Bus) bool {
-    const value = helpers.readOperand(cpu, bus);
+pub fn lda(state: *State, bus: *Bus) bool {
+    const value = helpers.readOperand(state, bus);
 
-    cpu.a = value;
-    cpu.p.updateZN(cpu.a);
+    state.a = value;
+    state.p.updateZN(state.a);
     return true;
 }
 
@@ -41,11 +43,11 @@ pub fn lda(cpu: *Cpu, bus: *Bus) bool {
 /// Supports 5 addressing modes:
 /// - Immediate, Zero Page, Zero Page,Y
 /// - Absolute, Absolute,Y
-pub fn ldx(cpu: *Cpu, bus: *Bus) bool {
-    const value = helpers.readOperand(cpu, bus);
+pub fn ldx(state: *State, bus: *Bus) bool {
+    const value = helpers.readOperand(state, bus);
 
-    cpu.x = value;
-    cpu.p.updateZN(cpu.x);
+    state.x = value;
+    state.p.updateZN(state.x);
     return true;
 }
 
@@ -56,11 +58,11 @@ pub fn ldx(cpu: *Cpu, bus: *Bus) bool {
 /// Supports 5 addressing modes:
 /// - Immediate, Zero Page, Zero Page,X
 /// - Absolute, Absolute,X
-pub fn ldy(cpu: *Cpu, bus: *Bus) bool {
-    const value = helpers.readOperand(cpu, bus);
+pub fn ldy(state: *State, bus: *Bus) bool {
+    const value = helpers.readOperand(state, bus);
 
-    cpu.y = value;
-    cpu.p.updateZN(cpu.y);
+    state.y = value;
+    state.p.updateZN(state.y);
     return true;
 }
 
@@ -76,8 +78,8 @@ pub fn ldy(cpu: *Cpu, bus: *Bus) bool {
 /// - Zero Page, Zero Page,X
 /// - Absolute, Absolute,X, Absolute,Y
 /// - Indexed Indirect, Indirect Indexed
-pub fn sta(cpu: *Cpu, bus: *Bus) bool {
-    helpers.writeOperand(cpu, bus, cpu.a);
+pub fn sta(state: *State, bus: *Bus) bool {
+    helpers.writeOperand(state, bus, state.a);
     return true;
 }
 
@@ -88,8 +90,8 @@ pub fn sta(cpu: *Cpu, bus: *Bus) bool {
 /// Supports 3 addressing modes:
 /// - Zero Page, Zero Page,Y
 /// - Absolute
-pub fn stx(cpu: *Cpu, bus: *Bus) bool {
-    helpers.writeOperand(cpu, bus, cpu.x);
+pub fn stx(state: *State, bus: *Bus) bool {
+    helpers.writeOperand(state, bus, state.x);
     return true;
 }
 
@@ -100,8 +102,8 @@ pub fn stx(cpu: *Cpu, bus: *Bus) bool {
 /// Supports 3 addressing modes:
 /// - Zero Page, Zero Page,X
 /// - Absolute
-pub fn sty(cpu: *Cpu, bus: *Bus) bool {
-    helpers.writeOperand(cpu, bus, cpu.y);
+pub fn sty(state: *State, bus: *Bus) bool {
+    helpers.writeOperand(state, bus, state.y);
     return true;
 }
 
@@ -113,208 +115,208 @@ const std = @import("std");
 const testing = std.testing;
 
 test "LDA: immediate mode" {
-    var cpu = Cpu.init();
+    var state = Cpu.Logic.init();
     var bus = Bus.init();
 
-    cpu.address_mode = .immediate;
-    cpu.pc = 0;
+    state.address_mode = .immediate;
+    state.pc = 0;
     bus.ram[0] = 0x42;
 
-    _ = lda(&cpu, &bus);
+    _ = lda(&state, &bus);
 
-    try testing.expectEqual(@as(u8, 0x42), cpu.a);
-    try testing.expect(!cpu.p.zero);
-    try testing.expect(!cpu.p.negative);
+    try testing.expectEqual(@as(u8, 0x42), state.a);
+    try testing.expect(!state.p.zero);
+    try testing.expect(!state.p.negative);
 }
 
 test "LDA: zero flag" {
-    var cpu = Cpu.init();
+    var state = Cpu.Logic.init();
     var bus = Bus.init();
 
-    cpu.address_mode = .immediate;
-    cpu.pc = 0;
+    state.address_mode = .immediate;
+    state.pc = 0;
     bus.ram[0] = 0x00;
 
-    _ = lda(&cpu, &bus);
+    _ = lda(&state, &bus);
 
-    try testing.expectEqual(@as(u8, 0x00), cpu.a);
-    try testing.expect(cpu.p.zero);
-    try testing.expect(!cpu.p.negative);
+    try testing.expectEqual(@as(u8, 0x00), state.a);
+    try testing.expect(state.p.zero);
+    try testing.expect(!state.p.negative);
 }
 
 test "LDA: negative flag" {
-    var cpu = Cpu.init();
+    var state = Cpu.Logic.init();
     var bus = Bus.init();
 
-    cpu.address_mode = .immediate;
-    cpu.pc = 0;
+    state.address_mode = .immediate;
+    state.pc = 0;
     bus.ram[0] = 0x80;
 
-    _ = lda(&cpu, &bus);
+    _ = lda(&state, &bus);
 
-    try testing.expectEqual(@as(u8, 0x80), cpu.a);
-    try testing.expect(!cpu.p.zero);
-    try testing.expect(cpu.p.negative);
+    try testing.expectEqual(@as(u8, 0x80), state.a);
+    try testing.expect(!state.p.zero);
+    try testing.expect(state.p.negative);
 }
 
 test "LDA: zero page" {
-    var cpu = Cpu.init();
+    var state = Cpu.Logic.init();
     var bus = Bus.init();
 
     bus.write(0x0042, 0x55);
-    cpu.address_mode = .zero_page;
-    cpu.operand_low = 0x42;
+    state.address_mode = .zero_page;
+    state.operand_low = 0x42;
 
-    _ = lda(&cpu, &bus);
+    _ = lda(&state, &bus);
 
-    try testing.expectEqual(@as(u8, 0x55), cpu.a);
+    try testing.expectEqual(@as(u8, 0x55), state.a);
 }
 
 test "LDA: absolute" {
-    var cpu = Cpu.init();
+    var state = Cpu.Logic.init();
     var bus = Bus.init();
 
     bus.write(0x1234, 0xAA);
-    cpu.address_mode = .absolute;
-    cpu.operand_low = 0x34;
-    cpu.operand_high = 0x12;
+    state.address_mode = .absolute;
+    state.operand_low = 0x34;
+    state.operand_high = 0x12;
 
-    _ = lda(&cpu, &bus);
+    _ = lda(&state, &bus);
 
-    try testing.expectEqual(@as(u8, 0xAA), cpu.a);
+    try testing.expectEqual(@as(u8, 0xAA), state.a);
 }
 
 test "LDX: immediate mode" {
-    var cpu = Cpu.init();
+    var state = Cpu.Logic.init();
     var bus = Bus.init();
 
-    cpu.address_mode = .immediate;
-    cpu.pc = 0;
+    state.address_mode = .immediate;
+    state.pc = 0;
     bus.ram[0] = 0x42;
 
-    _ = ldx(&cpu, &bus);
+    _ = ldx(&state, &bus);
 
-    try testing.expectEqual(@as(u8, 0x42), cpu.x);
-    try testing.expectEqual(@as(u16, 1), cpu.pc); // PC increments
-    try testing.expect(!cpu.p.zero);
-    try testing.expect(!cpu.p.negative);
+    try testing.expectEqual(@as(u8, 0x42), state.x);
+    try testing.expectEqual(@as(u16, 1), state.pc); // PC increments
+    try testing.expect(!state.p.zero);
+    try testing.expect(!state.p.negative);
 }
 
 test "LDY: immediate mode" {
-    var cpu = Cpu.init();
+    var state = Cpu.Logic.init();
     var bus = Bus.init();
 
-    cpu.address_mode = .immediate;
-    cpu.pc = 0;
+    state.address_mode = .immediate;
+    state.pc = 0;
     bus.ram[0] = 0x42;
 
-    _ = ldy(&cpu, &bus);
+    _ = ldy(&state, &bus);
 
-    try testing.expectEqual(@as(u8, 0x42), cpu.y);
-    try testing.expectEqual(@as(u16, 1), cpu.pc); // PC increments
-    try testing.expect(!cpu.p.zero);
-    try testing.expect(!cpu.p.negative);
+    try testing.expectEqual(@as(u8, 0x42), state.y);
+    try testing.expectEqual(@as(u16, 1), state.pc); // PC increments
+    try testing.expect(!state.p.zero);
+    try testing.expect(!state.p.negative);
 }
 
 test "STA: zero page" {
-    var cpu = Cpu.init();
+    var state = Cpu.Logic.init();
     var bus = Bus.init();
 
-    cpu.a = 0x42;
-    cpu.address_mode = .zero_page;
-    cpu.operand_low = 0x50;
+    state.a = 0x42;
+    state.address_mode = .zero_page;
+    state.operand_low = 0x50;
 
-    _ = sta(&cpu, &bus);
+    _ = sta(&state, &bus);
 
     try testing.expectEqual(@as(u8, 0x42), bus.read(0x0050));
 }
 
 test "STA: absolute" {
-    var cpu = Cpu.init();
+    var state = Cpu.Logic.init();
     var bus = Bus.init();
 
-    cpu.a = 0x55;
-    cpu.address_mode = .absolute;
-    cpu.operand_low = 0x34;
-    cpu.operand_high = 0x12;
+    state.a = 0x55;
+    state.address_mode = .absolute;
+    state.operand_low = 0x34;
+    state.operand_high = 0x12;
 
-    _ = sta(&cpu, &bus);
+    _ = sta(&state, &bus);
 
     try testing.expectEqual(@as(u8, 0x55), bus.read(0x1234));
 }
 
 test "STA: does not affect flags" {
-    var cpu = Cpu.init();
+    var state = Cpu.Logic.init();
     var bus = Bus.init();
 
-    cpu.a = 0x00; // Would set zero flag if LDA
-    cpu.p.zero = false;
-    cpu.p.negative = true;
-    cpu.address_mode = .zero_page;
-    cpu.operand_low = 0x50;
+    state.a = 0x00; // Would set zero flag if LDA
+    state.p.zero = false;
+    state.p.negative = true;
+    state.address_mode = .zero_page;
+    state.operand_low = 0x50;
 
-    _ = sta(&cpu, &bus);
+    _ = sta(&state, &bus);
 
     // Flags should be unchanged
-    try testing.expect(!cpu.p.zero);
-    try testing.expect(cpu.p.negative);
+    try testing.expect(!state.p.zero);
+    try testing.expect(state.p.negative);
 }
 
 test "STX: zero page" {
-    var cpu = Cpu.init();
+    var state = Cpu.Logic.init();
     var bus = Bus.init();
 
-    cpu.x = 0x42;
-    cpu.address_mode = .zero_page;
-    cpu.operand_low = 0x50;
+    state.x = 0x42;
+    state.address_mode = .zero_page;
+    state.operand_low = 0x50;
 
-    _ = stx(&cpu, &bus);
+    _ = stx(&state, &bus);
 
     try testing.expectEqual(@as(u8, 0x42), bus.read(0x0050));
 }
 
 test "STY: zero page" {
-    var cpu = Cpu.init();
+    var state = Cpu.Logic.init();
     var bus = Bus.init();
 
-    cpu.y = 0x42;
-    cpu.address_mode = .zero_page;
-    cpu.operand_low = 0x50;
+    state.y = 0x42;
+    state.address_mode = .zero_page;
+    state.operand_low = 0x50;
 
-    _ = sty(&cpu, &bus);
+    _ = sty(&state, &bus);
 
     try testing.expectEqual(@as(u8, 0x42), bus.read(0x0050));
 }
 
 test "load/store: page crossing with absolute,X" {
-    var cpu = Cpu.init();
+    var state = Cpu.Logic.init();
     var bus = Bus.init();
 
     // Setup: absolute,X with page crossing
-    cpu.address_mode = .absolute_x;
-    cpu.effective_address = 0x1100;
-    cpu.page_crossed = true;
+    state.address_mode = .absolute_x;
+    state.effective_address = 0x1100;
+    state.page_crossed = true;
     bus.write(0x1100, 0x42);
 
     // Load
-    _ = lda(&cpu, &bus);
-    try testing.expectEqual(@as(u8, 0x42), cpu.a);
+    _ = lda(&state, &bus);
+    try testing.expectEqual(@as(u8, 0x42), state.a);
 
     // Store
-    cpu.a = 0x55;
-    _ = sta(&cpu, &bus);
+    state.a = 0x55;
+    _ = sta(&state, &bus);
     try testing.expectEqual(@as(u8, 0x55), bus.read(0x1100));
 }
 
 test "load/store: no page crossing uses temp_value" {
-    var cpu = Cpu.init();
+    var state = Cpu.Logic.init();
     var bus = Bus.init();
 
-    cpu.address_mode = .absolute_x;
-    cpu.page_crossed = false;
-    cpu.temp_value = 0x42;
+    state.address_mode = .absolute_x;
+    state.page_crossed = false;
+    state.temp_value = 0x42;
 
-    _ = lda(&cpu, &bus);
+    _ = lda(&state, &bus);
 
-    try testing.expectEqual(@as(u8, 0x42), cpu.a);
+    try testing.expectEqual(@as(u8, 0x42), state.a);
 }

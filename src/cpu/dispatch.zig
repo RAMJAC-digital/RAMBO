@@ -1,17 +1,17 @@
 const std = @import("std");
-const CpuModule = @import("Cpu.zig");
+const Cpu = @import("Cpu.zig");
 const BusModule = @import("../bus/Bus.zig");
 const opcodes = @import("opcodes.zig");
 const execution = @import("execution.zig");
 
-const Cpu = CpuModule.Cpu;
+const State = Cpu.State;
 const Bus = BusModule.Bus;
 const MicrostepFn = execution.MicrostepFn;
 const InstructionExecutor = execution.InstructionExecutor;
 
 /// Instruction implementation function signature
 /// Takes CPU and Bus, executes the instruction logic, returns true when complete
-pub const InstructionFn = *const fn (*Cpu, *Bus) bool;
+pub const InstructionFn = *const fn (*State, *Bus) bool;
 
 /// Dispatch table entry combining addressing and execution
 pub const DispatchEntry = struct {
@@ -37,24 +37,24 @@ const unofficial = @import("instructions/unofficial.zig");
 // NOP Instructions
 // ============================================================================
 
-fn nopImplied(cpu: *Cpu, bus: *Bus) bool {
-    _ = cpu;
+fn nopImplied(state: *State, bus: *Bus) bool {
+    _ = state;
     _ = bus;
     return true; // Complete immediately
 }
 
-fn nopImmediate(cpu: *Cpu, bus: *Bus) bool {
+fn nopImmediate(state: *State, bus: *Bus) bool {
     // Immediate mode: fetch and discard operand
-    _ = bus.read(cpu.pc);
-    cpu.pc +%= 1;
+    _ = bus.read(state.pc);
+    state.pc +%= 1;
     return true;
 }
 
-fn nopRead(cpu: *Cpu, bus: *Bus) bool {
+fn nopRead(state: *State, bus: *Bus) bool {
     // NOP with addressing: perform read but discard result
     // This is important for hardware accuracy - the read DOES occur
     const helpers = @import("helpers.zig");
-    _ = helpers.readOperand(cpu, bus);
+    _ = helpers.readOperand(state, bus);
     return true;
 }
 

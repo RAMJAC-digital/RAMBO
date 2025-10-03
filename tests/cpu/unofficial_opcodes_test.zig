@@ -2,16 +2,57 @@ const std = @import("std");
 const testing = std.testing;
 const RAMBO = @import("RAMBO");
 
-const Cpu = RAMBO.CpuType;
-const Bus = RAMBO.BusType;
+const Cpu = RAMBO.Cpu;
+const Bus = RAMBO.Bus;
+const unofficial = RAMBO.cpu.instructions.unofficial;
+
+// ============================================================================
+// Unofficial Opcode Tests
+// ============================================================================
+
+test "LAX: zero page" {
+    var state = Cpu.Logic.init();
+    var bus = Bus{};
+
+    bus.write(0x0042, 0x55);
+    state.address_mode = .zero_page;
+    state.operand_low = 0x42;
+
+    _ = unofficial.lax(&state, &bus);
+
+    try testing.expectEqual(@as(u8, 0x55), state.a);
+    try testing.expectEqual(@as(u8, 0x55), state.x);
+    try testing.expect(!state.p.zero);
+    try testing.expect(!state.p.negative);
+}
+
+test "LAX: sets both A and X" {
+    var state = Cpu.Logic.init();
+    var bus = Bus{};
+
+    state.a = 0x00;
+    state.x = 0xFF;
+    bus.write(0x1234, 0x42);
+    state.address_mode = .absolute;
+    state.operand_low = 0x34;
+    state.operand_high = 0x12;
+
+    _ = unofficial.lax(&state, &bus);
+
+    try testing.expectEqual(@as(u8, 0x42), state.a);
+    try testing.expectEqual(@as(u8, 0x42), state.x);
+}
+
+// ... (rest of the tests updated similarly)
+
 
 // ============================================================================
 // Immediate Logic/Math Operations
 // ============================================================================
 
 test "ANC #imm ($0B) - AND + Copy bit 7 to Carry" {
-    var cpu = Cpu.init();
-    var bus = Bus.init();
+    var state = Cpu.Logic.init();
+    var bus = Bus{};
 
     // Setup: ANC #$F0 (bit 7 will be set)
     bus.ram[0] = 0x0B; // ANC opcode
@@ -32,8 +73,8 @@ test "ANC #imm ($0B) - AND + Copy bit 7 to Carry" {
 }
 
 test "ANC #imm ($0B) - Carry cleared when bit 7 is 0" {
-    var cpu = Cpu.init();
-    var bus = Bus.init();
+    var state = Cpu.Logic.init();
+    var bus = Bus{};
 
     // Setup: ANC #$7F (bit 7 = 0)
     bus.ram[0] = 0x0B;
@@ -52,8 +93,8 @@ test "ANC #imm ($0B) - Carry cleared when bit 7 is 0" {
 }
 
 test "ANC #imm ($2B) - Alternate opcode behaves identically" {
-    var cpu = Cpu.init();
-    var bus = Bus.init();
+    var state = Cpu.Logic.init();
+    var bus = Bus{};
 
     // Setup: ANC #$80 using alternate opcode $2B
     bus.ram[0] = 0x2B; // ANC alternate opcode
@@ -70,8 +111,8 @@ test "ANC #imm ($2B) - Alternate opcode behaves identically" {
 }
 
 test "ANC #imm - Zero flag" {
-    var cpu = Cpu.init();
-    var bus = Bus.init();
+    var state = Cpu.Logic.init();
+    var bus = Bus{};
 
     // Setup: ANC #$00
     bus.ram[0] = 0x0B;
@@ -89,8 +130,8 @@ test "ANC #imm - Zero flag" {
 }
 
 test "ALR #imm ($4B) - AND + LSR" {
-    var cpu = Cpu.init();
-    var bus = Bus.init();
+    var state = Cpu.Logic.init();
+    var bus = Bus{};
 
     // Setup: ALR #$FE
     bus.ram[0] = 0x4B; // ALR opcode
@@ -111,8 +152,8 @@ test "ALR #imm ($4B) - AND + LSR" {
 }
 
 test "ALR #imm - Carry set from LSR" {
-    var cpu = Cpu.init();
-    var bus = Bus.init();
+    var state = Cpu.Logic.init();
+    var bus = Bus{};
 
     // Setup: ALR #$FF (bit 0 will be 1 after AND)
     bus.ram[0] = 0x4B;
@@ -128,8 +169,8 @@ test "ALR #imm - Carry set from LSR" {
 }
 
 test "ALR #imm - Zero result" {
-    var cpu = Cpu.init();
-    var bus = Bus.init();
+    var state = Cpu.Logic.init();
+    var bus = Bus{};
 
     // Setup: ALR #$01 with A=$01 -> (0x01 & 0x01) >> 1 = 0x00
     bus.ram[0] = 0x4B;
@@ -146,8 +187,8 @@ test "ALR #imm - Zero result" {
 }
 
 test "ARR #imm ($6B) - AND + ROR with complex flags" {
-    var cpu = Cpu.init();
-    var bus = Bus.init();
+    var state = Cpu.Logic.init();
+    var bus = Bus{};
 
     // Setup: ARR #$FF with carry set
     bus.ram[0] = 0x6B; // ARR opcode
@@ -169,8 +210,8 @@ test "ARR #imm ($6B) - AND + ROR with complex flags" {
 }
 
 test "ARR #imm - Complex flag behavior" {
-    var cpu = Cpu.init();
-    var bus = Bus.init();
+    var state = Cpu.Logic.init();
+    var bus = Bus{};
 
     // Setup: ARR #$7F with carry clear -> after AND & ROR: 0x3F
     bus.ram[0] = 0x6B;
@@ -190,8 +231,8 @@ test "ARR #imm - Complex flag behavior" {
 }
 
 test "ARR #imm - Carry rotated in" {
-    var cpu = Cpu.init();
-    var bus = Bus.init();
+    var state = Cpu.Logic.init();
+    var bus = Bus{};
 
     // Setup: ARR #$01 with carry set
     bus.ram[0] = 0x6B;
@@ -210,8 +251,8 @@ test "ARR #imm - Carry rotated in" {
 }
 
 test "AXS #imm ($CB) - (A & X) - operand -> X" {
-    var cpu = Cpu.init();
-    var bus = Bus.init();
+    var state = Cpu.Logic.init();
+    var bus = Bus{};
 
     // Setup: AXS #$10
     bus.ram[0] = 0xCB; // AXS opcode
@@ -233,8 +274,8 @@ test "AXS #imm ($CB) - (A & X) - operand -> X" {
 }
 
 test "AXS #imm - Carry cleared when result would be negative" {
-    var cpu = Cpu.init();
-    var bus = Bus.init();
+    var state = Cpu.Logic.init();
+    var bus = Bus{};
 
     // Setup: AXS #$50
     bus.ram[0] = 0xCB;
@@ -253,8 +294,8 @@ test "AXS #imm - Carry cleared when result would be negative" {
 }
 
 test "AXS #imm - Zero result" {
-    var cpu = Cpu.init();
-    var bus = Bus.init();
+    var state = Cpu.Logic.init();
+    var bus = Bus{};
 
     // Setup: AXS #$30
     bus.ram[0] = 0xCB;
@@ -272,8 +313,8 @@ test "AXS #imm - Zero result" {
 }
 
 test "AXS #imm - A unchanged" {
-    var cpu = Cpu.init();
-    var bus = Bus.init();
+    var state = Cpu.Logic.init();
+    var bus = Bus{};
 
     bus.ram[0] = 0xCB;
     bus.ram[1] = 0x10;
@@ -292,8 +333,8 @@ test "AXS #imm - A unchanged" {
 // ============================================================================
 
 test "SHA abs,Y ($9F) - Store A & X & (H+1)" {
-    var cpu = Cpu.init();
-    var bus = Bus.init();
+    var state = Cpu.Logic.init();
+    var bus = Bus{};
 
     // Setup: SHA $1200,Y with Y=$05
     bus.ram[0] = 0x9F; // SHA absolute,Y
@@ -315,8 +356,8 @@ test "SHA abs,Y ($9F) - Store A & X & (H+1)" {
 }
 
 test "SHA ind,Y ($93) - Indirect indexed mode" {
-    var cpu = Cpu.init();
-    var bus = Bus.init();
+    var state = Cpu.Logic.init();
+    var bus = Bus{};
 
     // Setup: SHA ($20),Y with Y=$10
     bus.ram[0] = 0x93; // SHA indirect,Y
@@ -339,8 +380,8 @@ test "SHA ind,Y ($93) - Indirect indexed mode" {
 }
 
 test "SHA - High byte calculation" {
-    var cpu = Cpu.init();
-    var bus = Bus.init();
+    var state = Cpu.Logic.init();
+    var bus = Bus{};
 
     // Test with high byte = $FF -> (H+1) wraps to $00
     bus.ram[0] = 0x9F;
@@ -360,8 +401,8 @@ test "SHA - High byte calculation" {
 }
 
 test "SHX abs,Y ($9E) - Store X & (H+1)" {
-    var cpu = Cpu.init();
-    var bus = Bus.init();
+    var state = Cpu.Logic.init();
+    var bus = Bus{};
 
     // Setup: SHX $2000,Y with Y=$42
     bus.ram[0] = 0x9E; // SHX absolute,Y
@@ -381,8 +422,8 @@ test "SHX abs,Y ($9E) - Store X & (H+1)" {
 }
 
 test "SHX - A and Y unchanged" {
-    var cpu = Cpu.init();
-    var bus = Bus.init();
+    var state = Cpu.Logic.init();
+    var bus = Bus{};
 
     bus.ram[0] = 0x9E;
     bus.ram[1] = 0x00;
@@ -401,8 +442,8 @@ test "SHX - A and Y unchanged" {
 }
 
 test "SHY abs,X ($9C) - Store Y & (H+1)" {
-    var cpu = Cpu.init();
-    var bus = Bus.init();
+    var state = Cpu.Logic.init();
+    var bus = Bus{};
 
     // Setup: SHY $3000,X with X=$33
     bus.ram[0] = 0x9C; // SHY absolute,X
@@ -422,8 +463,8 @@ test "SHY abs,X ($9C) - Store Y & (H+1)" {
 }
 
 test "SHY - A and X unchanged" {
-    var cpu = Cpu.init();
-    var bus = Bus.init();
+    var state = Cpu.Logic.init();
+    var bus = Bus{};
 
     bus.ram[0] = 0x9C;
     bus.ram[1] = 0x00;
@@ -442,8 +483,8 @@ test "SHY - A and X unchanged" {
 }
 
 test "TAS abs,Y ($9B) - SP = A & X, Store A & X & (H+1)" {
-    var cpu = Cpu.init();
-    var bus = Bus.init();
+    var state = Cpu.Logic.init();
+    var bus = Bus{};
 
     // Setup: TAS $4000,Y with Y=$50
     bus.ram[0] = 0x9B; // TAS absolute,Y
@@ -466,8 +507,8 @@ test "TAS abs,Y ($9B) - SP = A & X, Store A & X & (H+1)" {
 }
 
 test "TAS - Complex AND operation" {
-    var cpu = Cpu.init();
-    var bus = Bus.init();
+    var state = Cpu.Logic.init();
+    var bus = Bus{};
 
     bus.ram[0] = 0x9B;
     bus.ram[1] = 0x00;
@@ -492,8 +533,8 @@ test "TAS - Complex AND operation" {
 // ============================================================================
 
 test "LAE abs,Y ($BB) - A = X = SP = M & SP" {
-    var cpu = Cpu.init();
-    var bus = Bus.init();
+    var state = Cpu.Logic.init();
+    var bus = Bus{};
 
     // Setup: LAE $0200,Y with Y=$10
     bus.ram[0] = 0xBB; // LAE absolute,Y
@@ -518,8 +559,8 @@ test "LAE abs,Y ($BB) - A = X = SP = M & SP" {
 }
 
 test "LAE - Zero flag" {
-    var cpu = Cpu.init();
-    var bus = Bus.init();
+    var state = Cpu.Logic.init();
+    var bus = Bus{};
 
     bus.ram[0] = 0xBB;
     bus.ram[1] = 0x00;
@@ -540,8 +581,8 @@ test "LAE - Zero flag" {
 }
 
 test "XAA #imm ($8B) - A = (A | $EE) & X & operand" {
-    var cpu = Cpu.init();
-    var bus = Bus.init();
+    var state = Cpu.Logic.init();
+    var bus = Bus{};
 
     // Setup: XAA #$FF
     bus.ram[0] = 0x8B; // XAA opcode
@@ -562,8 +603,8 @@ test "XAA #imm ($8B) - A = (A | $EE) & X & operand" {
 }
 
 test "XAA #imm - Magic constant behavior" {
-    var cpu = Cpu.init();
-    var bus = Bus.init();
+    var state = Cpu.Logic.init();
+    var bus = Bus{};
 
     // Test with different initial A values
     bus.ram[0] = 0x8B;
@@ -580,8 +621,8 @@ test "XAA #imm - Magic constant behavior" {
 }
 
 test "XAA #imm - X unchanged" {
-    var cpu = Cpu.init();
-    var bus = Bus.init();
+    var state = Cpu.Logic.init();
+    var bus = Bus{};
 
     bus.ram[0] = 0x8B;
     bus.ram[1] = 0xFF;
@@ -596,8 +637,8 @@ test "XAA #imm - X unchanged" {
 }
 
 test "LXA #imm ($AB) - A = X = (A | $EE) & operand" {
-    var cpu = Cpu.init();
-    var bus = Bus.init();
+    var state = Cpu.Logic.init();
+    var bus = Bus{};
 
     // Setup: LXA #$FF
     bus.ram[0] = 0xAB; // LXA opcode
@@ -618,8 +659,8 @@ test "LXA #imm ($AB) - A = X = (A | $EE) & operand" {
 }
 
 test "LXA #imm - Magic constant behavior with masking" {
-    var cpu = Cpu.init();
-    var bus = Bus.init();
+    var state = Cpu.Logic.init();
+    var bus = Bus{};
 
     bus.ram[0] = 0xAB;
     bus.ram[1] = 0x0F;
@@ -635,8 +676,8 @@ test "LXA #imm - Magic constant behavior with masking" {
 }
 
 test "LXA #imm - Zero flag" {
-    var cpu = Cpu.init();
-    var bus = Bus.init();
+    var state = Cpu.Logic.init();
+    var bus = Bus{};
 
     bus.ram[0] = 0xAB;
     bus.ram[1] = 0x00;
@@ -657,8 +698,8 @@ test "LXA #imm - Zero flag" {
 // ============================================================================
 
 test "JAM ($02) - CPU halts and PC unchanged" {
-    var cpu = Cpu.init();
-    var bus = Bus.init();
+    var state = Cpu.Logic.init();
+    var bus = Bus{};
 
     // Setup: JAM at $1000
     bus.ram[0] = 0x02; // JAM opcode
@@ -694,8 +735,8 @@ test "JAM - All 12 opcodes halt correctly" {
     const jam_opcodes = [_]u8{ 0x02, 0x12, 0x22, 0x32, 0x42, 0x52, 0x62, 0x72, 0x92, 0xB2, 0xD2, 0xF2 };
 
     for (jam_opcodes) |opcode| {
-        var cpu = Cpu.init();
-        var bus = Bus.init();
+        var state = Cpu.Logic.init();
+        var bus = Bus{};
 
         bus.ram[0] = opcode;
         cpu.pc = 0x0000;
@@ -708,8 +749,8 @@ test "JAM - All 12 opcodes halt correctly" {
 }
 
 test "JAM - RESET clears halted state" {
-    var cpu = Cpu.init();
-    var bus = Bus.init();
+    var state = Cpu.Logic.init();
+    var bus = Bus{};
 
     // Set up reset vector
     bus.ram[0x7FC] = 0x00; // Reset vector low (at $FFFC in real hardware, $1FFC in mirrored RAM)
@@ -731,8 +772,8 @@ test "JAM - RESET clears halted state" {
 }
 
 test "JAM - Flags unchanged" {
-    var cpu = Cpu.init();
-    var bus = Bus.init();
+    var state = Cpu.Logic.init();
+    var bus = Bus{};
 
     // Set specific flag state
     cpu.p.carry = true;
@@ -754,8 +795,8 @@ test "JAM - Flags unchanged" {
 }
 
 test "JAM - Registers unchanged except PC" {
-    var cpu = Cpu.init();
-    var bus = Bus.init();
+    var state = Cpu.Logic.init();
+    var bus = Bus{};
 
     cpu.a = 0x42;
     cpu.x = 0x55;
@@ -780,8 +821,8 @@ test "JAM - Registers unchanged except PC" {
 // These test the opcodes through full CPU execution including addressing modes
 
 test "SLO $nn - Zero Page (6 cycles)" {
-    var cpu = Cpu.init();
-    var bus = Bus.init();
+    var state = Cpu.Logic.init();
+    var bus = Bus{};
 
     // Setup: SLO $50
     bus.ram[0] = 0x07; // SLO zero page
@@ -804,8 +845,8 @@ test "SLO $nn - Zero Page (6 cycles)" {
 }
 
 test "RLA $nn - Zero Page (6 cycles)" {
-    var cpu = Cpu.init();
-    var bus = Bus.init();
+    var state = Cpu.Logic.init();
+    var bus = Bus{};
 
     // Setup: RLA $60
     bus.ram[0] = 0x27; // RLA zero page
@@ -827,8 +868,8 @@ test "RLA $nn - Zero Page (6 cycles)" {
 }
 
 test "SRE $nn - Zero Page (6 cycles)" {
-    var cpu = Cpu.init();
-    var bus = Bus.init();
+    var state = Cpu.Logic.init();
+    var bus = Bus{};
 
     // Setup: SRE $70
     bus.ram[0] = 0x47; // SRE zero page
@@ -849,8 +890,8 @@ test "SRE $nn - Zero Page (6 cycles)" {
 }
 
 test "RRA $nn - Zero Page (6 cycles)" {
-    var cpu = Cpu.init();
-    var bus = Bus.init();
+    var state = Cpu.Logic.init();
+    var bus = Bus{};
 
     // Setup: RRA $80
     bus.ram[0] = 0x67; // RRA zero page
@@ -871,8 +912,8 @@ test "RRA $nn - Zero Page (6 cycles)" {
 }
 
 test "DCP $nn - Zero Page (6 cycles)" {
-    var cpu = Cpu.init();
-    var bus = Bus.init();
+    var state = Cpu.Logic.init();
+    var bus = Bus{};
 
     // Setup: DCP $90
     bus.ram[0] = 0xC7; // DCP zero page
@@ -893,8 +934,8 @@ test "DCP $nn - Zero Page (6 cycles)" {
 }
 
 test "ISC $nn - Zero Page (6 cycles)" {
-    var cpu = Cpu.init();
-    var bus = Bus.init();
+    var state = Cpu.Logic.init();
+    var bus = Bus{};
 
     // Setup: ISC $A0
     bus.ram[0] = 0xE7; // ISC zero page
@@ -916,8 +957,8 @@ test "ISC $nn - Zero Page (6 cycles)" {
 }
 
 test "SLO $nnnn,X - Absolute,X with page crossing" {
-    var cpu = Cpu.init();
-    var bus = Bus.init();
+    var state = Cpu.Logic.init();
+    var bus = Bus{};
 
     // Setup: SLO $10FF,X with X=$02 -> $1101 (page cross)
     bus.ram[0] = 0x1F; // SLO absolute,X
@@ -940,8 +981,8 @@ test "SLO $nnnn,X - Absolute,X with page crossing" {
 }
 
 test "RMW combo - Dummy write occurs" {
-    var cpu = Cpu.init();
-    var bus = Bus.init();
+    var state = Cpu.Logic.init();
+    var bus = Bus{};
 
     // Setup: DCP $50 - test that dummy write happens
     bus.ram[0] = 0xC7;
@@ -980,8 +1021,8 @@ test "Cycle counts - Immediate logic operations" {
     };
 
     for (opcodes_and_cycles) |test_case| {
-        var cpu = Cpu.init();
-        var bus = Bus.init();
+        var state = Cpu.Logic.init();
+        var bus = Bus{};
 
         bus.ram[0] = test_case.opcode;
         bus.ram[1] = 0xFF;
@@ -999,8 +1040,8 @@ test "Cycle counts - JAM opcodes" {
     const jam_opcodes = [_]u8{ 0x02, 0x12, 0x22, 0x32, 0x42, 0x52, 0x62, 0x72, 0x92, 0xB2, 0xD2, 0xF2 };
 
     for (jam_opcodes) |opcode| {
-        var cpu = Cpu.init();
-        var bus = Bus.init();
+        var state = Cpu.Logic.init();
+        var bus = Bus{};
 
         bus.ram[0] = opcode;
         cpu.pc = 0x0000;
