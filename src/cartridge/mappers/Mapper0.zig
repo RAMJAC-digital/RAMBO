@@ -162,7 +162,6 @@ test "Mapper0: 32KB PRG ROM mapping" {
         .mapper = mapper_ptr,
         .header = undefined,
         .mirroring = .horizontal,
-        .mutex = .{},
         .allocator = undefined,
         .mapper_storage = .{ .mapper0 = mapper0 },
     };
@@ -191,7 +190,6 @@ test "Mapper0: 16KB PRG ROM mirroring" {
         .mapper = mapper_ptr,
         .header = undefined,
         .mirroring = .horizontal,
-        .mutex = .{},
         .allocator = undefined,
         .mapper_storage = .{ .mapper0 = mapper0 },
     };
@@ -222,7 +220,6 @@ test "Mapper0: CHR ROM read" {
         .mapper = mapper_ptr,
         .header = undefined,
         .mirroring = .horizontal,
-        .mutex = .{},
         .allocator = undefined,
         .mapper_storage = .{ .mapper0 = mapper0 },
     };
@@ -246,7 +243,6 @@ test "Mapper0: CHR RAM write" {
         .mapper = mapper_ptr,
         .header = undefined,
         .mirroring = .horizontal,
-        .mutex = .{},
         .allocator = undefined,
         .mapper_storage = .{ .mapper0 = mapper0 },
     };
@@ -275,7 +271,6 @@ test "Mapper0: CPU writes ignored" {
         .mapper = mapper_ptr,
         .header = undefined,
         .mirroring = .horizontal,
-        .mutex = .{},
         .allocator = undefined,
         .mapper_storage = .{ .mapper0 = mapper0 },
     };

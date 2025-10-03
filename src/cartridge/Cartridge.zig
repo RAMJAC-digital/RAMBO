@@ -1,13 +1,16 @@
 //! NES Cartridge Abstraction
 //!
 //! Represents a loaded NES cartridge with ROM data, mapper, and metadata.
-//! Provides thread-safe access to cartridge memory for CPU and PPU.
+//! Provides access to cartridge memory for CPU and PPU.
 //!
 //! Key features:
-//! - Thread-safe reads/writes via mutex
+//! - Single-threaded access from RT emulation loop
 //! - Polymorphic mapper interface
 //! - Owned ROM data with proper cleanup
-//! - Atomic state management
+//!
+//! Note: No mutex needed - cartridge access is exclusively from
+//! single-threaded RT loop (EmulationState.tick()). Future multi-threading
+//! will use message passing, not shared mutable state.
 
 const std = @import("std");
 const ines = @import("ines.zig");
@@ -26,7 +29,7 @@ pub const CartridgeError = error{
 } || ines.InesError || std.mem.Allocator.Error;
 
 /// NES Cartridge
-/// Contains ROM data, mapper implementation, and synchronization primitives
+/// Contains ROM data, mapper implementation, accessed from single-threaded RT loop
 pub const Cartridge = struct {
     /// PRG ROM data (immutable after load)
     /// Size: header.prg_rom_size * 16KB
@@ -46,10 +49,6 @@ pub const Cartridge = struct {
 
     /// Nametable mirroring mode
     mirroring: Mirroring,
-
-    /// Synchronization mutex for thread-safe access
-    /// Currently single-threaded, but prepared for future multi-threading
-    mutex: std.Thread.Mutex,
 
     /// Allocator for cleanup
     allocator: std.mem.Allocator,
@@ -116,7 +115,6 @@ pub const Cartridge = struct {
             .header = header,
             .mapper = undefined, // Set after mapper_storage
             .mirroring = header.getMirroring(),
-            .mutex = .{},
             .allocator = allocator,
             .mapper_storage = undefined, // Set next
         };
@@ -150,51 +148,28 @@ pub const Cartridge = struct {
     }
 
     /// Read from CPU address space ($4020-$FFFF)
-    /// Thread-safe via mutex
     pub fn cpuRead(self: *const Cartridge, address: u16) u8 {
-        // Cast away const for mutex - reading is logically const
-        const mutable_self = @constCast(self);
-        mutable_self.mutex.lock();
-        defer mutable_self.mutex.unlock();
-
         return self.mapper.cpuRead(self, address);
     }
 
     /// Write to CPU address space ($4020-$FFFF)
-    /// Thread-safe via mutex
     pub fn cpuWrite(self: *Cartridge, address: u16, value: u8) void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
-
         self.mapper.cpuWrite(self, address, value);
     }
 
     /// Read from PPU address space ($0000-$1FFF for CHR)
-    /// Thread-safe via mutex
     pub fn ppuRead(self: *const Cartridge, address: u16) u8 {
-        const mutable_self = @constCast(self);
-        mutable_self.mutex.lock();
-        defer mutable_self.mutex.unlock();
-
         return self.mapper.ppuRead(self, address);
     }
 
     /// Write to PPU address space ($0000-$1FFF for CHR)
     /// Only valid for CHR RAM
-    /// Thread-safe via mutex
     pub fn ppuWrite(self: *Cartridge, address: u16, value: u8) void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
-
         self.mapper.ppuWrite(self, address, value);
     }
 
     /// Reset cartridge to power-on state
-    /// Thread-safe via mutex
     pub fn reset(self: *Cartridge) void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
-
         self.mapper.reset(self);
     }
 };
