@@ -2,7 +2,7 @@ const std = @import("std");
 const Cpu = @import("../Cpu.zig");
 const Bus = @import("../../bus/Bus.zig").Bus;
 
-const State = Cpu.State;
+const State = Cpu.State.State;
 
 // ============================================================================
 // INC - Increment Memory

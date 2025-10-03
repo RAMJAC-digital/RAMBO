@@ -11,7 +11,7 @@ const Bus = RAMBO.Bus;
 
 test "NOP implied - 2 cycles" {
     var state = Cpu.Logic.init();
-    var bus = Bus{};
+    var bus = Bus.Logic.init();
 
     // Setup: NOP at $8000
     bus.ram[0] = 0xEA; // NOP opcode
@@ -42,7 +42,7 @@ test "NOP implied - 2 cycles" {
 
 test "NOP immediate (unofficial) - 2 cycles" {
     var state = Cpu.Logic.init();
-    var bus = Bus{};
+    var bus = Bus.Logic.init();
 
     // Setup: NOP #$42 at $8000
     bus.ram[0] = 0x80; // Unofficial NOP immediate
@@ -67,7 +67,7 @@ test "NOP immediate (unofficial) - 2 cycles" {
 
 test "LDA immediate - 2 cycles" {
     var state = Cpu.Logic.init();
-    var bus = Bus{};
+    var bus = Bus.Logic.init();
 
     // Setup: LDA #$42
     bus.ram[0] = 0xA9; // LDA immediate
@@ -89,7 +89,7 @@ test "LDA immediate - 2 cycles" {
 
 test "LDA immediate - zero flag" {
     var state = Cpu.Logic.init();
-    var bus = Bus{};
+    var bus = Bus.Logic.init();
 
     // Setup: LDA #$00
     bus.ram[0] = 0xA9;
@@ -108,7 +108,7 @@ test "LDA immediate - zero flag" {
 
 test "LDA immediate - negative flag" {
     var state = Cpu.Logic.init();
-    var bus = Bus{};
+    var bus = Bus.Logic.init();
 
     // Setup: LDA #$80
     bus.ram[0] = 0xA9;
@@ -127,7 +127,7 @@ test "LDA immediate - negative flag" {
 
 test "LDA zero page - 3 cycles" {
     var state = Cpu.Logic.init();
-    var bus = Bus{};
+    var bus = Bus.Logic.init();
 
     // Setup: LDA $10
     bus.ram[0] = 0xA5; // LDA zero page
@@ -154,7 +154,7 @@ test "LDA zero page - 3 cycles" {
 
 test "LDA zero page,X - 4 cycles" {
     var state = Cpu.Logic.init();
-    var bus = Bus{};
+    var bus = Bus.Logic.init();
 
     // Setup: LDA $10,X with X=$05
     bus.ram[0] = 0xB5; // LDA zero page,X
@@ -179,7 +179,7 @@ test "LDA zero page,X - 4 cycles" {
 
 test "LDA zero page,X - wrapping" {
     var state = Cpu.Logic.init();
-    var bus = Bus{};
+    var bus = Bus.Logic.init();
 
     // Setup: LDA $FF,X with X=$05 -> wraps to $04
     bus.ram[0] = 0xB5;
@@ -198,7 +198,7 @@ test "LDA zero page,X - wrapping" {
 
 test "LDA absolute - 4 cycles" {
     var state = Cpu.Logic.init();
-    var bus = Bus{};
+    var bus = Bus.Logic.init();
 
     // Setup: LDA $0234 (keep in RAM range)
     bus.ram[0] = 0xAD; // LDA absolute
@@ -217,7 +217,7 @@ test "LDA absolute - 4 cycles" {
 
 test "LDA absolute,X - no page crossing" {
     var state = Cpu.Logic.init();
-    var bus = Bus{};
+    var bus = Bus.Logic.init();
 
     // Setup: LDA $0130,X with X=$05 -> $0135 (no page cross, in RAM)
     bus.ram[0] = 0xBD; // LDA absolute,X
@@ -242,7 +242,7 @@ test "LDA absolute,X - no page crossing" {
 
 test "LDA absolute,X - page crossing (5 cycles)" {
     var state = Cpu.Logic.init();
-    var bus = Bus{};
+    var bus = Bus.Logic.init();
 
     // Setup: LDA $01FF,X with X=$05 -> $0204 (page cross, in RAM)
     bus.ram[0] = 0xBD;
@@ -272,7 +272,7 @@ test "LDA absolute,X - page crossing (5 cycles)" {
 
 test "STA zero page - 3 cycles" {
     var state = Cpu.Logic.init();
-    var bus = Bus{};
+    var bus = Bus.Logic.init();
 
     // Setup: STA $20
     bus.ram[0] = 0x85; // STA zero page
@@ -290,7 +290,7 @@ test "STA zero page - 3 cycles" {
 
 test "STA absolute,X - always 5+ cycles (write instruction)" {
     var state = Cpu.Logic.init();
-    var bus = Bus{};
+    var bus = Bus.Logic.init();
 
     // Setup: STA $0200,X with X=$05 (no page cross, in RAM)
     bus.ram[0] = 0x9D; // STA absolute,X
@@ -316,7 +316,7 @@ test "STA absolute,X - always 5+ cycles (write instruction)" {
 
 test "NOP: 1-byte implied variants - 2 cycles" {
     var state = Cpu.Logic.init();
-    var bus = Bus{};
+    var bus = Bus.Logic.init();
 
     const opcodes_to_test = [_]u8{ 0x1A, 0x3A, 0x5A, 0x7A, 0xDA, 0xFA };
 
@@ -354,7 +354,7 @@ test "NOP: 1-byte implied variants - 2 cycles" {
 
 test "NOP: 2-byte zero page variants - 3 cycles" {
     var state = Cpu.Logic.init();
-    var bus = Bus{};
+    var bus = Bus.Logic.init();
 
     const opcodes_to_test = [_]u8{ 0x04, 0x44, 0x64 };
 
@@ -392,7 +392,7 @@ test "NOP: 2-byte zero page variants - 3 cycles" {
 
 test "NOP: 2-byte zero page,X variants - 4 cycles" {
     var state = Cpu.Logic.init();
-    var bus = Bus{};
+    var bus = Bus.Logic.init();
 
     const opcodes_to_test = [_]u8{ 0x14, 0x34, 0x54, 0x74, 0xD4, 0xF4 };
 
@@ -431,7 +431,7 @@ test "NOP: 2-byte zero page,X variants - 4 cycles" {
 
 test "NOP: 2-byte zero page,X with wrapping" {
     var state = Cpu.Logic.init();
-    var bus = Bus{};
+    var bus = Bus.Logic.init();
 
     // Setup: NOP $FF,X with X=$10 -> wraps to $0F
     bus.ram[0] = 0x14; // NOP zero page,X
@@ -450,7 +450,7 @@ test "NOP: 2-byte zero page,X with wrapping" {
 
 test "NOP: 3-byte absolute - 4 cycles" {
     var state = Cpu.Logic.init();
-    var bus = Bus{};
+    var bus = Bus.Logic.init();
 
     // Setup: NOP $1234 at $0000
     bus.ram[0] = 0x0C; // NOP absolute
@@ -478,7 +478,7 @@ test "NOP: 3-byte absolute - 4 cycles" {
 
 test "NOP: 3-byte absolute,X variants without page crossing - 4 cycles" {
     var state = Cpu.Logic.init();
-    var bus = Bus{};
+    var bus = Bus.Logic.init();
 
     const opcodes_to_test = [_]u8{ 0x1C, 0x3C, 0x5C, 0x7C, 0xDC, 0xFC };
 
@@ -509,7 +509,7 @@ test "NOP: 3-byte absolute,X variants without page crossing - 4 cycles" {
 
 test "NOP: 3-byte absolute,X with page crossing - 5 cycles" {
     var state = Cpu.Logic.init();
-    var bus = Bus{};
+    var bus = Bus.Logic.init();
 
     const opcodes_to_test = [_]u8{ 0x1C, 0x3C, 0x5C, 0x7C, 0xDC, 0xFC };
 
@@ -540,7 +540,7 @@ test "NOP: 3-byte absolute,X with page crossing - 5 cycles" {
 
 test "NOP variants: memory reads actually occur" {
     var state = Cpu.Logic.init();
-    var bus = Bus{};
+    var bus = Bus.Logic.init();
 
     // Setup: NOP $42 (zero page)
     bus.ram[0] = 0x04; // NOP zero page
@@ -590,7 +590,7 @@ test "CPU power-on state - AccuracyCoin requirements" {
 
 test "RESET: loads PC from vector at $FFFC-$FFFD" {
     var state = Cpu.Logic.init();
-    var bus = Bus{};
+    var bus = Bus.Logic.init();
 
     // Allocate test RAM for reset vector
     var test_ram = [_]u8{0} ** 32768;
@@ -608,7 +608,7 @@ test "RESET: loads PC from vector at $FFFC-$FFFD" {
 
 test "RESET: decrements SP by 3" {
     var state = Cpu.Logic.init();
-    var bus = Bus{};
+    var bus = Bus.Logic.init();
 
     var test_ram = [_]u8{0} ** 32768;
     bus.test_ram = &test_ram;
@@ -628,7 +628,7 @@ test "RESET: decrements SP by 3" {
 
 test "RESET: sets interrupt disable flag" {
     var state = Cpu.Logic.init();
-    var bus = Bus{};
+    var bus = Bus.Logic.init();
 
     var test_ram = [_]u8{0} ** 32768;
     bus.test_ram = &test_ram;
@@ -647,7 +647,7 @@ test "RESET: sets interrupt disable flag" {
 
 test "RESET: preserves A/X/Y registers" {
     var state = Cpu.Logic.init();
-    var bus = Bus{};
+    var bus = Bus.Logic.init();
 
     var test_ram = [_]u8{0} ** 32768;
     bus.test_ram = &test_ram;
@@ -670,7 +670,7 @@ test "RESET: preserves A/X/Y registers" {
 
 test "RESET: resets CPU state machine" {
     var state = Cpu.Logic.init();
-    var bus = Bus{};
+    var bus = Bus.Logic.init();
 
     var test_ram = [_]u8{0} ** 32768;
     bus.test_ram = &test_ram;
@@ -694,7 +694,7 @@ test "RESET: resets CPU state machine" {
 test "Power-on vs RESET: different SP values" {
     const state_power_on = Cpu.Logic.init();
     var state_reset = Cpu.Logic.init();
-    var bus = Bus{};
+    var bus = Bus.Logic.init();
 
     var test_ram = [_]u8{0} ** 32768;
     bus.test_ram = &test_ram;
@@ -716,7 +716,7 @@ test "Power-on vs RESET: different SP values" {
 
 test "RESET: clears pending interrupts" {
     var state = Cpu.Logic.init();
-    var bus = Bus{};
+    var bus = Bus.Logic.init();
 
     var test_ram = [_]u8{0} ** 32768;
     bus.test_ram = &test_ram;
@@ -739,7 +739,7 @@ test "RESET: clears pending interrupts" {
 
 test "Instructions update open bus correctly" {
     var state = Cpu.Logic.init();
-    var bus = Bus{};
+    var bus = Bus.Logic.init();
 
     // LDA immediate updates bus with operand
     bus.ram[0] = 0xA9;

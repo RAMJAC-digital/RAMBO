@@ -11,7 +11,7 @@ const Cpu = @import("../Cpu.zig");
 const Bus = @import("../../bus/Bus.zig").Bus;
 const helpers = @import("../helpers.zig");
 
-const State = Cpu.State;
+const State = Cpu.State.State;
 
 // ============================================================================
 // LAX - Load A and X (Combo: LDA + TAX)

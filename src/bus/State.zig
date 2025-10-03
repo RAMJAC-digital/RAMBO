@@ -2,8 +2,11 @@
 //!
 //! This module defines the pure data structures for the NES memory bus state.
 //! Following the hybrid architecture pattern: State contains only data, Logic contains functions.
+//! State includes non-owning pointers to cartridge/PPU for convenient method delegation.
 
 const std = @import("std");
+const Cartridge = @import("../cartridge/Cartridge.zig").Cartridge;
+const Ppu = @import("../ppu/Ppu.zig").Ppu;
 
 /// Open bus state tracking
 /// The NES data bus is not driven during reads from unmapped regions,
@@ -58,9 +61,17 @@ pub const State = struct {
     /// This is a slice to allow flexibility in test setup
     test_ram: ?[]u8 = null,
 
-    // Note: Cartridge and PPU are NOT part of State
-    // They are passed as parameters to Logic functions
-    // This maintains zero coupling and clean separation of concerns
+    // ===== Non-Owning Component References =====
+
+    /// Optional pointer to cartridge (non-owning)
+    /// Used for delegating to Logic functions conveniently
+    /// Tests can leave this null and pass explicit parameters to Logic
+    cartridge: ?*Cartridge = null,
+
+    /// Optional pointer to PPU (non-owning)
+    /// Used for delegating to Logic functions conveniently
+    /// Tests can leave this null and pass explicit parameters to Logic
+    ppu: ?*Ppu = null,
 
     /// Initialize bus state with zeroed RAM
     /// Returns a clean bus state ready for emulation
@@ -70,7 +81,53 @@ pub const State = struct {
             .cycle = 0,
             .open_bus = .{},
             .test_ram = null,
+            .cartridge = null,
+            .ppu = null,
         };
+    }
+
+    // ===== Convenience Methods (Delegate to Logic) =====
+
+    /// Read from bus (convenience method that delegates to Logic)
+    /// For testing with explicit parameters, call Logic.read() directly
+    pub inline fn read(self: *State, address: u16) u8 {
+        const Logic = @import("Logic.zig");
+        return Logic.read(self, self.cartridge, self.ppu, address);
+    }
+
+    /// Write to bus (convenience method that delegates to Logic)
+    /// For testing with explicit parameters, call Logic.write() directly
+    pub inline fn write(self: *State, address: u16, value: u8) void {
+        const Logic = @import("Logic.zig");
+        Logic.write(self, self.cartridge, self.ppu, address, value);
+    }
+
+    /// Read 16-bit value (little-endian)
+    /// For testing with explicit parameters, call Logic.read16() directly
+    pub inline fn read16(self: *State, address: u16) u16 {
+        const Logic = @import("Logic.zig");
+        return Logic.read16(self, self.cartridge, self.ppu, address);
+    }
+
+    /// Read 16-bit value with JMP indirect page-crossing bug
+    /// For testing with explicit parameters, call Logic.read16Bug() directly
+    pub inline fn read16Bug(self: *State, address: u16) u16 {
+        const Logic = @import("Logic.zig");
+        return Logic.read16Bug(self, self.cartridge, self.ppu, address);
+    }
+
+    /// Load a cartridge into the bus
+    /// Sets the non-owning pointer to the cartridge
+    pub inline fn loadCartridge(self: *State, cartridge: *Cartridge) void {
+        self.cartridge = cartridge;
+    }
+
+    /// Unload the current cartridge from the bus
+    /// Returns the cartridge pointer that was removed (or null if none was loaded)
+    pub inline fn unloadCartridge(self: *State) ?*Cartridge {
+        const old_cart = self.cartridge;
+        self.cartridge = null;
+        return old_cart;
     }
 };
 

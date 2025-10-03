@@ -2,7 +2,7 @@ const std = @import("std");
 const Cpu = @import("Cpu.zig");
 const BusModule = @import("../bus/Bus.zig");
 
-const State = Cpu.State;
+const State = Cpu.State.State; // CPU State type, not module
 const Bus = BusModule.Bus;
 
 /// Microstep function signature

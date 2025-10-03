@@ -30,3 +30,9 @@ pub const BusState = State.State;
 // Backward compatibility alias
 // Allows existing code to use `Bus` instead of `State.State`
 pub const Bus = State.State;
+
+/// Backward compatibility: Initialize a new bus state
+/// Equivalent to State.State.init() or Logic.init()
+pub inline fn init() State.State {
+    return State.State.init();
+}

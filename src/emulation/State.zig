@@ -11,7 +11,9 @@
 
 const std = @import("std");
 const Config = @import("../config/Config.zig");
-const Cpu = @import("../cpu/Cpu.zig");
+const CpuModule = @import("../cpu/Cpu.zig");
+const CpuState = CpuModule.State.State;
+const CpuLogic = CpuModule.Logic;
 const BusType = @import("../bus/Bus.zig").Bus;
 const Ppu = @import("../ppu/Ppu.zig").Ppu;
 
@@ -73,7 +75,7 @@ pub const EmulationState = struct {
     clock: MasterClock = .{},
 
     /// Component states
-    cpu: Cpu.State,
+    cpu: CpuState,
     ppu: Ppu,
     bus: BusType,
 
@@ -94,7 +96,7 @@ pub const EmulationState = struct {
     /// Initialize emulation state from configuration
     /// Requires the Bus to be already initialized with cartridge
     pub fn init(config: *const Config.Config, bus: BusType) EmulationState {
-        const cpu = Cpu.Logic.init();
+        const cpu = CpuLogic.init();
         const ppu = Ppu.init();
 
         // Note: PPU pointer in bus will be connected in connectComponents()
@@ -130,7 +132,7 @@ pub const EmulationState = struct {
         // Reconnect components after reset
         self.connectComponents();
 
-        Cpu.Logic.reset(&self.cpu, &self.bus);
+        CpuLogic.reset(&self.cpu, &self.bus);
         self.ppu.reset();
     }
 
@@ -216,7 +218,7 @@ pub const EmulationState = struct {
     fn tickCpu(self: *EmulationState) void {
         // Call existing CPU tick function
         // CPU maintains its own internal state machine
-        _ = Cpu.Logic.tick(&self.cpu, &self.bus);
+        _ = CpuLogic.tick(&self.cpu, &self.bus);
     }
 
     /// Tick PPU state machine (called every PPU cycle)

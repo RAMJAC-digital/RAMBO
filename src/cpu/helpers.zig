@@ -8,7 +8,7 @@ const Cpu = @import("Cpu.zig");
 const Bus = @import("../bus/Bus.zig").Bus;
 const constants = @import("constants.zig");
 
-const State = Cpu.State;
+const State = Cpu.State.State; // CPU State type, not module
 
 // ============================================================================
 // Memory Access Helpers

@@ -4,7 +4,7 @@ const BusModule = @import("../bus/Bus.zig");
 const opcodes = @import("opcodes.zig");
 const execution = @import("execution.zig");
 
-const State = Cpu.State;
+const State = Cpu.State.State; // CPU State type, not module
 const Bus = BusModule.Bus;
 const MicrostepFn = execution.MicrostepFn;
 const InstructionExecutor = execution.InstructionExecutor;

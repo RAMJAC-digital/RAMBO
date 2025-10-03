@@ -11,7 +11,7 @@ const Bus = RAMBO.Bus;
 
 test "ASL accumulator - 2 cycles" {
     var state = Cpu.Logic.init();
-    var bus = Bus{};
+    var bus = Bus.Logic.init();
 
     bus.ram[0] = 0x0A; // ASL accumulator
     state.pc = 0x0000;
@@ -33,7 +33,7 @@ test "ASL accumulator - 2 cycles" {
 
 test "ASL zero page - 5 cycles with dummy write" {
     var state = Cpu.Logic.init();
-    var bus = Bus{};
+    var bus = Bus.Logic.init();
 
     bus.ram[0] = 0x06; // ASL zero page
     bus.ram[1] = 0x10; // Address $10
@@ -57,7 +57,7 @@ test "ASL zero page - 5 cycles with dummy write" {
 
 test "ASL absolute,X - 7 cycles" {
     var state = Cpu.Logic.init();
-    var bus = Bus{};
+    var bus = Bus.Logic.init();
 
     bus.ram[0] = 0x1E; // ASL absolute,X
     bus.ram[1] = 0x00; // Low byte
@@ -81,7 +81,7 @@ test "ASL absolute,X - 7 cycles" {
 
 test "LSR accumulator - carry flag" {
     var state = Cpu.Logic.init();
-    var bus = Bus{};
+    var bus = Bus.Logic.init();
 
     bus.ram[0] = 0x4A; // LSR accumulator
     state.pc = 0x0000;
@@ -97,7 +97,7 @@ test "LSR accumulator - carry flag" {
 
 test "LSR zero page,X - 6 cycles with dummy write" {
     var state = Cpu.Logic.init();
-    var bus = Bus{};
+    var bus = Bus.Logic.init();
 
     bus.ram[0] = 0x56; // LSR zero page,X
     bus.ram[1] = 0x10; // Base address
@@ -119,7 +119,7 @@ test "LSR zero page,X - 6 cycles with dummy write" {
 
 test "ROL with carry rotation" {
     var state = Cpu.Logic.init();
-    var bus = Bus{};
+    var bus = Bus.Logic.init();
 
     bus.ram[0] = 0x2A; // ROL accumulator
     state.pc = 0x0000;
@@ -135,7 +135,7 @@ test "ROL with carry rotation" {
 
 test "ROL absolute - 6 cycles" {
     var state = Cpu.Logic.init();
-    var bus = Bus{};
+    var bus = Bus.Logic.init();
 
     bus.ram[0] = 0x2E; // ROL absolute
     bus.ram[1] = 0x20;
@@ -158,7 +158,7 @@ test "ROL absolute - 6 cycles" {
 
 test "ROR with carry rotation" {
     var state = Cpu.Logic.init();
-    var bus = Bus{};
+    var bus = Bus.Logic.init();
 
     bus.ram[0] = 0x6A; // ROR accumulator
     state.pc = 0x0000;
@@ -178,7 +178,7 @@ test "ROR with carry rotation" {
 
 test "INC zero page - 5 cycles with dummy write" {
     var state = Cpu.Logic.init();
-    var bus = Bus{};
+    var bus = Bus.Logic.init();
 
     bus.ram[0] = 0xE6; // INC zero page
     bus.ram[1] = 0x10;
@@ -195,7 +195,7 @@ test "INC zero page - 5 cycles with dummy write" {
 
 test "INC wraps to zero" {
     var state = Cpu.Logic.init();
-    var bus = Bus{};
+    var bus = Bus.Logic.init();
 
     bus.ram[0] = 0xE6; // INC zero page
     bus.ram[1] = 0x10;
@@ -212,7 +212,7 @@ test "INC wraps to zero" {
 
 test "INC absolute,X - 7 cycles" {
     var state = Cpu.Logic.init();
-    var bus = Bus{};
+    var bus = Bus.Logic.init();
 
     bus.ram[0] = 0xFE; // INC absolute,X
     bus.ram[1] = 0x00;
@@ -236,7 +236,7 @@ test "INC absolute,X - 7 cycles" {
 
 test "DEC zero page - 5 cycles" {
     var state = Cpu.Logic.init();
-    var bus = Bus{};
+    var bus = Bus.Logic.init();
 
     bus.ram[0] = 0xC6; // DEC zero page
     bus.ram[1] = 0x10;
@@ -252,7 +252,7 @@ test "DEC zero page - 5 cycles" {
 
 test "DEC wraps to FF" {
     var state = Cpu.Logic.init();
-    var bus = Bus{};
+    var bus = Bus.Logic.init();
 
     bus.ram[0] = 0xC6; // DEC zero page
     bus.ram[1] = 0x10;
@@ -273,7 +273,7 @@ test "DEC wraps to FF" {
 
 test "INX - 2 cycles" {
     var state = Cpu.Logic.init();
-    var bus = Bus{};
+    var bus = Bus.Logic.init();
 
     bus.ram[0] = 0xE8; // INX
     state.pc = 0x0000;
@@ -289,7 +289,7 @@ test "INX - 2 cycles" {
 
 test "INY - zero flag" {
     var state = Cpu.Logic.init();
-    var bus = Bus{};
+    var bus = Bus.Logic.init();
 
     bus.ram[0] = 0xC8; // INY
     state.pc = 0x0000;
@@ -304,7 +304,7 @@ test "INY - zero flag" {
 
 test "DEX - negative flag" {
     var state = Cpu.Logic.init();
-    var bus = Bus{};
+    var bus = Bus.Logic.init();
 
     bus.ram[0] = 0xCA; // DEX
     state.pc = 0x0000;
@@ -319,7 +319,7 @@ test "DEX - negative flag" {
 
 test "DEY - 2 cycles" {
     var state = Cpu.Logic.init();
-    var bus = Bus{};
+    var bus = Bus.Logic.init();
 
     bus.ram[0] = 0x88; // DEY
     state.pc = 0x0000;
@@ -339,7 +339,7 @@ test "DEY - 2 cycles" {
 
 test "RMW dummy write occurs at correct cycle" {
     var state = Cpu.Logic.init();
-    var bus = Bus{};
+    var bus = Bus.Logic.init();
 
     // INC zero page - dummy write happens on cycle 4
     bus.ram[0] = 0xE6; // INC zero page

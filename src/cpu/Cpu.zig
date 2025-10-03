@@ -12,9 +12,10 @@ const std = @import("std");
 
 pub const State = @import("State.zig");
 pub const Logic = @import("Logic.zig");
+pub const instructions = @import("instructions.zig");
 
 pub const StatusFlags = State.StatusFlags;
 pub const AddressingMode = State.AddressingMode;
 pub const ExecutionState = State.ExecutionState;
 pub const InterruptType = State.InterruptType;
-pub const Cpu = State;
+pub const Cpu = State.State; // Alias to the State type, not the module

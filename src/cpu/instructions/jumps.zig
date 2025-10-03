@@ -11,7 +11,7 @@ const Cpu = @import("../Cpu.zig");
 const Bus = @import("../../bus/Bus.zig").Bus;
 const Logic = @import("../Logic.zig");
 
-const State = Cpu.State;
+const State = Cpu.State.State;
 
 /// JMP - Jump
 /// PC = address
