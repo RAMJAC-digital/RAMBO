@@ -1,0 +1,103 @@
+// RAMBO NES Emulator Configuration
+// KDL format: https://kdl.dev
+//
+// This configuration targets AccuracyCoin test suite requirements:
+// - NES NTSC front-loader (standard North America console)
+// - RP2A03G CPU (standard NTSC revision)
+// - RP2C02G PPU (NTSC USA)
+// - CIC-NES-3193 lockout chip
+// - NES controller ports
+
+// Console Variant
+// Options: "NES-NTSC-FrontLoader", "NES-NTSC-TopLoader", "NES-PAL", "Famicom", "Famicom-AV"
+console "NES-NTSC-FrontLoader"
+
+// CPU (Central Processing Unit) Configuration
+cpu {
+    // CPU variant - defines clock frequency and opcode behavior
+    // Options: "RP2A03E" (early NTSC), "RP2A03G" (standard NTSC), "RP2A03H" (later NTSC), "RP2A07" (PAL)
+    variant "RP2A03G"
+
+    // Video region determines clock frequency
+    // "NTSC": 1.79 MHz (21.47727 MHz ÷ 12)
+    // "PAL":  1.66 MHz (26.6017 MHz ÷ 16)
+    region "NTSC"
+
+    // Unstable (unofficial) opcode behavior
+    // These opcodes have hardware-dependent behavior across CPU revisions
+    unstable_opcodes {
+        // SHA (AXA, AHX) opcode behavior differs between revisions
+        // Options: "RP2A03G" or "standard" (most common), "RP2A03H" (different AND result)
+        sha_behavior "standard"
+
+        // LXA (LAX #imm) magic constant - varies by chip
+        // Common values: 0x00, 0xEE (most common), 0xFF
+        lxa_magic 0xEE
+    }
+}
+
+// PPU (Picture Processing Unit) Configuration
+ppu {
+    // PPU variant - defines timing and behavior
+    // Options: "RP2C02G" (NTSC USA/Canada), "RP2C07" (PAL Europe)
+    variant "RP2C02G"
+
+    // Video region determines frame rate and timing
+    // "NTSC": 60.0988 Hz, 262 scanlines, 341 PPU cycles/line
+    // "PAL":  50.0070 Hz, 312 scanlines, 341 PPU cycles/line
+    region "NTSC"
+
+    // Emulation accuracy level
+    // "cycle": Cycle-accurate (required for light guns, mid-frame effects)
+    // "frame": Frame-accurate (faster, no mid-frame effects)
+    accuracy "cycle"
+}
+
+// CIC (Checking Integrated Circuit) Lockout Chip Configuration
+cic {
+    // CIC variant - 4-bit Sharp SM590 microcontroller @ 4 MHz
+    // Options: "CIC-NES-3193" (NTSC), "CIC-NES-3195" (PAL), "CIC-NES-3197" (PAL alternate)
+    variant "CIC-NES-3193"
+
+    // Enable CIC authentication (false for top-loader NES)
+    enabled true
+
+    // Emulation mode
+    // "state_machine": Full CIC emulation (accurate behavior)
+    // "bypass": Top-loader NES bypass mode (no authentication)
+    // "disabled": No CIC emulation (always passes)
+    emulation "state_machine"
+}
+
+// Controller Configuration
+controllers {
+    // Controller port type affects clocking behavior
+    // "NES": Standard NES controller ports (North America/Europe)
+    // "Famicom": Hardwired Famicom controllers (Japan - different clocking)
+    type "NES"
+}
+
+// Video Output Configuration
+video {
+    // Backend renderer
+    // Options: "software", "opengl", "vulkan"
+    backend "software"
+
+    // V-sync enabled (locks to real NTSC/PAL timing)
+    vsync true
+
+    // Scale factor for output window (1x = 256x240)
+    scale 3
+}
+
+// Audio Output Configuration (placeholder for future APU)
+audio {
+    enabled false
+    sample_rate 48000
+}
+
+// Input Configuration (placeholder for controller/light gun)
+input {
+    // Light gun support requires cycle-accurate PPU
+    light_gun_enabled false
+}

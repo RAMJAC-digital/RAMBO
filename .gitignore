@@ -1,0 +1,39 @@
+# Zig build artifacts
+zig-cache/
+zig-out/
+.zig-cache/
+
+# Build outputs
+*.o
+*.so
+*.dylib
+*.dll
+*.exe
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Test outputs
+test-results/
+*.log
+
+# Runtime files
+*.core
+core.*
+
+# Local configuration (if any)
+local.config
+.env
+
+# AccuracyCoin test ROM (external, not checked in)
+AccuracyCoin/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
