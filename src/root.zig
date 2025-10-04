@@ -36,6 +36,9 @@ pub const EmulationState = @import("emulation/State.zig");
 /// State snapshot system (save/load emulation state)
 pub const Snapshot = @import("snapshot/Snapshot.zig");
 
+/// Debugger system (breakpoints, watchpoints, stepping, history)
+pub const Debugger = @import("debugger/Debugger.zig");
+
 // ============================================================================
 // Re-export commonly used types for convenience
 // ============================================================================
@@ -83,4 +86,5 @@ test {
     _ = FrameTimer;
     _ = EmulationState;
     _ = Snapshot;
+    _ = Debugger;
 }

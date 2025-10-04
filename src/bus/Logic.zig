@@ -15,6 +15,8 @@ pub fn init() BusState {
 /// Read a byte from the bus
 /// This properly handles mirroring and open bus behavior
 ///
+/// **Side Effect:** Updates open bus state (hardware-accurate behavior)
+///
 /// Parameters:
 ///   - state: Mutable bus state
 ///   - cartridge: Optional cartridge for ROM/mapper access (anytype for now, Phase 3 will fix)
@@ -30,6 +32,25 @@ pub fn read(state: *BusState, cartridge: anytype, ppu: anytype, address: u16) u8
     state.open_bus.update(value, state.cycle);
 
     return value;
+}
+
+/// Peek memory without side effects (for debugging/inspection)
+/// Does NOT update open bus - safe for debugger inspection
+///
+/// This is distinct from read() which updates open bus (hardware behavior).
+/// Use this for debugger inspection where side effects are undesirable.
+///
+/// Parameters:
+///   - state: Const bus state (read-only)
+///   - cartridge: Optional cartridge for ROM/mapper access
+///   - ppu: Optional PPU for register access
+///   - address: 16-bit CPU address to read from
+///
+/// Returns: Byte value at address (or open bus value if unmapped)
+pub fn peekMemory(state: *const BusState, cartridge: anytype, ppu: anytype, address: u16) u8 {
+    // Cast away const for readInternal (safe because it only reads)
+    // readInternal doesn't modify state - open bus update happens in read(), not here
+    return readInternal(@constCast(state), cartridge, ppu, address);
 }
 
 /// Internal read without open bus update
