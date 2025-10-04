@@ -1,7 +1,7 @@
 # Phase 7A.1: Bus Integration Tests - Status
 
-**Date:** 2025-10-04
-**Status:** ✅ COMPLETE (14/17 passing, 82%)
+**Date:** 2025-10-04 (Updated)
+**Status:** ✅ COMPLETE (17/17 passing, 100%)
 **Test File:** `tests/bus/bus_integration_test.zig`
 
 ## Summary
@@ -11,30 +11,30 @@ Created 17 comprehensive bus integration tests to validate memory bus behavior b
 **Test Results:**
 - **Target:** 15-20 tests
 - **Created:** 17 tests
-- **Passing:** 14/17 (82%)
-- **Failing:** 3/17 (18%)
+- **Passing:** 17/17 (100%) ✅
+- **Failing:** 0/17 (0%)
 - **Total Project Tests:** 513 (up from 496)
-- **Overall Pass Rate:** 500/513 (97.5%)
+- **Overall Pass Rate:** 503/513 (98.1%)
 
 ## Test Categories
 
-### Category 1: RAM Mirroring Tests (4 tests) - 3/4 passing ✅
+### Category 1: RAM Mirroring Tests (4 tests) - 4/4 passing ✅✅✅✅
 
 1. ✅ **Write to $0000 visible at all mirrors** - Verifies 2KB RAM mirrored 4x through $1FFF
 2. ✅ **RAM mirroring boundary ($1FFF → $0000)** - Tests wrap-around at boundaries
 3. ✅ **Mirroring preserves data across all regions** - Multi-address persistence
-4. ❌ **Write to mirror affects base and all other mirrors** - **FAILING**
-   - **Error:** Expected 0x88 at 0x0434, found 0
-   - **Issue:** Write to 0x1234 not visible at base address (0x1234 & 0x07FF = 0x0434)
-   - **Priority:** MEDIUM - Need to investigate RAM mirroring logic
+4. ✅ **Write to mirror affects base and all other mirrors** - **FIXED**
+   - **Issue:** Test had incorrect address calculation
+   - **Fix:** 0x1234 & 0x07FF = 0x0234 (not 0x0434)
+   - **Status:** Test expectations corrected, now passing
 
-### Category 2: PPU Register Mirroring Tests (3 tests) - 2/3 passing ✅
+### Category 2: PPU Register Mirroring Tests (3 tests) - 3/3 passing ✅✅✅
 
 1. ✅ **PPU registers mirrored every 8 bytes** - Tests $2008, $2010, $3000, $3FF8 mirrors
-2. ❌ **PPU mirroring boundary ($3FFF → $2007)** - **FAILING**
-   - **Error:** Expected 66, found 0
-   - **Issue:** PPUDATA buffered reads inconsistent across mirrors
-   - **Priority:** LOW - Edge case, may be expected behavior difference
+2. ✅ **PPU mirroring boundary ($3FFF → $2007)** - **FIXED**
+   - **Issue:** Test didn't account for PPUDATA buffering/auto-increment
+   - **Fix:** Rewrote test to use proper write-then-read sequence
+   - **Status:** Now correctly validates mirror behavior with buffering
 3. ✅ **All PPU register mirrors route to same underlying register** - Multiple mirror writes work
 
 ### Category 3: ROM Write Protection Tests (2 tests) - 2/2 passing ✅✅
@@ -42,14 +42,15 @@ Created 17 comprehensive bus integration tests to validate memory bus behavior b
 1. ✅ **ROM write does not modify cartridge** - Writes to $8000-$FFFF update open bus only
 2. ✅ **ROM write updates open bus** - Verifies data bus retention on ROM writes
 
-### Category 4: Open Bus Behavior Tests (4 tests) - 3/4 passing ✅
+### Category 4: Open Bus Behavior Tests (4 tests) - 4/4 passing ✅✅✅✅
 
 1. ✅ **Read from unmapped address returns last bus value** - Unmapped reads return open bus
 2. ✅ **Open bus decays over time** - Verified tracking mechanism exists
-3. ❌ **PPU status bits 0-4 are open bus** - **FAILING**
-   - **Error:** Expected 0b00011111, found 0
-   - **Issue:** PPUSTATUS lower bits should reflect open bus, returning 0 instead
-   - **Priority:** MEDIUM - Important for hardware accuracy
+3. ✅ **PPU status bits 0-4 are open bus** - **FIXED**
+   - **Issue:** Test was setting bus open bus instead of PPU open bus
+   - **Fix:** Write to PPU register first to set PPU's data bus latch
+   - **Hardware Quirk:** Bus and PPU have separate open bus values (correct behavior)
+   - **Status:** Test now correctly validates PPU open bus behavior
 4. ✅ **Sequential reads maintain open bus coherence** - Multi-step read/write sequences work
 
 ### Category 5: Cartridge Routing Tests (4 tests) - 4/4 passing ✅✅✅✅
@@ -59,28 +60,28 @@ Created 17 comprehensive bus integration tests to validate memory bus behavior b
 3. ✅ **Multiple components share same bus** - PPU + bus + RAM work together
 4. ✅ **read16 works across bus boundaries** - 16-bit reads span memory regions correctly
 
-## Failing Tests Analysis
+## Fixed Issues
 
-### 1. RAM Mirror Write-Through (Priority: MEDIUM)
+### 1. RAM Mirror Write-Through (FIXED ✅)
 **Test:** `Bus Integration: Write to mirror affects base and all other mirrors`
-**Expected:** Write to 0x1234 → visible at 0x0434 (base address)
-**Actual:** Returns 0 at base address
-**Root Cause:** Likely issue in RAM address calculation or mirroring logic in bus write path
-**Impact:** Could affect emulation if games rely on mirror writes
+**Issue:** Test calculation error - expected 0x0434 but should be 0x0234
+**Root Cause:** Incorrect address masking in test expectations
+**Fix:** Corrected to 0x1234 & 0x07FF = 0x0234
+**Impact:** Test now correctly validates RAM mirroring logic
 
-### 2. PPU Register Buffer Consistency (Priority: LOW)
+### 2. PPU Register Buffer Consistency (FIXED ✅)
 **Test:** `Bus Integration: PPU mirroring boundary ($3FFF → $2007)`
-**Expected:** Buffered reads from $2007 and $3FFF should return same value
-**Actual:** Different values returned
-**Root Cause:** PPUDATA read buffering may behave differently for mirrors
-**Impact:** Minor - edge case that may not affect most games
+**Issue:** Test didn't account for PPUDATA buffering and auto-increment
+**Root Cause:** Sequential reads to same register have side effects
+**Fix:** Rewrote test to properly reset address between write and read
+**Impact:** Now correctly tests mirror behavior with buffering
 
-### 3. PPU Status Open Bus Bits (Priority: MEDIUM)
+### 3. PPU Status Open Bus Bits (FIXED ✅)
 **Test:** `Bus Integration: PPU status bits 0-4 are open bus`
-**Expected:** Lower 5 bits of PPUSTATUS reflect open bus value
-**Actual:** Lower 5 bits return 0
-**Root Cause:** PPUSTATUS implementation may not preserve open bus in unused bits
-**Impact:** Hardware accuracy issue - some games may rely on this behavior
+**Issue:** Test was setting bus open bus instead of PPU open bus
+**Root Cause:** Bus and PPU have separate data bus latches (correct hardware behavior)
+**Fix:** Write to PPU register first to set PPU's open bus value
+**Impact:** Test now correctly validates hardware-accurate PPU open bus behavior
 
 ## Integration with Build System
 
@@ -126,21 +127,26 @@ const bus_integration_tests = b.addTest(.{
 
 ## Next Steps
 
-1. ✅ **Phase 7A.1 Complete** - Bus integration tests created and integrated
-2. **Future Fix:** Investigate and fix 3 failing tests (estimated 2-3 hours)
-   - RAM mirror write-through logic
-   - PPU status open bus bits implementation
-   - Optional: PPU register buffering consistency
+1. ✅ **Phase 7A.1 Complete** - All 17 bus integration tests passing (100%)
+2. ✅ **All Issues Resolved** - 3 test failures fixed, hardware quirks validated
 3. **Move to Phase 7A.2:** CPU-PPU integration tests (20-25 tests, 12-16 hours)
+
+**Ready to proceed:** Clear path forward with no blocking issues
 
 ## Success Metrics
 
 - ✅ Created 15-20 tests (got 17)
 - ✅ Integrated into build system
-- ✅ No regressions in existing tests (existing 17 bus tests still pass)
-- ✅ 82% pass rate on first implementation (14/17)
-- ✅ Identified 3 specific areas for improvement
+- ✅ No regressions in existing tests
+- ✅ 100% pass rate (17/17 passing)
+- ✅ All 3 test failures fixed and validated
 - ✅ Increased total test count: 496 → 513 (+3.4%)
-- ✅ Maintained >97% overall pass rate
+- ✅ Improved overall pass rate: 97.5% → 98.1%
+- ✅ Hardware quirks fully validated:
+  - RAM mirroring (11-bit address masking)
+  - Separate bus/PPU open bus values
+  - PPU register mirroring (8-byte intervals)
+  - PPUDATA read buffering across mirrors
+  - ROM write protection with open bus updates
 
-**Status:** Ready to proceed to Phase 7A.2 (CPU-PPU Integration Tests)
+**Status:** ✅ COMPLETE - Ready to proceed to Phase 7A.2 (CPU-PPU Integration Tests)
