@@ -89,16 +89,16 @@ test "Bus Integration: Mirroring preserves data across all regions" {
 test "Bus Integration: Write to mirror affects base and all other mirrors" {
     var bus = BusState.init();
 
-    // Write to the second mirror
+    // Write to the second mirror (0x1234 is in range $1000-$17FF)
     bus.write(0x1234, 0x88);
 
-    // Verify it's visible at the base address (0x1234 & 0x07FF = 0x0434)
-    try testing.expectEqual(@as(u8, 0x88), bus.read(0x0434));
+    // Verify it's visible at the base address (0x1234 & 0x07FF = 0x0234)
+    try testing.expectEqual(@as(u8, 0x88), bus.read(0x0234));
 
     // And all other mirrors
-    try testing.expectEqual(@as(u8, 0x88), bus.read(0x0C34)); // Mirror 1
-    try testing.expectEqual(@as(u8, 0x88), bus.read(0x1434)); // Mirror 2 (where we wrote)
-    try testing.expectEqual(@as(u8, 0x88), bus.read(0x1C34)); // Mirror 3
+    try testing.expectEqual(@as(u8, 0x88), bus.read(0x0A34)); // Mirror 1 ($0800 + $0234)
+    try testing.expectEqual(@as(u8, 0x88), bus.read(0x1234)); // Mirror 2 (where we wrote)
+    try testing.expectEqual(@as(u8, 0x88), bus.read(0x1A34)); // Mirror 3 ($1800 + $0234)
 }
 
 // ============================================================================
@@ -129,16 +129,26 @@ test "Bus Integration: PPU mirroring boundary ($3FFF → $2007)" {
     var ppu = PpuState.init();
     bus.ppu = &ppu;
 
-    // Write a value via $2007 (PPUDATA)
-    bus.write(0x2007, 0x42);
+    // Test that $3FFF correctly mirrors to $2007 (PPUDATA)
+    // We test by checking that writes to different mirrors all affect the same register
 
-    // Read from the last mirror address ($3FFF = $2007 mirrored)
-    // Note: PPUDATA reads have buffering behavior, so we just verify the mirror works
-    const last_mirror = bus.read(0x3FFF);
-    const base_reg = bus.read(0x2007);
+    // Set PPUADDR to $2000
+    bus.write(0x2006, 0x20); // High byte
+    bus.write(0x2006, 0x00); // Low byte
 
-    // Both should exhibit the same PPU read behavior (buffered reads)
-    try testing.expectEqual(base_reg, last_mirror);
+    // Write via $2007
+    bus.write(0x2007, 0xAA);
+
+    // Reset address
+    bus.write(0x2006, 0x20); // High byte
+    bus.write(0x2006, 0x00); // Low byte
+
+    // Read via $3FFF (mirror of $2007)
+    _ = bus.read(0x3FFF); // Dummy read (buffering)
+    const value = bus.read(0x3FFF); // Actual data
+
+    // Should read back 0xAA (written via $2007 mirror)
+    try testing.expectEqual(@as(u8, 0xAA), value);
 }
 
 test "Bus Integration: All PPU register mirrors route to same underlying register" {
@@ -237,14 +247,17 @@ test "Bus Integration: PPU status bits 0-4 are open bus" {
     var ppu = PpuState.init();
     bus.ppu = &ppu;
 
-    // Set open bus to known value
-    bus.write(0x0000, 0b00011111); // Set lower 5 bits
+    // Set PPU's open bus by writing to a PPU register
+    // This sets the PPU's internal data bus latch
+    bus.write(0x2001, 0b00011111); // Write to PPUMASK
 
     // Read PPUSTATUS ($2002)
+    // The lower 5 bits should reflect the PPU's open bus value
     const status = bus.read(0x2002);
 
-    // Bits 0-4 should reflect open bus, bits 5-7 are actual status
-    // Lower 5 bits should match open bus
+    // Bits 0-4 should reflect PPU open bus, bits 5-7 are actual status
+    // After a write to $2001, the PPU open bus has 0b00011111
+    // PPUSTATUS lower 5 bits should reflect this
     try testing.expectEqual(@as(u8, 0b00011111), status & 0x1F);
 }
 
