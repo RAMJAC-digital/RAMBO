@@ -11,15 +11,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Architecture:** State/Logic separation complete, comptime generics implemented ✅
 - **Thread Architecture:** Mailbox pattern + timer-driven emulation complete ✅
 - **PPU Background:** 100% complete (registers, VRAM, rendering pipeline) ✅
-- **PPU Sprites:** 0% implemented (38 tests written, Phase 3 planned) 🟡
+- **PPU Sprites:** 100% complete (73/73 tests passing) ✅
 - **Debugger:** 100% complete with callback system (62/62 tests) ✅
 - **Bus:** 85% complete (missing controller I/O) 🟡
 - **Cartridge:** Mapper 0 (NROM) complete ✅
-- **Tests:** 486/496 passing (97.9%) - 10 expected failures (9 sprite, 1 snapshot metadata)
+- **Tests:** 575/576 passing (99.8%) - 1 expected failure (snapshot metadata cosmetic)
 
-**Current Phase:** Phase 2 - Video Subsystem (OpenGL backend, window management)
-**Next Phase:** Phase 3 - Sprite Rendering
-**Critical Path:** Video Display → Sprite Rendering → Controller I/O → Playable Games
+**Current Phase:** Phase 8 - Video Subsystem (Wayland + Vulkan backend)
+**Next Phase:** Phase 9 - Controller I/O
+**Critical Path:** Video Display → Controller I/O → Playable Games
 
 **Key Requirement:** Hardware-accurate 6502 emulation with cycle-level precision for AccuracyCoin compatibility.
 
@@ -34,7 +34,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 zig build
 
 # Run all tests (unit + integration)
-zig build test                    # 486/496 tests passing
+zig build test                    # 575/576 tests passing
 
 # Run specific test categories
 zig build test-unit               # Unit tests only (fast)
@@ -42,24 +42,28 @@ zig build test-integration        # Integration tests (CPU instructions, PPU, et
 zig build test-trace              # Cycle-by-cycle execution traces
 zig build test-rmw-debug          # RMW instruction debugging
 
-# Run executable (not playable yet - needs sprites, video, controller)
+# Run executable (not playable yet - needs video, controller)
 zig build run
 ```
 
 ### Test Status by Category
 
 ```
-Total: 486/496 tests passing (97.9%)
+Total: 575/576 tests passing (99.8%)
 
-✅ CPU Tests: 283/283 (100%)
-✅ PPU Background Tests: 23/23 (100%)
+✅ CPU Tests: 105/105 (100%)
+✅ PPU Background Tests: 6/6 (100%)
+✅ PPU Sprite Tests: 73/73 (100%)
+  - Sprite Evaluation: 15/15 ✅
+  - Sprite Rendering: 23/23 ✅
+  - Sprite Edge Cases: 35/35 ✅
 ✅ Debugger Tests: 62/62 (100%)
 ✅ Bus Tests: 17/17 (100%)
-✅ Cartridge Tests: 42/42 (100%)
+✅ Cartridge Tests: 2/2 (100%)
 ✅ Snapshot Tests: 8/9 (89% - 1 cosmetic metadata issue)
-🟡 Sprite Tests: 6/38 (16% - implementation pending)
-🟡 Sprite Evaluation Tests: 6/15 (40% - 9 expected failures)
-🟡 Sprite Rendering Tests: 0/23 (0% - 23 expected failures)
+✅ Integration Tests: 21/21 (100%)
+✅ Comptime Tests: 8/8 (100%)
+✅ Inline Unit Tests: ~297 (in implementation files)
 ```
 
 ---
@@ -169,7 +173,7 @@ const NromCart = Cartridge(Mapper0);  // Zero runtime overhead
 
 **Opcodes:** All 256 implemented (151 official + 105 unofficial)
 
-**Tests:** 283/283 passing (100%)
+**Tests:** 105/105 passing (100%)
 
 **Files:**
 ```
@@ -201,25 +205,26 @@ src/cpu/
 
 ### PPU (`src/ppu/`)
 
-**Status:** 🟡 60% Complete - Background Done, Sprites Pending
+**Status:** ✅ 100% Complete - Background and Sprites Done
 
 **Completed Features:**
 - ✅ All 8 PPU registers ($2000-$2007)
 - ✅ VRAM system (2KB nametable + 32B palette RAM)
 - ✅ Background rendering pipeline (tile fetching, shift registers, pixel output)
+- ✅ Sprite evaluation (cycles 1-256) - full algorithm
+- ✅ Sprite fetching (cycles 257-320) - pattern data loading
+- ✅ Sprite rendering pipeline - pixel output with priority
+- ✅ Sprite 0 hit detection - accurate implementation
 - ✅ NES NTSC palette (64 colors, RGB888)
 - ✅ Scroll management (coarse X/Y, fine X)
 - ✅ VBlank timing and NMI generation
 - ✅ Horizontal/vertical mirroring
 
-**Missing Features (Phase 7):**
-- ❌ Sprite evaluation (cycles 1-256)
-- ❌ Sprite fetching (cycles 257-320)
-- ❌ Sprite rendering pipeline
-- ❌ Sprite 0 hit detection
-- ❌ OAM DMA ($4014)
+**Missing Features (Future):**
+- ⬜ OAM DMA ($4014) - deferred to later phase
+- ⬜ Emphasis bits - minor feature
 
-**Tests:** 29/61 passing (48% - 32 sprite tests failing as expected)
+**Tests:** 79/79 passing (100% - 6 background + 73 sprite)
 
 **Files:**
 ```
@@ -373,55 +378,60 @@ NMI triggers on falling edge (high → low transition), not level. IRQ is level-
 
 ## Current Development Phase
 
-### Phase 2: Video Subsystem Implementation (In Progress)
+### Phase 8: Video Display (Wayland + Vulkan) - Next
 
-**Objective:** Implement OpenGL-based video output to display PPU rendering on screen.
+**Objective:** Implement Wayland window and Vulkan rendering backend to display PPU frame output.
 
-**Reference:** `docs/VIDEO-SUBSYSTEM-DEVELOPMENT-PLAN.md` (comprehensive architecture guide)
+**Current Status:**
+- ✅ FrameMailbox double-buffered (480 KB, RGBA format ready)
+- ✅ WaylandEventMailbox scaffolding implemented
+- ✅ zig-wayland dependency configured in build.zig.zon
+- ⬜ Wayland window integration (not started)
+- ⬜ Vulkan rendering backend (not started)
 
-#### **Phase 2.1: Frame Mailbox Integration** (4-5 hours)
-**Status:** Next Up
-
-**Tasks:**
-1. Review existing `src/mailboxes/FrameMailbox.zig` implementation
-2. Add RGBA frame buffer support (256×240×4 bytes)
-3. Implement double-buffer swap pattern
-4. Write unit tests for thread-safe frame passing
-
-**Deliverable:** FrameMailbox ready for video subsystem integration
-
-#### **Phase 2.2: Window & OpenGL Backend** (6-8 hours)
+#### **Phase 8.1: Wayland Window** (6-8 hours)
 
 **Tasks:**
-1. Create `src/video/Window.zig` - GLFW window management
-2. Create `src/video/VideoSubsystem.zig` - OpenGL 3.3+ backend
-3. Implement shader compilation (vertex + fragment)
-4. Implement texture upload and rendering
-5. Add error handling with `errdefer` cleanup
+1. Create `src/video/Window.zig` - Wayland + XDG shell protocol
+2. Implement window creation and surface management
+3. Handle input events (keyboard/close)
+4. Post events to WaylandEventMailbox
+5. Integrate with libxev event loop
 
-**Deliverable:** Window displays solid colors and test patterns
+**Deliverable:** Wayland window opens, responds to events
 
-#### **Phase 2.3: Integration** (3-4 hours)
-
-**Tasks:**
-1. Modify PPU to write RGBA pixels to frame buffer
-2. Connect emulation thread to frame mailbox
-3. Integrate video subsystem with main render loop
-4. Test with AccuracyCoin.nes background graphics
-
-**Deliverable:** AccuracyCoin.nes background graphics visible on screen
-
-#### **Phase 2.4: Polish** (2-3 hours)
+#### **Phase 8.2: Vulkan Renderer** (8-10 hours)
 
 **Tasks:**
-1. Implement PBO double-buffering for async texture upload
-2. Add FPS counter (on-screen or terminal)
-3. Add window resize handling with aspect ratio correction
-4. Optimize with glTexSubImage2D
+1. Create `src/video/VulkanRenderer.zig`
+2. Initialize Vulkan instance, device, swapchain
+3. Setup render pass and graphics pipeline
+4. Implement texture upload from FrameMailbox
+5. Handle buffer synchronization (double-buffered)
 
-**Deliverable:** Stable 60 FPS video output with proper window management
+**Deliverable:** Vulkan renders frame data to window
 
-**Total Phase 2:** 15-20 hours
+#### **Phase 8.3: Integration** (4-6 hours)
+
+**Tasks:**
+1. Connect PPU output to FrameMailbox writes
+2. Spawn video thread consuming FrameMailbox
+3. Test with AccuracyCoin.nes (background + sprites)
+4. Verify 60 FPS rendering stability
+
+**Deliverable:** Full PPU output visible on screen
+
+#### **Phase 8.4: Polish** (2-4 hours)
+
+**Tasks:**
+1. Add FPS counter overlay
+2. Implement window resize with aspect ratio correction (8:7 pixel aspect)
+3. Add vsync support
+4. Handle window close gracefully
+
+**Deliverable:** Production-ready video output
+
+**Total Phase 8:** 20-28 hours
 
 ---
 
@@ -429,87 +439,80 @@ NMI triggers on falling edge (high → low transition), not level. IRQ is level-
 
 ### Quick Reference
 
-**For Implementation:**
-- `CLAUDE.md` (this file) - Project overview and development guide
-- `docs/DEVELOPMENT-PLAN-2025-10-04.md` - Comprehensive development plan
-- `docs/PHASE-7-ACTION-PLAN.md` - Detailed Phase 7 plan with test requirements
-- `docs/SPRITE-RENDERING-SPECIFICATION.md` - Complete sprite rendering spec
+**For Navigation:**
+- `docs/README.md` - Documentation hub with component status and quick links
+- `CLAUDE.md` (this file) - Development guide and architecture reference
 
 **For Code Review:**
 - `docs/code-review/README.md` - Code review overview
-- `docs/code-review/REFACTORING-ROADMAP.md` - Architecture refactoring status
-- `docs/code-review/03-ppu.md` - PPU review findings
-
-**For Testing:**
-- `docs/PHASE-4-1-TEST-STATUS.md` - Sprite evaluation test status
-- `docs/PHASE-4-2-TEST-STATUS.md` - Sprite rendering test status
+- `docs/code-review/01-architecture.md` - Hybrid State/Logic pattern
+- `docs/code-review/02-cpu.md` - CPU implementation review
+- `docs/code-review/03-ppu.md` - PPU implementation review
+- `docs/code-review/04-memory-and-bus.md` - Bus architecture review
 
 **For Architecture:**
-- `docs/code-review/01-architecture.md` - Hybrid architecture overview
-- `docs/06-implementation-notes/design-decisions/video-subsystem-architecture.md` - Video system design
+- `docs/architecture/ppu-sprites.md` - Complete sprite rendering specification
+- `docs/implementation/design-decisions/final-hybrid-architecture.md` - Hybrid pattern guide
+- `docs/code-review/PHASE-3-COMPTIME-GENERICS-PLAN.md` - Comptime generics design
 
-**For Debugging:**
-- `docs/DEBUGGER-STATUS.md` - Complete debugger status
-- `docs/DEBUGGER-API-AUDIT.md` - API audit results
+**For API Reference:**
+- `docs/api-reference/debugger-api.md` - Debugger API guide
+- `docs/api-reference/snapshot-api.md` - Snapshot API guide
 
-### Key Documents by Purpose
+**For Testing:**
+- `docs/05-testing/accuracycoin-cpu-requirements.md` - Test ROM requirements
 
-**Starting New Work:**
-1. Read `DEVELOPMENT-PLAN-2025-10-04.md` for current priorities
-2. Read `PHASE-7-ACTION-PLAN.md` for detailed phase plan
-3. Check `docs/code-review/REFACTORING-ROADMAP.md` for architecture patterns
+**For History:**
+- `docs/archive/` - Archived documentation and completed phases
+- `docs/implementation/sessions/` - Development session notes
+- `docs/implementation/completed/` - Completed work summaries
 
-**Implementing Sprites:**
-1. Read `SPRITE-RENDERING-SPECIFICATION.md` for complete hardware spec
-2. Check `PHASE-4-1-TEST-STATUS.md` for evaluation test status
-3. Check `PHASE-4-2-TEST-STATUS.md` for rendering test status
+### Key Documents by Task
 
-**Understanding Architecture:**
-1. Read `docs/code-review/01-architecture.md` for hybrid State/Logic pattern
-2. Read `docs/code-review/REFACTORING-ROADMAP.md` for refactoring history
-3. Check module source files for implementation examples
+**Understanding the Codebase:**
+1. Read `docs/README.md` for high-level overview and current status
+2. Read `docs/code-review/01-architecture.md` for hybrid State/Logic pattern
+3. Review `docs/api-reference/` for component APIs
+
+**Implementing New Features:**
+1. Check `docs/README.md` for current phase and priorities
+2. Review relevant architecture docs in `docs/architecture/`
+3. Follow patterns in `docs/implementation/design-decisions/`
+
+**Working with Sprites (Complete):**
+1. See `docs/architecture/ppu-sprites.md` for complete specification
+2. Review implementation in `src/ppu/State.zig` and `src/ppu/Logic.zig`
+3. Check tests in `tests/ppu/sprite_*.zig` (73/73 passing)
 
 ---
 
 ## Development Workflow
 
-### Phase 7A Workflow (Current)
+### Phase 8 Workflow (Next)
 
-**Creating Bus Integration Tests:**
+**Video Subsystem Implementation:**
 ```bash
-# 1. Create test file
-touch tests/bus/bus_integration_test.zig
+# 1. Setup zig-wayland binding (already in build.zig.zon)
+zig fetch
 
-# 2. Implement tests following TDD pattern
-# 3. Run tests
-zig build test
+# 2. Create video module structure
+mkdir -p src/video
+touch src/video/Window.zig src/video/VulkanRenderer.zig
 
-# 4. Verify all tests compile and document expected failures
-# 5. Commit at milestones (every 5-10 tests)
-git add tests/bus/bus_integration_test.zig
-git commit -m "test(bus): Add RAM mirroring integration tests (5 tests)"
+# 3. Implement Wayland window management
+# Edit src/video/Window.zig
+zig build
 
-# 6. Update documentation
-# 7. Continue with next test category
-```
+# 4. Implement Vulkan rendering backend
+# Edit src/video/VulkanRenderer.zig
+zig build
 
-### Phase 7B Workflow (Next)
+# 5. Test integration
+zig build run
 
-**Sprite Implementation (Test-Driven):**
-```bash
-# 1. Choose sub-phase (evaluation, fetching, rendering, DMA)
-# 2. Run failing tests to understand requirements
-zig build test
-
-# 3. Implement feature in src/ppu/State.zig and Logic.zig
-# 4. Run tests after each change
-zig build test
-
-# 5. Commit when tests pass
-git add src/ppu/State.zig src/ppu/Logic.zig
-git commit -m "feat(ppu): Implement sprite evaluation (cycles 1-64)"
-
-# 6. Continue to next sub-phase
+# 6. Commit at milestones
+git add src/video/
+git commit -m "feat(video): Implement Wayland window management"
 ```
 
 ### General Development Principles
@@ -528,31 +531,33 @@ git commit -m "feat(ppu): Implement sprite evaluation (cycles 1-64)"
 
 ```
 tests/
-├── bus/                         # Bus-specific tests
-│   └── bus_integration_test.zig       # NEW - Phase 7A.1
-├── integration/                 # Cross-component tests
-│   └── cpu_ppu_integration_test.zig   # NEW - Phase 7A.2
-├── cpu/                         # CPU tests (283 tests)
+├── bus/                         # Bus-specific tests (17 tests)
+│   └── bus_test.zig                   # RAM mirroring, routing, open bus
+├── integration/                 # Cross-component tests (21 tests)
+│   └── cpu_ppu_integration_test.zig   # CPU-PPU coordination
+├── cpu/                         # CPU tests (105 tests)
 │   ├── instructions_test.zig          # Instruction execution
 │   ├── unofficial_opcodes_test.zig    # Unofficial opcodes
 │   └── rmw_test.zig                   # Read-modify-write
-├── ppu/                         # PPU tests (61 tests)
+├── ppu/                         # PPU tests (79 tests)
 │   ├── sprite_evaluation_test.zig     # Sprite evaluation (15 tests)
 │   ├── sprite_rendering_test.zig      # Sprite rendering (23 tests)
-│   ├── sprite_edge_cases_test.zig     # NEW - Phase 7A.3
-│   └── chr_integration_test.zig       # CHR memory integration
+│   ├── sprite_edge_cases_test.zig     # Sprite edge cases (35 tests)
+│   └── chr_integration_test.zig       # CHR/background (6 tests)
 ├── debugger/                    # Debugger tests (62 tests)
 │   └── debugger_test.zig              # Complete debugger coverage
-├── cartridge/                   # Cartridge tests (42 tests)
-│   └── accuracycoin_test.zig          # AccuracyCoin loading
-└── snapshot/                    # Snapshot tests (9 tests)
-    └── snapshot_integration_test.zig  # State save/restore
+├── cartridge/                   # Cartridge tests (2 tests)
+│   └── accuracycoin_test.zig          # ROM loading and validation
+├── snapshot/                    # Snapshot tests (9 tests)
+│   └── snapshot_integration_test.zig  # State save/restore
+└── comptime/                    # Comptime tests (8 tests)
+    └── mapper_generics_test.zig      # Compile-time polymorphism
 ```
 
 ### Running Tests
 
 ```bash
-# All tests (486/496 passing)
+# All tests (575/576 passing)
 zig build test
 
 # Specific categories
@@ -577,10 +582,9 @@ zig test tests/ppu/sprite_evaluation_test.zig --dep RAMBO -Mroot=src/root.zig
 
 ### Test Status
 
-- **Total Tests:** 486/496 (97.9%)
-- **Expected Failures:** 10
-  - 9 sprite tests (implementation pending in Phase 7B)
-  - 1 snapshot metadata test (cosmetic issue)
+- **Total Tests:** 575/576 (99.8%)
+- **Expected Failures:** 1
+  - 1 snapshot metadata test (cosmetic 4-byte size discrepancy)
 
 ### Architecture Completion
 
@@ -589,24 +593,27 @@ zig test tests/ppu/sprite_evaluation_test.zig --dep RAMBO -Mroot=src/root.zig
 - ✅ **Phase A:** Backward compatibility cleanup (commit 2fba2fa)
 - ✅ **Phase 3:** VTable elimination, comptime generics (commit 2dc78b8)
 - ✅ **Phase 4:** Debugger system complete (commit 2e23a4a)
-- ✅ **Phase 1 (New):** Thread architecture & timer-driven emulation (2025-10-04)
+- ✅ **Phase 5:** Snapshot system (commit 65e0651)
+- ✅ **Phase 6:** Thread architecture, mailbox pattern (commit cc6734f)
+- ✅ **Phase 7:** PPU sprites complete (commit 772484b)
+- 🟡 **Phase 8:** Video subsystem (Wayland + Vulkan) - Next
 
 ---
 
 ## Critical Path to Playability
 
-**Current Progress: 72% Architecture Complete**
+**Current Progress: 83% Architecture Complete**
 
 1. ✅ **CPU Emulation** (100%) - Production ready
 2. ✅ **Architecture Refactoring** (100%) - State/Logic, comptime generics
 3. ✅ **PPU Background** (100%) - Tile fetching, rendering
-4. ✅ **Debugger** (100%) - Full debugging system
-5. ✅ **Thread Architecture** (100%) - Mailbox pattern, timer-driven emulation
-6. 🟡 **Video Display** (0%) - OpenGL backend (architecture designed)
-7. ⬜ **Sprite Rendering** (0%) - Evaluation, fetching, rendering pipeline
+4. ✅ **PPU Sprites** (100%) - Evaluation, fetching, rendering pipeline ✨ COMPLETE
+5. ✅ **Debugger** (100%) - Full debugging system
+6. ✅ **Thread Architecture** (100%) - Mailbox pattern, timer-driven emulation
+7. 🟡 **Video Display** (0%) - Wayland + Vulkan backend (scaffolding ready)
 8. ⬜ **Controller I/O** (0%) - $4016/$4017 registers
 
-**Estimated Time to Playable:** 47-66 hours (6-9 days)
+**Estimated Time to Playable:** 23-34 hours (3-5 days)**
 
 ---
 
@@ -614,40 +621,41 @@ zig test tests/ppu/sprite_evaluation_test.zig --dep RAMBO -Mroot=src/root.zig
 
 ### Immediate (Current Session)
 
-1. **Begin Phase 2: Video Subsystem Implementation**
-   - Review `docs/VIDEO-SUBSYSTEM-DEVELOPMENT-PLAN.md` for architecture details
-   - Understand mailbox-based double-buffering pattern
-   - Plan OpenGL backend structure
+1. **Begin Phase 8: Video Subsystem Implementation**
+   - Design Wayland window integration
+   - Plan Vulkan rendering backend
+   - Understand existing WaylandEventMailbox scaffolding
 
-2. **Phase 2.1: Frame Mailbox Integration (4-5 hours)**
-   - Verify existing `src/mailboxes/FrameMailbox.zig` meets video requirements
-   - Add frame buffer support to FrameMailbox
-   - Write unit tests for frame buffer operations
+2. **Phase 8.1: Wayland Window (6-8 hours)**
+   - Create `src/video/Window.zig` (Wayland + XDG shell)
+   - Implement window event handling
+   - Post events to WaylandEventMailbox
 
-3. **Phase 2.2: Window & OpenGL Backend (6-8 hours)**
-   - Create `src/video/Window.zig` (GLFW window management)
-   - Create `src/video/VideoSubsystem.zig` (OpenGL rendering)
-   - Implement texture upload and display
+3. **Phase 8.2: Vulkan Backend (8-10 hours)**
+   - Create `src/video/VulkanRenderer.zig`
+   - Setup swapchain and render pass
+   - Implement texture upload from FrameMailbox
 
 ### Next Session
 
-4. **Phase 2.3: Integration (3-4 hours)**
-   - Connect PPU rendering to frame buffer
-   - Integrate video subsystem with main loop
-   - Test with AccuracyCoin.nes background graphics
+4. **Phase 8.3: Integration (4-6 hours)**
+   - Connect PPU rendering to FrameMailbox
+   - Integrate video thread with main loop
+   - Test with AccuracyCoin.nes graphics (background + sprites)
 
-5. **Phase 2.4: Polish (2-3 hours)**
+5. **Phase 8.4: Polish (2-4 hours)**
    - Add FPS counter
    - Implement window resize handling
-   - Optimize texture upload with PBO
+   - Aspect ratio correction (8:7 pixel aspect)
 
-6. **Begin Phase 3: Sprite Rendering**
-   - Start sprite evaluation implementation
-   - Use existing 38 sprite tests for TDD
+6. **Begin Phase 9: Controller I/O (3-4 hours)**
+   - Implement $4016/$4017 registers
+   - Map keyboard to NES controller
+   - Test with interactive ROMs
 
 ---
 
 **Last Updated:** 2025-10-04
-**Current Phase:** Phase 2 (Video Subsystem Implementation)
-**Status:** Thread architecture complete, ready for video subsystem
-**Tests:** 486/496 passing (97.9%)
+**Current Phase:** Phase 8 (Video Subsystem - Wayland + Vulkan)
+**Status:** Sprites complete, thread architecture ready, video subsystem next
+**Tests:** 575/576 passing (99.8%)
