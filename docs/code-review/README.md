@@ -36,10 +36,10 @@ This phase focuses on implementing the new asynchronous I/O layer and improving 
 
 This phase focuses on improving test coverage and the accuracy of the emulation.
 
-*   **[ ] Implement Bus and Integration Tests:** Create comprehensive tests for the memory bus and the interaction between components. (See [07-testing.md](./07-testing.md))
-*   **[ ] Expand PPU Test Coverage:** Write more tests for the PPU, covering rendering, sprites, scrolling, and timing. (See [07-testing.md](./07-testing.md))
+*   **[ ] Implement Bus and Integration Tests:** Create comprehensive tests for the memory bus and the interaction between components. (See [07-testing.md](./07-testing.md)) - **DEFERRED**
+*   **[X] Expand PPU Test Coverage:** ✅ PARTIALLY COMPLETE - Created 38 sprite tests (15 evaluation + 23 rendering). Still needed: scrolling, timing edge cases. (See [07-testing.md](./07-testing.md), [03-ppu.md](./03-ppu.md)) - **Phase 4 completed 2025-10-03**
 *   **[ ] Implement Unstable Opcode Configuration:** Make the behavior of unstable opcodes configurable to match different CPU revisions. (See [02-cpu.md](./02-cpu.md))
-*   **[ ] Implement a Proper Open Bus Model:** Improve the accuracy of the open bus emulation. (See [04-memory-and-bus.md](./04-memory-and-bus.md))
+*   **[X] Implement a Proper Open Bus Model:** ✅ COMPLETE - Open bus tracking implemented in Bus.State with decay timer. (See [04-memory-and-bus.md](./04-memory-and-bus.md))
 
 ### Phase 4: Cleanup and Polish
 
