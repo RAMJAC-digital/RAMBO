@@ -1,7 +1,7 @@
 //! Sprite Rendering Tests
 //!
 //! Tests PPU sprite rendering pipeline per nesdev.org specification.
-//! References: docs/SPRITE-RENDERING-SPECIFICATION.md
+//! References: docs/architecture/ppu-sprites.md
 //!
 //! Sprite rendering pipeline:
 //! - Cycles 257-320: Fetch sprite pattern data (8 cycles per sprite)

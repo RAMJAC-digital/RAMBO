@@ -43,9 +43,9 @@ However, the current implementation can be significantly improved by refactoring
 *   **Test Coverage:**
     *   Created 15 sprite evaluation tests (`tests/ppu/sprite_evaluation_test.zig`)
     *   Created 23 sprite rendering tests (`tests/ppu/sprite_rendering_test.zig`)
-    *   Status: 6/38 passing, 32/38 expected failures (sprite logic not implemented)
-    *   Documentation: `docs/PHASE-4-1-TEST-STATUS.md`, `docs/PHASE-4-2-TEST-STATUS.md`
-    *   Implementation roadmap: `docs/SPRITE-RENDERING-SPECIFICATION.md`
+    *   Created 35 sprite edge case tests (`tests/ppu/sprite_edge_cases_test.zig`)
+    *   Status: 73/73 passing (100% complete)
+    *   Documentation: `docs/architecture/ppu-sprites.md`
 
 ### 2.4. PPU and CPU Interaction
 

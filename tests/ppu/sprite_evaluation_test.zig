@@ -1,7 +1,7 @@
 //! Sprite Evaluation Tests
 //!
 //! Tests PPU sprite evaluation algorithm per nesdev.org specification.
-//! References: docs/SPRITE-RENDERING-SPECIFICATION.md
+//! References: docs/architecture/ppu-sprites.md
 //!
 //! Sprite evaluation occurs on visible scanlines (0-239):
 //! - Cycles 1-64: Clear secondary OAM to $FF

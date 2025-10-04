@@ -7,7 +7,7 @@
 //! - Zero coupling between components (communication via Bus)
 //!
 //! References:
-//! - docs/06-implementation-notes/design-decisions/final-hybrid-architecture.md
+//! - docs/implementation/design-decisions/final-hybrid-architecture.md
 
 const std = @import("std");
 const Config = @import("../config/Config.zig");
