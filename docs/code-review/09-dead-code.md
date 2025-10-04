@@ -1,43 +1,43 @@
 # 09 - Dead and Legacy Code Review
 
-**Date:** 2025-10-03
-**Status:** In Progress
+**Date:** 2025-10-05
+**Status:** ✅ Good
 
 ## 1. Summary
 
-As a project evolves, it's common for some code to become obsolete. Identifying and removing this dead and legacy code is an important part of maintaining a clean and understandable codebase.
+The project is remarkably clean, with very little dead or legacy code. The previous major refactoring phases successfully removed the old asynchronous I/O architecture (`src/io/Architecture.zig` and `src/io/Runtime.zig`), which was the primary source of legacy code.
 
-This review identifies code that appears to be unused, legacy, or no longer relevant to the project's new hybrid architecture.
+This review identifies a few remaining areas for minor cleanup, mostly related to placeholder directories and the organization of tests.
 
 ## 2. Actionable Items
 
-### 2.1. Remove Old I/O Architecture Files
+### 2.1. Add READMEs to Placeholder Directories
 
-*   **Action:** The `src/io/Architecture.zig` and `src/io/Runtime.zig` files appear to be part of the old, fully asynchronous architecture. They should be removed and replaced with the new `libxev`-based I/O implementation.
-*   **Rationale:** These files are no longer relevant to the project's new hybrid architecture. Removing them will reduce confusion and ensure that developers are working with the correct I/O model.
-*   **Code References:**
-    *   `src/io/Architecture.zig`
-    *   `src/io/Runtime.zig`
-*   **Status:** **DONE** (Completed in Phase A, commit 2fba2fa)
-*   **Implementation:**
-    *   **DELETED:** `src/io/Architecture.zig` (obsolete async I/O design)
-    *   **DELETED:** `src/io/Runtime.zig` (obsolete async I/O runtime)
-    *   Removed imports from `src/root.zig`
-    *   All 375 tests passing after deletion
-    *   These will be replaced in future phase with libxev-based I/O implementation
+-   **Status:** 🟡 **TODO**
+-   **Issue:** The `src/apu/`, `src/io/`, and `src/mappers/` directories are empty placeholders for future work. While this is fine, they provide no context for new developers.
+-   **Action:** Add a `README.md` file to each of these directories. The README should briefly explain the directory's purpose and note that the implementation is pending a future development phase (e.g., "This directory will contain the APU (Audio Processing Unit) implementation, scheduled for Phase 9.").
+-   **Rationale:** Improves project clarity and provides a clear roadmap for new developers browsing the source tree.
+-   **Code References:** `src/apu/`, `src/io/`, `src/mappers/`
 
-### 2.2. Separate Debugging Tests from the Main Test Suite
+### 2.2. Remove Unused Type Aliases from `root.zig`
 
-*   **Action:** The `tests/cpu/dispatch_debug_test.zig`, `tests/cpu/rmw_debug_test.zig`, and `tests/cpu/cycle_trace_test.zig` files appear to be debugging helpers. They should be moved to a separate `tests/debug` directory and excluded from the main `zig test` run.
-*   **Rationale:** Debugging tests are a valuable tool for development, but they should not be part of the main test suite. Separating them will make the test results cleaner and more focused on the core functionality of the emulator.
-*   **Code References:**
-    *   `tests/cpu/dispatch_debug_test.zig`
-    *   `tests/cpu/rmw_debug_test.zig`
-    *   `tests/cpu/cycle_trace_test.zig`
-*   **Status:** **TODO**.
+-   **Status:** 🟡 **TODO**
+-   **Issue:** The main library file, `src/root.zig`, exports several `*Type` aliases (`CpuType`, `BusType`, `PpuType`, `CartridgeType`) that are redundant. The component modules themselves (`Cpu`, `Bus`, etc.) are already exported, and their `State` structs can be accessed directly (e.g., `rambo.cpu.State`).
+-   **Action:** Remove the following lines from `src/root.zig`:
+    ```zig
+    pub const CpuType = Cpu.State.CpuState;
+    pub const BusType = Bus.State.BusState;
+    pub const CartridgeType = Cartridge.NromCart;
+    pub const PpuType = Ppu.State.PpuState;
+    ```
+    Then, update all test files that use these aliases to use the full path (e.g., change `CpuType` to `rambo.cpu.State`).
+-   **Rationale:** Simplifies the public API, removes redundancy, and encourages a more explicit and clear way of referencing component state types.
+-   **Code Reference:** `src/root.zig`, `tests/**/*.zig`
 
-### 2.3. Conduct a Full Code Audit for Unused Code
+### 2.3. Remove `PpuLogic` from Public API
 
-*   **Action:** Perform a full audit of the codebase to identify any other unused functions, variables, or imports. The Zig compiler can help with this by issuing warnings for unused code.
-*   **Rationale:** Removing unused code makes the codebase smaller, cleaner, and easier to maintain.
-*   **Status:** **TODO**.
+-   **Status:** 🟡 **TODO**
+-   **Issue:** The internal `PpuLogic` module is exposed in the public API via `root.zig`. This module contains the pure functions that operate on `PpuState` and is only needed for unit testing, not for public consumption by users of the RAMBO library.
+-   **Action:** Remove the line `pub const PpuLogic = @import("ppu/Logic.zig");` from `src/root.zig`.
+-   **Rationale:** Encapsulates internal implementation details and cleans up the public API of the library.
+-   **Code Reference:** `src/root.zig`

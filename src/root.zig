@@ -21,6 +21,9 @@ pub const Cartridge = @import("cartridge/Cartridge.zig");
 /// Configuration system
 pub const Config = @import("config/Config.zig");
 
+/// Stateless configuration parser
+pub const ConfigParser = @import("config/parser.zig");
+
 /// PPU (Picture Processing Unit)
 pub const Ppu = @import("ppu/Ppu.zig");
 

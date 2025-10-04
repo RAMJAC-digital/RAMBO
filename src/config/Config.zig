@@ -407,6 +407,7 @@ pub const Config = struct {
     }
 
     /// Load configuration from KDL file
+    /// Uses stateless parser module for parsing logic
     pub fn loadFromFile(self: *Config, path: []const u8) !void {
         self.mutex.lock();
         defer self.mutex.unlock();
@@ -418,124 +419,26 @@ pub const Config = struct {
         const content = try file.readToEndAlloc(allocator, 1024 * 1024); // 1MB max
         defer allocator.free(content);
 
-        try self.parseKdl(content);
+        // Use stateless parser to parse content
+        const parser = @import("parser.zig");
+        const parsed_config = try parser.parseKdl(content, allocator);
+        defer parsed_config.deinit();
+
+        // Copy parsed values to self
+        self.copyFrom(parsed_config);
     }
 
-    /// Parse KDL configuration content
-    fn parseKdl(self: *Config, content: []const u8) !void {
-        var lines = std.mem.splitScalar(u8, content, '\n');
-
-        var current_section: ?[]const u8 = null;
-
-        while (lines.next()) |line| {
-            const trimmed = std.mem.trim(u8, line, &std.ascii.whitespace);
-
-            // Skip empty lines and comments
-            if (trimmed.len == 0 or trimmed[0] == '/' and trimmed.len > 1 and trimmed[1] == '/') {
-                continue;
-            }
-
-            // Section start (e.g., "ppu {")
-            if (std.mem.indexOf(u8, trimmed, "{")) |_| {
-                const section_name = blk: {
-                    var parts = std.mem.splitScalar(u8, trimmed, ' ');
-                    break :blk std.mem.trim(u8, parts.next() orelse "", &std.ascii.whitespace);
-                };
-                current_section = section_name;
-                continue;
-            }
-
-            // Section end
-            if (std.mem.eql(u8, trimmed, "}")) {
-                current_section = null;
-                continue;
-            }
-
-            // Parse key-value pairs (both top-level and section-level)
-            if (current_section) |section| {
-                try self.parseKeyValue(section, trimmed);
-            } else {
-                // Top-level key-value pair (e.g., console "NES-PAL")
-                try self.parseTopLevelKeyValue(trimmed);
-            }
-        }
-    }
-
-    /// Parse a top-level key-value line (outside any section)
-    fn parseTopLevelKeyValue(self: *Config, line: []const u8) !void {
-        var parts = std.mem.splitScalar(u8, line, ' ');
-        const key = parts.next() orelse return;
-        const value_raw = parts.next() orelse return;
-
-        // Remove quotes from value
-        const value = std.mem.trim(u8, value_raw, "\"");
-
-        if (std.mem.eql(u8, key, "console")) {
-            self.console = try ConsoleVariant.fromString(value);
-        }
-    }
-
-    /// Parse a key-value line
-    fn parseKeyValue(self: *Config, section: []const u8, line: []const u8) !void {
-        var parts = std.mem.splitScalar(u8, line, ' ');
-        const key = parts.next() orelse return;
-        const value_raw = parts.next() orelse return;
-
-        // Remove quotes from value
-        const value = std.mem.trim(u8, value_raw, "\"");
-
-        if (std.mem.eql(u8, section, "cpu")) {
-            if (std.mem.eql(u8, key, "variant")) {
-                self.cpu.variant = try CpuVariant.fromString(value);
-            } else if (std.mem.eql(u8, key, "region")) {
-                self.cpu.region = try VideoRegion.fromString(value);
-            }
-        } else if (std.mem.eql(u8, section, "unstable_opcodes")) {
-            // Nested section under cpu
-            if (std.mem.eql(u8, key, "sha_behavior")) {
-                self.cpu.unstable_opcodes.sha_behavior = try SHABehavior.fromString(value);
-            } else if (std.mem.eql(u8, key, "lxa_magic")) {
-                self.cpu.unstable_opcodes.lxa_magic = try std.fmt.parseInt(u8, value, 0);
-            }
-        } else if (std.mem.eql(u8, section, "ppu")) {
-            if (std.mem.eql(u8, key, "variant")) {
-                self.ppu.variant = try PpuVariant.fromString(value);
-            } else if (std.mem.eql(u8, key, "region")) {
-                self.ppu.region = try VideoRegion.fromString(value);
-            } else if (std.mem.eql(u8, key, "accuracy")) {
-                self.ppu.accuracy = try AccuracyLevel.fromString(value);
-            }
-        } else if (std.mem.eql(u8, section, "cic")) {
-            if (std.mem.eql(u8, key, "variant")) {
-                self.cic.variant = try CicVariant.fromString(value);
-            } else if (std.mem.eql(u8, key, "enabled")) {
-                self.cic.enabled = std.mem.eql(u8, value, "true");
-            } else if (std.mem.eql(u8, key, "emulation")) {
-                self.cic.emulation = try CicEmulation.fromString(value);
-            }
-        } else if (std.mem.eql(u8, section, "controllers")) {
-            if (std.mem.eql(u8, key, "type")) {
-                self.controllers.type = try ControllerType.fromString(value);
-            }
-        } else if (std.mem.eql(u8, section, "video")) {
-            if (std.mem.eql(u8, key, "backend")) {
-                self.video.backend = try VideoBackend.fromString(value);
-            } else if (std.mem.eql(u8, key, "vsync")) {
-                self.video.vsync = std.mem.eql(u8, value, "true");
-            } else if (std.mem.eql(u8, key, "scale")) {
-                self.video.scale = try std.fmt.parseInt(u8, value, 10);
-            }
-        } else if (std.mem.eql(u8, section, "audio")) {
-            if (std.mem.eql(u8, key, "enabled")) {
-                self.audio.enabled = std.mem.eql(u8, value, "true");
-            } else if (std.mem.eql(u8, key, "sample_rate")) {
-                self.audio.sample_rate = try std.fmt.parseInt(u32, value, 10);
-            }
-        } else if (std.mem.eql(u8, section, "input")) {
-            if (std.mem.eql(u8, key, "light_gun_enabled")) {
-                self.input.light_gun_enabled = std.mem.eql(u8, value, "true");
-            }
-        }
+    /// Copy configuration values from another Config instance
+    /// Used after parsing to transfer values from temp config to self
+    fn copyFrom(self: *Config, other: Config) void {
+        self.console = other.console;
+        self.cpu = other.cpu;
+        self.ppu = other.ppu;
+        self.cic = other.cic;
+        self.controllers = other.controllers;
+        self.video = other.video;
+        self.audio = other.audio;
+        self.input = other.input;
     }
 
     /// Get current configuration (thread-safe read)
@@ -616,7 +519,11 @@ test "Config: parse simple KDL" {
         \\}
     ;
 
-    try config.parseKdl(kdl_content);
+    // Parse using stateless parser
+    const parser = @import("parser.zig");
+    var parsed = try parser.parseKdl(kdl_content, testing.allocator);
+    defer parsed.deinit();
+    config.copyFrom(parsed);
 
     try testing.expectEqual(PpuVariant.rp2c02g_ntsc, config.ppu.variant);
     try testing.expectEqual(VideoRegion.ntsc, config.ppu.region);
@@ -742,7 +649,10 @@ test "Config: parse AccuracyCoin target configuration" {
         \\}
     ;
 
-    try config.parseKdl(kdl_content);
+    const parser = @import("parser.zig");
+    var parsed = try parser.parseKdl(kdl_content, testing.allocator);
+    defer parsed.deinit();
+    config.copyFrom(parsed);
 
     // Verify AccuracyCoin target configuration
     try testing.expectEqual(ConsoleVariant.nes_ntsc_frontloader, config.console);
@@ -788,7 +698,10 @@ test "Config: parse PAL configuration" {
         \\}
     ;
 
-    try config.parseKdl(kdl_content);
+    const parser = @import("parser.zig");
+    var parsed = try parser.parseKdl(kdl_content, testing.allocator);
+    defer parsed.deinit();
+    config.copyFrom(parsed);
 
     try testing.expectEqual(ConsoleVariant.nes_pal, config.console);
     try testing.expectEqual(CpuVariant.rp2a07, config.cpu.variant);
@@ -824,7 +737,10 @@ test "Config: parse top-loader NES configuration" {
         \\}
     ;
 
-    try config.parseKdl(kdl_content);
+    const parser = @import("parser.zig");
+    var parsed = try parser.parseKdl(kdl_content, testing.allocator);
+    defer parsed.deinit();
+    config.copyFrom(parsed);
 
     try testing.expectEqual(ConsoleVariant.nes_ntsc_toploader, config.console);
     try testing.expect(!config.cic.enabled);
@@ -851,7 +767,10 @@ test "Config: parse Famicom configuration" {
         \\}
     ;
 
-    try config.parseKdl(kdl_content);
+    const parser = @import("parser.zig");
+    var parsed = try parser.parseKdl(kdl_content, testing.allocator);
+    defer parsed.deinit();
+    config.copyFrom(parsed);
 
     try testing.expectEqual(ConsoleVariant.famicom, config.console);
     try testing.expectEqual(ControllerType.famicom, config.controllers.type);
@@ -871,7 +790,10 @@ test "Config: unstable opcode configuration" {
         \\}
     ;
 
-    try config.parseKdl(kdl_content);
+    const parser = @import("parser.zig");
+    var parsed = try parser.parseKdl(kdl_content, testing.allocator);
+    defer parsed.deinit();
+    config.copyFrom(parsed);
 
     try testing.expectEqual(CpuVariant.rp2a03h, config.cpu.variant);
     try testing.expectEqual(SHABehavior.rp2a03h, config.cpu.unstable_opcodes.sha_behavior);
@@ -890,7 +812,10 @@ test "Config: LXA magic values" {
         \\    }
         \\}
     ;
-    try config.parseKdl(kdl_0x00);
+    const parser = @import("parser.zig");
+    var parsed = try parser.parseKdl(kdl_0x00, testing.allocator);
+    defer parsed.deinit();
+    config.copyFrom(parsed);
     try testing.expectEqual(@as(u8, 0x00), config.cpu.unstable_opcodes.lxa_magic);
 
     const kdl_0xee =
@@ -900,7 +825,10 @@ test "Config: LXA magic values" {
         \\    }
         \\}
     ;
-    try config.parseKdl(kdl_0xee);
+    const parser1 = @import("parser.zig");
+    var parsed1 = try parser1.parseKdl(kdl_0xee, testing.allocator);
+    defer parsed1.deinit();
+    config.copyFrom(parsed1);
     try testing.expectEqual(@as(u8, 0xEE), config.cpu.unstable_opcodes.lxa_magic);
 
     const kdl_0xff =
@@ -910,7 +838,10 @@ test "Config: LXA magic values" {
         \\    }
         \\}
     ;
-    try config.parseKdl(kdl_0xff);
+    const parser2 = @import("parser.zig");
+    var parsed2 = try parser2.parseKdl(kdl_0xff, testing.allocator);
+    defer parsed2.deinit();
+    config.copyFrom(parsed2);
     try testing.expectEqual(@as(u8, 0xFF), config.cpu.unstable_opcodes.lxa_magic);
 }
 
@@ -954,7 +885,10 @@ test "Config: complete hardware configuration" {
         \\}
     ;
 
-    try config.parseKdl(kdl_content);
+    const parser = @import("parser.zig");
+    var parsed = try parser.parseKdl(kdl_content, testing.allocator);
+    defer parsed.deinit();
+    config.copyFrom(parsed);
 
     // Verify all sections parsed correctly
     try testing.expectEqual(ConsoleVariant.nes_ntsc_frontloader, config.console);

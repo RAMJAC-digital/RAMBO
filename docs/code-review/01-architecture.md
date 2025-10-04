@@ -1,47 +1,44 @@
 # 01 - Architecture Review
 
-**Date:** 2025-10-03
-**Status:** Completed
+**Date:** 2025-10-05
+**Status:** ✅ Verified
 
 ## 1. Summary
 
-The initial architecture proposed a fully asynchronous, message-passing design for all components of the NES emulator. A thorough multi-agent review identified critical flaws in this approach that would make cycle-accurate emulation impossible.
+The project's hybrid architecture has been successfully implemented and verified. The core principle of separating the synchronous emulation core from the asynchronous I/O layer is consistently followed.
 
-The key takeaway is that the NES hardware is fundamentally synchronous. The CPU, PPU, and APU are tightly coupled and rely on immediate, predictable access to the system bus. Introducing message-passing latency for core emulation tasks breaks this fundamental requirement.
+-   **Synchronous Core:** The `EmulationState` struct and its `tick()` function correctly orchestrate the CPU, PPU, and Bus components in a deterministic, single-threaded loop. This design is RT-safe and suitable for cycle-accurate emulation.
+-   **Asynchronous I/O:** The new `mailboxes` system provides a sound, thread-safe foundation for handling video, input, and configuration updates. The use of `libxev` in `main.zig` demonstrates the intended timer-driven approach, though it is not yet fully integrated with a UI frontend.
 
-## 2. The New Hybrid Architecture
+## 2. State/Logic Separation Pattern
 
-The project is now adopting a **hybrid architecture** that combines the best of both synchronous and asynchronous designs:
+-   **Status:** ✅ **Excellent**
+-   **Analysis:** The State/Logic separation pattern is the cornerstone of the architecture and has been applied rigorously to all core components:
+    -   `src/cpu/` (State.zig, Logic.zig)
+    -   `src/ppu/` (State.zig, Logic.zig)
+    -   `src/bus/` (State.zig, Logic.zig)
+-   **Benefits Realized:**
+    -   **Determinism:** The emulation core is a pure state machine (`next_state = f(current_state)`), making execution predictable and reproducible.
+    -   **Testability:** The separation allows for isolated unit testing of logic functions with mock state.
+    -   **Serialization:** The pure data `State` structs enable the robust snapshot system, as the entire emulator state can be saved and loaded easily.
 
-*   **Synchronous Emulation Core:** The CPU, PPU, APU, and other core components will run in a single, deterministic, single-threaded loop. This ensures cycle-accurate timing and predictable behavior.
+## 3. `comptime` Polymorphism
 
-*   **Asynchronous I/O Layer:** All I/O operations (input, video, audio, file loading) will be handled by a separate, asynchronous layer, likely using `libxev`. This prevents I/O latency from affecting emulation accuracy and keeps the UI responsive.
+-   **Status:** ✅ **Excellent**
+-   **Analysis:** The project has successfully replaced runtime V-tables with `comptime` duck typing for the cartridge mapper interface. The `Cartridge(MapperType)` generic function in `src/cartridge/Cartridge.zig` is a clean and idiomatic Zig implementation.
+-   **Benefits Realized:**
+    -   **Zero-Cost Abstraction:** Mapper method calls are resolved at compile time, resulting in direct function calls with no runtime overhead from V-table lookups.
+    -   **Type Safety:** The compiler enforces the mapper interface at compile time, preventing a class of runtime errors.
 
-This hybrid model is the new standard for the project and all future development should adhere to it.
+## 4. Threading and Communication
 
-## 3. Actionable Items
+-   **Status:** ✅ **Good**
+-   **Analysis:** The `src/mailboxes/` directory introduces a clean, modern approach to inter-thread communication, replacing the obsolete `src/io/` architecture.
+    -   `FrameMailbox`: A standard double-buffer pattern for passing video frames from the emulation thread to the (future) render thread.
+    -   `ConfigMailbox`: A single-value mailbox for sending commands like `pause`, `reset`, etc., to the emulation thread.
+    -   `WaylandEventMailbox`: A double-buffered queue for UI events.
+-   **Observations:** The use of `std.Thread.Mutex` is appropriate for the non-hot-path nature of these mailboxes (swapping buffers or updating config happens infrequently).
 
-### 3.1. Solidify the Hybrid Architecture
+## 5. Actionable Items
 
-*   **Action:** Formally document the hybrid architecture, including the synchronous emulation core and the asynchronous I/O layer. The document `docs/06-implementation-notes/design-decisions/final-hybrid-architecture.md` is an excellent start and should be considered the primary architectural guide.
-*   **Rationale:** A clear architectural document is essential for guiding development and ensuring that all team members are aligned.
-*   **Status:** **DONE**. The `final-hybrid-architecture.md` document is comprehensive.
-
-### 3.2. Refactor Existing Code to Fit the Hybrid Model
-
-*   **Action:** Audit the existing codebase and identify any remaining vestiges of the fully asynchronous design. Refactor this code to fit the new hybrid model. This may involve removing message-passing queues, replacing asynchronous calls with direct function calls, and ensuring that the core emulation logic is purely synchronous.
-*   **Rationale:** The codebase must be consistent with the new architecture to avoid confusion and bugs.
-*   **Status:** **DONE** (Completed in Phases 1-3: commits 1ceb301, 73f9279, 2fba2fa, 2dc78b8)
-*   **Completion Notes:**
-    *   Phase 1: Bus State/Logic separation established hybrid architecture pattern
-    *   Phase 2: PPU State/Logic separation applied consistent pattern
-    *   Phase A: Backward compatibility cleanup, ComponentState naming (CpuState/BusState/PpuState)
-    *   Phase 3: VTable elimination with comptime duck typing (Mapper.zig, ChrProvider.zig deleted)
-    *   All 375 tests passing with new hybrid architecture
-    *   See: `docs/code-review/REFACTORING-ROADMAP.md` for implementation details
-
-### 3.3. Supersede Old Architectural Documents
-
-*   **Action:** Mark any documents related to the old, fully asynchronous architecture as "SUPERSEDED". This includes `docs/06-implementation-notes/design-decisions/async-architecture-design.md`.
-*   **Rationale:** This will prevent developers from accidentally referencing outdated information.
-*   **Status:** **TODO**.
+None. The architecture is sound and well-implemented. All previous architectural action items have been successfully addressed.

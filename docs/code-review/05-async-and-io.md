@@ -1,52 +1,45 @@
 # 05 - Async and I/O Review
 
-**Date:** 2025-10-03
-**Status:** In Progress
+**Date:** 2025-10-05
+**Status:** ✅ Good
 
 ## 1. Summary
 
-The I/O architecture defined in `src/io/Architecture.zig` and `src/io/Runtime.zig` is a well-thought-out plan for a modern, multi-threaded emulator. The use of `libxev` for asynchronous I/O, lock-free SPSC queues for communication, and a clear separation of concerns between the real-time (RT) and I/O threads is an excellent design.
+The project has successfully transitioned from its old, obsolete I/O architecture to a new, clean design centered around the `mailboxes` system and `libxev`. This new architecture is sound, thread-safe, and aligns with modern best practices for multi-threaded applications.
 
-However, the implementation is currently incomplete. This review provides actionable recommendations for completing the async I/O layer and ensuring it is robust, efficient, and well-integrated with the rest of the emulator.
+The `src/io/` directory is now a placeholder, and the core communication logic resides in `src/mailboxes/`. The `main.zig` file demonstrates a proof-of-concept integration with `libxev` for timer-driven emulation, which is a solid foundation for the full implementation.
 
-## 2. Actionable Items
+## 2. Mailbox Architecture
 
-### 2.1. Complete `libxev` Integration
+-   **Status:** ✅ **Excellent**
+-   **Analysis:** The `src/mailboxes/` implementation provides a clean and effective way to handle inter-thread communication:
+    -   **`FrameMailbox`:** A classic double-buffer (or mailbox swap) pattern for video frames. This is a simple, efficient, and lock-free (for the reader/writer, with a mutex only on the swap) way to pass completed frames from the emulation thread to the render thread.
+    -   **`ConfigMailbox`:** A single-value mailbox for low-frequency commands like pause, reset, etc. The use of a mutex is appropriate here, as these are not on the hot path.
+    -   **`WaylandEventMailbox`:** A double-buffered queue for UI events, which is a standard and robust pattern for GUI applications.
+-   **Conclusion:** The mailbox system is well-designed and correctly implemented.
 
-*   **Action:** The current code has placeholders for `libxev` integration. This needs to be fully implemented. This includes creating the `libxev` event loop, setting up timers for frame pacing, and using `libxev`'s async file I/O for loading ROMs.
-*   **Rationale:** `libxev` is the cornerstone of the new I/O architecture. Its proper integration is essential for achieving a responsive, non-blocking user experience.
-*   **Code References:**
-    *   `src/io/Runtime.zig`: The `ioThreadMain` function and the `IoContext` struct.
-*   **Status:** **TODO**.
+## 3. `libxev` Integration
 
-### 2.2. Implement the Full Triple-Buffering Logic
+-   **Status:** ✅ **Good (Proof of Concept)**
+-   **Analysis:** The `main.zig` file demonstrates a correct, timer-driven emulation loop using `libxev`. The `emulationThreadFn` spawns a `libxev` loop and uses a periodic timer to call `emulateFrame`, ensuring that the emulation runs at a consistent speed (e.g., 60 FPS for NTSC).
+-   **Observations:** This is currently a proof of concept. The main thread simply waits, and there is no actual rendering or UI thread yet. However, the foundation is solid.
 
-*   **Action:** The `TripleBuffer` struct in `src/io/Architecture.zig` is a good start, but the logic for managing the three buffers (write, ready, display) needs to be fully implemented and tested. This includes the logic for the render thread to acquire the ready buffer and release the display buffer.
-*   **Rationale:** A correct triple-buffering implementation is crucial for tear-free rendering and smooth frame pacing.
-*   **Code References:**
-    *   `src/io/Architecture.zig`: The `TripleBuffer` struct.
-*   **Status:** **TODO**.
+## 4. Actionable Items
 
-### 2.3. Implement the Command Queue
+### 4.1. Complete `libxev` Integration
 
-*   **Action:** The `CommandQueue` is currently implemented with a mutex. While this is acceptable for infrequent commands, a lock-free MPSC (Multiple Producer, Single Consumer) queue would be more performant and avoid potential priority inversion issues.
-*   **Rationale:** A lock-free queue will ensure that the I/O threads can send commands to the RT thread without blocking, which is important for maintaining the RT thread's real-time guarantees.
-*   **Code References:**
-    *   `src/io/Architecture.zig`: The `CommandQueue` struct.
-*   **Status:** **TODO**.
+-   **Status:** 🟡 **TODO**
+-   **Issue:** The current `libxev` integration in `main.zig` is a placeholder to demonstrate the timer-driven emulation loop. A full implementation requires a UI/render thread and proper event handling.
+-   **Action:** As part of the video subsystem implementation (the next major project phase), the following need to be implemented:
+    1.  **Render Thread:** A dedicated thread for rendering the frames from the `FrameMailbox` to the screen (e.g., using Wayland and Vulkan as planned).
+    2.  **UI Event Handling:** The main thread should process events from the `WaylandEventMailbox` and dispatch them appropriately (e.g., handling keyboard input, window close events).
+    3.  **File I/O:** Use `libxev`'s async file I/O for loading ROMs and save states to avoid blocking the main thread.
+-   **Rationale:** Completing the `libxev` integration is the core of the video and I/O subsystem and is the next major step for the project.
+-   **Code Reference:** `src/main.zig`
 
-### 2.4. Thread Priorities and Affinities
+### 4.2. Implement Real-Time Safe Allocator
 
-*   **Action:** The `Runtime.zig` file includes logic for setting thread priorities and affinities. This needs to be thoroughly tested on all target platforms (Linux, Windows, macOS) to ensure it works as expected.
-*   **Rationale:** Correctly setting thread priorities is critical for ensuring that the RT thread gets the CPU time it needs to run the emulation without stuttering.
-*   **Code References:**
-    *   `src/io/Runtime.zig`: The `configureRtThread` function.
-*   **Status:** **TODO**.
-
-### 2.5. Implement a Real-Time Safe Allocator
-
-*   **Action:** The `RtAllocator` in `src/io/Architecture.zig` is a placeholder. A real implementation is needed that pre-allocates all necessary memory at startup and provides a safe way for the RT thread to access it without performing any runtime allocations.
-*   **Rationale:** The RT thread must never allocate memory at runtime, as this can lead to unpredictable latency and break real-time guarantees.
-*   **Code References:**
-    *   `src/io/Architecture.zig`: The `RtAllocator` struct.
-*   **Status:** **TODO**.
+-   **Status:** 🔴 **High Priority TODO**
+-   **Issue:** The original code review (`05-async-and-io.md` from the archive) mentioned the need for a real-time safe allocator. While the core emulation loop currently performs no allocations, this is a critical safety measure to enforce as the project grows.
+-   **Action:** Implement an `RtAllocator` that pre-allocates all necessary memory at startup. The emulation thread should then be given this allocator, and all its functions should be audited to ensure they only use this pre-allocated memory. Any attempt to use a general-purpose allocator in the RT loop should be a compile error.
+-   **Rationale:** Guarantees that the real-time emulation thread will never be stalled by unpredictable memory allocation, which is essential for preventing audio stuttering and maintaining smooth emulation.

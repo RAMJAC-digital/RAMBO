@@ -1,68 +1,41 @@
 # RAMBO Code Review Hub
 
-**Date:** 2025-10-04
-**Status:** Architecture Refactoring Complete. Ready for Video Subsystem Implementation.
+**Date:** 2025-10-05
+**Status:** Post-Refactoring Analysis Complete. Ready for Video Subsystem Implementation.
 
 ## 1. Overview
 
-This directory serves as the central hub for all code review activities, architectural decisions, and development planning for the RAMBO NES emulator.
+This directory contains the complete and up-to-date code review analysis of the RAMBO project as of 2025-10-05. This review was conducted after major architectural refactoring, including the implementation of the State/Logic pattern, `comptime` generics for mappers, and the new `libxev`-based threading architecture (`mailboxes`).
 
-Following a comprehensive multi-agent review, the project has adopted a **hybrid architecture**. This model combines a synchronous, single-threaded emulation core (for CPU, PPU, and Bus) to ensure cycle-accuracy, with a separate, asynchronous I/O layer to handle video, input, and file operations efficiently.
+The project is in a strong state, adhering well to modern Zig practices and the core design principles of the hybrid architecture. The codebase is deterministic, RT-safe in its core components, and well-tested.
 
-This `README.md` provides a high-level summary and navigation to more detailed documents.
+## 2. Primary Planning Document
 
-## 2. Primary Planning Documents
+All outstanding tasks and new findings from this review are consolidated into a single, authoritative planning document:
 
-All development work is now tracked in two primary documents, which supersede all previous plans found in the `docs/archive` directory.
+*   **[CLEANUP-PLAN-2025-10-05.md](./CLEANUP-PLAN-2025-10-05.md):** This is the prioritized roadmap for all remaining cleanup, refactoring, and minor bug fixes. All future work outside of major feature implementation should be tracked here.
 
-*   **[Main Development Plan](../DEVELOPMENT-PLAN.md):** This is the authoritative roadmap for the project. It outlines the critical path to a playable emulator, starting with PPU sprite rendering.
+## 3. Code Review Status Summary
 
-*   **[Code Cleanup Plan](./CLEANUP-PLAN-2025-10-04.md):** This document lists all outstanding cleanup tasks and minor refactoring work identified during code reviews. These are non-blocking but should be addressed to improve code quality.
+This review cycle verified the project's adherence to its architectural goals and identified areas for improvement.
 
-## 3. Code Review Status
-
-This section tracks the progress of actionable items identified in the detailed code review documents.
-
-### Phase 1: Core Architecture Refactoring ✅ COMPLETE
-
-This phase focused on refactoring the core components to align with the hybrid architecture. All foundational changes have been completed.
-
-*   **[X] Refactor CPU, PPU, and Bus to Pure State Machines:** ✅ COMPLETE - All three components now use the State/Logic separation pattern. (Commits: `1ceb301`, `73f9279`, `2fba2fa`)
-*   **[X] Replace V-Tables with Comptime Generics:** ✅ COMPLETE - VTable-based polymorphism has been replaced with duck-typed comptime generics, achieving zero runtime overhead. (Commit: `2dc78b8`)
-
-### Phase 2: Video Subsystem and I/O 🟡 PLANNING COMPLETE
-
-This phase focuses on implementing the video subsystem and asynchronous I/O.
-
-*   **[X] Video Subsystem Architecture:** ✅ COMPLETE - The architecture has been designed and reviewed, opting for a 2-thread model with a mailbox double-buffer pattern. See `../VIDEO-SUBSYSTEM-DEVELOPMENT-PLAN.md` for details.
-*   **[ ] Implementation:** ⏳ TODO - Implementation of the video subsystem is the next major priority after sprite rendering is complete.
-
-### Phase 3: Testing and Accuracy ✅ COMPLETE
-
-This phase focused on dramatically improving test coverage and implementing critical accuracy features.
-
-*   **[X] Implement Bus and Integration Tests:** ✅ COMPLETE - Comprehensive bus and CPU-PPU integration tests have been created and are passing. (See `docs/PHASE-7A-COMPLETE-SUMMARY.md`)
-*   **[X] Expand PPU Test Coverage:** ✅ COMPLETE - Created 73 sprite tests (evaluation, rendering, edge cases). Background rendering and sprite system are fully implemented and validated. (See [07-testing.md](./07-testing.md), [03-ppu.md](./03-ppu.md))
-*   **[X] State Snapshot + Debugger System:** ✅ COMPLETE - A full-featured debugger and state snapshot system has been implemented and tested. (See `docs/DEBUGGER-STATUS.md`)
-
-### Phase 4: Cleanup and Polish 🟡 IN PROGRESS
-
-This phase focuses on cleaning up the codebase and addressing minor issues identified in code reviews.
-
-*   **[X] Remove Obsolete Files & Add Placeholders:** ✅ COMPLETE - Archived old plans, removed empty directories, and added READMEs to placeholder directories.
-*   **[X] RT-Safety Improvements:** ✅ COMPLETE - Addressed minor RT-safety violations in the codebase.
-*   **[ ] General Cleanup:** ⏳ TODO - Outstanding cleanup tasks are tracked in the [Code Cleanup Plan](./CLEANUP-PLAN-2025-10-04.md).
+*   **Architecture & State/Logic:** ✅ **Excellent.** The separation of `State` and `Logic` is applied consistently across all core components (CPU, PPU, Bus), ensuring determinism and testability.
+*   **`comptime` Polymorphism:** ✅ **Excellent.** V-tables have been successfully eliminated in favor of `comptime` duck typing for mappers, resulting in zero-cost abstractions.
+*   **Threading & I/O:** ✅ **Good.** The new `mailboxes` system provides a clean, thread-safe communication layer for I/O. The design is sound, though the `libxev` integration in `main.zig` is currently a placeholder for the full implementation.
+*   **RT-Safety:** ✅ **Good.** The core emulation loop (`EmulationState.tick`) is RT-safe. Minor issues were found in non-critical paths and have been documented in the cleanup plan.
+*   **Testing:** ✅ **Excellent.** The project has a comprehensive test suite, including unit, integration, and cycle-trace tests. The data-driven testing approach using the snapshot/debugger system is a major strength.
+*   **Configuration:** 🟡 **Needs Improvement.** The `Config.zig` system is functional but uses manual KDL parsing, which is brittle. It should be updated to use a proper KDL library.
 
 ## 4. Detailed Review Categories
 
 For detailed findings on specific components, refer to the individual review documents:
 
-*   **[01 - Architecture](./01-architecture.md):** Summary of the architectural review and the new hybrid model.
-*   **[02 - CPU](./02-cpu.md):** Findings related to the CPU implementation.
-*   **[03 - PPU](./03-ppu.md):** Findings related to the PPU implementation.
-*   **[04 - Memory and Bus](./04-memory-and-bus.md):** Findings related to memory management and the system bus.
-*   **[05 - Async and I/O](./05-async-and-io.md):** Recommendations for the asynchronous I/O layer.
-*   **[06 - Configuration](./06-configuration.md):** Review of the hardware configuration system.
-*   **[07 - Testing](./07-testing.md):** Analysis of test coverage and strategy.
-*   **[08 - Code Safety and Best Practices](./08-code-safety-and-best-practices.md):** General code quality and safety.
-*   **[09 - Dead Code](./09-dead-code.md):** Identification of legacy and unused code.
+*   **[01-architecture.md](./01-architecture.md):** Verification of the hybrid architecture and State/Logic pattern.
+*   **[02-cpu.md](./02-cpu.md):** Analysis of the CPU implementation, including the dispatch mechanism.
+*   **[03-ppu.md](./03-ppu.md):** Review of the PPU, including the rendering pipeline and timing.
+*   **[04-memory-and-bus.md](./04-memory-and-bus.md):** Analysis of memory mapping, mirroring, and open bus behavior.
+*   **[05-async-and-io.md](./05-async-and-io.md):** Review of the new `mailboxes` threading architecture.
+*   **[06-configuration.md](./06-configuration.md):** Findings related to the KDL configuration system.
+*   **[07-testing.md](./07-testing.md):** Analysis of test coverage, strategy, and the snapshot system.
+*   **[08-code-safety-and-best-practices.md](./08-code-safety-and-best-practices.md):** General code quality, safety, and Zig best practices.
+*   **[09-dead-code.md](./09-dead-code.md):** Identification of any remaining legacy or unused code.

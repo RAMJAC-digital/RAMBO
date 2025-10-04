@@ -1,62 +1,48 @@
 # 03 - PPU Implementation Review
 
-**Date:** 2025-10-03
-**Status:** In Progress
+**Date:** 2025-10-05
+**Status:** ✅ Good
 
 ## 1. Summary
 
-The PPU implementation in `src/ppu/Ppu.zig` demonstrates a deep understanding of the PPU's hardware intricacies. The register definitions, memory mirroring, and the overall structure are well-conceived. The `tick` function provides a good starting point for a cycle-accurate PPU.
+The PPU implementation is impressive, demonstrating a deep understanding of the hardware's intricacies. The State/Logic separation is correctly applied, and the rendering pipeline for both background and sprites is complete and well-tested, as verified by the passing PPU test suite.
 
-However, the current implementation can be significantly improved by refactoring it into a pure state machine, as outlined in the `final-hybrid-architecture.md` document. This will enhance testability, enable save states, and align the PPU with the project's new architectural direction.
+The timing of events within the PPU tick appears to be cycle-accurate, correctly handling VBlank/NMI timing, pre-render scanline events, and odd-frame skipping. The sprite evaluation and rendering logic is also robust.
+
+However, there are still some `TODO` items from the original review that need to be addressed to achieve full hardware accuracy.
 
 ## 2. Actionable Items
 
-### 2.1. Refactor PPU to a Pure State Machine
+### 2.1. Implement Granular PPU `tick` Function
 
-*   **Action:** Similar to the CPU, refactor the `Ppu.zig` file to separate the PPU's state from its logic. Create a `PpuState` struct that contains all the PPU's data (registers, VRAM, OAM, etc.) and a separate set of pure functions that operate on this state.
-*   **Rationale:** This is a core tenet of the new hybrid architecture. It will make the PPU's behavior deterministic and easier to reason about. It also simplifies testing and allows for the entire emulator state to be serialized.
-*   **Code References:**
-    *   `src/ppu/Ppu.zig`: The `Ppu` struct should be split into `PpuState` and a set of pure functions.
-*   **Status:** **DONE** (Completed in Phase 2, commit 73f9279)
-*   **Implementation:**
-    *   Created `src/ppu/State.zig` with pure `PpuState` struct
-    *   Created `src/ppu/Logic.zig` with pure rendering functions
-    *   Module re-exports: `Ppu.State.PpuState`, `Ppu.Logic`
-    *   Complete background rendering pipeline implemented
-    *   VRAM system with proper mirroring and buffering
-    *   23 PPU tests passing with new architecture
-    *   Direct CHR memory access (no VTable abstraction needed - Phase 3)
+-   **Status:** 🟡 **TODO**
+-   **Issue:** The current `Ppu.tick()` function in `src/ppu/Logic.zig` is a large monolithic function that handles all PPU events for a given cycle. While functional, it can be difficult to follow the complex interactions between different PPU phases (fetch, render, evaluate).
+-   **Action:** Break down the `tick` function into smaller, more focused functions that correspond to the PPU's internal pipeline stages (e.g., `fetchNametableByte`, `evaluateSprites`, `renderPixel`). The main `tick` function would then dispatch to these helpers based on the current `scanline` and `dot`.
+-   **Rationale:** A more granular `tick` function will make the PPU's complex rendering pipeline easier to understand, debug, and verify against hardware documentation like Visual 2C02.
+-   **Code Reference:** `src/ppu/Logic.zig`
 
-### 2.2. Implement a More Granular PPU `tick` Function
+### 2.2. Cycle-Accurate PPU/CPU Interaction
 
-*   **Action:** The current `tick` function in `Ppu.zig` is a good start, but it can be made more granular to better represent the PPU's internal pipeline. The `tick` function should be broken down into smaller, more focused functions that handle specific tasks for each PPU cycle (e.g., `fetchNametableByte`, `evaluateSprites`, `renderPixel`).
-*   **Rationale:** A more granular `tick` function will make the PPU's complex rendering pipeline easier to understand, debug, and verify against hardware documentation.
-*   **Code References:**
-    *   `src/ppu/Ppu.zig`: The `tick` function.
-*   **Status:** **TODO**.
+-   **Status:** 🟡 **TODO**
+-   **Issue:** The PPU and CPU interact in several critical, cycle-sensitive ways (e.g., NMI generation, DMA, register reads/writes during rendering). While the current implementation handles NMI timing correctly, a more thorough audit is needed to ensure all interactions are cycle-accurate.
+-   **Action:** Audit and create specific tests for the following interactions:
+    -   **NMI Timing:** Verify NMI is asserted at the exact correct PPU cycle (scanline 241, dot 1) and that the CPU sees it on the next CPU cycle.
+    -   **Register Access:** Reading from registers like `$2002` (PPUSTATUS) and `$2007` (PPUDATA) can be affected by the PPU's rendering state. Tests should be created to verify this behavior (e.g., reading `$2002` at the exact moment VBlank is set).
+    -   **DMA Timing:** OAM DMA (`$4014`) stalls the CPU for 513-514 cycles. This needs to be implemented and tested.
+-   **Rationale:** Cycle-accurate interaction between the CPU and PPU is essential for many games to function correctly, especially those with advanced graphical effects or copy protection.
 
-### 2.3. Complete the PPU Rendering Pipeline
+### 2.3. Four-Screen Mirroring
 
-*   **Action:** The current PPU implementation is missing several key features of the rendering pipeline, including sprite evaluation, sprite rendering, and sprite-0-hit detection. These features need to be implemented to achieve accurate rendering.
-*   **Rationale:** These are essential for rendering graphics correctly in most NES games.
-*   **Status:** ✅ **COMPLETE** (Phase 7B/7C, 2025-10-04)
-*   **Test Coverage:**
-    *   Created 15 sprite evaluation tests (`tests/ppu/sprite_evaluation_test.zig`)
-    *   Created 23 sprite rendering tests (`tests/ppu/sprite_rendering_test.zig`)
-    *   Created 35 sprite edge case tests (`tests/ppu/sprite_edge_cases_test.zig`)
-    *   Status: 73/73 passing (100% complete)
-    *   Documentation: `docs/architecture/ppu-sprites.md`
+-   **Status:** 🟡 **TODO**
+-   **Issue:** The `mirrorNametableAddress` function in `src/ppu/Logic.zig` has a placeholder for four-screen mirroring. It currently falls back to 2KB mirroring, which is incorrect for cartridges that provide their own extra VRAM.
+-   **Action:** Implement proper four-screen mirroring. This will likely require the `Cartridge` to expose a flag indicating it provides four-screen VRAM, and the PPU will need to be able to access this extra memory, likely via a separate VRAM bus or by having the cartridge handle those memory ranges.
+-   **Rationale:** While less common, some cartridges use four-screen mirroring, and supporting it is necessary for full compatibility.
+-   **Code References:** `src/ppu/Logic.zig`, `src/cartridge/Cartridge.zig`
 
-### 2.4. PPU and CPU Interaction
+### 2.4. Implement or Skip TODO PPU Tests
 
-*   **Action:** The PPU and CPU interact in several critical ways (e.g., NMI generation, DMA). The implementation should ensure that these interactions are handled in a cycle-accurate manner. For example, the NMI should be triggered on the correct PPU cycle, and the CPU should be able to read the PPU status register at the correct time.
-*   **Rationale:** Cycle-accurate interaction between the CPU and PPU is essential for many games to function correctly.
-*   **Status:** **TODO**.
-
-### 2.5. Four-Screen Mirroring
-
-*   **Action:** The `mirrorNametableAddress` function currently has a placeholder for four-screen mirroring. This should be implemented properly, likely by allowing the `ChrProvider` to provide the extra VRAM.
-*   **Rationale:** While less common, some cartridges use four-screen mirroring, and supporting it is necessary for full compatibility.
-*   **Code References:**
-    *   `src/ppu/Ppu.zig`: The `mirrorNametableAddress` function.
-*   **Status:** **TODO**.
+-   **Status:** 🟡 **TODO**
+-   **Issue:** The test file `tests/ppu/sprite_rendering_test.zig` contains 12 empty test scaffolds. These tests currently pass (as they do nothing), which can be misleading.
+-   **Action:** Since these are integration tests that likely require a full video subsystem to verify output, they should be explicitly skipped for now. Add `return error.SkipZigTest;` to each empty test body with a comment explaining that they will be implemented with the video subsystem in a future phase.
+-   **Rationale:** Prevents running empty, passing tests and clearly documents the dependency on the video backend, making the test suite status more accurate.
+-   **Code Reference:** `tests/ppu/sprite_rendering_test.zig`

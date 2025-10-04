@@ -1,37 +1,36 @@
 # 06 - Configuration System Review
 
-**Date:** 2025-10-03
-**Status:** In Progress
+**Date:** 2025-10-05
+**Status:** 🟡 Needs Improvement
 
 ## 1. Summary
 
-The configuration system, based on the `rambo.kdl` file and parsed by `src/config/Config.zig`, is a strong point of the project. It provides a clear and flexible way to define the hardware configuration, which is essential for an accurate, multi-system emulator.
+The configuration system in `src/config/Config.zig` is extensive and provides a good foundation for defining hardware variations, which is crucial for an accurate, multi-system emulator. The use of enums for variants like `CpuVariant` and `PpuVariant` is a strong point.
 
-However, the current implementation relies on a manual, line-by-line parsing of the KDL file. This approach is brittle and can be difficult to maintain. The system can be made more robust and easier to use by adopting a proper KDL parsing library and improving the overall design.
+However, the system's primary weakness is its manual, line-by-line KDL parsing. This approach is brittle, error-prone, and difficult to maintain or extend. Adopting a proper KDL parsing library is a high-priority task.
 
 ## 2. Actionable Items
 
 ### 2.1. Use a KDL Parsing Library
 
-*   **Action:** Instead of parsing the KDL file manually, use a dedicated KDL parsing library. There are several available for Zig. This will simplify the code, make it more robust, and reduce the maintenance burden.
-*   **Rationale:** A dedicated library will handle all the complexities of KDL parsing, including comments, different data types, and error handling. This will make the configuration loading process more reliable and easier to extend.
-*   **Code References:**
-    *   `src/config/Config.zig`: The `parseKdl` function.
-*   **Status:** **TODO**.
+-   **Status:** 🔴 **High Priority TODO**
+-   **Issue:** The `parseKdl` function in `src/config/Config.zig` manually parses the KDL file by splitting lines and trimming whitespace. This is not robust and will fail with slightly different formatting, comments, or more complex KDL structures.
+-   **Action:** Replace the manual parsing logic with a dedicated KDL parsing library for Zig. Several are available (e.g., searching on GitHub for "zig kdl"). This will simplify the code, make it more robust, and handle all the complexities of the KDL format automatically.
+-   **Rationale:** A dedicated library will make the configuration loading process more reliable, easier to extend, and less prone to bugs. It will also significantly reduce the amount of code in `Config.zig`.
+-   **Code Reference:** `src/config/Config.zig` (the `parseKdl` function).
 
 ### 2.2. Consolidate Hardware Configuration
 
-*   **Action:** The `final-hybrid-architecture.md` document proposes a `HardwareConfig` struct that consolidates all hardware-related configuration into a single place. This is an excellent idea and should be implemented. The `Config` struct should then hold this `HardwareConfig` struct.
-*   **Rationale:** This will create a clear separation between hardware configuration and other settings (e.g., video, audio). It will also make it easier to pass the hardware configuration to the emulation core.
-*   **Code References:**
-    *   `src/config/Config.zig`: The `Config` struct.
-*   **Status:** **TODO**.
+-   **Status:** 🟡 **TODO**
+-   **Issue:** The `Config` struct contains a mix of hardware-specific settings (like `cpu`, `ppu`, `cic`) and application-level settings (like `video`, `audio`). While the `console` enum provides a good top-level switch, a clearer separation would be beneficial.
+-   **Action:** Create a `HardwareConfig` struct that consolidates all the hardware-related configurations (`cpu`, `ppu`, `cic`, `controllers`). The main `Config` struct would then hold this `HardwareConfig` struct alongside other settings. This would make it easier to pass the complete hardware configuration to the `EmulationState`.
+-   **Rationale:** Creates a clear separation between the emulated hardware and the emulator's application settings, improving architectural clarity.
+-   **Code Reference:** `src/config/Config.zig`
 
 ### 2.3. Implement Hot-Reloading
 
-*   **Action:** The design documents mention the possibility of hot-reloading the configuration file. This would be a powerful feature for development and debugging. Implement this using `libxev`'s file watching capabilities.
-*   **Rationale:** Hot-reloading would allow developers to change the hardware configuration on the fly, without having to restart the emulator. This would be a huge time-saver.
-*   **Code References:**
-    *   `src/config/Config.zig`: The `Config` struct could have a `reload` method.
-    *   `src/io/Runtime.zig`: The I/O thread could watch the configuration file for changes.
-*   **Status:** **TODO**.
+-   **Status:** 🟡 **TODO**
+-   **Issue:** The design documents mention the possibility of hot-reloading the configuration file, which would be a powerful feature for development and debugging. The current implementation does not support this.
+-   **Action:** Use `libxev`'s file watching capabilities to monitor the `rambo.kdl` file for changes. When a change is detected, the main thread can post a `ConfigUpdate` message to the emulation thread via the `ConfigMailbox`, triggering a reload.
+-   **Rationale:** Hot-reloading would allow developers to change hardware configurations and other settings on the fly without restarting the emulator, which would be a significant time-saver during development and testing.
+-   **Code References:** `src/main.zig`, `src/config/Config.zig`, `src/mailboxes/ConfigMailbox.zig`
