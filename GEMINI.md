@@ -1,7 +1,7 @@
 # Gemini Development Guide for RAMBO
 
 **Date:** 2025-10-04
-**Status:** PPU Sprite Rendering Complete. Ready for Video Subsystem Implementation.
+**Status:** PPU Complete (100%). Video subsystem implementation next.
 
 This document provides a high-level overview and development guidelines for the RAMBO NES emulator project, specifically for the Gemini agent.
 
@@ -34,12 +34,12 @@ The project follows a **hybrid architecture**:
 
 ## 4. Current Status & Development Priorities
 
--   **CPU:** ✅ 100% complete.
--   **PPU:** ✅ 90% complete. Background and sprite rendering pipelines are fully implemented and unit-tested. Integration testing with a visual output is the main remaining step.
--   **Debugger/Snapshot:** ✅ Complete and production-ready.
--   **Architecture:** ✅ Major refactoring is complete.
+-   **CPU:** ✅ 100% complete (105/105 tests).
+-   **PPU:** ✅ 100% complete (79/79 tests). Background and sprite rendering pipelines fully implemented and tested.
+-   **Debugger/Snapshot:** ✅ Complete and production-ready (62/62 debugger tests, 8/9 snapshot tests).
+-   **Architecture:** ✅ Major refactoring complete. Thread architecture and mailbox pattern implemented.
 
-**Primary Roadmap:** The authoritative plan is `docs/DEVELOPMENT-PLAN.md`.
+**Primary Roadmap:** The authoritative plan is `docs/DEVELOPMENT-ROADMAP.md`.
 
 **Next Critical Path:**
 1.  **Video Subsystem:** Implement the video backend to display the PPU's output on screen.
@@ -50,11 +50,12 @@ The project follows a **hybrid architecture**:
 
 Before starting any task, consult these primary documents:
 
--   **Roadmap:** `docs/DEVELOPMENT-PLAN.md`
--   **Cleanup Plan:** `docs/code-review/CLEANUP-PLAN-2025-10-04.md`
--   **High-Level Status:** `docs/06-implementation-notes/STATUS.md`
--   **Video Plan:** `docs/VIDEO-SUBSYSTEM-DEVELOPMENT-PLAN.md`
--   **Sprite Specification:** `docs/SPRITE-RENDERING-SPECIFICATION.md`
+-   **Roadmap:** `docs/DEVELOPMENT-ROADMAP.md` - Complete project roadmap
+-   **Cleanup Plan:** `docs/code-review/CLEANUP-PLAN-2025-10-04.md` - Code cleanup status
+-   **High-Level Status:** `docs/implementation/STATUS.md` - Current implementation status
+-   **Video Plan:** `docs/architecture/video-system.md` - Phase 8 Wayland+Vulkan implementation
+-   **Sprite Specification:** `docs/architecture/ppu-sprites.md` - Complete sprite rendering spec
+-   **Thread Architecture:** `docs/architecture/threading.md` - Mailbox pattern and timer-driven emulation
 
 ## 6. Agent Contribution Guidelines
 

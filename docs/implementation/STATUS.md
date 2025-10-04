@@ -1,9 +1,9 @@
 # RAMBO NES Emulator - Implementation Status
 
 **Last Updated:** 2025-10-04
-**Version:** 0.5.0-alpha
+**Version:** 0.2.0-alpha
 **Target:** Cycle-accurate NES emulation passing AccuracyCoin test suite
-**Tests:** 568/569 passing (99.8%)
+**Tests:** 575/576 passing (99.8%)
 
 ## Project Overview
 
@@ -13,20 +13,20 @@ The project has completed major architectural refactoring and the full PPU rende
 
 ## Current Component Status
 
-- ✅ **CPU:** 100% complete (256/256 opcodes), fully tested.
-- ✅ **PPU:** 90% complete. Background and sprite rendering pipelines are fully implemented and unit-tested. Integration testing with a visual output is the main remaining step.
-- ✅ **Bus & Memory:** 85% complete. Core functionality is robust and tested. Controller I/O is the main missing piece.
-- ✅ **Architecture:** State/Logic separation and comptime generics are fully implemented.
-- ✅ **Debugger & Snapshots:** Production-ready with a comprehensive feature set and tests.
-- ✅ **Testing:** 569 total tests. Test infrastructure is in place for all major components.
+- ✅ **CPU:** 100% complete (105/105 tests). All 256 opcodes implemented and tested.
+- ✅ **PPU:** 100% complete (79/79 tests). Background and sprite rendering pipelines fully implemented and tested.
+- ✅ **Bus & Memory:** 85% complete (17/17 tests). Core functionality robust and tested. Controller I/O ($4016/$4017) pending.
+- ✅ **Thread Architecture:** 100% complete. Mailbox pattern with timer-driven emulation (62.97 FPS measured).
+- ✅ **Debugger & Snapshots:** Production-ready (62/62 debugger tests, 8/9 snapshot tests).
+- ✅ **Testing:** 576 total tests (575 passing). Test infrastructure covers all major components.
 
 ## Development Plan
 
 The authoritative development plan is now maintained in:
 
-**[DEVELOPMENT-PLAN.md](../../DEVELOPMENT-PLAN.md)**
+**[DEVELOPMENT-ROADMAP.md](../DEVELOPMENT-ROADMAP.md)**
 
-This plan outlines the critical path to a playable emulator.
+This roadmap outlines the critical path to a playable emulator and long-term vision.
 
 ### Next Immediate Priorities:
 
