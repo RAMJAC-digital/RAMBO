@@ -159,8 +159,9 @@ pub const Debugger = struct {
     history: std.ArrayList(HistoryEntry),
     history_max_size: usize = 100,
 
-    /// State modification history
+    /// State modification history (circular buffer)
     modifications: std.ArrayList(StateModification),
+    modifications_max_size: usize = 1000,
 
     /// Debug statistics
     stats: DebugStats = .{},
@@ -728,8 +729,14 @@ pub const Debugger = struct {
     // Modification Logging
     // ========================================================================
 
-    /// Log state modification for debugging history
+    /// Log state modification for debugging history (bounded circular buffer)
+    /// Automatically removes oldest entry when max size reached
     fn logModification(self: *Debugger, modification: StateModification) void {
+        // ✅ Implement circular buffer - remove oldest when full
+        if (self.modifications.items.len >= self.modifications_max_size) {
+            _ = self.modifications.orderedRemove(0);
+        }
+
         self.modifications.append(self.allocator, modification) catch |err| {
             // Log error but don't fail - modification already applied
             std.debug.print("Failed to log modification: {}\n", .{err});

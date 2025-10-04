@@ -1027,3 +1027,66 @@ test "RT-Safety: break reason accessible after trigger" {
     // Verify it contains address
     try testing.expect(std.mem.containsAtLeast(u8, reason.?, 1, "8000"));
 }
+
+// ============================================================================
+// Phase 3: Bounded Modifications History Tests
+// ============================================================================
+
+test "Modification History: bounded to max size" {
+    var config = Config.init(testing.allocator);
+    defer config.deinit();
+
+    var debugger = Debugger.init(testing.allocator, &config);
+    defer debugger.deinit();
+
+    // Set small max size for testing
+    debugger.modifications_max_size = 10;
+
+    var state = createTestState(&config);
+
+    // Add 20 modifications (2x max size)
+    for (0..20) |i| {
+        debugger.setRegisterA(&state, @intCast(i));
+    }
+
+    // ✅ Should be bounded to 10
+    const mods = debugger.getModifications();
+    try testing.expectEqual(@as(usize, 10), mods.len);
+
+    // ✅ Should contain most recent 10 (values 10-19)
+    try testing.expectEqual(@as(u8, 10), mods[0].register_a);
+    try testing.expectEqual(@as(u8, 19), mods[9].register_a);
+}
+
+test "Modification History: circular buffer behavior" {
+    var config = Config.init(testing.allocator);
+    defer config.deinit();
+
+    var debugger = Debugger.init(testing.allocator, &config);
+    defer debugger.deinit();
+
+    debugger.modifications_max_size = 5;
+
+    var state = createTestState(&config);
+
+    // Add 3 modifications
+    debugger.setRegisterA(&state, 0x11);
+    debugger.setRegisterX(&state, 0x22);
+    debugger.setRegisterY(&state, 0x33);
+
+    try testing.expectEqual(@as(usize, 3), debugger.getModifications().len);
+
+    // Add 5 more (total 8, should wrap to 5)
+    for (0..5) |i| {
+        debugger.setProgramCounter(&state, @intCast(0x8000 + i));
+    }
+
+    // ✅ Should have exactly 5 entries
+    try testing.expectEqual(@as(usize, 5), debugger.getModifications().len);
+
+    // ✅ First 3 should be removed, remaining are last 5 PC changes
+    const mods = debugger.getModifications();
+    try testing.expect(mods[0] == .program_counter);
+    try testing.expectEqual(@as(u16, 0x8000), mods[0].program_counter);
+    try testing.expectEqual(@as(u16, 0x8004), mods[4].program_counter);
+}
