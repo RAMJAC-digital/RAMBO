@@ -527,7 +527,7 @@ pub fn writeVram(state: *PpuState, address: u16, value: u8) void {
 
     /// Get sprite pattern address for 8×8 sprites
     /// Returns CHR ROM address for the specified sprite tile and row
-    fn getSpritePatternAddress(tile_index: u8, row: u8, bitplane: u1, pattern_table: bool, vertical_flip: bool) u16 {
+    pub fn getSpritePatternAddress(tile_index: u8, row: u8, bitplane: u1, pattern_table: bool, vertical_flip: bool) u16 {
         const flipped_row = if (vertical_flip) 7 - row else row;
         const pattern_table_base: u16 = if (pattern_table) 0x1000 else 0x0000;
         const tile_offset: u16 = @as(u16, tile_index) * 16;
@@ -538,7 +538,7 @@ pub fn writeVram(state: *PpuState, address: u16, value: u8) void {
 
     /// Get sprite pattern address for 8×16 sprites
     /// Returns CHR ROM address, handling top/bottom half and pattern table selection
-    fn getSprite16PatternAddress(tile_index: u8, row: u8, bitplane: u1, vertical_flip: bool) u16 {
+    pub fn getSprite16PatternAddress(tile_index: u8, row: u8, bitplane: u1, vertical_flip: bool) u16 {
         // In 8×16 mode, bit 0 of tile index selects pattern table (not PPUCTRL)
         const pattern_table_base: u16 = if ((tile_index & 0x01) != 0) 0x1000 else 0x0000;
 
@@ -652,8 +652,9 @@ pub fn writeVram(state: *PpuState, address: u16, value: u8) void {
         }
     }
 
-    /// Reverse bits in a byte (for horizontal flip)
-    fn reverseBits(byte: u8) u8 {
+    /// Reverse bits in a byte (for horizontal sprite flip)
+    /// Example: 0b10110001 -> 0b10001101
+    pub fn reverseBits(byte: u8) u8 {
         var result: u8 = 0;
         var temp = byte;
         for (0..8) |_| {

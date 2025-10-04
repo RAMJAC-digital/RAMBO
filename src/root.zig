@@ -24,6 +24,9 @@ pub const Config = @import("config/Config.zig");
 /// PPU (Picture Processing Unit)
 pub const Ppu = @import("ppu/Ppu.zig");
 
+/// PPU Logic (for testing)
+pub const PpuLogic = @import("ppu/Logic.zig");
+
 /// PPU timing constants
 pub const PpuTiming = @import("ppu/timing.zig");
 
