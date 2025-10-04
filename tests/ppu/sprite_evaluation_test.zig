@@ -120,6 +120,11 @@ test "Sprite Evaluation: Sprite Y=$FF never visible" {
     ppu.oam[2] = 0x00;
     ppu.oam[3] = 0x80;
 
+    // Mark other sprites off-screen
+    for (1..64) |i| {
+        ppu.oam[i * 4] = 0xFF;
+    }
+
     // Test on various scanlines
     for ([_]u16{ 0, 100, 200, 239 }) |scanline| {
         // Clear secondary OAM
@@ -470,15 +475,16 @@ test "Sprite Evaluation: Only occurs on visible scanlines (0-239)" {
     var ppu = PpuType.init();
     ppu.mask.show_sprites = true;
 
+    // Mark all sprites off-screen initially
+    for (0..64) |i| {
+        ppu.oam[i * 4] = 0xFF;
+    }
+
     // Place sprite 0 at Y=240 (visible on scanlines 240-247)
     ppu.oam[0] = 240;
     ppu.oam[1] = 0x42;
     ppu.oam[2] = 0x00;
     ppu.oam[3] = 0x80;
-
-    for (1..64) |i| {
-        ppu.oam[i * 4] = 0xFF;
-    }
 
     // Test VBlank scanline (241) - no evaluation
     ppu.scanline = 241;
@@ -508,15 +514,16 @@ test "Sprite Evaluation: Rendering disabled prevents evaluation" {
     ppu.mask.show_sprites = false; // Rendering disabled
     ppu.mask.show_bg = false;
 
+    // Mark all sprites off-screen initially
+    for (0..64) |i| {
+        ppu.oam[i * 4] = 0xFF;
+    }
+
     // Place sprite at Y=100
     ppu.oam[0] = 100;
     ppu.oam[1] = 0x42;
     ppu.oam[2] = 0x00;
     ppu.oam[3] = 0x80;
-
-    for (1..64) |i| {
-        ppu.oam[i * 4] = 0xFF;
-    }
 
     // Run evaluation on scanline 100
     ppu.scanline = 100;

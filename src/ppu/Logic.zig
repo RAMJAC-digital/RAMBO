@@ -525,6 +525,48 @@ pub fn writeVram(state: *PpuState, address: u16, value: u8) void {
         return palette.getNesColorRgba(nes_color);
     }
 
+    /// Evaluate sprites for the current scanline
+    /// Copies up to 8 sprites to secondary OAM
+    /// Sets sprite_overflow flag if more than 8 sprites found
+    fn evaluateSprites(state: *PpuState) void {
+        const sprite_height: u16 = if (state.ctrl.sprite_size) 16 else 8;
+        var secondary_oam_index: usize = 0;
+        var sprites_found: u8 = 0;
+
+        // Clear sprite overflow flag at start of evaluation
+        state.status.sprite_overflow = false;
+
+        // Evaluate all 64 sprites in OAM
+        for (0..64) |sprite_index| {
+            const oam_offset = sprite_index * 4;
+            const sprite_y = state.oam[oam_offset];
+
+            // Check if sprite is in range for current scanline
+            // Sprite Y position defines top of sprite
+            // Sprite is visible if: scanline >= sprite_y AND scanline < sprite_y + height
+            // Special case: Y=$FF means sprite at -1 (never visible due to overflow)
+            const sprite_bottom = @as(u16, sprite_y) + sprite_height;
+            if (state.scanline >= sprite_y and state.scanline < sprite_bottom) {
+                // Sprite is in range
+                if (sprites_found < 8) {
+                    // Copy sprite to secondary OAM
+                    state.secondary_oam[secondary_oam_index] = state.oam[oam_offset];         // Y
+                    state.secondary_oam[secondary_oam_index + 1] = state.oam[oam_offset + 1]; // Tile
+                    state.secondary_oam[secondary_oam_index + 2] = state.oam[oam_offset + 2]; // Attr
+                    state.secondary_oam[secondary_oam_index + 3] = state.oam[oam_offset + 3]; // X
+                    secondary_oam_index += 4;
+                    sprites_found += 1;
+                } else {
+                    // More than 8 sprites found - set overflow flag
+                    state.status.sprite_overflow = true;
+                    // Hardware bug: Continue checking but with diagonal scan pattern
+                    // For now, just set flag and break
+                    break;
+                }
+            }
+        }
+    }
+
     /// Tick PPU by one PPU cycle
     /// Optional framebuffer for pixel output (RGBA8888, 256×240 pixels)
     pub fn tick(state: *PpuState, framebuffer: ?[]u32) void {
@@ -590,6 +632,28 @@ pub fn writeVram(state: *PpuState, address: u16, value: u8) void {
             // Copy vertical scroll during pre-render scanline
             if (is_prerender and dot >= 280 and dot <= 304) {
                 copyScrollY(state);
+            }
+        }
+
+        // === Sprite Evaluation ===
+        // Secondary OAM clearing happens on ALL scanlines (visible + VBlank + pre-render)
+        // Cycles 1-64: Clear secondary OAM to $FF
+        if (dot >= 1 and dot <= 64) {
+            // Clear bytes 0-31 during cycles 1-32
+            // Cycles 33-64 are used for sprite evaluation setup
+            const clear_index = dot - 1;
+            if (clear_index < 32) {
+                state.secondary_oam[clear_index] = 0xFF;
+            }
+        }
+
+        // Sprite evaluation only occurs on visible scanlines (0-239) when rendering enabled
+        if (is_visible) {
+            // Cycles 65-256: Sprite evaluation
+            // Evaluate sprites and copy up to 8 to secondary OAM
+            // Only occurs when rendering is enabled
+            if (dot == 65 and state.mask.renderingEnabled()) {
+                evaluateSprites(state);
             }
         }
 
