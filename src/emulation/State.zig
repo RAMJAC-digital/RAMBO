@@ -252,10 +252,13 @@ pub const EmulationState = struct {
 
             // Safety: Prevent infinite loop if something goes wrong
             // Maximum frame cycles + 1000 cycle buffer
+            // This check is RT-safe: unreachable is optimized out in ReleaseFast
             const max_cycles: u64 = 110_000;
             if (self.clock.ppu_cycles - start_cycle > max_cycles) {
-                std.debug.print("WARNING: Frame emulation exceeded {d} PPU cycles\n", .{max_cycles});
-                break;
+                if (comptime std.debug.runtime_safety) {
+                    unreachable; // Debug mode only, no allocation
+                }
+                break; // Release mode: exit gracefully
             }
         }
 

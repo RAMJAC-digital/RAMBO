@@ -20,8 +20,10 @@ pub const InstructionExecutor = struct {
         const step = state.instruction_cycle;
 
         // Safety check: ensure we don't exceed microstep array bounds
+        // This should never happen in correct code (all instructions have proper cycle counts)
+        // Using unreachable maintains RT-safety (no allocation in error path)
         if (step >= self.microsteps.len) {
-            @panic("Instruction cycle exceeded microstep array length");
+            unreachable;
         }
 
         const complete = self.microsteps[step](state, bus);
