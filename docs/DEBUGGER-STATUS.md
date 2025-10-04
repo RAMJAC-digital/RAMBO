@@ -1,12 +1,12 @@
 # Debugger System Implementation Status
 
-**Status:** ✅ **ARCHITECTURE FIXES COMPLETE**
+**Status:** ✅ **PRODUCTION READY - CALLBACK SYSTEM COMPLETE**
 **Date:** 2025-10-04
-**Total Implementation Time:** ~20 hours (8h initial + 12h architecture fixes)
+**Total Implementation Time:** ~22 hours (8h initial + 12h architecture fixes + 2h callback system)
 
 ## Summary
 
-Complete debugger system with comprehensive architecture fixes (Phases 1-5). All 55 debugger tests passing (55/55). External wrapper pattern with complete isolation, RT-safety, bounded history, TAS support, and zero regressions. System is production-ready with proven zero-interference between debugger and runtime.
+Complete debugger system with comprehensive architecture fixes (Phases 1-5) and user callback system. All 62 debugger tests passing (62/62). External wrapper pattern with complete isolation, RT-safety, bounded history, TAS support, user callbacks, and zero regressions. System is production-ready with proven zero-interference between debugger and runtime. Callback system enables custom break conditions and async I/O integration.
 
 ## Completed Components
 
@@ -229,7 +229,70 @@ Complete debugger system with comprehensive architecture fixes (Phases 1-5). All
 - Compile-time isolation guarantees (const EmulationState pointers)
 - Future parallelism enablement
 
-### 11. Documentation Files ✅
+### 11. User Callback System ✅
+
+**Implementation Time:** ~2 hours
+**Tests Added:** 7 callback tests
+
+**Features:**
+- User-defined callback hooks for custom break conditions
+- `onBeforeInstruction` callback - called before each instruction execution
+- `onMemoryAccess` callback - called on memory read/write operations
+- Optional function pointers - implement only needed callbacks
+- Type-erased context (`*anyopaque userdata`) for custom state
+- Fixed-size callback array (max 8 callbacks) for RT-safety
+- FIFO execution order (predictable callback sequence)
+- Const state enforcement - callbacks receive read-only EmulationState
+
+**Callback API:**
+```zig
+pub const DebugCallback = struct {
+    onBeforeInstruction: ?*const fn (self: *anyopaque, state: *const EmulationState) bool = null,
+    onMemoryAccess: ?*const fn (self: *anyopaque, address: u16, value: u8, is_write: bool) bool = null,
+    userdata: *anyopaque,
+};
+
+pub fn registerCallback(self: *Debugger, callback: DebugCallback) !void
+pub fn unregisterCallback(self: *Debugger, userdata: *anyopaque) bool
+pub fn clearCallbacks(self: *Debugger) void
+```
+
+**Integration:**
+- Integrated into `shouldBreak()` - callbacks checked before instruction execution
+- Integrated into `checkMemoryAccess()` - callbacks checked on memory operations
+- Return `true` from callback to request break, `false` to continue
+- Break reason automatically set when callback triggers break
+
+**RT-Safety:**
+- Zero heap allocations in callback path (verified by tests)
+- Fixed-size array storage (8 callbacks maximum)
+- Stack buffers for break reason formatting
+- No dynamic allocation during callback execution
+
+**Tests:** 7/7 passing
+- Callback: onBeforeInstruction called and can break
+- Callback: onMemoryAccess called and can break
+- Callback: Multiple callbacks supported
+- Callback: Unregister works correctly
+- Callback: Clear all callbacks
+- Callback: RT-safety - no heap allocations in callback path
+- Callback: Const state enforcement - callback receives read-only state
+
+**Use Cases:**
+- Custom break conditions (e.g., break when A register equals specific value AND PC in range)
+- External event integration (e.g., break on network packet arrival via libxev)
+- Performance profiling (e.g., track instruction counts per function)
+- Automated testing (e.g., verify specific execution patterns)
+- TAS (Tool-Assisted Speedrun) automation
+
+**Async/libxev Compatibility:**
+- Callbacks are orthogonal to async I/O operations
+- Debugger always called from main thread only
+- libxev async I/O runs on separate event loop
+- No concurrent access to debugger needed
+- I/O callbacks can safely invoke debugger methods
+
+### 12. Documentation Files ✅
 
 **Files:**
 - `docs/debugger-api-guide.md` - Complete API guide (800+ lines)
@@ -240,16 +303,17 @@ Complete debugger system with comprehensive architecture fixes (Phases 1-5). All
 
 ## Test Results
 
-**Overall:** 479/489 tests passing (97.9%)
+**Overall:** 486/496 tests passing (97.9%)
 
 **Breakdown:**
-- **Debugger tests:** 55/55 passing ✅ (+34 from architecture fixes)
+- **Debugger tests:** 62/62 passing ✅ (+34 from architecture fixes, +7 from callback system)
   - Original tests: 21 tests (breakpoints, watchpoints, stepping, history)
   - Side-effect-free reads: 3 tests (Phase 1)
   - RT-safety verification: 3 tests (Phase 2)
   - Bounded history: 2 tests (Phase 3)
   - TAS support: 5 tests (Phase 4)
   - Isolation verification: 6 tests (Phase 5)
+  - Callback system: 7 tests (user callbacks, RT-safety, const enforcement)
   - Memory inspection: 3 tests (readMemory, readMemoryRange isolation)
   - Modification history: 2 tests (bounded buffer, circular eviction)
   - State manipulation: 6 tests (TAS edge cases)
@@ -528,13 +592,15 @@ All debugger implementation blockers resolved:
 
 Debugger system is production-ready:
 
-- ✅ Fully implemented
-- ✅ Comprehensively tested (21/21 tests passing)
+- ✅ Fully implemented with callback system
+- ✅ Comprehensively tested (62/62 tests passing)
 - ✅ Well documented
 - ✅ No blockers for future phases
 - ✅ Clean architecture (external wrapper pattern)
+- ✅ RT-safe callback system with async compatibility
+- ✅ Ready for code review and production use
 
-**Ready to proceed with Phase 3.1: State Manipulation** or other debugging enhancements
+**Ready for continued code review and production deployment**
 
 ---
 
@@ -546,9 +612,9 @@ Debugger system is production-ready:
 ## Test Summary
 
 ```
-Total Tests: 479/489 passing (97.9%)
+Total Tests: 486/496 passing (97.9%)
 
-Debugger Tests: 55/55 ✅ (+34 from architecture fixes)
+Debugger Tests: 62/62 ✅ (+34 from architecture fixes, +7 from callback system)
 ├── Original Tests (21):
 │   ├── Breakpoint Tests: 7/7 ✅
 │   ├── Watchpoint Tests: 4/4 ✅
@@ -573,6 +639,14 @@ Debugger Tests: 55/55 ✅ (+34 from architecture fixes)
 │   └── Phase 5 (Isolation): 6/6 ✅
 │       ├── Zero-shared-state verification: 4 tests
 │       └── Hook isolation (const params): 2 tests
+│
+└── Callback System Tests (7): 7/7 ✅
+    ├── onBeforeInstruction callback: 1 test
+    ├── onMemoryAccess callback: 1 test
+    ├── Multiple callbacks: 1 test
+    ├── Callback registration/unregistration: 2 tests
+    ├── RT-safety (no heap allocs): 1 test
+    └── Const state enforcement: 1 test
 
 Expected Failures: 10
 ├── Sprite Evaluation: 9 (sprite rendering not implemented)

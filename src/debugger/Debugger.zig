@@ -9,11 +9,35 @@
 //! - Step execution (instruction, scanline, frame)
 //! - Execution history (snapshot-based)
 //! - State inspection and manipulation
+//! - User-defined callbacks (RT-safe, async-compatible)
 
 const std = @import("std");
 const Snapshot = @import("../snapshot/Snapshot.zig");
 const EmulationState = @import("../emulation/State.zig").EmulationState;
 const Config = @import("../config/Config.zig").Config;
+
+/// User-defined callback interface
+/// All callback functions are OPTIONAL - implement only what you need
+/// MUST be RT-safe: no allocations, no blocking operations
+///
+/// Callbacks receive CONST state - they can inspect but not mutate
+/// Use debugger.readMemory() for safe memory inspection
+pub const DebugCallback = struct {
+    /// Called before each instruction execution
+    /// Return true to break, false to continue
+    /// Receives const state - read-only access
+    onBeforeInstruction: ?*const fn (self: *anyopaque, state: *const EmulationState) bool = null,
+
+    /// Called on memory access (read or write)
+    /// Return true to break, false to continue
+    /// address: Memory address being accessed
+    /// value: Value being read or written
+    /// is_write: true for write, false for read
+    onMemoryAccess: ?*const fn (self: *anyopaque, address: u16, value: u8, is_write: bool) bool = null,
+
+    /// User data pointer (context for callbacks)
+    userdata: *anyopaque,
+};
 
 /// Debugger execution mode
 pub const DebugMode = enum {
@@ -170,6 +194,12 @@ pub const Debugger = struct {
     /// Used by shouldBreak() and checkMemoryAccess() to avoid allocPrint()
     break_reason_buffer: [256]u8 = undefined,
     break_reason_len: usize = 0,
+
+    /// User-defined callbacks (RT-safe, fixed-size array)
+    /// Maximum 8 callbacks can be registered
+    /// Callbacks are called in registration order
+    callbacks: [8]?DebugCallback = [_]?DebugCallback{null} ** 8,
+    callback_count: usize = 0,
 
     pub fn init(allocator: std.mem.Allocator, config: *const Config) Debugger {
         return .{
@@ -341,6 +371,72 @@ pub const Debugger = struct {
     }
 
     // ========================================================================
+    // Callback Management (User-Defined Hooks)
+    // ========================================================================
+
+    /// Register a user-defined callback
+    /// Maximum 8 callbacks can be registered
+    /// Callbacks are called in registration order during shouldBreak() and checkMemoryAccess()
+    ///
+    /// Callback Requirements:
+    /// - MUST be RT-safe (no allocations, no blocking)
+    /// - Receive const state (read-only access)
+    /// - Return bool to indicate break request
+    ///
+    /// Example:
+    /// ```
+    /// const MyCallback = struct {
+    ///     value: u32,
+    ///
+    ///     fn onBeforeInstruction(userdata: *anyopaque, state: *const EmulationState) bool {
+    ///         const self: *MyCallback = @ptrCast(@alignCast(userdata));
+    ///         _ = self.value;  // Access callback data
+    ///         return state.cpu.pc == 0x8000;  // Break at specific PC
+    ///     }
+    /// };
+    ///
+    /// var my_callback = MyCallback{ .value = 42 };
+    /// try debugger.registerCallback(.{
+    ///     .onBeforeInstruction = MyCallback.onBeforeInstruction,
+    ///     .userdata = &my_callback,
+    /// });
+    /// ```
+    pub fn registerCallback(self: *Debugger, callback: DebugCallback) !void {
+        if (self.callback_count >= 8) return error.TooManyCallbacks;
+
+        self.callbacks[self.callback_count] = callback;
+        self.callback_count += 1;
+    }
+
+    /// Unregister a callback by userdata pointer
+    /// Returns true if callback was found and removed
+    pub fn unregisterCallback(self: *Debugger, userdata: *anyopaque) bool {
+        for (self.callbacks[0..self.callback_count], 0..) |maybe_callback, i| {
+            if (maybe_callback) |cb| {
+                if (cb.userdata == userdata) {
+                    // Shift remaining callbacks down
+                    var j = i;
+                    while (j < self.callback_count - 1) : (j += 1) {
+                        self.callbacks[j] = self.callbacks[j + 1];
+                    }
+                    self.callbacks[self.callback_count - 1] = null;
+                    self.callback_count -= 1;
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /// Clear all registered callbacks
+    pub fn clearCallbacks(self: *Debugger) void {
+        for (self.callbacks[0..self.callback_count]) |*cb| {
+            cb.* = null;
+        }
+        self.callback_count = 0;
+    }
+
+    // ========================================================================
     // Execution Hook (called before each instruction)
     // ========================================================================
 
@@ -430,6 +526,19 @@ pub const Debugger = struct {
             return true;
         }
 
+        // Check user-defined callbacks
+        for (self.callbacks[0..self.callback_count]) |maybe_callback| {
+            if (maybe_callback) |callback| {
+                if (callback.onBeforeInstruction) |func| {
+                    if (func(callback.userdata, state)) {
+                        self.mode = .paused;
+                        try self.setBreakReason("User callback break");
+                        return true;
+                    }
+                }
+            }
+        }
+
         return false;
     }
 
@@ -505,6 +614,27 @@ pub const Debugger = struct {
                 try self.setBreakReason(reason);
 
                 return true;
+            }
+        }
+
+        // Check user-defined callbacks
+        for (self.callbacks[0..self.callback_count]) |maybe_callback| {
+            if (maybe_callback) |callback| {
+                if (callback.onMemoryAccess) |func| {
+                    if (func(callback.userdata, address, value, is_write)) {
+                        self.mode = .paused;
+                        // ✅ Format into stack buffer
+                        var buf: [128]u8 = undefined;
+                        const access_type: []const u8 = if (is_write) "write" else "read";
+                        const reason = std.fmt.bufPrint(
+                            &buf,
+                            "Memory callback: {s} ${X:0>4}",
+                            .{ access_type, address },
+                        ) catch "Memory callback";
+                        try self.setBreakReason(reason);
+                        return true;
+                    }
+                }
             }
         }
 
