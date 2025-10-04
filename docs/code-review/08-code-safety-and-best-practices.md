@@ -16,7 +16,16 @@ The RAMBO codebase is generally well-written and follows many of Zig's best prac
 *   **Code References:**
     *   `src/cartridge/Mapper.zig`
     *   `src/memory/ChrProvider.zig`
-*   **Status:** **TODO**.
+*   **Status:** **DONE** (Completed in Phase 3, commit 2dc78b8)
+*   **Implementation:**
+    *   **DELETED:** `src/cartridge/Mapper.zig` (VTable interface eliminated)
+    *   **DELETED:** `src/memory/ChrProvider.zig` (VTable interface eliminated)
+    *   Cartridge is now `Cartridge(MapperType)` generic type factory
+    *   Mapper methods use duck typing with `cart: anytype` parameter
+    *   PPU uses direct CHR memory pointer (no abstraction layer)
+    *   Compile-time interface verification (no runtime overhead)
+    *   Type aliases for convenience: `NromCart = Cartridge(Mapper0)`
+    *   All 375 tests passing with zero-cost abstraction
 
 ### 2.2. Eliminate `anytype` from Core Emulation Logic
 
@@ -24,7 +33,20 @@ The RAMBO codebase is generally well-written and follows many of Zig's best prac
 *   **Rationale:** Using `anytype` reduces type safety and makes the code harder to analyze. The CPU should operate on a well-defined bus interface.
 *   **Code References:**
     *   `src/cpu/Cpu.zig`: The `tick` and `reset` function signatures.
-*   **Status:** **TODO**.
+*   **Status:** **PARTIALLY COMPLETE** (Phase 3, commit 2dc78b8)
+*   **Implementation:**
+    *   CPU core functions now use typed `*BusState` parameters (not anytype)
+    *   Bus logic functions use properly typed parameters
+    *   **Strategic anytype retained in mapper methods:**
+        *   Mapper methods use `cart: anytype` to break circular dependencies
+        *   Follows Zig stdlib patterns (ArrayList, HashMap use anytype)
+        *   Compile-time duck typing ensures interface correctness
+        *   Zero runtime overhead vs concrete types
+*   **Rationale for Strategic anytype:**
+    *   Prevents circular imports: Bus → Cartridge → Mapper → Bus
+    *   Idiomatic Zig pattern for polymorphic interfaces
+    *   Compile-time verification maintains type safety
+    *   This is intentional design, not a defect
 
 ### 2.3. Ensure Real-Time Safety
 

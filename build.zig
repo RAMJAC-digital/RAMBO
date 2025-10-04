@@ -222,6 +222,34 @@ pub fn build(b: *std.Build) void {
 
     const run_chr_integration_tests = b.addRunArtifact(chr_integration_tests);
 
+    // PPU sprite evaluation tests
+    const sprite_evaluation_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/ppu/sprite_evaluation_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+
+    const run_sprite_evaluation_tests = b.addRunArtifact(sprite_evaluation_tests);
+
+    // PPU sprite rendering tests
+    const sprite_rendering_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/ppu/sprite_rendering_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+
+    const run_sprite_rendering_tests = b.addRunArtifact(sprite_rendering_tests);
+
     // ========================================================================
     // Test Step Configuration
     // ========================================================================
@@ -233,6 +261,8 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_unofficial_opcodes_tests.step);
     test_step.dependOn(&run_cartridge_tests.step);
     test_step.dependOn(&run_chr_integration_tests.step);
+    test_step.dependOn(&run_sprite_evaluation_tests.step);
+    test_step.dependOn(&run_sprite_rendering_tests.step);
 
     // Separate step for just unit tests
     const unit_test_step = b.step("test-unit", "Run unit tests only");
@@ -245,6 +275,8 @@ pub fn build(b: *std.Build) void {
     integration_test_step.dependOn(&run_unofficial_opcodes_tests.step);
     integration_test_step.dependOn(&run_cartridge_tests.step);
     integration_test_step.dependOn(&run_chr_integration_tests.step);
+    integration_test_step.dependOn(&run_sprite_evaluation_tests.step);
+    integration_test_step.dependOn(&run_sprite_rendering_tests.step);
 
     // Cycle trace test
     const cycle_trace_test = b.addTest(.{

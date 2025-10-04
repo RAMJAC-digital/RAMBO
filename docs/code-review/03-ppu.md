@@ -17,7 +17,15 @@ However, the current implementation can be significantly improved by refactoring
 *   **Rationale:** This is a core tenet of the new hybrid architecture. It will make the PPU's behavior deterministic and easier to reason about. It also simplifies testing and allows for the entire emulator state to be serialized.
 *   **Code References:**
     *   `src/ppu/Ppu.zig`: The `Ppu` struct should be split into `PpuState` and a set of pure functions.
-*   **Status:** **TODO**.
+*   **Status:** **DONE** (Completed in Phase 2, commit 73f9279)
+*   **Implementation:**
+    *   Created `src/ppu/State.zig` with pure `PpuState` struct
+    *   Created `src/ppu/Logic.zig` with pure rendering functions
+    *   Module re-exports: `Ppu.State.PpuState`, `Ppu.Logic`
+    *   Complete background rendering pipeline implemented
+    *   VRAM system with proper mirroring and buffering
+    *   23 PPU tests passing with new architecture
+    *   Direct CHR memory access (no VTable abstraction needed - Phase 3)
 
 ### 2.2. Implement a More Granular PPU `tick` Function
 

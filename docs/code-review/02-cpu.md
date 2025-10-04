@@ -17,7 +17,12 @@ However, there are several areas where the implementation can be improved to ali
 *   **Rationale:** Separating state from logic makes the code more modular, easier to test, and enables features like save states by allowing the entire emulator state to be serialized.
 *   **Code References:**
     *   `src/cpu/Cpu.zig`: The `Cpu` struct should be split into `CpuState` and `CpuLogic` (or similar).
-*   **Status:** **TODO**.
+*   **Status:** **DONE** (Completed in Phase 1, commit 1ceb301)
+*   **Implementation:**
+    *   Created `src/cpu/State.zig` with pure `CpuState` struct
+    *   Created `src/cpu/Logic.zig` with pure functions
+    *   Module re-exports: `Cpu.State.CpuState`, `Cpu.Logic`
+    *   All 375 tests passing with new architecture
 
 ### 2.2. Simplify the Dispatch Mechanism
 
@@ -43,7 +48,18 @@ However, there are several areas where the implementation can be improved to ali
 *   **Rationale:** Using `anytype` reduces type safety and makes the code harder to analyze. The CPU should operate on a well-defined bus interface.
 *   **Code References:**
     *   `src/cpu/Cpu.zig`: The `tick` and `reset` function signatures.
-*   **Status:** **TODO**.
+*   **Status:** **DEFERRED** (Strategic use of anytype in mapper methods)
+*   **Resolution Notes:**
+    *   CPU functions now use properly typed `*BusState` parameters
+    *   Mapper methods strategically use `cart: anytype` to break circular dependencies
+    *   This follows Zig stdlib patterns (e.g., ArrayList, HashMap) for duck-typed interfaces
+    *   Comptime verification ensures type safety without runtime overhead
+    *   See Phase 3 (commit 2dc78b8) for complete comptime generics implementation
+*   **Rationale for Strategic anytype:**
+    *   Prevents circular import dependencies (Bus → Cartridge → Mapper → Bus)
+    *   Enables duck-typed polymorphism (idiomatic Zig pattern)
+    *   Compile-time interface verification maintains type safety
+    *   Zero runtime overhead compared to concrete types
 
 ### 2.5. Consolidate `execution.zig` and `dispatch.zig`
 

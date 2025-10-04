@@ -1,32 +1,61 @@
-# Phase 3: Replace VTables with Comptime Generics - Development Plan
+# Phase 3: Replace VTables with Comptime Generics - REVISED Development Plan
 
-**Status**: Planning
+**Status**: Planning (Revised after subagent review)
 **Date Created**: 2025-10-03
-**Estimated Effort**: 8-12 hours
-**Risk Level**: MEDIUM (core polymorphism mechanism change)
+**Date Revised**: 2025-10-03
+**Estimated Effort**: 12-16 hours
+**Risk Level**: MEDIUM-HIGH (core polymorphism + type system cascade)
+
+## Revision History
+
+**Original Plan Issues**:
+- Circular type dependencies (Cartridge ↔ Mapper)
+- Unnecessary wrapper complexity (`ComptimeMapper` type)
+- Incomplete interface validation
+- Non-idiomatic naming conventions
+- Missing cascade effect analysis (Bus/CPU must also become generic)
+
+**Revisions Based on Subagent Feedback**:
+- Removed wrapper types - use direct duck typing
+- Use `anytype` parameters to break circular dependencies
+- Follow Zig stdlib conventions (no `Comptime` prefix)
+- Added Phase 3.0 for proof of concept validation
+- Addressed Bus/CPU generification requirements
+- Proper signature validation strategy
+
+---
 
 ## Executive Summary
 
-Replace runtime VTable-based polymorphism with Zig's compile-time duck typing (comptime generics) for:
-1. **Mapper interface** - Cartridge memory mapping (5 functions)
+Replace runtime VTable-based polymorphism with Zig's compile-time duck typing for:
+1. **Mapper interface** - Cartridge memory mapping (5 methods)
 2. **ChrProvider interface** - CHR ROM/RAM access (2 functions)
+
+**Key Design Decision**: Use **direct duck typing** without wrapper types, following Zig stdlib patterns like `ArrayList(T)`.
+
+**Approach**:
+```zig
+// No wrappers - just direct generic types
+const cart = Cartridge(Mapper0).init(allocator, rom_data);
+const ppu = Ppu(CartridgeChrProvider).init();
+```
 
 **Benefits**:
 - Zero runtime overhead (VTable indirection eliminated)
-- Compile-time type safety and validation
-- Clearer API with explicit type requirements
-- Better optimization opportunities for compiler
+- Compile-time type safety through duck typing
+- Idiomatic Zig code (matches stdlib patterns)
+- Better compiler optimization opportunities
 
 **Risks**:
-- Type system complexity increases
-- All mapper implementations must be known at compile time
-- Requires careful migration to avoid breaking existing code
+- Type cascade: Cartridge generic → Bus generic → CPU generic
+- All mapper types must be known at compile time
+- Binary size increases (each mapper type = new instantiation)
 
 ---
 
 ## Current State Analysis
 
-### 1. Mapper VTable Pattern (`src/cartridge/Mapper.zig`)
+### Mapper VTable Pattern (`src/cartridge/Mapper.zig`)
 
 **Current Implementation**:
 ```zig
@@ -40,19 +69,21 @@ pub const Mapper = struct {
         ppuWrite: *const fn (mapper: *Mapper, cart: *Cartridge, address: u16, value: u8) void,
         reset: *const fn (mapper: *Mapper, cart: *Cartridge) void,
     };
-
-    pub inline fn cpuRead(self: *Mapper, cart: *const Cartridge, address: u16) u8 {
-        return self.vtable.cpuRead(self, cart, address);
-    }
-    // ... delegation methods for other functions
 };
 ```
 
-**Runtime Cost**: 1 pointer dereference per function call
-**Current Usage**: Cartridge.zig stores `mapper: Mapper` and calls through VTable
-**Implementations**: Mapper0 (NROM) - more planned (MMC1, MMC3, etc.)
+**Current Mapper0 Implementation Pattern**:
+```zig
+// Mapper0 wraps itself in VTable
+fn cpuReadImpl(mapper_ptr: *Mapper, cart: *const Cartridge, address: u16) u8 {
+    _ = mapper_ptr;  // Mapper0 has no state
+    // Direct ROM access
+}
+```
 
-### 2. ChrProvider VTable Pattern (`src/memory/ChrProvider.zig`)
+**Runtime Cost**: 1 indirect function call per access (~2-3 cycles overhead)
+
+### ChrProvider VTable Pattern (`src/memory/ChrProvider.zig`)
 
 **Current Implementation**:
 ```zig
@@ -64,465 +95,673 @@ pub const ChrProvider = struct {
         read: *const fn (ptr: *anyopaque, address: u16) u8,
         write: *const fn (ptr: *anyopaque, address: u16, value: u8) void,
     };
-
-    pub inline fn read(self: ChrProvider, address: u16) u8 {
-        return self.vtable.read(self.ptr, address);
-    }
-    // ... delegation for write
 };
 ```
 
-**Runtime Cost**: 1 pointer dereference + type erasure overhead
-**Current Usage**: PPU stores `chr_provider: ChrProvider` for CHR memory access
-**Implementations**: Test mock, Cartridge CHR ROM/RAM providers
+**Runtime Cost**: 1 indirect call + type erasure overhead
 
 ---
 
-## Target State: Comptime Generic Design
+## Target State: Direct Duck-Typed Generics
 
-### Naming Convention
+### Design Principles
 
-All comptime-generic interfaces use `Comptime` prefix to clearly indicate compile-time polymorphism:
+1. **No wrapper types** - Use duck typing directly
+2. **Follow Zig stdlib conventions** - `Cartridge(MapperType)` not `ComptimeCartridge(MapperType)`
+3. **Use `anytype` for flexibility** - Break circular dependencies
+4. **Validate at compile time** - Let Zig's type system do the heavy lifting
+5. **Explicit type cascade** - Accept that generics propagate upward
 
-- `ComptimeMapper` - Generic mapper interface (replaces Mapper VTable)
-- `ComptimeChrProvider` - Generic CHR provider interface (replaces ChrProvider VTable)
-
-**Rationale**:
-- Clear distinction from runtime polymorphism
-- Obvious to developers and AI agents that type is resolved at compile time
-- Consistent with Zig conventions (e.g., `std.ArrayList`)
-- Aids code navigation by making intent explicit
-
-### 1. ComptimeMapper Interface Design
-
-**File**: `src/cartridge/ComptimeMapper.zig` (new file)
-
-```zig
-//! Comptime Mapper Interface
-//!
-//! This module provides compile-time duck-typed polymorphism for cartridge mappers.
-//! Unlike the VTable approach, mapper type is resolved at compile time, eliminating
-//! runtime indirection and enabling better optimization.
-//!
-//! Required Methods (duck typing):
-//! - cpuRead(self: *Self, cart: *const Cartridge, address: u16) u8
-//! - cpuWrite(self: *Self, cart: *Cartridge, address: u16, value: u8) void
-//! - ppuRead(self: *Self, cart: *const Cartridge, address: u16) u8
-//! - ppuWrite(self: *Self, cart: *Cartridge, address: u16, value: u8) void
-//! - reset(self: *Self, cart: *Cartridge) void
-//!
-//! Usage Example:
-//! ```zig
-//! const cartridge = Cartridge(Mapper0).init(rom_data);
-//! const value = cartridge.mapper.cpuRead(&cartridge, 0x8000);
-//! ```
-
-const std = @import("std");
-const Cartridge = @import("Cartridge.zig").Cartridge;
-
-/// Validates that a type implements the Mapper interface at compile time
-pub fn validateMapper(comptime MapperType: type) void {
-    // Verify required methods exist with correct signatures
-    const info = @typeInfo(MapperType);
-
-    // Check for cpuRead method
-    if (!@hasDecl(MapperType, "cpuRead")) {
-        @compileError("Mapper type '" ++ @typeName(MapperType) ++ "' missing required method: cpuRead");
-    }
-
-    // Check for cpuWrite method
-    if (!@hasDecl(MapperType, "cpuWrite")) {
-        @compileError("Mapper type '" ++ @typeName(MapperType) ++ "' missing required method: cpuWrite");
-    }
-
-    // Check for ppuRead method
-    if (!@hasDecl(MapperType, "ppuRead")) {
-        @compileError("Mapper type '" ++ @typeName(MapperType) ++ "' missing required method: ppuRead");
-    }
-
-    // Check for ppuWrite method
-    if (!@hasDecl(MapperType, "ppuWrite")) {
-        @compileError("Mapper type '" ++ @typeName(MapperType) ++ "' missing required method: ppuWrite");
-    }
-
-    // Check for reset method
-    if (!@hasDecl(MapperType, "reset")) {
-        @compileError("Mapper type '" ++ @typeName(MapperType) ++ "' missing required method: reset");
-    }
-
-    // All checks passed - type is a valid Mapper
-}
-
-/// Generic mapper wrapper for compile-time polymorphism
-/// Usage: const MyMapper = ComptimeMapper(Mapper0);
-pub fn ComptimeMapper(comptime MapperType: type) type {
-    // Validate interface at compile time
-    validateMapper(MapperType);
-
-    return struct {
-        const Self = @This();
-
-        mapper: MapperType,
-
-        pub fn init() Self {
-            return .{
-                .mapper = MapperType{},
-            };
-        }
-
-        /// CPU read from cartridge address space
-        pub inline fn cpuRead(self: *Self, cart: *const Cartridge(MapperType), address: u16) u8 {
-            return self.mapper.cpuRead(&self.mapper, cart, address);
-        }
-
-        /// CPU write to cartridge address space
-        pub inline fn cpuWrite(self: *Self, cart: *Cartridge(MapperType), address: u16, value: u8) void {
-            self.mapper.cpuWrite(&self.mapper, cart, address, value);
-        }
-
-        /// PPU read from CHR address space
-        pub inline fn ppuRead(self: *Self, cart: *const Cartridge(MapperType), address: u16) u8 {
-            return self.mapper.ppuRead(&self.mapper, cart, address);
-        }
-
-        /// PPU write to CHR address space
-        pub inline fn ppuWrite(self: *Self, cart: *Cartridge(MapperType), address: u16, value: u8) void {
-            self.mapper.ppuWrite(&self.mapper, cart, address, value);
-        }
-
-        /// Reset mapper state
-        pub inline fn reset(self: *Self, cart: *Cartridge(MapperType)) void {
-            self.mapper.reset(&self.mapper, cart);
-        }
-    };
-}
-```
-
-### 2. ComptimeChrProvider Interface Design
-
-**File**: `src/memory/ComptimeChrProvider.zig` (new file)
-
-```zig
-//! Comptime CHR Provider Interface
-//!
-//! This module provides compile-time duck-typed polymorphism for CHR memory providers.
-//! CHR providers supply pattern table data to the PPU (character/sprite graphics).
-//!
-//! Required Methods (duck typing):
-//! - read(self: *const Self, address: u16) u8
-//! - write(self: *Self, address: u16, value: u8) void
-//!
-//! Usage Example:
-//! ```zig
-//! const ppu = Ppu(CartridgeChrProvider).init();
-//! const tile_data = ppu.chr_provider.read(0x0000);
-//! ```
-
-const std = @import("std");
-
-/// Validates that a type implements the ChrProvider interface at compile time
-pub fn validateChrProvider(comptime ProviderType: type) void {
-    // Check for read method
-    if (!@hasDecl(ProviderType, "read")) {
-        @compileError("CHR Provider type '" ++ @typeName(ProviderType) ++ "' missing required method: read");
-    }
-
-    // Check for write method
-    if (!@hasDecl(ProviderType, "write")) {
-        @compileError("CHR Provider type '" ++ @typeName(ProviderType) ++ "' missing required method: write");
-    }
-}
-
-/// Generic CHR provider wrapper for compile-time polymorphism
-/// Usage: const MyChrProvider = ComptimeChrProvider(CartridgeChrProvider);
-pub fn ComptimeChrProvider(comptime ProviderType: type) type {
-    // Validate interface at compile time
-    validateChrProvider(ProviderType);
-
-    return struct {
-        const Self = @This();
-
-        provider: ProviderType,
-
-        pub fn init(provider: ProviderType) Self {
-            return .{
-                .provider = provider,
-            };
-        }
-
-        /// Read CHR data at address
-        pub inline fn read(self: *const Self, address: u16) u8 {
-            return self.provider.read(address);
-        }
-
-        /// Write CHR data at address (CHR-RAM only)
-        pub inline fn write(self: *Self, address: u16, value: u8) void {
-            self.provider.write(address, value);
-        }
-    };
-}
-```
-
-### 3. Updated Cartridge Structure
+### 1. Generic Cartridge Design
 
 **File**: `src/cartridge/Cartridge.zig` (modified)
 
 ```zig
-//! Cartridge with Comptime Mapper
+//! Generic Cartridge
 //!
-//! The cartridge is now a generic type parameterized by mapper implementation.
-//! This eliminates runtime VTable overhead and enables full compile-time optimization.
+//! Cartridge is now a type factory parameterized by mapper implementation.
+//! This enables compile-time polymorphism with zero runtime overhead.
+//!
+//! Required Mapper Interface (duck typing):
+//! - cpuRead(self: *Self, cart: anytype, address: u16) u8
+//! - cpuWrite(self: *Self, cart: anytype, address: u16, value: u8) void
+//! - ppuRead(self: *Self, cart: anytype, address: u16) u8
+//! - ppuWrite(self: *Self, cart: anytype, address: u16, value: u8) void
+//! - reset(self: *Self, cart: anytype) void
+//!
+//! Usage:
+//! ```zig
+//! const CartType = Cartridge(Mapper0);
+//! const cart = try CartType.loadFromData(allocator, rom_data);
+//! defer cart.deinit(allocator);
+//! const value = cart.cpuRead(0x8000);
+//! ```
 
+const std = @import("std");
+const Mapper0 = @import("mappers/Mapper0.zig");
+
+/// Creates a Cartridge type for the given mapper implementation
 pub fn Cartridge(comptime MapperType: type) type {
-    const ComptimeMapper = @import("ComptimeMapper.zig").ComptimeMapper;
-
     return struct {
         const Self = @This();
 
-        // ROM data
+        /// Mapper instance (contains any mapper-specific state)
+        mapper: MapperType,
+
+        /// PRG ROM data (program code)
         prg_rom: []const u8,
-        chr_rom: []const u8,
 
-        // Mapper (compile-time type)
-        mapper: ComptimeMapper(MapperType),
+        /// CHR ROM/RAM data (graphics)
+        chr_data: []u8,
 
-        // ... other fields
+        /// Nametable mirroring mode
+        mirroring: Mirroring,
 
-        pub fn init(rom_data: []const u8) !Self {
-            // ... ROM parsing logic ...
+        /// Allocator used for dynamic memory
+        allocator: std.mem.Allocator,
+
+        /// Load cartridge from iNES ROM data
+        pub fn loadFromData(allocator: std.mem.Allocator, rom_data: []const u8) !Self {
+            // Parse iNES header
+            const header = try parseINesHeader(rom_data);
+
+            // Allocate PRG ROM (immutable)
+            const prg_rom = try allocator.dupe(u8, extractPrgRom(rom_data, header));
+            errdefer allocator.free(prg_rom);
+
+            // Allocate CHR data (may be RAM, so mutable)
+            const chr_data = try allocator.alloc(u8, header.chr_size);
+            errdefer allocator.free(chr_data);
+
+            if (header.chr_size > 0) {
+                @memcpy(chr_data, extractChrRom(rom_data, header));
+            }
 
             return Self{
+                .mapper = MapperType{},  // Default init - mappers can add init() if needed
                 .prg_rom = prg_rom,
-                .chr_rom = chr_rom,
-                .mapper = ComptimeMapper(MapperType).init(),
+                .chr_data = chr_data,
+                .mirroring = header.mirroring,
+                .allocator = allocator,
             };
         }
 
-        /// CPU reads from cartridge space ($4020-$FFFF)
+        /// Free cartridge memory
+        pub fn deinit(self: *Self) void {
+            self.allocator.free(self.prg_rom);
+            self.allocator.free(self.chr_data);
+        }
+
+        /// CPU reads from cartridge address space ($4020-$FFFF)
         pub fn cpuRead(self: *const Self, address: u16) u8 {
+            // Direct call - compiler knows exact type, can inline
             return self.mapper.cpuRead(self, address);
         }
 
-        /// CPU writes to cartridge space
+        /// CPU writes to cartridge address space
         pub fn cpuWrite(self: *Self, address: u16, value: u8) void {
-            self.mapper.cpuWrite(self, address, value);
+            return self.mapper.cpuWrite(self, address, value);
+        }
+
+        /// PPU reads from CHR address space ($0000-$1FFF)
+        pub fn ppuRead(self: *const Self, address: u16) u8 {
+            return self.mapper.ppuRead(self, address);
+        }
+
+        /// PPU writes to CHR address space (CHR-RAM only)
+        pub fn ppuWrite(self: *Self, address: u16, value: u8) void {
+            self.mapper.ppuWrite(self, address, value);
+        }
+
+        /// Reset mapper to initial state
+        pub fn reset(self: *Self) void {
+            self.mapper.reset(self);
+        }
+    };
+}
+
+/// Mirroring modes
+pub const Mirroring = enum {
+    horizontal,
+    vertical,
+    four_screen,
+};
+
+// Helper functions for iNES parsing (implementation details omitted)
+fn parseINesHeader(data: []const u8) !INesHeader { ... }
+fn extractPrgRom(data: []const u8, header: INesHeader) []const u8 { ... }
+fn extractChrRom(data: []const u8, header: INesHeader) []const u8 { ... }
+
+const INesHeader = struct {
+    prg_size: usize,
+    chr_size: usize,
+    mirroring: Mirroring,
+    mapper_number: u8,
+};
+```
+
+### 2. Updated Mapper0 Implementation
+
+**File**: `src/cartridge/mappers/Mapper0.zig` (modified)
+
+```zig
+//! Mapper 0 (NROM) - No banking, direct ROM access
+//!
+//! This mapper has no state and performs simple address mapping.
+//! Implements the duck-typed Mapper interface expected by Cartridge(T).
+
+const std = @import("std");
+
+/// Mapper 0 has no state
+/// All methods receive cartridge through anytype parameter
+const Mapper0 = @This();
+
+/// CPU read from PRG ROM space ($8000-$FFFF)
+pub fn cpuRead(_: *const Mapper0, cart: anytype, address: u16) u8 {
+    // NROM mirrors 16KB ROM if only one bank present
+    const addr = if (cart.prg_rom.len == 0x4000)
+        (address - 0x8000) & 0x3FFF  // Mirror 16KB
+    else
+        address - 0x8000;  // Full 32KB
+
+    return cart.prg_rom[addr];
+}
+
+/// CPU write to PRG ROM space (no effect - ROM is read-only)
+pub fn cpuWrite(_: *Mapper0, _: anytype, _: u16, _: u8) void {
+    // NROM has no writable registers
+}
+
+/// PPU read from CHR ROM space ($0000-$1FFF)
+pub fn ppuRead(_: *const Mapper0, cart: anytype, address: u16) u8 {
+    return cart.chr_data[address & 0x1FFF];
+}
+
+/// PPU write to CHR space (only if CHR-RAM)
+pub fn ppuWrite(_: *Mapper0, cart: anytype, address: u16, value: u8) void {
+    // Only write if CHR-RAM (determined by cartridge)
+    cart.chr_data[address & 0x1FFF] = value;
+}
+
+/// Reset mapper (no state to reset for NROM)
+pub fn reset(_: *Mapper0, _: anytype) void {
+    // No state to reset
+}
+```
+
+**Key Changes**:
+- First parameter: `_: *const Mapper0` or `_: *Mapper0` (concrete type, not `*Mapper`)
+- Second parameter: `cart: anytype` (structural duck typing, no import of Cartridge!)
+- Accesses `cart.prg_rom`, `cart.chr_data` directly
+- No VTable wrapping needed
+
+### 3. Generic PPU with ChrProvider
+
+**File**: `src/ppu/Ppu.zig` (modified to be generic)
+
+```zig
+//! Generic PPU with compile-time CHR provider
+//!
+//! PPU is parameterized by CHR provider type for zero-cost abstraction.
+//!
+//! Required ChrProvider Interface (duck typing):
+//! - read(self: *const Self, address: u16) u8
+//! - write(self: *Self, address: u16, value: u8) void
+
+pub fn Ppu(comptime ChrProviderType: type) type {
+    return struct {
+        const Self = @This();
+
+        /// Hardware state
+        state: PpuState,
+
+        /// CHR memory provider (cartridge or test mock)
+        chr_provider: ChrProviderType,
+
+        pub fn init(chr_provider: ChrProviderType) Self {
+            return .{
+                .state = PpuState{},
+                .chr_provider = chr_provider,
+            };
+        }
+
+        /// Read CHR pattern data
+        pub fn readChr(self: *const Self, address: u16) u8 {
+            return self.chr_provider.read(address);
+        }
+
+        /// Write CHR data (CHR-RAM only)
+        pub fn writeChr(self: *Self, address: u16, value: u8) void {
+            self.chr_provider.write(address, value);
+        }
+
+        // ... rest of PPU implementation
+    };
+}
+
+/// Re-export State for non-generic access
+pub const State = @import("State.zig");
+pub const PpuState = State.PpuState;
+```
+
+### 4. Cartridge-Based CHR Provider
+
+**File**: `src/memory/CartridgeChrProvider.zig` (new file)
+
+```zig
+//! CHR Provider that delegates to Cartridge
+//!
+//! This adapter allows PPU to read CHR data from a cartridge.
+//! Implements the duck-typed ChrProvider interface.
+
+const std = @import("std");
+
+/// Creates a CHR provider for a specific cartridge type
+pub fn CartridgeChrProvider(comptime CartridgeType: type) type {
+    return struct {
+        const Self = @This();
+
+        /// Non-owning pointer to cartridge
+        cartridge: *CartridgeType,
+
+        pub fn init(cartridge: *CartridgeType) Self {
+            return .{ .cartridge = cartridge };
+        }
+
+        /// Read CHR data from cartridge
+        pub fn read(self: *const Self, address: u16) u8 {
+            return self.cartridge.ppuRead(address);
+        }
+
+        /// Write CHR data to cartridge
+        pub fn write(self: *Self, address: u16, value: u8) void {
+            self.cartridge.ppuWrite(address, value);
         }
     };
 }
 ```
+
+---
+
+## Type Cascade Strategy
+
+### The Generic Propagation Problem
+
+Making Cartridge generic forces upstream types to also be generic:
+
+```zig
+Cartridge(Mapper0)  →  Bus must know mapper type
+                    →  CPU must know bus type
+                    →  EmulationState must know CPU type
+```
+
+### Solution: Type Erasure at Bus Boundary
+
+**Option A: Bus Uses Type Erasure (Recommended)**
+
+```zig
+// Bus.zig - stays non-generic
+pub const Bus = struct {
+    cartridge: *anyopaque,        // Type-erased pointer
+    cartridge_vtable: CartridgeVTable,  // Minimal VTable just for Bus
+
+    pub const CartridgeVTable = struct {
+        cpuRead: *const fn (*anyopaque, u16) u8,
+        cpuWrite: *const fn (*anyopaque, u16, u8) void,
+    };
+
+    pub fn setCartridge(self: *Bus, cart: anytype) void {
+        self.cartridge = cart;
+        self.cartridge_vtable = .{
+            .cpuRead = struct {
+                fn read(ptr: *anyopaque, addr: u16) u8 {
+                    const c: *@TypeOf(cart.*) = @ptrCast(@alignCast(ptr));
+                    return c.cpuRead(addr);
+                }
+            }.read,
+            // ... similar for write
+        };
+    }
+};
+```
+
+**Benefits**:
+- Bus, CPU, EmulationState stay non-generic
+- VTable overhead limited to Bus boundary only
+- Mappers still get zero-cost comptime dispatch
+
+**Option B: Full Generification**
+
+```zig
+// Everything becomes generic
+pub fn EmulationState(comptime MapperType: type) type {
+    const CartType = Cartridge(MapperType);
+    const BusType = Bus(CartType);
+    const CpuType = Cpu(BusType);
+
+    return struct {
+        cpu: CpuType,
+        bus: BusType,
+        cartridge: CartType,
+    };
+}
+```
+
+**Downsides**:
+- Complex type signatures throughout
+- Hard to mix different cartridge types
+- Type explosion in tests
+
+**Recommendation**: Use Option A (type erasure at Bus boundary) for pragmatic balance.
 
 ---
 
 ## Implementation Strategy
 
-### Phase 3.1: Create Comptime Interface Infrastructure (2-3 hours)
+### Phase 3.0: Proof of Concept (NEW - 2-3 hours)
+
+**Purpose**: Validate the design with minimal code before full migration.
 
 **Tasks**:
-1. Create `src/cartridge/ComptimeMapper.zig`
-   - Implement `validateMapper()` compile-time checker
-   - Implement `ComptimeMapper()` generic wrapper
-   - Add comprehensive documentation with usage examples
+1. Create `tests/poc_comptime_mapper.zig`
+2. Implement minimal `Cartridge(T)` generic
+3. Implement minimal `Mapper0` with duck typing
+4. Verify compilation and zero-cost abstraction
+5. Compare assembly output (VTable vs comptime)
+6. Validate signature checking approach
 
-2. Create `src/memory/ComptimeChrProvider.zig`
-   - Implement `validateChrProvider()` compile-time checker
-   - Implement `ComptimeChrProvider()` generic wrapper
-   - Add comprehensive documentation
+**Success Criteria**:
+- [ ] Proof of concept compiles
+- [ ] Duck typing works with `anytype` cart parameter
+- [ ] Assembly shows direct calls (no indirection)
+- [ ] Approach validated before touching production code
 
-3. Create `docs/06-implementation-notes/comptime-generics/README.md`
-   - Explain comptime polymorphism concepts
-   - Show before/after code examples
-   - Document naming conventions
-   - Provide troubleshooting guide
+**Example POC**:
+```zig
+// tests/poc_comptime_mapper.zig
+const std = @import("std");
+const testing = std.testing;
 
-**Acceptance Criteria**:
-- [ ] Both comptime interface files compile successfully
-- [ ] Documentation clearly explains usage and benefits
-- [ ] Compile-time validation catches missing methods
+// Minimal generic cartridge
+fn TestCartridge(comptime MapperType: type) type {
+    return struct {
+        mapper: MapperType,
+        rom: [0x4000]u8,
 
-### Phase 3.2: Update Mapper0 Implementation (1-2 hours)
+        pub fn read(self: *const @This(), addr: u16) u8 {
+            return self.mapper.cpuRead(self, addr);
+        }
+    };
+}
 
-**Tasks**:
-1. Update `src/cartridge/mappers/Mapper0.zig`
-   - Remove VTable references
-   - Implement methods with correct signatures for duck typing
-   - Update documentation
+// Minimal mapper with duck typing
+const TestMapper = struct {
+    pub fn cpuRead(_: *const TestMapper, cart: anytype, addr: u16) u8 {
+        return cart.rom[addr & 0x3FFF];
+    }
+};
 
-2. Create test for comptime validation
-   - Verify Mapper0 passes `validateMapper()`
-   - Test compile errors for incomplete implementations
+test "POC: comptime mapper dispatch" {
+    var cart = TestCartridge(TestMapper){
+        .mapper = .{},
+        .rom = undefined,
+    };
+    cart.rom[0] = 0x42;
 
-**Acceptance Criteria**:
-- [ ] Mapper0 implements all required methods
-- [ ] Mapper0 compiles with `ComptimeMapper(Mapper0)`
-- [ ] Tests verify interface compliance
+    try testing.expectEqual(@as(u8, 0x42), cart.read(0));
+}
+```
 
-### Phase 3.3: Update Cartridge to Use Comptime Mapper (2-3 hours)
-
-**Tasks**:
-1. Convert `Cartridge` to generic `Cartridge(MapperType)`
-2. Update all cartridge methods to use comptime mapper
-3. Update cartridge loading code to specify mapper type
-4. Update Bus integration to use `Cartridge(Mapper0)`
-
-**Acceptance Criteria**:
-- [ ] Cartridge is generic over mapper type
-- [ ] All existing tests pass with `Cartridge(Mapper0)`
-- [ ] No VTable references remain in cartridge code
-
-### Phase 3.4: Update ChrProvider to Comptime (2-3 hours)
+### Phase 3.1: Update Mapper0 for Duck Typing (2-3 hours)
 
 **Tasks**:
-1. Create cartridge-based CHR provider implementation
-2. Update PPU to be generic over CHR provider type
-3. Update PPU initialization to use comptime provider
-4. Remove old VTable-based ChrProvider
+1. Modify Mapper0 signatures: `(self: *Mapper0, cart: anytype, ...)`
+2. Remove VTable wrapper code
+3. Update implementation to access `cart.prg_rom` directly
+4. Keep old VTable version alongside (in separate file) for Bus compatibility
+5. Create comprehensive tests
 
 **Acceptance Criteria**:
-- [ ] PPU uses comptime CHR provider
-- [ ] All PPU tests pass with new provider
-- [ ] Old VTable code removed
+- [ ] Mapper0 implements all 5 methods with duck-typed signatures
+- [ ] Tests pass using `Cartridge(Mapper0)`
+- [ ] Old VTable version still available for Bus
 
-### Phase 3.5: Testing and Validation (1-2 hours)
+### Phase 3.2: Implement Generic Cartridge (3-4 hours)
+
+**Tasks**:
+1. Convert `Cartridge` to `fn Cartridge(comptime MapperType: type) type`
+2. Update all cartridge methods to dispatch through mapper
+3. Handle allocator and resource cleanup properly
+4. Update cartridge loading code
+5. Create type alias for common case: `pub const NromCart = Cartridge(Mapper0);`
+
+**Acceptance Criteria**:
+- [ ] `Cartridge(Mapper0)` compiles and loads ROMs
+- [ ] All cartridge tests pass
+- [ ] Memory is properly managed (no leaks)
+
+### Phase 3.3: Implement Bus Type Erasure (2-3 hours)
+
+**Tasks**:
+1. Add `CartridgeVTable` to Bus (minimal: cpuRead, cpuWrite only)
+2. Implement `setCartridge(bus: *Bus, cart: anytype)` with type erasure
+3. Update Bus read/write to dispatch through minimal VTable
+4. Test with `Cartridge(Mapper0)`
+
+**Acceptance Criteria**:
+- [ ] Bus accepts any `Cartridge(MapperType)`
+- [ ] Bus, CPU, EmulationState remain non-generic
+- [ ] Type erasure overhead only at Bus boundary
+
+### Phase 3.4: Update PPU for Generic ChrProvider (2-3 hours)
+
+**Tasks**:
+1. Convert PPU to `fn Ppu(comptime ChrProviderType: type) type`
+2. Create `CartridgeChrProvider(CartType)` adapter
+3. Update Bus to store generic PPU with erased type
+4. Update all PPU initialization code
+
+**Acceptance Criteria**:
+- [ ] PPU compiles with generic CHR provider
+- [ ] CartridgeChrProvider works correctly
+- [ ] All PPU tests pass
+
+### Phase 3.5: Testing and Validation (2-3 hours)
 
 **Tasks**:
 1. Run full test suite (`zig build test`)
-2. Verify cycle counts unchanged (no regression)
-3. Add compile-time validation tests
-4. Update integration tests
+2. Verify cycle counts unchanged
+3. Add compile-time duck typing tests
+4. Performance benchmark: VTable vs comptime
+5. Check binary size impact
 
 **Acceptance Criteria**:
 - [ ] All 375+ tests passing
-- [ ] No performance regressions
-- [ ] Compile-time errors are clear and helpful
+- [ ] No cycle count regressions
+- [ ] Performance improvement measurable
+- [ ] Binary size increase acceptable (<20%)
 
-### Phase 3.6: Documentation and Cleanup (1 hour)
+### Phase 3.6: Cleanup and Documentation (1-2 hours)
 
 **Tasks**:
-1. Update `REFACTORING-ROADMAP.md` with Phase 3 completion
-2. Create usage guide in `docs/06-implementation-notes/comptime-generics/`
-3. Add migration notes for future mapper implementations
-4. Remove old VTable files
+1. Remove old VTable files (Mapper.zig, ChrProvider.zig)
+2. Update root.zig exports
+3. Create usage guide in `docs/06-implementation-notes/comptime-generics/`
+4. Document type cascade and Bus type erasure pattern
+5. Update REFACTORING-ROADMAP.md
 
 **Acceptance Criteria**:
-- [ ] Documentation complete and accurate
 - [ ] Old VTable code removed
-- [ ] Roadmap updated
+- [ ] Documentation complete with examples
+- [ ] Roadmap updated with Phase 3 completion
 
 ---
 
 ## Testing Strategy
 
-### Compile-Time Tests
+### Compile-Time Duck Typing Tests
 
 ```zig
-// Test: Incomplete mapper fails validation
-test "ComptimeMapper: compile error for missing methods" {
-    const IncompleteMapper = struct {
-        pub fn cpuRead(self: *@This(), cart: *const Cartridge, address: u16) u8 {
-            _ = self; _ = cart; _ = address;
-            return 0;
+// Test: Mapper with correct interface compiles
+test "Mapper interface: valid implementation compiles" {
+    const ValidMapper = struct {
+        pub fn cpuRead(_: *const @This(), cart: anytype, addr: u16) u8 {
+            return cart.prg_rom[addr & 0x7FFF];
         }
-        // Missing: cpuWrite, ppuRead, ppuWrite, reset
+        pub fn cpuWrite(_: *@This(), _: anytype, _: u16, _: u8) void {}
+        pub fn ppuRead(_: *const @This(), cart: anytype, addr: u16) u8 {
+            return cart.chr_data[addr];
+        }
+        pub fn ppuWrite(_: *@This(), cart: anytype, addr: u16, val: u8) void {
+            cart.chr_data[addr] = val;
+        }
+        pub fn reset(_: *@This(), _: anytype) void {}
     };
 
-    // This should fail to compile with clear error message
-    // _ = ComptimeMapper(IncompleteMapper);
+    const CartType = Cartridge(ValidMapper);
+    _ = CartType;  // Just verify it compiles
 }
 
-// Test: Complete mapper passes validation
-test "ComptimeMapper: valid mapper compiles" {
-    const ValidMapper = struct {
-        pub fn cpuRead(self: *@This(), cart: *const Cartridge, address: u16) u8 { ... }
-        pub fn cpuWrite(self: *@This(), cart: *Cartridge, address: u16, value: u8) void { ... }
-        pub fn ppuRead(self: *@This(), cart: *const Cartridge, address: u16) u8 { ... }
-        pub fn ppuWrite(self: *@This(), cart: *Cartridge, address: u16, value: u8) void { ... }
-        pub fn reset(self: *@This(), cart: *Cartridge) void { ... }
-    };
+// Test: Missing methods cause compile error
+// (This test lives in a separate file that's expected to fail)
+// tests/compile_errors/incomplete_mapper.zig
+const IncompleteMapper = struct {
+    pub fn cpuRead(_: *const @This(), _: anytype, _: u16) u8 { return 0; }
+    // Missing: cpuWrite, ppuRead, ppuWrite, reset
+};
 
-    const mapper = ComptimeMapper(ValidMapper).init();
-    _ = mapper;
+pub fn main() void {
+    _ = Cartridge(IncompleteMapper);  // Should fail: missing methods
 }
 ```
 
-### Runtime Tests
+### Performance Benchmark
 
-All existing tests must pass:
-- Mapper0 functionality tests
-- Cartridge loading tests
-- PPU CHR access tests
-- Integration tests with full emulation
+```zig
+test "Performance: mapper dispatch overhead" {
+    const iterations = 10_000_000;
 
-**Target**: 100% test pass rate (all 375+ tests)
+    // Setup cartridges
+    var cart_comptime = try Cartridge(Mapper0).loadFromData(allocator, rom_data);
+    defer cart_comptime.deinit();
+
+    var cart_vtable = try OldCartridge.loadFromData(allocator, rom_data);
+    defer cart_vtable.deinit();
+
+    // Benchmark comptime version
+    var timer = try std.time.Timer.start();
+    var sum_comptime: u64 = 0;
+    for (0..iterations) |i| {
+        sum_comptime +%= cart_comptime.cpuRead(@truncate(i));
+    }
+    const time_comptime = timer.lap();
+
+    // Benchmark VTable version
+    var sum_vtable: u64 = 0;
+    for (0..iterations) |i| {
+        sum_vtable +%= cart_vtable.cpuRead(@truncate(i));
+    }
+    const time_vtable = timer.read();
+
+    std.debug.print("\nMapper Dispatch Benchmark ({} iterations):\n", .{iterations});
+    std.debug.print("  Comptime: {}ns total, {}ns/call\n", .{time_comptime, time_comptime / iterations});
+    std.debug.print("  VTable:   {}ns total, {}ns/call\n", .{time_vtable, time_vtable / iterations});
+    std.debug.print("  Speedup:  {d:.2}x\n", .{@as(f64, @floatFromInt(time_vtable)) / @as(f64, @floatFromInt(time_comptime))});
+
+    // Verify we're testing the same thing
+    try testing.expectEqual(sum_comptime, sum_vtable);
+}
+```
 
 ---
 
 ## Risk Mitigation
 
-### Risk 1: Breaking Existing Code
-**Mitigation**:
-- Implement in new files alongside old VTable code
-- Migrate incrementally (Mapper first, then ChrProvider)
-- Keep tests running throughout migration
-- Only delete VTable code after all tests pass
+### Risk 1: Circular Dependencies
+**Mitigation**: Use `anytype` parameters in mapper methods - no import of Cartridge needed.
 
-### Risk 2: Unclear Compile Errors
-**Mitigation**:
-- Implement comprehensive `@compileError` messages
-- Document common errors in troubleshooting guide
-- Provide example implementations as reference
+### Risk 2: Type Cascade Complexity
+**Mitigation**: Type erasure at Bus boundary keeps upper layers simple.
 
-### Risk 3: Performance Regression
+### Risk 3: Binary Size Growth
 **Mitigation**:
-- Verify inline functions are actually inlined (check assembly)
-- Compare cycle counts before/after
-- Benchmark critical hot paths
+- Monitor size with each mapper added
+- Use `--strip` in release builds
+- Consider feature flags for mapper selection if needed
 
-### Risk 4: Complex Type System
+### Risk 4: Unclear Compile Errors
 **Mitigation**:
-- Clear naming conventions (Comptime prefix)
-- Comprehensive documentation with examples
-- Helper functions for common patterns
+- Let Zig's compiler handle duck typing errors (already clear)
+- Provide clear examples in documentation
+- Use type aliases to simplify common cases
+
+### Risk 5: Performance Not Achieved
+**Mitigation**:
+- Phase 3.0 POC validates assembly output first
+- Performance benchmark in Phase 3.5
+- Abort migration if no measurable improvement
 
 ---
 
 ## Success Criteria
 
-Phase 3 is complete when:
+Phase 3 complete when:
 
-1. ✅ All VTable code removed (Mapper.zig, ChrProvider.zig)
-2. ✅ Comptime interfaces implemented and documented
-3. ✅ All mappers use comptime generics
-4. ✅ All tests passing (375+ tests, 100% pass rate)
-5. ✅ Documentation complete with usage examples
-6. ✅ No performance regressions
-7. ✅ Naming consistently uses `Comptime` prefix
-8. ✅ Future mapper development pattern clearly documented
+1. ✅ Generic `Cartridge(MapperType)` implemented
+2. ✅ Mapper0 uses duck typing (no VTable)
+3. ✅ Bus uses type erasure for cartridge storage
+4. ✅ PPU uses generic CHR provider
+5. ✅ All tests passing (375+ tests, 100% pass rate)
+6. ✅ Performance improvement measured and documented
+7. ✅ Old VTable code removed
+8. ✅ Documentation complete with migration guide
+9. ✅ Binary size impact acceptable (<20% growth)
 
 ---
 
-## Open Questions for Review
+## Open Questions
 
-1. **Naming**: Is `ComptimeMapper` clear enough, or should we use `GenericMapper`, `StaticMapper`, or `TemplatedMapper`?
+1. **Should we validate duck typing explicitly, or trust compiler errors?**
+   - **Answer**: Trust the compiler. Zig's error messages for missing/wrong methods are excellent.
 
-2. **Validation**: Should we validate method signatures at compile time, or just check method existence?
+2. **How to handle future mappers with complex state (MMC1, MMC3)?**
+   - **Answer**: They store state as struct fields, accessed via `self.*` in methods.
 
-3. **Flexibility**: Should we support runtime mapper switching (e.g., for multi-cart scenarios), or fully commit to compile-time?
+3. **Should all mappers be instantiated at compile time, or support runtime loading?**
+   - **Answer**: Compile-time for now. Future: tagged union of all mappers if runtime needed.
 
-4. **Testing**: Do we need a test suite specifically for comptime validation errors?
-
-5. **Migration**: Should we migrate both Mapper and ChrProvider simultaneously, or one at a time?
+4. **What if we want to support multiple cartridges simultaneously?**
+   - **Answer**: Not needed for NES (one cart slot). If needed: array of `AnyCartridge` union type.
 
 ---
 
 ## Next Steps
 
-1. **Submit this plan to subagents for review**:
-   - Architecture reviewer: Pattern consistency with hybrid architecture
-   - Code reviewer: Implementation correctness and completeness
-   - Documentation reviewer: Clarity for future developers
+1. ✅ **Subagent reviews complete** - Critical issues identified
+2. **Get user approval** on revised plan
+3. **Begin Phase 3.0** - Proof of concept
+4. **Track progress** in REFACTORING-ROADMAP.md
+5. **Create comptime generics usage guide** in docs/
 
-2. **Address feedback and refine plan**
+---
 
-3. **Begin implementation with Phase 3.1**
+## Appendix: Naming Conventions
 
-4. **Track progress in REFACTORING-ROADMAP.md**
+Following Zig stdlib patterns:
+
+```zig
+// Type Factories (generic types)
+Cartridge(MapperType)      // Not: ComptimeCartridge(MapperType)
+Ppu(ChrProviderType)       // Not: ComptimePpu(ChrProviderType)
+CartridgeChrProvider(T)    // Adapters still descriptive
+
+// Type Aliases (for common cases)
+const NromCart = Cartridge(Mapper0);
+const Mmc1Cart = Cartridge(MMC1);
+
+// Module Names
+cartridge.Cartridge(T)     // Module is lowercase, type is PascalCase
+ppu.Ppu(T)                 // Matches stdlib: mem.Allocator, ArrayList(T)
+```
+
+The generic nature is obvious from `TypeName(Param)` syntax - no `Comptime` prefix needed.

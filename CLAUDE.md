@@ -35,6 +35,33 @@ zig build run
 
 ## Architecture
 
+### Hybrid State/Logic Pattern
+
+All core components follow the **State/Logic separation pattern** for modularity, testability, and RT-safety:
+
+**State Modules (`State.zig`)**:
+- Pure data structures with optional non-owning pointers
+- Convenience methods that delegate to Logic functions
+- Zero hidden state, fully serializable
+- Examples: `CpuState`, `BusState`, `PpuState`
+
+**Logic Modules (`Logic.zig`)**:
+- Pure functions operating on State pointers
+- No global state, deterministic execution
+- All side effects explicit through parameters
+- Examples: `CpuLogic`, `BusLogic`, `PpuLogic`
+
+**Module Re-exports (`Cpu.zig`, `Bus.zig`, `Ppu.zig`)**:
+- Clean API: `pub const State = @import("State.zig");`
+- Type aliases: `pub const CpuState = State.CpuState;`
+- Convenience exports for common types
+
+**Comptime Generics (Duck Typing)**:
+- Zero-cost polymorphism via comptime duck typing
+- No VTables, no runtime indirection
+- Mapper interface: `Cartridge(MapperType)` generic type factory
+- Duck-typed methods use `anytype` to break circular dependencies
+
 ### Core Components
 
 **Bus (`src/bus/Bus.zig`)**
@@ -54,9 +81,9 @@ zig build run
 
 **Cartridge (`src/cartridge/`)**
 - iNES ROM format parser with validation
-- Mapper abstraction with vtable interface
+- Generic Cartridge(MapperType) with comptime duck typing (zero VTable overhead)
 - Mapper 0 (NROM) fully implemented
-- Thread-safe access via mutex
+- Single-threaded RT-safe access (no mutex needed)
 - Loaded ROM: AccuracyCoin.nes (32KB PRG, 8KB CHR, Mapper 0)
 
 ### Module Structure
@@ -66,9 +93,13 @@ src/
 ├── root.zig              # Library entry point
 ├── main.zig              # Executable entry point
 ├── bus/
-│   └── Bus.zig           # Memory bus with open bus tracking
+│   ├── Bus.zig           # Module re-exports
+│   ├── State.zig         # BusState - pure data structure
+│   └── Logic.zig         # Pure functions for bus operations
 ├── cpu/
-│   ├── Cpu.zig           # Core CPU state, tick() function
+│   ├── Cpu.zig           # Module re-exports
+│   ├── State.zig         # CpuState - 6502 registers and state
+│   ├── Logic.zig         # Pure functions for CPU operations
 │   ├── opcodes.zig       # 256-opcode compile-time table
 │   ├── execution.zig     # Microstep execution engine
 │   ├── addressing.zig    # Addressing mode microsteps
@@ -86,14 +117,19 @@ src/
 │       ├── jumps.zig     # JMP, JSR, RTS, RTI, BRK
 │       ├── stack.zig     # PHA, PLA, PHP, PLP
 │       ├── transfer.zig  # TAX, TXA, TAY, TYA, TSX, TXS, flag ops
-│       └── unofficial.zig # Unofficial opcodes (0/105 implemented)
+│       └── unofficial.zig # Unofficial opcodes (105/105 implemented)
+├── ppu/
+│   ├── Ppu.zig           # Module re-exports
+│   ├── State.zig         # PpuState - PPU registers and state
+│   ├── Logic.zig         # Pure functions for PPU operations
+│   ├── palette.zig       # NES color palette (64 colors)
+│   └── timing.zig        # PPU timing constants
 └── cartridge/
-    ├── Cartridge.zig     # Thread-safe cartridge abstraction
+    ├── Cartridge.zig     # Generic Cartridge(MapperType) type factory
     ├── ines.zig          # iNES format parser
     ├── loader.zig        # File loading (sync, future: libxev async)
-    ├── Mapper.zig        # Polymorphic mapper interface
     └── mappers/
-        └── Mapper0.zig   # NROM (16KB/32KB PRG, 8KB CHR)
+        └── Mapper0.zig   # NROM (16KB/32KB PRG, 8KB CHR) - duck-typed interface
 ```
 
 ## Critical Hardware Behaviors
@@ -144,12 +180,26 @@ When adding new CPU instructions:
 
 ### Example: LDA Immediate (2 cycles)
 ```zig
-pub fn ldaImmediate(cpu: *Cpu, bus: *Bus) bool {
+// Using hybrid State/Logic pattern
+pub fn ldaImmediate(cpu: *CpuState, bus: *BusState) bool {
     cpu.a = bus.read(cpu.pc);
     cpu.pc +%= 1;
     cpu.p.updateZN(cpu.a);
     return true; // Instruction complete
 }
+```
+
+### Example: Comptime Generic Cartridge
+```zig
+// Zero-cost abstraction with duck typing
+const Mapper0 = @import("mappers/Mapper0.zig");
+const CartType = Cartridge(Mapper0);  // Compile-time type instantiation
+
+var cart = try CartType.loadFromData(allocator, rom_data);
+defer cart.deinit();
+
+// Direct call - no VTable, fully inlined
+const value = cart.cpuRead(0x8000);
 ```
 
 ### Example: ASL Zero Page (5 cycles with RMW)

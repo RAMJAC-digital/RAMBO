@@ -62,9 +62,9 @@ RAMBO is a hardware-accurate NES emulator written in Zig 0.15.1, designed to pas
 
 ### Session 2025-10-02: Cartridge/ROM Loading Implementation Complete
 - **Full iNES format parser** with validation and error handling
-- **Mapper abstraction** with polymorphic vtable interface for extensibility
+- **Generic Cartridge type factory** with comptime duck typing (zero VTable overhead)
 - **Mapper 0 (NROM)** fully implemented and tested
-- **Thread-safe cartridge access** via mutex (prepared for future multi-threading)
+- **Single-threaded RT-safe access** - no mutex needed in emulation loop
 - **Bus integration** complete - ROM data accessible at $8000-$FFFF
 - **AccuracyCoin.nes loads successfully** - 32KB PRG ROM, 8KB CHR ROM, Mapper 0
 - **Reset vector extraction** working ($8004 for AccuracyCoin)
@@ -85,6 +85,23 @@ RAMBO is a hardware-accurate NES emulator written in Zig 0.15.1, designed to pas
 - **ROM Loading**: ✅ Working (AccuracyCoin.nes validated)
 
 ## Architecture Status
+
+### ✅ Major Refactoring Complete (2025-10-03)
+
+**Phase 1-3 Refactoring: State/Logic Separation + Comptime Generics**
+- ✅ **Phase 1** (Commit 1ceb301): Bus State/Logic separation with hybrid pattern
+- ✅ **Phase 2** (Commit 73f9279): PPU State/Logic separation matching Bus/CPU
+- ✅ **Phase A** (Commit 2fba2fa): Backward compatibility cleanup, ComponentState naming
+- ✅ **Phase 3** (Commit 2dc78b8): VTable elimination, comptime generics
+
+**Architectural Improvements:**
+- Zero VTable overhead (Mapper.zig, ChrProvider.zig deleted)
+- State/Logic separation for all components (CPU, Bus, PPU)
+- Comptime duck typing: `Cartridge(MapperType)` generic
+- RT-safe single-threaded design (mutex removed)
+- Clean ComponentState naming: CpuState, BusState, PpuState
+
+**See:** `docs/code-review/REFACTORING-ROADMAP.md` for complete details
 
 ### ✅ Completed
 
@@ -163,17 +180,20 @@ RAMBO is a hardware-accurate NES emulator written in Zig 0.15.1, designed to pas
   - Mapper detection, PRG/CHR ROM size calculation
   - Mirroring mode detection
   - Battery RAM and trainer detection
-- ✅ Mapper interface (`Mapper.zig`)
-  - Polymorphic vtable pattern for extensibility
-  - CPU read/write, PPU read/write, reset methods
+- ✅ Generic Cartridge Type Factory (`Cartridge.zig`)
+  - Comptime generic: `Cartridge(MapperType)`
+  - Zero-cost abstraction via duck typing
+  - No VTable overhead - direct dispatch
+  - Type alias for convenience: `NromCart = Cartridge(Mapper0)`
 - ✅ Mapper 0 (NROM) implementation (`mappers/Mapper0.zig`)
   - 16KB and 32KB PRG ROM support
   - 8KB CHR ROM/RAM support
   - Correct mirroring at $C000-$FFFF for 16KB ROMs
-- ✅ Cartridge abstraction (`Cartridge.zig`)
-  - Thread-safe access via mutex
+  - Duck-typed interface (no VTable)
+- ✅ Single-threaded RT-safe access
+  - No mutex needed - exclusive access from emulation loop
   - Owned ROM data with proper lifetime management
-  - Atomic state synchronization
+  - Future async I/O via message passing
 - ✅ File loader (`loader.zig`)
   - Synchronous file loading via std.fs
   - Future: libxev async I/O integration
@@ -230,14 +250,14 @@ RAMBO is a hardware-accurate NES emulator written in Zig 0.15.1, designed to pas
 - ✅ **CHR ROM vs RAM** - Mapper correctly distinguishes read-only vs writable
 
 #### Architecture:
-- **ChrProvider Interface** (`src/memory/ChrProvider.zig`)
-  - Dependency injection pattern decouples PPU from Cartridge
-  - RT-safe zero-allocation interface using vtables
-  - Testable with mock implementations
-- **Proper Abstraction**
+- **Direct CHR Memory Access**
+  - No abstraction overhead - PPU uses direct pointer to CHR data
+  - CartridgeChrAdapter provides minimal bridge when needed
+  - RT-safe: zero allocation, deterministic access
+- **Proper Decoupling**
   - PPU has no knowledge of Cartridge concrete type
-  - Cartridge provides ChrProvider interface
-  - EmulationState connects components via `connectComponents()`
+  - EmulationState provides CHR data pointer
+  - No VTables, no indirection
 
 #### Test Coverage:
 - ✅ 6 CHR integration tests (all passing)

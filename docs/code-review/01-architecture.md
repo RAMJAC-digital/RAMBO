@@ -31,7 +31,14 @@ This hybrid model is the new standard for the project and all future development
 
 *   **Action:** Audit the existing codebase and identify any remaining vestiges of the fully asynchronous design. Refactor this code to fit the new hybrid model. This may involve removing message-passing queues, replacing asynchronous calls with direct function calls, and ensuring that the core emulation logic is purely synchronous.
 *   **Rationale:** The codebase must be consistent with the new architecture to avoid confusion and bugs.
-*   **Status:** **TODO**.
+*   **Status:** **DONE** (Completed in Phases 1-3: commits 1ceb301, 73f9279, 2fba2fa, 2dc78b8)
+*   **Completion Notes:**
+    *   Phase 1: Bus State/Logic separation established hybrid architecture pattern
+    *   Phase 2: PPU State/Logic separation applied consistent pattern
+    *   Phase A: Backward compatibility cleanup, ComponentState naming (CpuState/BusState/PpuState)
+    *   Phase 3: VTable elimination with comptime duck typing (Mapper.zig, ChrProvider.zig deleted)
+    *   All 375 tests passing with new hybrid architecture
+    *   See: `docs/code-review/REFACTORING-ROADMAP.md` for implementation details
 
 ### 3.3. Supersede Old Architectural Documents
 
