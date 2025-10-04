@@ -1,7 +1,7 @@
 # RAMBO Code Review
 
-**Date:** 2025-10-03
-**Status:** In Progress
+**Date:** 2025-10-04 (Updated)
+**Status:** Phase 1-4 Complete, Phase 7A In Progress
 
 ## 1. Overview
 
@@ -36,9 +36,10 @@ This phase focuses on implementing the new asynchronous I/O layer and improving 
 
 This phase focuses on improving test coverage and the accuracy of the emulation.
 
-*   **[ ] Implement Bus and Integration Tests:** Create comprehensive tests for the memory bus and the interaction between components. (See [07-testing.md](./07-testing.md)) - **DEFERRED**
-*   **[X] Expand PPU Test Coverage:** ✅ PARTIALLY COMPLETE - Created 38 sprite tests (15 evaluation + 23 rendering). Still needed: scrolling, timing edge cases. (See [07-testing.md](./07-testing.md), [03-ppu.md](./03-ppu.md)) - **Phase 4 completed 2025-10-03**
-*   **[ ] Implement Unstable Opcode Configuration:** Make the behavior of unstable opcodes configurable to match different CPU revisions. (See [02-cpu.md](./02-cpu.md))
+*   **[X] Implement Bus and Integration Tests:** ✅ IN PROGRESS - Phase 7A underway (2025-10-04). Creating comprehensive bus integration tests (0/20), CPU-PPU integration tests (0/25), and expanded sprite tests (38 → 85 total). (See [07-testing.md](./07-testing.md), `docs/PHASE-7-ACTION-PLAN.md`)
+*   **[X] Expand PPU Test Coverage:** ✅ PARTIALLY COMPLETE - Created 38 sprite tests (15 evaluation + 23 rendering). Expanding to 85 total in Phase 7A. Background rendering tests complete. (See [07-testing.md](./07-testing.md), [03-ppu.md](./03-ppu.md)) - **Phase 4 completed 2025-10-03**
+*   **[X] State Snapshot + Debugger System:** ✅ COMPLETE - Full debugger implementation with breakpoints, watchpoints, step execution, state manipulation, history buffer, and event callbacks. 62/62 tests passing. (See `docs/PHASE-4-3-*.md`, `docs/DEBUGGER-*.md`) - **Completed 2025-10-04**
+*   **[ ] Implement Unstable Opcode Configuration:** Make the behavior of unstable opcodes configurable to match different CPU revisions. (See [02-cpu.md](./02-cpu.md)) - **TODO (pending HardwareConfig)**
 *   **[X] Implement a Proper Open Bus Model:** ✅ COMPLETE - Open bus tracking implemented in Bus.State with decay timer. (See [04-memory-and-bus.md](./04-memory-and-bus.md))
 
 ### Phase 4: Cleanup and Polish

@@ -1,7 +1,7 @@
 # 07 - Testing Review
 
-**Date:** 2025-10-03
-**Status:** In Progress
+**Date:** 2025-10-04 (Updated)
+**Status:** Phase 4 Complete, Phase 7A In Progress
 
 ## 1. Summary
 
@@ -15,13 +15,27 @@ This review provides actionable recommendations for improving the test suite, in
 
 *   **Action:** The `tests/bus` directory is empty. Create a comprehensive suite of tests for the memory bus. These tests should cover all aspects of the bus's functionality, including RAM mirroring, PPU and APU register mapping, and cartridge communication.
 *   **Rationale:** The bus is a critical component that connects all the major parts of the emulator. Its behavior must be thoroughly tested to ensure that the components can communicate correctly.
-*   **Status:** **TODO**.
+*   **Status:** **IN PROGRESS** - Phase 7A.1 (2025-10-04)
+*   **Plan:** Creating 15-20 bus integration tests covering:
+    *   RAM mirroring validation (4-5 tests)
+    *   PPU register mirroring (3-4 tests)
+    *   ROM write protection (2-3 tests)
+    *   Open bus behavior (3-4 tests)
+    *   Cartridge routing (2-3 tests)
+*   **Documentation:** `docs/PHASE-7-ACTION-PLAN.md` Section 7A.1
 
 ### 2.2. Implement Integration Tests
 
 *   **Action:** The `tests/integration` directory is empty. Create a suite of integration tests that verify the interaction between different components. For example, tests that verify the CPU and PPU can communicate correctly through the bus to generate an NMI.
 *   **Rationale:** Integration tests are essential for finding bugs that arise from the interaction between components. They are a crucial step in verifying the overall correctness of the emulator.
-*   **Status:** **TODO**.
+*   **Status:** **IN PROGRESS** - Phase 7A.2 (2025-10-04)
+*   **Plan:** Creating 20-25 CPU-PPU integration tests covering:
+    *   NMI triggering and timing (5-6 tests)
+    *   PPU register access timing (4-5 tests)
+    *   DMA suspension and CPU stalling (3-4 tests)
+    *   Rendering effects on register reads (4-5 tests)
+    *   Cross-component state effects (3-4 tests)
+*   **Documentation:** `docs/PHASE-7-ACTION-PLAN.md` Section 7A.2
 
 ### 2.3. Expand PPU Test Coverage
 
@@ -58,16 +72,29 @@ This review provides actionable recommendations for improving the test suite, in
 *   **Rationale:** Data-driven tests are more scalable and make it easier to add new test cases. This is particularly important for testing the CPU, which has a large number of instructions and addressing modes.
 *   **Code References:**
     *   `tests/cpu/instructions_test.zig`: This file could be refactored to use a data-driven approach.
-*   **Status:** **SPECIFICATION COMPLETE** (Phase 4.3, 2025-10-03) | **IMPLEMENTATION TODO**
-*   **Design:**
-    *   Created comprehensive state snapshot + debugger specification
-    *   Binary format (~5 KB core state, ~250 KB with framebuffer)
-    *   JSON format (~8 KB core state, ~400 KB with framebuffer)
-    *   Supports full system state save/load (CPU, PPU, Bus, RAM, cartridge, framebuffer)
-    *   Enables data-driven testing via state snapshots
-    *   Documentation: 5 specification documents, 119 KB total
-*   **Documentation:** `docs/PHASE-4-3-*.md` (INDEX, SUMMARY, QUICKSTART, ARCHITECTURE, SNAPSHOT-DEBUGGER-SPEC)
-*   **Implementation Estimate:** 26-33 hours
+*   **Status:** ✅ **COMPLETE** (Phase 4.3, 2025-10-04) - Debugger and snapshot system fully implemented
+*   **Implemented:**
+    *   ✅ Complete state snapshot + debugger system (62/62 tests passing)
+    *   ✅ Binary format (~4.6 KB per snapshot)
+    *   ✅ JSON format support
+    *   ✅ Full system state save/load (CPU, PPU, Bus, RAM, cartridge, framebuffer)
+    *   ✅ Breakpoints, watchpoints, step execution
+    *   ✅ State manipulation (registers, memory)
+    *   ✅ History buffer (512-entry ring buffer)
+    *   ✅ Event callbacks (async-ready, libxev compatible)
+    *   ✅ Isolated callback API (no legacy wrappers)
+*   **Documentation:**
+    *   Specification: `docs/PHASE-4-3-*.md` (5 files)
+    *   Implementation: `docs/DEBUGGER-STATUS.md`, `docs/DEBUGGER-API-AUDIT.md`
+    *   Code: `src/debugger/Debugger.zig`, `tests/debugger/debugger_test.zig`
+*   **Test Results:** 62/62 tests passing (100%)
+    *   Breakpoints: 12/12 passing
+    *   Watchpoints: 8/8 passing
+    *   Step execution: 8/8 passing
+    *   State manipulation: 8/8 passing
+    *   History: 6/6 passing
+    *   Callbacks: 12/12 passing
+    *   Callback isolation: 8/8 passing
 
 ### 2.6. Use Existing Test ROMs
 
