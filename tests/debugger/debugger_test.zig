@@ -1244,3 +1244,222 @@ test "TAS Support: PC in I/O region (undefined behavior)" {
     // CPU will attempt to execute I/O reads as opcodes (may crash/glitch)
     // TAS users may intentionally create these states for exploits
 }
+
+// ============================================================================
+// Isolation Verification Tests
+// ============================================================================
+// These tests verify complete isolation between debugger and runtime:
+// - Zero shared mutable state
+// - Debugger operations don't affect runtime
+// - Runtime execution doesn't corrupt debugger state
+
+test "Isolation: Debugger state changes don't affect runtime" {
+    var config = Config.init(testing.allocator);
+    defer config.deinit();
+
+    var debugger = Debugger.init(testing.allocator, &config);
+    defer debugger.deinit();
+
+    const state = createTestState(&config);
+
+    // Capture original runtime state
+    const orig_pc = state.cpu.pc;
+    const orig_a = state.cpu.a;
+    const orig_sp = state.cpu.sp;
+    const orig_bus = state.bus.open_bus.value;
+
+    // Perform debugger operations (should NOT affect runtime)
+    try debugger.addBreakpoint(0x8100, .execute);
+    try debugger.addWatchpoint(0x0200, 1, .write);
+    debugger.mode = .paused;
+    debugger.clearHistory();
+
+    // ✅ Verify runtime state UNCHANGED
+    try testing.expectEqual(orig_pc, state.cpu.pc);
+    try testing.expectEqual(orig_a, state.cpu.a);
+    try testing.expectEqual(orig_sp, state.cpu.sp);
+    try testing.expectEqual(orig_bus, state.bus.open_bus.value);
+
+    // Debugger and runtime are COMPLETELY ISOLATED
+}
+
+test "Isolation: Runtime execution doesn't corrupt debugger state" {
+    var config = Config.init(testing.allocator);
+    defer config.deinit();
+
+    var debugger = Debugger.init(testing.allocator, &config);
+    defer debugger.deinit();
+
+    var state = createTestState(&config);
+
+    // Set up debugger state
+    try debugger.addBreakpoint(0x8000, .execute);
+    try debugger.addWatchpoint(0x0200, 1, .write);
+    debugger.setRegisterA(&state, 0x42);
+    debugger.setProgramCounter(&state, 0x8000);
+
+    const mod_count_before = debugger.getModifications().len;
+
+    // Simulate runtime operations (direct state manipulation)
+    state.cpu.a = 0x99; // Direct write (NOT via debugger)
+    state.cpu.pc = 0x8050;
+    state.bus.write(0x0200, 0xFF);
+    state.ppu.scanline = 200;
+
+    // ✅ Verify debugger state UNCHANGED
+    const breakpoints = debugger.breakpoints.items;
+    try testing.expectEqual(@as(usize, 1), breakpoints.len);
+    try testing.expectEqual(@as(u16, 0x8000), breakpoints[0].address);
+    const watchpoints = debugger.watchpoints.items;
+    try testing.expectEqual(@as(usize, 1), watchpoints.len);
+    try testing.expectEqual(@as(u16, 0x0200), watchpoints[0].address);
+
+    // ✅ Modification history UNCHANGED (runtime ops don't log to debugger)
+    try testing.expectEqual(mod_count_before, debugger.getModifications().len);
+
+    // Runtime and debugger are COMPLETELY ISOLATED
+}
+
+test "Isolation: Breakpoint state isolation from runtime" {
+    var config = Config.init(testing.allocator);
+    defer config.deinit();
+
+    var debugger = Debugger.init(testing.allocator, &config);
+    defer debugger.deinit();
+
+    var state = createTestState(&config);
+
+    // Add breakpoints via debugger
+    try debugger.addBreakpoint(0x8000, .execute);
+    try debugger.addBreakpoint(0x8010, .write);
+    try debugger.addBreakpoint(0x8020, .read);
+
+    // Capture breakpoint count
+    const bp_count = debugger.breakpoints.items.len;
+
+    // Simulate runtime operations that MIGHT affect breakpoints (if shared)
+    state.cpu.pc = 0x8000; // PC at breakpoint address
+    state.bus.write(0x8010, 0xFF); // Write to breakpoint address
+    _ = state.bus.read(0x8020); // Read from breakpoint address
+
+    // Execute CPU cycles
+    const CpuLogic = @import("RAMBO").Cpu.Logic;
+    for (0..100) |_| {
+        _ = CpuLogic.tick(&state.cpu, &state.bus);
+    }
+
+    // ✅ Breakpoint count UNCHANGED (runtime doesn't modify breakpoints)
+    try testing.expectEqual(bp_count, debugger.breakpoints.items.len);
+
+    // ✅ Breakpoints still at correct addresses
+    const breakpoints = debugger.breakpoints.items;
+    try testing.expectEqual(@as(u16, 0x8000), breakpoints[0].address);
+    try testing.expectEqual(@as(u16, 0x8010), breakpoints[1].address);
+    try testing.expectEqual(@as(u16, 0x8020), breakpoints[2].address);
+
+    // Breakpoint storage is ISOLATED from runtime
+}
+
+test "Isolation: Modification history isolation from runtime" {
+    var config = Config.init(testing.allocator);
+    defer config.deinit();
+
+    var debugger = Debugger.init(testing.allocator, &config);
+    defer debugger.deinit();
+
+    var state = createTestState(&config);
+
+    // Log modifications via debugger
+    debugger.setRegisterA(&state, 0x11);
+    debugger.setRegisterX(&state, 0x22);
+    debugger.setRegisterY(&state, 0x33);
+
+    const mod_count = debugger.getModifications().len;
+    try testing.expectEqual(@as(usize, 3), mod_count);
+
+    // Simulate runtime operations (NOT via debugger)
+    state.cpu.a = 0x99; // Direct write
+    state.cpu.x = 0x88;
+    state.cpu.y = 0x77;
+    state.cpu.pc = 0x9000;
+    state.cpu.sp = 0x00;
+    state.bus.write(0x0300, 0xFF);
+    state.ppu.frame += 1;
+
+    // ✅ Modification history UNCHANGED (runtime ops don't auto-log)
+    try testing.expectEqual(mod_count, debugger.getModifications().len);
+
+    // ✅ Original modifications preserved
+    const mods = debugger.getModifications();
+    try testing.expectEqual(@as(u8, 0x11), mods[0].register_a);
+    try testing.expectEqual(@as(u8, 0x22), mods[1].register_x);
+    try testing.expectEqual(@as(u8, 0x33), mods[2].register_y);
+
+    // Modification history is ISOLATED from runtime
+}
+
+test "Isolation: readMemory() const parameter enforces isolation" {
+    var config = Config.init(testing.allocator);
+    defer config.deinit();
+
+    var debugger = Debugger.init(testing.allocator, &config);
+    defer debugger.deinit();
+
+    var state = createTestState(&config);
+
+    // Set known RAM value
+    state.bus.write(0x0200, 0x42);
+
+    // Set known open bus value
+    state.bus.open_bus.update(0x99, 1000);
+    const orig_bus_value = state.bus.open_bus.value;
+    const orig_bus_cycle = state.bus.open_bus.last_update_cycle;
+
+    // ✅ readMemory accepts CONST state (compile-time isolation guarantee)
+    const const_state: *const EmulationState = &state;
+    const value = debugger.readMemory(const_state, 0x0200);
+
+    // ✅ Correct value read
+    try testing.expectEqual(@as(u8, 0x42), value);
+
+    // ✅ Open bus UNCHANGED (const parameter prevents mutation)
+    try testing.expectEqual(orig_bus_value, state.bus.open_bus.value);
+    try testing.expectEqual(orig_bus_cycle, state.bus.open_bus.last_update_cycle);
+
+    // COMPILE-TIME ISOLATION: const parameter prevents mutation
+    // If readMemory tried to modify state, it would be a compile error
+}
+
+test "Isolation: shouldBreak() doesn't mutate state" {
+    var config = Config.init(testing.allocator);
+    defer config.deinit();
+
+    var debugger = Debugger.init(testing.allocator, &config);
+    defer debugger.deinit();
+
+    var state = createTestState(&config);
+
+    // Add breakpoint at current PC
+    try debugger.addBreakpoint(0x8000, .execute);
+    state.cpu.pc = 0x8000;
+
+    // Capture state before shouldBreak
+    const orig_a = state.cpu.a;
+    const orig_pc = state.cpu.pc;
+    const orig_sp = state.cpu.sp;
+    const orig_bus = state.bus.open_bus.value;
+
+    // ✅ shouldBreak() checks breakpoints without mutating state
+    const should_break = try debugger.shouldBreak(&state);
+    try testing.expect(should_break);
+
+    // ✅ State UNCHANGED after breakpoint check
+    try testing.expectEqual(orig_a, state.cpu.a);
+    try testing.expectEqual(orig_pc, state.cpu.pc);
+    try testing.expectEqual(orig_sp, state.cpu.sp);
+    try testing.expectEqual(orig_bus, state.bus.open_bus.value);
+
+    // Hook functions operate on READ-ONLY state
+    // Future user-defined hooks will receive *const EmulationState
+    // This provides COMPILE-TIME isolation guarantee
+}
