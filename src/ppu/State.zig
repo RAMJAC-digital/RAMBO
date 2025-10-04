@@ -188,6 +188,43 @@ pub const InternalRegisters = struct {
     }
 };
 
+/// Sprite rendering state
+/// Contains shift registers and latches for sprite rendering
+///
+/// NES PPU supports up to 8 sprites per scanline:
+/// - Sprite shift registers hold pattern data for each sprite
+/// - X counters track horizontal position
+/// - Attributes store palette, priority, and flip flags
+pub const SpriteState = struct {
+    /// Pattern shift registers (low bitplane) for 8 sprites
+    /// Each byte represents one row of one sprite
+    pattern_shift_lo: [8]u8 = [_]u8{0} ** 8,
+
+    /// Pattern shift registers (high bitplane) for 8 sprites
+    pattern_shift_hi: [8]u8 = [_]u8{0} ** 8,
+
+    /// Attribute bytes for 8 sprites
+    /// Bits: PPH..SPP
+    /// P = palette (bits 0-1)
+    /// bit 5 = priority (0 = front, 1 = behind background)
+    /// H = horizontal flip (bit 6)
+    /// V = vertical flip (bit 7)
+    attributes: [8]u8 = [_]u8{0} ** 8,
+
+    /// X position counters for 8 sprites
+    /// Counts down from X position, sprite becomes active when counter reaches 0
+    x_counters: [8]u8 = [_]u8{0} ** 8,
+
+    /// Number of sprites loaded for current scanline (0-8)
+    sprite_count: u8 = 0,
+
+    /// Sprite 0 is in secondary OAM (for sprite 0 hit detection)
+    sprite_0_present: bool = false,
+
+    /// Sprite 0 index in shift registers (0-7, or 0xFF if not present)
+    sprite_0_index: u8 = 0xFF,
+};
+
 /// Background rendering state
 /// Contains shift registers and latches for tile fetching pipeline
 ///
@@ -290,6 +327,9 @@ pub const PpuState = struct {
 
     /// Background rendering state (shift registers and latches)
     bg_state: BackgroundState = .{},
+
+    /// Sprite rendering state (shift registers, X counters, attributes)
+    sprite_state: SpriteState = .{},
 
     /// Current scanline (0-261, where 261 is pre-render line)
     scanline: u16 = 0,

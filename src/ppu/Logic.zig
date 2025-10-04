@@ -525,6 +525,193 @@ pub fn writeVram(state: *PpuState, address: u16, value: u8) void {
         return palette.getNesColorRgba(nes_color);
     }
 
+    /// Get sprite pattern address for 8×8 sprites
+    /// Returns CHR ROM address for the specified sprite tile and row
+    fn getSpritePatternAddress(tile_index: u8, row: u8, bitplane: u1, pattern_table: bool, vertical_flip: bool) u16 {
+        const flipped_row = if (vertical_flip) 7 - row else row;
+        const pattern_table_base: u16 = if (pattern_table) 0x1000 else 0x0000;
+        const tile_offset: u16 = @as(u16, tile_index) * 16;
+        const row_offset: u16 = flipped_row;
+        const bitplane_offset: u16 = @as(u16, bitplane) * 8;
+        return pattern_table_base + tile_offset + row_offset + bitplane_offset;
+    }
+
+    /// Get sprite pattern address for 8×16 sprites
+    /// Returns CHR ROM address, handling top/bottom half and pattern table selection
+    fn getSprite16PatternAddress(tile_index: u8, row: u8, bitplane: u1, vertical_flip: bool) u16 {
+        // In 8×16 mode, bit 0 of tile index selects pattern table (not PPUCTRL)
+        const pattern_table_base: u16 = if ((tile_index & 0x01) != 0) 0x1000 else 0x0000;
+
+        // Apply vertical flip (flip across all 16 rows)
+        const flipped_row = if (vertical_flip) 15 - row else row;
+
+        // Determine which 8×8 tile (top or bottom half)
+        const half = flipped_row / 8; // 0 = top, 1 = bottom
+        const row_in_tile = flipped_row % 8;
+
+        // Top half uses tile_index & 0xFE, bottom half uses (tile_index & 0xFE) + 1
+        const actual_tile = (tile_index & 0xFE) + half;
+
+        const tile_offset: u16 = @as(u16, actual_tile) * 16;
+        const row_offset: u16 = @intCast(row_in_tile);
+        const bitplane_offset: u16 = @as(u16, bitplane) * 8;
+
+        return pattern_table_base + tile_offset + row_offset + bitplane_offset;
+    }
+
+    /// Fetch sprite pattern data for visible scanline
+    /// Called during cycles 257-320 (8 sprites × 8 cycles each)
+    fn fetchSprites(state: *PpuState) void {
+        // Reset sprite state at start of fetch
+        if (state.dot == 257) {
+            state.sprite_state.sprite_count = 0;
+            state.sprite_state.sprite_0_present = false;
+            state.sprite_state.sprite_0_index = 0xFF;
+
+            // Clear all sprite shift registers
+            for (0..8) |i| {
+                state.sprite_state.pattern_shift_lo[i] = 0;
+                state.sprite_state.pattern_shift_hi[i] = 0;
+                state.sprite_state.attributes[i] = 0;
+                state.sprite_state.x_counters[i] = 0xFF;
+            }
+        }
+
+        // Sprite fetching occurs during cycles 257-320
+        if (state.dot >= 257 and state.dot <= 320) {
+            const fetch_cycle = (state.dot - 257) % 8;
+            const sprite_index = (state.dot - 257) / 8;
+
+            // Only fetch if we have sprites in secondary OAM
+            if (sprite_index < 8) {
+                const oam_offset = sprite_index * 4;
+
+                // Check if this sprite slot is valid (secondary OAM not $FF)
+                if (state.secondary_oam[oam_offset] != 0xFF) {
+                    const sprite_y = state.secondary_oam[oam_offset];
+                    const tile_index = state.secondary_oam[oam_offset + 1];
+                    const attributes = state.secondary_oam[oam_offset + 2];
+                    const sprite_x = state.secondary_oam[oam_offset + 3];
+
+                    // Calculate row within sprite
+                    const row_in_sprite: u8 = @intCast(state.scanline -% sprite_y);
+
+                    // Fetch pattern data (cycles 5-6 and 7-8)
+                    if (fetch_cycle == 5 or fetch_cycle == 6) {
+                        // Fetch low bitplane
+                        const vertical_flip = (attributes & 0x80) != 0;
+                        const sprite_height: u8 = if (state.ctrl.sprite_size) 16 else 8;
+
+                        const addr = if (state.ctrl.sprite_size)
+                            getSprite16PatternAddress(tile_index, row_in_sprite, 0, vertical_flip)
+                        else
+                            getSpritePatternAddress(tile_index, row_in_sprite, 0, state.ctrl.sprite_pattern, vertical_flip);
+
+                        const pattern_lo = state.readVram(addr);
+
+                        // Apply horizontal flip by reversing bits
+                        const horizontal_flip = (attributes & 0x40) != 0;
+                        state.sprite_state.pattern_shift_lo[sprite_index] = if (horizontal_flip)
+                            reverseBits(pattern_lo)
+                        else
+                            pattern_lo;
+
+                        _ = sprite_height;
+                    } else if (fetch_cycle == 7 or fetch_cycle == 0) {
+                        // Fetch high bitplane
+                        const vertical_flip = (attributes & 0x80) != 0;
+
+                        const addr = if (state.ctrl.sprite_size)
+                            getSprite16PatternAddress(tile_index, row_in_sprite, 1, vertical_flip)
+                        else
+                            getSpritePatternAddress(tile_index, row_in_sprite, 1, state.ctrl.sprite_pattern, vertical_flip);
+
+                        const pattern_hi = state.readVram(addr);
+
+                        // Apply horizontal flip
+                        const horizontal_flip = (attributes & 0x40) != 0;
+                        state.sprite_state.pattern_shift_hi[sprite_index] = if (horizontal_flip)
+                            reverseBits(pattern_hi)
+                        else
+                            pattern_hi;
+
+                        // Load other sprite data
+                        state.sprite_state.attributes[sprite_index] = attributes;
+                        state.sprite_state.x_counters[sprite_index] = sprite_x;
+                        state.sprite_state.sprite_count = @intCast(sprite_index + 1);
+
+                        // Check if sprite 0 is present (OAM index 0 copied to secondary OAM)
+                        // This is a simplification - proper implementation would track OAM source index
+                        if (sprite_index == 0) {
+                            state.sprite_state.sprite_0_present = true;
+                            state.sprite_state.sprite_0_index = 0;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Reverse bits in a byte (for horizontal flip)
+    fn reverseBits(byte: u8) u8 {
+        var result: u8 = 0;
+        var temp = byte;
+        for (0..8) |_| {
+            result = (result << 1) | (temp & 1);
+            temp >>= 1;
+        }
+        return result;
+    }
+
+    /// Get sprite pixel for current position
+    /// Returns palette index (0 = transparent) and priority flag
+    fn getSpritePixel(state: *PpuState, pixel_x: u16) struct { pixel: u8, priority: bool, sprite_0: bool } {
+        if (!state.mask.show_sprites) {
+            return .{ .pixel = 0, .priority = false, .sprite_0 = false };
+        }
+
+        // Check if we should hide sprites in leftmost 8 pixels
+        if (pixel_x < 8 and !state.mask.show_sprites_left) {
+            return .{ .pixel = 0, .priority = false, .sprite_0 = false };
+        }
+
+        // Find first opaque sprite pixel
+        for (0..state.sprite_state.sprite_count) |i| {
+            // Check if sprite is active (X counter reached 0)
+            if (state.sprite_state.x_counters[i] == 0) {
+                // Extract pixel from shift registers (MSB = leftmost pixel)
+                const bit0 = (state.sprite_state.pattern_shift_lo[i] >> 7) & 1;
+                const bit1 = (state.sprite_state.pattern_shift_hi[i] >> 7) & 1;
+                const pattern: u8 = (bit1 << 1) | bit0;
+
+                if (pattern != 0) {
+                    // Non-transparent sprite pixel found
+                    const palette_select = state.sprite_state.attributes[i] & 0x03;
+                    const priority_behind = (state.sprite_state.attributes[i] & 0x20) != 0;
+                    const is_sprite_0 = (i == state.sprite_state.sprite_0_index);
+
+                    // Sprite palette indices are $10-$1F
+                    const palette_index = 0x10 | (palette_select << 2) | pattern;
+
+                    return .{
+                        .pixel = palette_index,
+                        .priority = priority_behind,
+                        .sprite_0 = is_sprite_0,
+                    };
+                }
+
+                // Shift this sprite's registers
+                state.sprite_state.pattern_shift_lo[i] <<= 1;
+                state.sprite_state.pattern_shift_hi[i] <<= 1;
+            } else if (state.sprite_state.x_counters[i] < 0xFF) {
+                // Decrement X counter
+                state.sprite_state.x_counters[i] -= 1;
+            }
+        }
+
+        return .{ .pixel = 0, .priority = false, .sprite_0 = false };
+    }
+
     /// Evaluate sprites for the current scanline
     /// Copies up to 8 sprites to secondary OAM
     /// Sets sprite_overflow flag if more than 8 sprites found
@@ -657,6 +844,14 @@ pub fn writeVram(state: *PpuState, address: u16, value: u8) void {
             }
         }
 
+        // === Sprite Fetching ===
+        // Fetch sprite pattern data during cycles 257-320 on visible scanlines and pre-render
+        if (is_rendering_line and state.mask.renderingEnabled()) {
+            if (dot >= 257 and dot <= 320) {
+                fetchSprites(state);
+            }
+        }
+
         // === Pixel Output ===
         // Render pixels to framebuffer during visible scanlines
         if (is_visible and dot >= 1 and dot <= 256) {
@@ -666,13 +861,40 @@ pub fn writeVram(state: *PpuState, address: u16, value: u8) void {
             // Get background pixel
             const bg_pixel = getBackgroundPixel(state);
 
-            // Determine final color
-            const palette_index = if (bg_pixel != 0)
-                bg_pixel
-            else
-                state.palette_ram[0];  // Use backdrop color for transparent
+            // Get sprite pixel
+            const sprite_result = getSpritePixel(state, pixel_x);
 
-            const color = getPaletteColor(state, palette_index);
+            // Determine final pixel using priority system
+            var final_palette_index: u8 = 0;
+
+            if (bg_pixel == 0 and sprite_result.pixel == 0) {
+                // Both transparent - use backdrop color
+                final_palette_index = 0;
+            } else if (bg_pixel == 0 and sprite_result.pixel != 0) {
+                // Background transparent, sprite opaque - show sprite
+                final_palette_index = sprite_result.pixel;
+            } else if (bg_pixel != 0 and sprite_result.pixel == 0) {
+                // Background opaque, sprite transparent - show background
+                final_palette_index = bg_pixel;
+            } else {
+                // Both opaque - check priority
+                if (sprite_result.priority) {
+                    // Sprite has priority 1 (behind background)
+                    final_palette_index = bg_pixel;
+                } else {
+                    // Sprite has priority 0 (in front of background)
+                    final_palette_index = sprite_result.pixel;
+                }
+
+                // Sprite 0 hit detection
+                // Triggers when opaque BG and opaque sprite 0 pixels overlap
+                // NOT at X=255, NOT before dot 2
+                if (sprite_result.sprite_0 and pixel_x < 255 and dot >= 2) {
+                    state.status.sprite_0_hit = true;
+                }
+            }
+
+            const color = getPaletteColor(state, final_palette_index);
 
             // Write to framebuffer
             if (framebuffer) |fb| {
