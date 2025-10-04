@@ -1,12 +1,14 @@
-//! Cartridge File Loader
+//! Cartridge File Loader (Generic/Comptime Implementation)
 //!
 //! Handles loading .nes ROM files from the filesystem.
-//! Currently uses synchronous std.fs API for simplicity.
+//! Works with generic Cartridge(MapperType) for compile-time dispatch.
 //!
+//! Currently uses synchronous std.fs API for simplicity.
 //! Future enhancement: Integrate with libxev for async file I/O when event loop is active.
 
 const std = @import("std");
 const Cartridge = @import("Cartridge.zig").Cartridge;
+const Mapper0 = @import("mappers/Mapper0.zig").Mapper0;
 
 /// Maximum ROM file size (1MB - reasonable limit for NES ROMs)
 const MAX_ROM_SIZE: usize = 1024 * 1024;
@@ -14,11 +16,14 @@ const MAX_ROM_SIZE: usize = 1024 * 1024;
 /// Load cartridge from file path (synchronous)
 /// Reads entire file into memory, then parses as iNES format
 ///
+/// Generic over mapper type for compile-time dispatch.
+///
 /// Future: This will be replaced with async libxev-based loading when event loop exists
 pub fn loadCartridgeFile(
     allocator: std.mem.Allocator,
     path: []const u8,
-) !*Cartridge {
+    comptime MapperType: type,
+) !Cartridge(MapperType) {
     // Open file for reading
     const file = try std.fs.cwd().openFile(path, .{});
     defer file.close();
@@ -28,7 +33,8 @@ pub fn loadCartridgeFile(
     defer allocator.free(data);
 
     // Parse iNES format and create cartridge
-    return try Cartridge.loadFromData(allocator, data);
+    const CartType = Cartridge(MapperType);
+    return try CartType.loadFromData(allocator, data);
 }
 
 // ============================================================================
@@ -58,8 +64,8 @@ test "loader: load valid file" {
     defer file.close();
     try file.writeAll(&rom_data);
 
-    // Load cartridge from file
-    const cart = try loadCartridgeFile(testing.allocator, test_rom_path);
+    // Load cartridge from file (generic over Mapper0)
+    var cart = try loadCartridgeFile(testing.allocator, test_rom_path, Mapper0);
     defer cart.deinit();
 
     try testing.expectEqual(@as(usize, 16384), cart.prg_rom.len);
@@ -67,6 +73,6 @@ test "loader: load valid file" {
 }
 
 test "loader: file not found" {
-    const result = loadCartridgeFile(testing.allocator, "nonexistent_file.nes");
+    const result = loadCartridgeFile(testing.allocator, "nonexistent_file.nes", Mapper0);
     try testing.expectError(error.FileNotFound, result);
 }

@@ -5,7 +5,7 @@
 
 const std = @import("std");
 const Mirroring = @import("../cartridge/ines.zig").Mirroring;
-const ChrProvider = @import("../memory/ChrProvider.zig").ChrProvider;
+const NromCart = @import("../cartridge/Cartridge.zig").NromCart;
 
 /// PPU Control Register ($2000)
 /// VPHB SINN
@@ -278,10 +278,10 @@ pub const PpuState = struct {
     /// Determines how nametable addresses map to physical VRAM
     mirroring: Mirroring = .horizontal,
 
-    /// CHR memory provider (for CHR ROM/RAM access)
-    /// Interface abstraction decouples PPU from Cartridge implementation
+    /// Cartridge reference for CHR ROM/RAM access
     /// Non-owning pointer managed by EmulationState
-    chr_provider: ?ChrProvider = null,
+    /// PPU calls cartridge.ppuRead() and cartridge.ppuWrite() directly (no VTable)
+    cartridge: ?*NromCart = null,
 
     /// NMI occurred flag
     /// Set when VBlank starts and NMI is enabled
@@ -314,9 +314,9 @@ pub const PpuState = struct {
         Logic.reset(self);
     }
 
-    /// Set CHR provider (convenience method)
-    pub inline fn setChrProvider(self: *PpuState, provider: ?ChrProvider) void {
-        self.chr_provider = provider;
+    /// Set cartridge for CHR access (convenience method)
+    pub inline fn setCartridge(self: *PpuState, cart: ?*NromCart) void {
+        self.cartridge = cart;
     }
 
     /// Set nametable mirroring mode (convenience method)

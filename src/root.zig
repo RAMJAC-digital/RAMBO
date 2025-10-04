@@ -53,7 +53,8 @@ pub const ExecutionState = Cpu.ExecutionState;
 pub const AddressingMode = Cpu.AddressingMode;
 
 /// Cartridge type (from Cartridge module)
-pub const CartridgeType = Cartridge.Cartridge;
+/// Currently uses NROM (Mapper 0) - generic mapper support via Cartridge(MapperType)
+pub const CartridgeType = Cartridge.NromCart;
 
 /// Nametable mirroring mode
 pub const MirroringType = Cartridge.Mirroring;

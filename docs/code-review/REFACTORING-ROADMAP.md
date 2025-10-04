@@ -426,6 +426,28 @@ const PpuState = Ppu.State.PpuState;  // ✨ Clear: PPU hardware state
 
 ## Phase 3: Replace VTables with Comptime Generics
 
+**Status**: Planning - Revised Plan Available
+**Plan Document**: `docs/code-review/PHASE-3-COMPTIME-GENERICS-PLAN-REVISED.md`
+**Date Revised**: 2025-10-03
+
+**Revision Notes**:
+Original plan created, then revised based on comprehensive subagent review that identified:
+- Circular type dependencies (Cartridge ↔ Mapper)
+- Unnecessary wrapper complexity (`ComptimeMapper` type)
+- Non-idiomatic naming conventions (`Comptime` prefix)
+- Missing type cascade analysis (Bus/CPU generification)
+
+**Revised Approach**:
+- Direct duck typing without wrapper types (follows Zig stdlib patterns)
+- Use `anytype` in mapper methods to break circular dependencies
+- Type erasure at Bus boundary to keep upper layers non-generic
+- Added Phase 3.0 for proof-of-concept validation
+- Performance benchmark requirement added
+
+**Estimated Effort**: 12-16 hours (revised from 8-12)
+
+---
+
 ### 3.1: Replace Mapper VTable ✅ TODO
 **Code Review Item:** 04-memory-and-bus.md → 2.2, 08-code-safety.md → 2.1
 

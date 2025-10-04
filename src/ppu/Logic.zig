@@ -10,7 +10,6 @@ const PpuCtrl = StateModule.PpuCtrl;
 const PpuMask = StateModule.PpuMask;
 const PpuStatus = StateModule.PpuStatus;
 const Mirroring = @import("../cartridge/ines.zig").Mirroring;
-const ChrProvider = @import("../memory/ChrProvider.zig").ChrProvider;
 const palette = @import("palette.zig");
 
 /// Initialize PPU state to power-on values
@@ -103,12 +102,12 @@ pub fn readVram(state: *PpuState, address: u16) u8 {
 
     return switch (addr) {
         // CHR ROM/RAM ($0000-$1FFF) - Pattern tables
-        // Accessed via CHR provider interface
+        // Accessed via cartridge ppuRead() method
         0x0000...0x1FFF => blk: {
-            if (state.chr_provider) |provider| {
-                break :blk provider.read(addr);
+            if (state.cartridge) |cart| {
+                break :blk cart.ppuRead(addr);
             }
-            // No CHR provider - return PPU open bus (data bus latch)
+            // No cartridge - return PPU open bus (data bus latch)
             break :blk state.open_bus.read();
         },
 
@@ -149,11 +148,11 @@ pub fn writeVram(state: *PpuState, address: u16, value: u8) void {
 
     switch (addr) {
         // CHR ROM/RAM ($0000-$1FFF)
-        // CHR ROM is read-only, CHR RAM is writable via CHR provider
+        // CHR ROM is read-only, CHR RAM is writable via cartridge
         0x0000...0x1FFF => {
-            if (state.chr_provider) |provider| {
-                // Provider handles write (ignores if CHR ROM)
-                provider.write(addr, value);
+            if (state.cartridge) |cart| {
+                // Cartridge handles write (ignores if CHR ROM)
+                cart.ppuWrite(addr, value);
             }
         },
 

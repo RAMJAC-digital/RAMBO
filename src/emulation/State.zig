@@ -109,14 +109,14 @@ pub const EmulationState = struct {
     }
 
     /// Connect component pointers (must be called after init)
-    /// This connects the PPU to the bus and cartridge CHR provider
+    /// This connects the PPU to the bus and cartridge
     pub fn connectComponents(self: *EmulationState) void {
         // Connect PPU to bus (non-owning pointer)
         self.bus.ppu = &self.ppu;
 
-        // Connect CHR provider and mirroring from cartridge to PPU
+        // Connect cartridge and mirroring to PPU
         if (self.bus.cartridge) |cart| {
-            self.ppu.setChrProvider(cart.chrProvider());
+            self.ppu.setCartridge(cart);
             self.ppu.setMirroring(cart.mirroring);
         }
     }

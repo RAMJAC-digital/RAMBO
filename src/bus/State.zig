@@ -5,7 +5,7 @@
 //! State includes non-owning pointers to cartridge/PPU for convenient method delegation.
 
 const std = @import("std");
-const Cartridge = @import("../cartridge/Cartridge.zig").Cartridge;
+const NromCart = @import("../cartridge/Cartridge.zig").NromCart;
 const PpuState = @import("../ppu/Ppu.zig").State.PpuState;
 
 /// Open bus state tracking
@@ -66,7 +66,7 @@ pub const BusState = struct {
     /// Optional pointer to cartridge (non-owning)
     /// Used for delegating to Logic functions conveniently
     /// Tests can leave this null and pass explicit parameters to Logic
-    cartridge: ?*Cartridge = null,
+    cartridge: ?*NromCart = null,
 
     /// Optional pointer to PPU (non-owning)
     /// Used for delegating to Logic functions conveniently
@@ -118,13 +118,13 @@ pub const BusState = struct {
 
     /// Load a cartridge into the bus
     /// Sets the non-owning pointer to the cartridge
-    pub inline fn loadCartridge(self: *BusState, cartridge: *Cartridge) void {
+    pub inline fn loadCartridge(self: *BusState, cartridge: *NromCart) void {
         self.cartridge = cartridge;
     }
 
     /// Unload the current cartridge from the bus
     /// Returns the cartridge pointer that was removed (or null if none was loaded)
-    pub inline fn unloadCartridge(self: *BusState) ?*Cartridge {
+    pub inline fn unloadCartridge(self: *BusState) ?*NromCart {
         const old_cart = self.cartridge;
         self.cartridge = null;
         return old_cart;

@@ -1,12 +1,21 @@
-//! NES Cartridge Abstraction
+//! NES Cartridge Abstraction (Generic/Comptime Implementation)
 //!
 //! Represents a loaded NES cartridge with ROM data, mapper, and metadata.
-//! Provides access to cartridge memory for CPU and PPU.
+//! Now uses comptime generics for zero-cost mapper polymorphism.
 //!
 //! Key features:
+//! - Generic Cartridge(MapperType) for compile-time dispatch
+//! - Duck-typed mapper interface (no VTable overhead)
 //! - Single-threaded access from RT emulation loop
-//! - Polymorphic mapper interface
 //! - Owned ROM data with proper cleanup
+//!
+//! Usage:
+//! ```zig
+//! const CartType = Cartridge(Mapper0);
+//! const cart = try CartType.loadFromData(allocator, rom_data);
+//! defer cart.deinit(allocator);
+//! const value = cart.cpuRead(0x8000);
+//! ```
 //!
 //! Note: No mutex needed - cartridge access is exclusively from
 //! single-threaded RT loop (EmulationState.tick()). Future multi-threading
@@ -14,13 +23,10 @@
 
 const std = @import("std");
 const ines = @import("ines.zig");
-const MapperMod = @import("Mapper.zig");
 const Mapper0 = @import("mappers/Mapper0.zig").Mapper0;
-const ChrProvider = @import("../memory/ChrProvider.zig").ChrProvider;
 
 pub const InesHeader = ines.InesHeader;
 pub const Mirroring = ines.Mirroring;
-pub const Mapper = MapperMod.Mapper;
 
 /// Cartridge errors
 pub const CartridgeError = error{
@@ -29,185 +35,157 @@ pub const CartridgeError = error{
     TrainerNotSupported,
 } || ines.InesError || std.mem.Allocator.Error;
 
-/// NES Cartridge
-/// Contains ROM data, mapper implementation, accessed from single-threaded RT loop
-pub const Cartridge = struct {
-    /// PRG ROM data (immutable after load)
-    /// Size: header.prg_rom_size * 16KB
-    prg_rom: []const u8,
+/// Generic NES Cartridge
+///
+/// Type factory parameterized by mapper implementation.
+/// Each Cartridge(MapperType) is a distinct type with zero-cost dispatch.
+///
+/// Required Mapper Interface (duck typing):
+/// - cpuRead(self: *const MapperType, cart: anytype, address: u16) u8
+/// - cpuWrite(self: *MapperType, cart: anytype, address: u16, value: u8) void
+/// - ppuRead(self: *const MapperType, cart: anytype, address: u16) u8
+/// - ppuWrite(self: *MapperType, cart: anytype, address: u16, value: u8) void
+/// - reset(self: *MapperType, cart: anytype) void
+pub fn Cartridge(comptime MapperType: type) type {
+    return struct {
+        const Self = @This();
 
-    /// CHR data (ROM or RAM)
-    /// - CHR ROM: Immutable tile data
-    /// - CHR RAM: Mutable, used when header.chr_rom_size == 0
-    /// Size: header.chr_rom_size * 8KB (or 8KB if CHR RAM)
-    chr_data: []u8,
+        /// Mapper instance (concrete type, no indirection)
+        mapper: MapperType,
 
-    /// iNES header metadata
-    header: InesHeader,
+        /// PRG ROM data (immutable after load)
+        /// Size: header.prg_rom_size * 16KB
+        prg_rom: []const u8,
 
-    /// Mapper implementation (polymorphic)
-    mapper: *Mapper,
+        /// CHR data (ROM or RAM)
+        /// - CHR ROM: Immutable tile data
+        /// - CHR RAM: Mutable, used when header.chr_rom_size == 0
+        /// Size: header.chr_rom_size * 8KB (or 8KB if CHR RAM)
+        chr_data: []u8,
 
-    /// Nametable mirroring mode
-    mirroring: Mirroring,
+        /// iNES header metadata
+        header: InesHeader,
 
-    /// Allocator for cleanup
-    allocator: std.mem.Allocator,
+        /// Nametable mirroring mode
+        mirroring: Mirroring,
 
-    /// Mapper instance storage
-    /// We store the actual mapper here to own its lifetime
-    mapper_storage: union(enum) {
-        mapper0: Mapper0,
-        // Future mappers will be added here
-    },
+        /// Allocator for cleanup
+        allocator: std.mem.Allocator,
 
-    /// Load cartridge from raw iNES file data
-    /// Takes ownership of the data, caller should not free it
-    pub fn loadFromData(allocator: std.mem.Allocator, data: []const u8) CartridgeError!*Cartridge {
-        // Parse iNES header
-        const header = try ines.InesHeader.parse(data);
+        /// Load cartridge from raw iNES file data
+        /// Takes ownership of the data, caller should not free it
+        pub fn loadFromData(allocator: std.mem.Allocator, data: []const u8) CartridgeError!Self {
+            // Parse iNES header
+            const header = try ines.InesHeader.parse(data);
 
-        // Check for unsupported features
-        if (header.hasTrainer()) {
-            return CartridgeError.TrainerNotSupported;
-        }
-
-        // Calculate ROM sizes
-        const prg_rom_size = header.getPrgRomSize();
-        const chr_size = header.getChrRomSize();
-
-        // Validate file size
-        const expected_size = 16 + prg_rom_size + chr_size;
-        if (data.len < expected_size) {
-            return CartridgeError.InvalidRomSize;
-        }
-
-        // Extract PRG ROM (starts at byte 16)
-        const prg_start: usize = 16;
-        const prg_rom = try allocator.dupe(u8, data[prg_start .. prg_start + prg_rom_size]);
-        errdefer allocator.free(prg_rom);
-
-        // Extract or allocate CHR data
-        const chr_data = blk: {
-            if (chr_size > 0) {
-                // CHR ROM: Copy from file
-                const chr_start = prg_start + prg_rom_size;
-                break :blk try allocator.dupe(u8, data[chr_start .. chr_start + chr_size]);
-            } else {
-                // CHR RAM: Allocate 8KB of RAM
-                const chr_ram = try allocator.alloc(u8, 8192);
-                @memset(chr_ram, 0);
-                break :blk chr_ram;
+            // Check for unsupported features
+            if (header.hasTrainer()) {
+                return CartridgeError.TrainerNotSupported;
             }
-        };
-        errdefer allocator.free(chr_data);
 
-        // Create cartridge
-        const cart = try allocator.create(Cartridge);
-        errdefer allocator.destroy(cart);
+            // Verify mapper matches expected type
+            const mapper_num = header.getMapperNumber();
+            if (mapper_num != 0) {
+                // For now, only Mapper 0 supported
+                // Future: Dynamic mapper selection or compile-time validation
+                return CartridgeError.UnsupportedMapper;
+            }
 
-        // Initialize mapper based on mapper number
-        const mapper_num = header.getMapperNumber();
+            // Calculate ROM sizes
+            const prg_rom_size = header.getPrgRomSize();
+            const chr_size = header.getChrRomSize();
 
-        // Initialize cart with temporary values
-        cart.* = Cartridge{
-            .prg_rom = prg_rom,
-            .chr_data = chr_data,
-            .header = header,
-            .mapper = undefined, // Set after mapper_storage
-            .mirroring = header.getMirroring(),
-            .allocator = allocator,
-            .mapper_storage = undefined, // Set next
-        };
+            // Validate file size
+            const expected_size = 16 + prg_rom_size + chr_size;
+            if (data.len < expected_size) {
+                return CartridgeError.InvalidRomSize;
+            }
 
-        // Initialize mapper storage and pointer
-        switch (mapper_num) {
-            0 => {
-                cart.mapper_storage = .{ .mapper0 = Mapper0.init() };
-                cart.mapper = cart.mapper_storage.mapper0.getMapper();
-            },
-            else => return CartridgeError.UnsupportedMapper,
+            // Extract PRG ROM (starts at byte 16)
+            const prg_start: usize = 16;
+            const prg_rom = try allocator.dupe(u8, data[prg_start .. prg_start + prg_rom_size]);
+            errdefer allocator.free(prg_rom);
+
+            // Extract or allocate CHR data
+            const chr_data = blk: {
+                if (chr_size > 0) {
+                    // CHR ROM: Copy from file
+                    const chr_start = prg_start + prg_rom_size;
+                    break :blk try allocator.dupe(u8, data[chr_start .. chr_start + chr_size]);
+                } else {
+                    // CHR RAM: Allocate 8KB of RAM
+                    const chr_ram = try allocator.alloc(u8, 8192);
+                    @memset(chr_ram, 0);
+                    break :blk chr_ram;
+                }
+            };
+            errdefer allocator.free(chr_data);
+
+            // Create cartridge with mapper instance
+            var cart = Self{
+                .mapper = MapperType{}, // Default init - mappers can add init() if needed
+                .prg_rom = prg_rom,
+                .chr_data = chr_data,
+                .header = header,
+                .mirroring = header.getMirroring(),
+                .allocator = allocator,
+            };
+
+            // Reset mapper to initial state
+            cart.mapper.reset(&cart);
+
+            return cart;
         }
 
-        // Reset mapper to initial state
-        cart.mapper.reset(cart);
+        /// Load cartridge from file path
+        pub fn load(allocator: std.mem.Allocator, path: []const u8) !Self {
+            const loader = @import("loader.zig");
+            return try loader.loadCartridgeFile(allocator, path, MapperType);
+        }
 
-        return cart;
-    }
+        /// Clean up cartridge resources
+        pub fn deinit(self: *Self) void {
+            self.allocator.free(self.prg_rom);
+            self.allocator.free(self.chr_data);
+        }
 
-    /// Load cartridge from file path
-    pub fn load(allocator: std.mem.Allocator, path: []const u8) !*Cartridge {
-        const loader = @import("loader.zig");
-        return try loader.loadCartridgeFile(allocator, path);
-    }
+        /// Read from CPU address space ($4020-$FFFF)
+        ///
+        /// Dispatches through mapper - compiler knows exact type, can inline
+        pub fn cpuRead(self: *const Self, address: u16) u8 {
+            return self.mapper.cpuRead(self, address);
+        }
 
-    /// Clean up cartridge resources
-    pub fn deinit(self: *Cartridge) void {
-        self.allocator.free(self.prg_rom);
-        self.allocator.free(self.chr_data);
-        self.allocator.destroy(self);
-    }
+        /// Write to CPU address space ($4020-$FFFF)
+        pub fn cpuWrite(self: *Self, address: u16, value: u8) void {
+            self.mapper.cpuWrite(self, address, value);
+        }
 
-    /// Read from CPU address space ($4020-$FFFF)
-    pub fn cpuRead(self: *const Cartridge, address: u16) u8 {
-        return self.mapper.cpuRead(self, address);
-    }
+        /// Read from PPU address space ($0000-$1FFF for CHR)
+        pub fn ppuRead(self: *const Self, address: u16) u8 {
+            return self.mapper.ppuRead(self, address);
+        }
 
-    /// Write to CPU address space ($4020-$FFFF)
-    pub fn cpuWrite(self: *Cartridge, address: u16, value: u8) void {
-        self.mapper.cpuWrite(self, address, value);
-    }
+        /// Write to PPU address space ($0000-$1FFF for CHR)
+        /// Only valid for CHR RAM
+        pub fn ppuWrite(self: *Self, address: u16, value: u8) void {
+            self.mapper.ppuWrite(self, address, value);
+        }
 
-    /// Read from PPU address space ($0000-$1FFF for CHR)
-    pub fn ppuRead(self: *const Cartridge, address: u16) u8 {
-        return self.mapper.ppuRead(self, address);
-    }
+        /// Reset cartridge to power-on state
+        pub fn reset(self: *Self) void {
+            self.mapper.reset(self);
+        }
+    };
+}
 
-    /// Write to PPU address space ($0000-$1FFF for CHR)
-    /// Only valid for CHR RAM
-    pub fn ppuWrite(self: *Cartridge, address: u16, value: u8) void {
-        self.mapper.ppuWrite(self, address, value);
-    }
+// ============================================================================
+// Type Aliases for Common Configurations
+// ============================================================================
 
-    /// Get CHR provider interface for PPU
-    ///
-    /// Returns a ChrProvider interface that allows the PPU to access
-    /// cartridge CHR ROM/RAM without depending on the Cartridge concrete type.
-    ///
-    /// This enables proper dependency injection and testability.
-    ///
-    /// Usage:
-    /// ```zig
-    /// const provider = cartridge.chrProvider();
-    /// const pattern_byte = provider.read(0x0000);
-    /// ```
-    pub fn chrProvider(self: *Cartridge) ChrProvider {
-        return .{
-            .ptr = self,
-            .vtable = &.{
-                .read = ppuReadImpl,
-                .write = ppuWriteImpl,
-            },
-        };
-    }
-
-    /// CHR read implementation for ChrProvider interface
-    fn ppuReadImpl(ptr: *anyopaque, address: u16) u8 {
-        const self: *Cartridge = @ptrCast(@alignCast(ptr));
-        return self.ppuRead(address);
-    }
-
-    /// CHR write implementation for ChrProvider interface
-    fn ppuWriteImpl(ptr: *anyopaque, address: u16, value: u8) void {
-        const self: *Cartridge = @ptrCast(@alignCast(ptr));
-        self.ppuWrite(address, value);
-    }
-
-    /// Reset cartridge to power-on state
-    pub fn reset(self: *Cartridge) void {
-        self.mapper.reset(self);
-    }
-};
+/// NROM cartridge (Mapper 0)
+/// Common configuration for simple games
+pub const NromCart = Cartridge(Mapper0);
 
 // ============================================================================
 // Tests
@@ -232,7 +210,8 @@ test "Cartridge: load NROM-256 ROM" {
     // Some test data in PRG ROM
     rom_data[16] = 0xAA; // First byte of PRG ROM
 
-    const cart = try Cartridge.loadFromData(testing.allocator, &rom_data);
+    const CartType = Cartridge(Mapper0);
+    var cart = try CartType.loadFromData(testing.allocator, &rom_data);
     defer cart.deinit();
 
     try testing.expectEqual(@as(usize, 32768), cart.prg_rom.len);
@@ -256,7 +235,8 @@ test "Cartridge: load NROM-128 ROM" {
     rom_data[6] = 0x01; // Mapper 0, vertical mirroring
     rom_data[7] = 0x00;
 
-    const cart = try Cartridge.loadFromData(testing.allocator, &rom_data);
+    const CartType = Cartridge(Mapper0);
+    var cart = try CartType.loadFromData(testing.allocator, &rom_data);
     defer cart.deinit();
 
     try testing.expectEqual(@as(usize, 16384), cart.prg_rom.len);
@@ -277,7 +257,8 @@ test "Cartridge: CHR RAM allocation" {
     rom_data[6] = 0;
     rom_data[7] = 0;
 
-    const cart = try Cartridge.loadFromData(testing.allocator, &rom_data);
+    const CartType = Cartridge(Mapper0);
+    var cart = try CartType.loadFromData(testing.allocator, &rom_data);
     defer cart.deinit();
 
     // CHR RAM should be allocated (8KB)
@@ -304,7 +285,8 @@ test "Cartridge: CPU read through mapper" {
     // Test data in PRG ROM
     rom_data[16] = 0x42; // $8000
 
-    const cart = try Cartridge.loadFromData(testing.allocator, &rom_data);
+    const CartType = Cartridge(Mapper0);
+    var cart = try CartType.loadFromData(testing.allocator, &rom_data);
     defer cart.deinit();
 
     // Read from $8000 through cartridge interface
@@ -325,7 +307,8 @@ test "Cartridge: PPU read/write through mapper" {
     rom_data[6] = 0;
     rom_data[7] = 0;
 
-    const cart = try Cartridge.loadFromData(testing.allocator, &rom_data);
+    const CartType = Cartridge(Mapper0);
+    var cart = try CartType.loadFromData(testing.allocator, &rom_data);
     defer cart.deinit();
 
     // Write to CHR RAM
@@ -349,7 +332,8 @@ test "Cartridge: unsupported mapper" {
     rom_data[6] = 0x10; // Mapper 1 (not implemented yet)
     rom_data[7] = 0x00;
 
-    const result = Cartridge.loadFromData(testing.allocator, &rom_data);
+    const CartType = Cartridge(Mapper0);
+    const result = CartType.loadFromData(testing.allocator, &rom_data);
     try testing.expectError(CartridgeError.UnsupportedMapper, result);
 }
 
@@ -366,6 +350,55 @@ test "Cartridge: trainer not supported" {
     rom_data[6] = 0x04; // Trainer present
     rom_data[7] = 0x00;
 
-    const result = Cartridge.loadFromData(testing.allocator, &rom_data);
+    const CartType = Cartridge(Mapper0);
+    const result = CartType.loadFromData(testing.allocator, &rom_data);
     try testing.expectError(CartridgeError.TrainerNotSupported, result);
+}
+
+test "Cartridge: generic type factory" {
+    // Demonstrates that Cartridge(T) is a type factory
+    const Cart1 = Cartridge(Mapper0);
+    const Cart2 = Cartridge(Mapper0);
+
+    // Same mapper = same type
+    try testing.expect(Cart1 == Cart2);
+
+    // Each cartridge instance has its own mapper instance
+    var rom_data = [_]u8{0} ** (16 + 16384 + 8192);
+    rom_data[0] = 'N';
+    rom_data[1] = 'E';
+    rom_data[2] = 'S';
+    rom_data[3] = 0x1A;
+    rom_data[4] = 1;
+    rom_data[5] = 1;
+    rom_data[6] = 0;
+    rom_data[7] = 0;
+
+    var cart1 = try Cart1.loadFromData(testing.allocator, &rom_data);
+    defer cart1.deinit();
+
+    var cart2 = try Cart2.loadFromData(testing.allocator, &rom_data);
+    defer cart2.deinit();
+
+    // cart1 and cart2 are different instances
+    try testing.expect(&cart1 != &cart2);
+}
+
+test "Cartridge: type alias - NromCart" {
+    // Validates that NromCart alias works correctly
+    var rom_data = [_]u8{0} ** (16 + 16384 + 8192);
+    rom_data[0] = 'N';
+    rom_data[1] = 'E';
+    rom_data[2] = 'S';
+    rom_data[3] = 0x1A;
+    rom_data[4] = 1;
+    rom_data[5] = 1;
+    rom_data[6] = 0;
+    rom_data[7] = 0;
+
+    var cart = try NromCart.loadFromData(testing.allocator, &rom_data);
+    defer cart.deinit();
+
+    // Should have Mapper0
+    try testing.expect(@TypeOf(cart.mapper) == Mapper0);
 }

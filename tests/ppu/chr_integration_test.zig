@@ -37,12 +37,12 @@ test "PPU VRAM: CHR ROM read through cartridge" {
     rom_data[chr_start + 0x1FFF] = 0xEF; // Test byte at $1FFF (last CHR byte)
 
     // Load cartridge
-    const cart = try Cartridge.loadFromData(allocator, &rom_data);
+    var cart = try Cartridge.loadFromData(allocator, &rom_data);
     defer cart.deinit();
 
-    // Create PPU and connect CHR provider
+    // Create PPU and connect cartridge
     var ppu = Ppu.init();
-    ppu.setChrProvider(cart.chrProvider());
+    ppu.setCartridge(&cart);
 
     // Test CHR ROM reads
     try testing.expectEqual(@as(u8, 0x42), ppu.readVram(0x0000));
@@ -70,12 +70,12 @@ test "PPU VRAM: CHR RAM write and read" {
     rom_data[7] = 0;
 
     // Load cartridge (will allocate 8KB CHR RAM)
-    const cart = try Cartridge.loadFromData(allocator, &rom_data);
+    var cart = try Cartridge.loadFromData(allocator, &rom_data);
     defer cart.deinit();
 
-    // Create PPU and connect CHR provider
+    // Create PPU and connect cartridge
     var ppu = Ppu.init();
-    ppu.setChrProvider(cart.chrProvider());
+    ppu.setCartridge(&cart);
 
     // CHR RAM should be initialized to zero
     try testing.expectEqual(@as(u8, 0x00), ppu.readVram(0x0000));
@@ -111,7 +111,7 @@ test "PPU VRAM: Mirroring from cartridge header" {
     rom_data[7] = 0;
 
     // Load cartridge
-    const cart = try Cartridge.loadFromData(allocator, &rom_data);
+    var cart = try Cartridge.loadFromData(allocator, &rom_data);
     defer cart.deinit();
 
     // Create PPU and set mirroring from cartridge
@@ -155,12 +155,12 @@ test "PPU VRAM: PPUDATA CHR access with buffering" {
     rom_data[chr_start + 2] = 0x33;
 
     // Load cartridge
-    const cart = try Cartridge.loadFromData(allocator, &rom_data);
+    var cart = try Cartridge.loadFromData(allocator, &rom_data);
     defer cart.deinit();
 
     // Create PPU and connect
     var ppu = Ppu.init();
-    ppu.setChrProvider(cart.chrProvider());
+    ppu.setCartridge(&cart);
 
     // Set PPUADDR to CHR region ($0000)
     ppu.writeRegister(0x2006, 0x00); // High byte
@@ -180,11 +180,11 @@ test "PPU VRAM: PPUDATA CHR access with buffering" {
 }
 
 // Test open bus behavior without cartridge
-test "PPU VRAM: Open bus when no CHR provider" {
+test "PPU VRAM: Open bus when no cartridge" {
     var ppu = Ppu.init();
 
-    // No CHR provider connected - should be null
-    try testing.expect(ppu.chr_provider == null);
+    // No cartridge connected - should be null
+    try testing.expect(ppu.cartridge == null);
 
     // Set open bus to known value
     ppu.open_bus.write(0x42);
@@ -223,12 +223,12 @@ test "PPU VRAM: CHR ROM writes are ignored" {
     rom_data[chr_start + 0] = 0x42;
 
     // Load cartridge
-    const cart = try Cartridge.loadFromData(allocator, &rom_data);
+    var cart = try Cartridge.loadFromData(allocator, &rom_data);
     defer cart.deinit();
 
     // Create PPU and connect
     var ppu = Ppu.init();
-    ppu.setChrProvider(cart.chrProvider());
+    ppu.setCartridge(&cart);
 
     // Verify initial value
     try testing.expectEqual(@as(u8, 0x42), ppu.readVram(0x0000));
