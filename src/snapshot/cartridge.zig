@@ -1,17 +1,10 @@
 // Cartridge snapshot serialization
 const std = @import("std");
+const Cartridge = @import("../cartridge/Cartridge.zig");
 
-/// iNES header structure (16 bytes)
-pub const InesHeader = struct {
-    raw: [16]u8,
-};
-
-/// Nametable mirroring mode
-pub const Mirroring = enum(u8) {
-    horizontal = 0,
-    vertical = 1,
-    four_screen = 2,
-};
+/// Re-export types from cartridge module
+pub const InesHeader = Cartridge.InesHeader;
+pub const Mirroring = Cartridge.Mirroring;
 
 /// Cartridge snapshot mode
 pub const CartridgeSnapshotMode = enum(u8) {
@@ -74,8 +67,16 @@ pub fn writeCartridgeSnapshot(writer: anytype, snapshot: *const CartridgeSnapsho
             try writer.writeAll(ref.mapper_state);
         },
         .embed => |emb| {
-            // Write iNES header (16 bytes)
-            try writer.writeAll(&emb.header.raw);
+            // Write iNES header (16 bytes) - field by field
+            try writer.writeAll(&emb.header.magic);
+            try writer.writeByte(emb.header.prg_rom_size);
+            try writer.writeByte(emb.header.chr_rom_size);
+            try writer.writeByte(emb.header.flags6);
+            try writer.writeByte(emb.header.flags7);
+            try writer.writeByte(emb.header.prg_ram_size);
+            try writer.writeByte(emb.header.flags9);
+            try writer.writeByte(emb.header.flags10);
+            try writer.writeAll(&emb.header.padding);
 
             // Write mirroring
             try writer.writeByte(@intFromEnum(emb.mirroring));
@@ -128,9 +129,17 @@ pub fn readCartridgeSnapshot(allocator: std.mem.Allocator, reader: anytype) !Car
             };
         },
         .embed => blk: {
-            // Read iNES header
+            // Read iNES header (16 bytes) - field by field
             var header: InesHeader = undefined;
-            try reader.readNoEof(&header.raw);
+            try reader.readNoEof(&header.magic);
+            header.prg_rom_size = try reader.readByte();
+            header.chr_rom_size = try reader.readByte();
+            header.flags6 = try reader.readByte();
+            header.flags7 = try reader.readByte();
+            header.prg_ram_size = try reader.readByte();
+            header.flags9 = try reader.readByte();
+            header.flags10 = try reader.readByte();
+            try reader.readNoEof(&header.padding);
 
             // Read mirroring
             const mirroring_byte = try reader.readByte();
@@ -198,12 +207,17 @@ test "Cartridge: embed mode round-trip" {
     const test_chr = [_]u8{ 0x05, 0x06 };
     const test_state = [_]u8{ 0xFF };
 
-    var header: InesHeader = undefined;
-    @memset(&header.raw, 0);
-    header.raw[0] = 'N';
-    header.raw[1] = 'E';
-    header.raw[2] = 'S';
-    header.raw[3] = 0x1A;
+    const header = InesHeader{
+        .magic = [_]u8{ 'N', 'E', 'S', 0x1A },
+        .prg_rom_size = 0,
+        .chr_rom_size = 0,
+        .flags6 = 0,
+        .flags7 = 0,
+        .prg_ram_size = 0,
+        .flags9 = 0,
+        .flags10 = 0,
+        .padding = [_]u8{0} ** 5,
+    };
 
     var snapshot = CartridgeSnapshot{
         .embed = .{
@@ -235,7 +249,7 @@ test "Cartridge: embed mode round-trip" {
 
     // Verify data
     const restored_embed = restored.embed;
-    try testing.expectEqualSlices(u8, "NES\x1A", restored_embed.header.raw[0..4]);
+    try testing.expectEqualSlices(u8, "NES\x1A", &restored_embed.header.magic);
     try testing.expectEqualSlices(u8, &test_prg, restored_embed.prg_rom);
     try testing.expectEqualSlices(u8, &test_chr, restored_embed.chr_data);
     try testing.expectEqual(Mirroring.horizontal, restored_embed.mirroring);

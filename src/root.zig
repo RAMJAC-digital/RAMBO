@@ -33,6 +33,9 @@ pub const FrameTimer = @import("timing/FrameTimer.zig");
 /// Emulation state machine (RT loop)
 pub const EmulationState = @import("emulation/State.zig");
 
+/// State snapshot system (save/load emulation state)
+pub const Snapshot = @import("snapshot/Snapshot.zig");
+
 // ============================================================================
 // Re-export commonly used types for convenience
 // ============================================================================
@@ -79,4 +82,5 @@ test {
     _ = PpuTiming;
     _ = FrameTimer;
     _ = EmulationState;
+    _ = Snapshot;
 }
