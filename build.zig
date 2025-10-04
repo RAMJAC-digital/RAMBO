@@ -278,6 +278,20 @@ pub fn build(b: *std.Build) void {
 
     const run_sprite_rendering_tests = b.addRunArtifact(sprite_rendering_tests);
 
+    // PPU sprite edge cases tests
+    const sprite_edge_cases_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/ppu/sprite_edge_cases_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+
+    const run_sprite_edge_cases_tests = b.addRunArtifact(sprite_edge_cases_tests);
+
     // Snapshot integration tests
     const snapshot_integration_tests = b.addTest(.{
         .root_module = b.createModule(.{
@@ -321,6 +335,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_chr_integration_tests.step);
     test_step.dependOn(&run_sprite_evaluation_tests.step);
     test_step.dependOn(&run_sprite_rendering_tests.step);
+    test_step.dependOn(&run_sprite_edge_cases_tests.step);
     test_step.dependOn(&run_snapshot_integration_tests.step);
     test_step.dependOn(&run_debugger_integration_tests.step);
 
@@ -339,6 +354,7 @@ pub fn build(b: *std.Build) void {
     integration_test_step.dependOn(&run_chr_integration_tests.step);
     integration_test_step.dependOn(&run_sprite_evaluation_tests.step);
     integration_test_step.dependOn(&run_sprite_rendering_tests.step);
+    integration_test_step.dependOn(&run_sprite_edge_cases_tests.step);
     integration_test_step.dependOn(&run_snapshot_integration_tests.step);
     integration_test_step.dependOn(&run_debugger_integration_tests.step);
 
