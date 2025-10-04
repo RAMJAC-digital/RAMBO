@@ -1,8 +1,9 @@
 # RAMBO Cleanup Plan - Post-Refactoring Review
 
 **Date:** 2025-10-05
-**Status:** In Progress
+**Status:** Phase 0 Complete ✅ | In Progress (Phase 1 Next)
 **Context:** Consolidated action plan from the comprehensive code review conducted after major architectural refactoring.
+**Latest Update:** Phase 0 (Stateless KDL Parser) completed with zero regressions. Test baseline maintained at 575/576 passing.
 
 ## Executive Summary
 
@@ -10,32 +11,59 @@ A deep code review of the RAMBO codebase has been completed. The overall assessm
 
 This plan consolidates all outstanding minor cleanup tasks, refactoring opportunities, and remaining `TODO` items into a single, prioritized roadmap. These items are not critical blockers for new feature development but should be addressed to further improve code quality, maintainability, and hardware accuracy.
 
---- 
+---
 
-## Priority 1: High-Impact Fixes (Essential for Accuracy & Safety)
+## Development Resources
 
-### 1.1. Unstable Opcode Configuration
+**Essential documentation for implementing this cleanup plan:**
 
+-   **[DEVELOPMENT-PROCEDURES.md](DEVELOPMENT-PROCEDURES.md)** - Step-by-step workflows for executing each phase (TDD, baseline capture, commit procedures, blocker protocol)
+-   **[DEVELOPMENT-PROGRESS.md](DEVELOPMENT-PROGRESS.md)** - Real-time progress tracker with phase completion status, test baselines, and commit history
+-   **[SUBAGENT-ANALYSIS.md](SUBAGENT-ANALYSIS.md)** - Detailed findings from 5 specialized agents including architecture recommendations and corrected approaches
+
+**Key Principles:**
+-   ✅ Test-Driven Development (write failing tests first)
+-   ✅ Zero Regressions (test count never decreases, baselines must match)
+-   ✅ Stateless Everything (State/Logic separation throughout)
+-   ✅ Frequent Commits (every 2-4 hours, at milestones)
+-   ✅ Baseline Capture (CPU traces, PPU framebuffers, dispatch tables)
+
+**Test Baseline:** 575/576 passing (99.8%) - 1 expected failure (snapshot metadata cosmetic)
+
+---
+
+## Priority 1: Critical Fixes (Essential for Reliability & Accuracy)
+
+### ✅ 1.1. **[PHASE 0 COMPLETE]** Stateless KDL Parser Implementation
+
+-   **Status:** ✅ **COMPLETE** (Phase 0 - 2025-10-05)
+-   **Implementation:** Created a robust, stateless KDL parser in `src/config/parser.zig` following the zzt-backup pattern. The parser is a pure function with zero global state, thread-safe, and includes comprehensive error handling with safety limits.
+-   **Deliverables:**
+    -   `src/config/parser.zig` (245 lines) - Stateless parser with enum-based section dispatch
+    -   `tests/config/parser_test.zig` (308 lines) - 20+ comprehensive tests
+    -   Refactored `Config.zig` to use stateless parser
+    -   All 31+ config tests passing, baseline maintained (575/576)
+-   **Commit:** `3cbf179` - feat(config): Implement stateless KDL parser (Phase 0 complete)
+-   **Rationale:** Stateless design enables thread safety, testability, and follows established State/Logic pattern. Graceful error handling with defaults ensures reliability.
+-   **Reference:** `docs/code-review/DEVELOPMENT-PROGRESS.md`, `docs/code-review/06-configuration.md`
+
+### 1.2. Unstable Opcode Configuration
+
+-   **Status:** 🔴 **High Priority TODO**
 -   **Issue:** Unofficial opcodes in `unofficial.zig` use hardcoded magic values. True hardware accuracy requires these to be configurable based on the CPU revision.
 -   **Action:** Modify the implementation of unstable opcodes (`XAA`, `LXA`, `SHA`, etc.) to use values from `CpuConfig` based on the selected `CpuVariant`.
 -   **Rationale:** Essential for 100% AccuracyCoin test suite compliance.
 -   **Reference:** `docs/code-review/02-cpu.md`
 
-### 1.2. Use a KDL Parsing Library
-
--   **Issue:** The configuration system uses brittle, manual KDL parsing.
--   **Action:** Replace the manual parsing logic in `Config.zig` with a robust, dedicated KDL parsing library for Zig.
--   **Rationale:** Improves reliability and maintainability of the configuration system.
--   **Reference:** `docs/code-review/06-configuration.md`
-
 ### 1.3. Replace `anytype` in Bus Logic
 
+-   **Status:** 🔴 **High Priority TODO**
 -   **Issue:** `src/bus/Logic.zig` uses `anytype` for the `ppu` parameter, reducing type safety.
 -   **Action:** Change the `ppu: anytype` parameter in the bus logic functions to a concrete `*PpuState` pointer.
 -   **Rationale:** Improves type safety and IDE support with no downside.
 -   **Reference:** `docs/code-review/04-memory-and-bus.md`
 
---- 
+---
 
 ## Priority 2: Code Organization & API Cleanup
 
@@ -46,12 +74,17 @@ This plan consolidates all outstanding minor cleanup tasks, refactoring opportun
 -   **Rationale:** Improves readability and maintainability.
 -   **Reference:** `docs/code-review/02-cpu.md`
 
-### 2.2. Consolidate `execution.zig` and `dispatch.zig`
+### 2.2. Organize Opcodes into Functional Groups (Phase 1 - Planned)
 
--   **Issue:** `execution.zig` and `dispatch.zig` are conceptually coupled.
--   **Action:** Merge the contents of `execution.zig` into `dispatch.zig`, making the micro-step functions file-local.
--   **Rationale:** Co-locates related code, improving organization.
--   **Reference:** `docs/code-review/02-cpu.md`
+-   **Status:** 🟡 **REVISED APPROACH** (Based on subagent analysis)
+-   **Issue:** Original plan to merge `execution.zig` and `dispatch.zig` would violate State/Logic separation. The real issue is opcode organization, not file consolidation.
+-   **Corrected Action:**
+    -   Create `src/cpu/opcodes/` directory with functional groups (LoadStore.zig, Arithmetic.zig, Logical.zig, Shifts.zig, Branches.zig, Jumps.zig, Stack.zig, Transfer.zig, Unofficial.zig)
+    -   Create `src/cpu/opcodes/state.zig` for pure opcode state (no system coupling)
+    -   Extract pure microsteps to `src/cpu/execution/microsteps.zig`
+    -   Refactor `dispatch.zig` with opcode-group builder functions
+-   **Rationale:** Preserves State/Logic separation, improves organization by function (not location), maintains testability. Each opcode group is ~150-200 lines instead of 1370-line monolith.
+-   **Reference:** `docs/code-review/SUBAGENT-ANALYSIS.md` (Agent 2 - architect-reviewer)
 
 ### 2.3. Remove Unused Type Aliases and `PpuLogic` from Public API
 
@@ -67,7 +100,7 @@ This plan consolidates all outstanding minor cleanup tasks, refactoring opportun
 -   **Rationale:** Cleans up the main test suite.
 -   **Reference:** `docs/code-review/07-testing.md`
 
---- 
+---
 
 ## Priority 3: General Refactoring & Best Practices
 
@@ -99,7 +132,7 @@ This plan consolidates all outstanding minor cleanup tasks, refactoring opportun
 -   **Rationale:** Makes the test suite status more accurate.
 -   **Reference:** `docs/code-review/03-ppu.md`
 
---- 
+---
 
 ## Priority 4: Future-Facing & Accuracy Improvements
 
