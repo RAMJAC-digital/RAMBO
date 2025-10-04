@@ -1090,3 +1090,157 @@ test "Modification History: circular buffer behavior" {
     try testing.expectEqual(@as(u16, 0x8000), mods[0].program_counter);
     try testing.expectEqual(@as(u16, 0x8004), mods[4].program_counter);
 }
+
+// ============================================================================
+// TAS (Tool-Assisted Speedrun) Support Tests
+// ============================================================================
+// These tests verify that the debugger supports TAS workflows including
+// intentional undefined behaviors, corruption, and edge cases.
+
+test "TAS Support: PC in RAM for ACE (Arbitrary Code Execution)" {
+    var config = Config.init(testing.allocator);
+    defer config.deinit();
+
+    var debugger = Debugger.init(testing.allocator, &config);
+    defer debugger.deinit();
+
+    var state = createTestState(&config);
+
+    // Write crafted "code" to RAM (actually data)
+    // Example: LDA #$42 (0xA9 0x42), RTS (0x60)
+    debugger.writeMemory(&state, 0x0200, 0xA9); // LDA immediate
+    debugger.writeMemory(&state, 0x0201, 0x42); // Value
+    debugger.writeMemory(&state, 0x0202, 0x60); // RTS
+
+    // ✅ Set PC to RAM address (ACE technique)
+    debugger.setProgramCounter(&state, 0x0200);
+    try testing.expectEqual(@as(u16, 0x0200), state.cpu.pc);
+
+    // ✅ Verify modification logged
+    const mods = debugger.getModifications();
+    try testing.expect(mods.len >= 1);
+
+    // CPU will now execute RAM as code (ACE exploit)
+    // This is INTENTIONAL for TAS - debugger does NOT prevent this
+}
+
+test "TAS Support: ROM write intent tracking" {
+    var config = Config.init(testing.allocator);
+    defer config.deinit();
+
+    var debugger = Debugger.init(testing.allocator, &config);
+    defer debugger.deinit();
+
+    var state = createTestState(&config);
+
+    // Clear modifications history
+    debugger.clearHistory();
+
+    // ✅ Write to ROM region (hardware-protected, write won't succeed)
+    debugger.writeMemory(&state, 0x8000, 0xFF);
+    debugger.writeMemory(&state, 0xFFFC, 0x00); // NMI vector (ROM)
+
+    // ✅ Verify writes are LOGGED even though they don't modify ROM
+    // This is intentional - debugger tracks INTENT for TAS documentation
+    const mods = debugger.getModifications();
+    try testing.expectEqual(@as(usize, 2), mods.len);
+    try testing.expect(mods[0] == .memory_write);
+    try testing.expectEqual(@as(u16, 0x8000), mods[0].memory_write.address);
+    try testing.expectEqual(@as(u8, 0xFF), mods[0].memory_write.value);
+
+    // ✅ Data bus is updated even though ROM isn't modified
+    try testing.expectEqual(@as(u8, 0x00), state.bus.open_bus.value);
+}
+
+test "TAS Support: Stack overflow and underflow edge cases" {
+    var config = Config.init(testing.allocator);
+    defer config.deinit();
+
+    var debugger = Debugger.init(testing.allocator, &config);
+    defer debugger.deinit();
+
+    var state = createTestState(&config);
+
+    // ✅ Test stack overflow (SP = 0x00)
+    debugger.setStackPointer(&state, 0x00);
+    try testing.expectEqual(@as(u8, 0x00), state.cpu.sp);
+    // Stack now at $0100 - pushes will wrap to $01FF
+
+    // ✅ Test stack underflow (SP = 0xFF)
+    debugger.setStackPointer(&state, 0xFF);
+    try testing.expectEqual(@as(u8, 0xFF), state.cpu.sp);
+    // Stack now at $01FF - pops will wrap to $0100
+
+    // ✅ Verify modifications logged
+    const mods = debugger.getModifications();
+    try testing.expect(mods.len >= 2);
+
+    // This is INTENTIONAL - TAS uses stack manipulation for wrong warps
+    // The emulator allows these edge cases without protection
+}
+
+test "TAS Support: Unusual status flag combinations" {
+    var config = Config.init(testing.allocator);
+    defer config.deinit();
+
+    var debugger = Debugger.init(testing.allocator, &config);
+    defer debugger.deinit();
+
+    var state = createTestState(&config);
+
+    // ✅ Set decimal flag (normally ignored on NES)
+    debugger.setStatusRegister(&state, 0b00001000); // D flag only
+    try testing.expect(state.cpu.p.decimal);
+    try testing.expect(!state.cpu.p.carry);
+    try testing.expect(!state.cpu.p.zero);
+
+    // ✅ Set all flags simultaneously (unusual but valid)
+    debugger.setStatusRegister(&state, 0xFF);
+    try testing.expect(state.cpu.p.carry);
+    try testing.expect(state.cpu.p.zero);
+    try testing.expect(state.cpu.p.interrupt);
+    try testing.expect(state.cpu.p.decimal);
+    try testing.expect(state.cpu.p.overflow);
+    try testing.expect(state.cpu.p.negative);
+
+    // ✅ Clear all flags (also unusual)
+    debugger.setStatusRegister(&state, 0x00);
+    try testing.expect(!state.cpu.p.carry);
+    try testing.expect(!state.cpu.p.zero);
+    try testing.expect(!state.cpu.p.interrupt);
+    try testing.expect(!state.cpu.p.decimal);
+    try testing.expect(!state.cpu.p.overflow);
+    try testing.expect(!state.cpu.p.negative);
+
+    // All combinations are INTENTIONAL - TAS may use unusual states
+}
+
+test "TAS Support: PC in I/O region (undefined behavior)" {
+    var config = Config.init(testing.allocator);
+    defer config.deinit();
+
+    var debugger = Debugger.init(testing.allocator, &config);
+    defer debugger.deinit();
+
+    var state = createTestState(&config);
+
+    // ✅ Set PC to PPU register region (undefined behavior)
+    debugger.setProgramCounter(&state, 0x2000); // PPUCTRL
+    try testing.expectEqual(@as(u16, 0x2000), state.cpu.pc);
+
+    // ✅ Set PC to APU register region
+    debugger.setProgramCounter(&state, 0x4000); // APU
+    try testing.expectEqual(@as(u16, 0x4000), state.cpu.pc);
+
+    // ✅ Set PC to controller I/O region
+    debugger.setProgramCounter(&state, 0x4016); // Controller 1
+    try testing.expectEqual(@as(u16, 0x4016), state.cpu.pc);
+
+    // ✅ Verify modifications logged
+    const mods = debugger.getModifications();
+    try testing.expect(mods.len >= 3);
+
+    // This is INTENTIONAL - debugger does NOT prevent undefined behaviors
+    // CPU will attempt to execute I/O reads as opcodes (may crash/glitch)
+    // TAS users may intentionally create these states for exploits
+}

@@ -594,13 +594,51 @@ pub const Debugger = struct {
         self.logModification(.{ .register_y = value });
     }
 
-    /// Set stack pointer
+    /// Set stack pointer to any value
+    ///
+    /// **IMPORTANT FOR TAS USERS:**
+    /// Stack pointer can be set to any u8 value, including edge cases that may
+    /// cause stack overflow/underflow or corrupt critical memory regions.
+    ///
+    /// Edge Cases (INTENTIONALLY SUPPORTED):
+    /// - SP = 0x00: Stack at $0100, pushes will wrap to $01FF (stack overflow into page 0)
+    /// - SP = 0xFF: Stack at $01FF, pops will wrap to $0100 (stack underflow)
+    /// - Manipulating SP can expose/corrupt zero page or stack variables
+    ///
+    /// TAS Use Cases:
+    /// - Wrong warp glitches: Manipulate SP + RTS to jump to arbitrary addresses
+    /// - Stack underflow exploits: Pop corrupted return addresses
+    /// - ACE setup: Position stack to execute crafted data
+    ///
+    /// Hardware Behavior:
+    /// Stack lives at $0100-$01FF (page 1). SP is 8-bit offset from $0100.
+    /// Overflow/underflow wrap within page 1 - no hardware protection.
     pub fn setStackPointer(self: *Debugger, state: *EmulationState, value: u8) void {
         state.cpu.sp = value;
         self.logModification(.{ .stack_pointer = value });
     }
 
-    /// Set program counter
+    /// Set program counter to any address
+    ///
+    /// **IMPORTANT FOR TAS (Tool-Assisted Speedrun) USERS:**
+    /// This function allows setting PC to ANY address, including undefined regions.
+    /// The debugger intentionally supports setting invalid/corrupted states for TAS techniques.
+    ///
+    /// Undefined Behaviors (INTENTIONALLY SUPPORTED):
+    /// - PC in RAM ($0000-$1FFF): Executes data as code (ACE - Arbitrary Code Execution)
+    /// - PC in I/O ($2000-$401F): Undefined behavior, may crash or glitch
+    /// - PC in unmapped regions: Reads open bus values as opcodes
+    /// - PC in CHR-ROM: Executes graphics data as code
+    ///
+    /// TAS Use Cases:
+    /// - Wrong warp glitches (manipulate PC + stack for level skips)
+    /// - ACE exploits (execute crafted RAM data as code)
+    /// - Game ending glitches (jump directly to credits sequence)
+    ///
+    /// Hardware Behavior:
+    /// The 6502 CPU will attempt to execute whatever bytes are at PC,
+    /// regardless of whether they're valid code, data, or unmapped regions.
+    /// This can crash the system or produce unexpected behavior - THIS IS INTENTIONAL.
     pub fn setProgramCounter(self: *Debugger, state: *EmulationState, value: u16) void {
         state.cpu.pc = value;
         self.logModification(.{ .program_counter = value });
@@ -625,6 +663,34 @@ pub const Debugger = struct {
     }
 
     /// Set complete status register from byte
+    ///
+    /// **IMPORTANT FOR TAS USERS:**
+    /// All status flags can be set to any value, including combinations that are
+    /// unusual or don't normally occur during regular game execution.
+    ///
+    /// Status Flags (bits 7-0):
+    /// - Bit 7: Negative (N) - Set if result is negative (bit 7 = 1)
+    /// - Bit 6: Overflow (V) - Set on signed overflow
+    /// - Bit 5: (unused, always 1 when read)
+    /// - Bit 4: Break (B) - Set by BRK, clear by IRQ/NMI (only on stack)
+    /// - Bit 3: Decimal (D) - Decimal mode (IGNORED on NES - no BCD)
+    /// - Bit 2: Interrupt (I) - Interrupt disable
+    /// - Bit 1: Zero (Z) - Set if result is zero
+    /// - Bit 0: Carry (C) - Set on arithmetic carry/borrow
+    ///
+    /// Edge Cases (INTENTIONALLY SUPPORTED):
+    /// - Decimal flag: Can be set but has NO EFFECT on NES (no BCD mode)
+    /// - Unusual flag combinations: Any combination is valid for TAS
+    /// - Break flag: Only meaningful on stack, not in register
+    ///
+    /// TAS Use Cases:
+    /// - Setting flags for branch manipulation (wrong warps)
+    /// - Creating unusual flag states to trigger game bugs
+    /// - Testing edge cases in game logic
+    ///
+    /// Note: Bits 4 and 5 are not stored in P register but this function
+    /// accepts full 8-bit values for convenience. Bit 5 is always 1, bit 4
+    /// only appears on stack during BRK/IRQ.
     pub fn setStatusRegister(self: *Debugger, state: *EmulationState, value: u8) void {
         state.cpu.p.carry = (value & 0x01) != 0;
         state.cpu.p.zero = (value & 0x02) != 0;
@@ -640,6 +706,33 @@ pub const Debugger = struct {
     // ========================================================================
 
     /// Write single byte to memory (via bus)
+    ///
+    /// **IMPORTANT FOR TAS USERS:**
+    /// This function tracks INTENT rather than success. Writes to read-only regions
+    /// (like ROM) are logged in modifications history even though they don't affect
+    /// actual memory. This is intentional for TAS workflows.
+    ///
+    /// Hardware Behaviors:
+    /// - Writes to RAM ($0000-$1FFF): Succeed, data is stored
+    /// - Writes to I/O ($2000-$401F): Trigger hardware side effects (PPU, APU, etc.)
+    /// - Writes to ROM ($8000-$FFFF): Update data bus but DON'T modify cartridge ROM
+    ///   (hardware write protection - ROM is read-only)
+    /// - Writes to unmapped regions: Update data bus only (open bus behavior)
+    ///
+    /// Intent Tracking:
+    /// All writes are logged in modifications history regardless of success.
+    /// This allows TAS users to:
+    /// - Track attempted ROM corruption (for glitch setup documentation)
+    /// - Monitor I/O register manipulation sequences
+    /// - Verify memory state before attempting exploits
+    ///
+    /// TAS Use Cases:
+    /// - Setting up RAM state for ACE exploits
+    /// - Manipulating PPU registers for graphical glitches
+    /// - Corrupting sprite data for position manipulation
+    ///
+    /// Note: ROM writes update the data bus (affecting open bus reads) but don't
+    /// modify the actual ROM. This matches real NES hardware behavior.
     pub fn writeMemory(
         self: *Debugger,
         state: *EmulationState,
