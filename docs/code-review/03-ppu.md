@@ -39,7 +39,7 @@ However, the current implementation can be significantly improved by refactoring
 
 *   **Action:** The current PPU implementation is missing several key features of the rendering pipeline, including sprite evaluation, sprite rendering, and sprite-0-hit detection. These features need to be implemented to achieve accurate rendering.
 *   **Rationale:** These are essential for rendering graphics correctly in most NES games.
-*   **Status:** **TESTS COMPLETE** (Phase 4, 2025-10-03) | **IMPLEMENTATION TODO** (Phase 7)
+*   **Status:** ✅ **COMPLETE** (Phase 7B/7C, 2025-10-04)
 *   **Test Coverage:**
     *   Created 15 sprite evaluation tests (`tests/ppu/sprite_evaluation_test.zig`)
     *   Created 23 sprite rendering tests (`tests/ppu/sprite_rendering_test.zig`)

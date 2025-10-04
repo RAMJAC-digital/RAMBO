@@ -9,16 +9,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **Current Status (2025-10-04):**
 - **CPU:** 100% complete (256/256 opcodes) ✅
 - **Architecture:** State/Logic separation complete, comptime generics implemented ✅
+- **Thread Architecture:** Mailbox pattern + timer-driven emulation complete ✅
 - **PPU Background:** 100% complete (registers, VRAM, rendering pipeline) ✅
-- **PPU Sprites:** 0% implemented (38 tests written, Phase 7 in progress) 🟡
+- **PPU Sprites:** 0% implemented (38 tests written, Phase 3 planned) 🟡
 - **Debugger:** 100% complete with callback system (62/62 tests) ✅
 - **Bus:** 85% complete (missing controller I/O) 🟡
 - **Cartridge:** Mapper 0 (NROM) complete ✅
 - **Tests:** 486/496 passing (97.9%) - 10 expected failures (9 sprite, 1 snapshot metadata)
 
-**Current Phase:** Phase 7A - Test Infrastructure (creating bus/integration tests)
-**Next Phase:** Phase 7B - Sprite Implementation
-**Critical Path:** Sprites → Video Display → Controller I/O → Playable Games
+**Current Phase:** Phase 2 - Video Subsystem (OpenGL backend, window management)
+**Next Phase:** Phase 3 - Sprite Rendering
+**Critical Path:** Video Display → Sprite Rendering → Controller I/O → Playable Games
 
 **Key Requirement:** Hardware-accurate 6502 emulation with cycle-level precision for AccuracyCoin compatibility.
 
@@ -372,54 +373,55 @@ NMI triggers on falling edge (high → low transition), not level. IRQ is level-
 
 ## Current Development Phase
 
-### Phase 7: Sprite Implementation (In Progress)
+### Phase 2: Video Subsystem Implementation (In Progress)
 
-**Revised Structure (based on QA review):**
+**Objective:** Implement OpenGL-based video output to display PPU rendering on screen.
 
-#### **Phase 7A: Test Infrastructure** ⚠️ **CURRENT - MUST BE FIRST**
-**Duration:** 28-38 hours
-**Status:** In Progress
+**Reference:** `docs/VIDEO-SUBSYSTEM-DEVELOPMENT-PLAN.md` (comprehensive architecture guide)
 
-**Sub-phases:**
-1. **7A.1: Bus Integration Tests** (8-12 hours, 15-20 tests)
-   - RAM mirroring validation
-   - PPU register mirroring
-   - ROM write protection
-   - Open bus behavior
-   - Cartridge routing
-
-2. **7A.2: CPU-PPU Integration Tests** (12-16 hours, 20-25 tests)
-   - NMI triggering during execution
-   - PPU register access timing
-   - DMA suspension
-   - Rendering effects on register behavior
-
-3. **7A.3: Expanded Sprite Test Coverage** (8-10 hours, 35 tests)
-   - Sprite 0 hit edge cases
-   - Overflow hardware bug
-   - 8×16 mode comprehensive
-   - Transparency edge cases
-
-**Deliverable:** 70-80 new tests, solid foundation for sprite work
-
-#### **Phase 7B: Sprite Implementation** (29-42 hours - NEXT)
-**Prerequisites:** Phase 7A complete
-
-**Sub-phases:**
-1. Sprite Evaluation (8-12 hours)
-2. Sprite Fetching (6-8 hours)
-3. Sprite Rendering (8-12 hours)
-4. OAM DMA (3-4 hours)
-
-#### **Phase 7C: Validation & Integration** (28-38 hours - FUTURE)
-**Prerequisites:** Phase 7B complete
+#### **Phase 2.1: Frame Mailbox Integration** (4-5 hours)
+**Status:** Next Up
 
 **Tasks:**
-1. Regression test suite (40 tests, 16-20 hours)
-2. AccuracyCoin automated testing (12 tests, 16-20 hours)
-3. Visual regression testing (8-12 hours)
+1. Review existing `src/mailboxes/FrameMailbox.zig` implementation
+2. Add RGBA frame buffer support (256×240×4 bytes)
+3. Implement double-buffer swap pattern
+4. Write unit tests for thread-safe frame passing
 
-**Total Phase 7:** 85-118 hours, 172-182 new tests
+**Deliverable:** FrameMailbox ready for video subsystem integration
+
+#### **Phase 2.2: Window & OpenGL Backend** (6-8 hours)
+
+**Tasks:**
+1. Create `src/video/Window.zig` - GLFW window management
+2. Create `src/video/VideoSubsystem.zig` - OpenGL 3.3+ backend
+3. Implement shader compilation (vertex + fragment)
+4. Implement texture upload and rendering
+5. Add error handling with `errdefer` cleanup
+
+**Deliverable:** Window displays solid colors and test patterns
+
+#### **Phase 2.3: Integration** (3-4 hours)
+
+**Tasks:**
+1. Modify PPU to write RGBA pixels to frame buffer
+2. Connect emulation thread to frame mailbox
+3. Integrate video subsystem with main render loop
+4. Test with AccuracyCoin.nes background graphics
+
+**Deliverable:** AccuracyCoin.nes background graphics visible on screen
+
+#### **Phase 2.4: Polish** (2-3 hours)
+
+**Tasks:**
+1. Implement PBO double-buffering for async texture upload
+2. Add FPS counter (on-screen or terminal)
+3. Add window resize handling with aspect ratio correction
+4. Optimize with glTexSubImage2D
+
+**Deliverable:** Stable 60 FPS video output with proper window management
+
+**Total Phase 2:** 15-20 hours
 
 ---
 
@@ -587,25 +589,24 @@ zig test tests/ppu/sprite_evaluation_test.zig --dep RAMBO -Mroot=src/root.zig
 - ✅ **Phase A:** Backward compatibility cleanup (commit 2fba2fa)
 - ✅ **Phase 3:** VTable elimination, comptime generics (commit 2dc78b8)
 - ✅ **Phase 4:** Debugger system complete (commit 2e23a4a)
-- 🟡 **Phase 7A:** Test infrastructure (IN PROGRESS)
+- ✅ **Phase 1 (New):** Thread architecture & timer-driven emulation (2025-10-04)
 
 ---
 
 ## Critical Path to Playability
 
-**Current Progress: 64% Architecture Complete**
+**Current Progress: 72% Architecture Complete**
 
 1. ✅ **CPU Emulation** (100%) - Production ready
 2. ✅ **Architecture Refactoring** (100%) - State/Logic, comptime generics
 3. ✅ **PPU Background** (100%) - Tile fetching, rendering
 4. ✅ **Debugger** (100%) - Full debugging system
-5. 🟡 **Phase 7A: Test Infrastructure** (IN PROGRESS) - Bus/integration tests
-6. ⬜ **Phase 7B: Sprite Implementation** (0%) - 38 tests ready
-7. ⬜ **Phase 7C: Validation** (0%) - AccuracyCoin, regression tests
-8. ⬜ **Phase 8: Video Display** (0%) - OpenGL backend (architecture designed)
-9. ⬜ **Phase 9: Controller I/O** (0%) - $4016/$4017 registers
+5. ✅ **Thread Architecture** (100%) - Mailbox pattern, timer-driven emulation
+6. 🟡 **Video Display** (0%) - OpenGL backend (architecture designed)
+7. ⬜ **Sprite Rendering** (0%) - Evaluation, fetching, rendering pipeline
+8. ⬜ **Controller I/O** (0%) - $4016/$4017 registers
 
-**Estimated Time to Playable:** 108-147 hours (14-19 days)
+**Estimated Time to Playable:** 47-66 hours (6-9 days)
 
 ---
 
@@ -613,31 +614,40 @@ zig test tests/ppu/sprite_evaluation_test.zig --dep RAMBO -Mroot=src/root.zig
 
 ### Immediate (Current Session)
 
-1. **Complete Phase 7A.1: Bus Integration Tests**
-   - Create `tests/bus/bus_integration_test.zig`
-   - Implement 15-20 bus integration tests
-   - Verify all tests compile and run
+1. **Begin Phase 2: Video Subsystem Implementation**
+   - Review `docs/VIDEO-SUBSYSTEM-DEVELOPMENT-PLAN.md` for architecture details
+   - Understand mailbox-based double-buffering pattern
+   - Plan OpenGL backend structure
 
-2. **Begin Phase 7A.2: CPU-PPU Integration Tests**
-   - Create `tests/integration/cpu_ppu_integration_test.zig`
-   - Implement NMI triggering tests
-   - Implement register access tests
+2. **Phase 2.1: Frame Mailbox Integration (4-5 hours)**
+   - Verify existing `src/mailboxes/FrameMailbox.zig` meets video requirements
+   - Add frame buffer support to FrameMailbox
+   - Write unit tests for frame buffer operations
 
-3. **Update Documentation**
-   - Update roadmap documents with Phase 7A progress
-   - Commit at milestones
-   - Keep CLAUDE.md current
+3. **Phase 2.2: Window & OpenGL Backend (6-8 hours)**
+   - Create `src/video/Window.zig` (GLFW window management)
+   - Create `src/video/VideoSubsystem.zig` (OpenGL rendering)
+   - Implement texture upload and display
 
 ### Next Session
 
-4. **Complete Phase 7A.2 and 7A.3**
-5. **Verify all 70-80 new tests passing**
-6. **Commit Phase 7A with comprehensive documentation**
-7. **Begin Phase 7B: Sprite Implementation**
+4. **Phase 2.3: Integration (3-4 hours)**
+   - Connect PPU rendering to frame buffer
+   - Integrate video subsystem with main loop
+   - Test with AccuracyCoin.nes background graphics
+
+5. **Phase 2.4: Polish (2-3 hours)**
+   - Add FPS counter
+   - Implement window resize handling
+   - Optimize texture upload with PBO
+
+6. **Begin Phase 3: Sprite Rendering**
+   - Start sprite evaluation implementation
+   - Use existing 38 sprite tests for TDD
 
 ---
 
 **Last Updated:** 2025-10-04
-**Current Phase:** 7A (Test Infrastructure)
-**Status:** Ready for implementation
+**Current Phase:** Phase 2 (Video Subsystem Implementation)
+**Status:** Thread architecture complete, ready for video subsystem
 **Tests:** 486/496 passing (97.9%)

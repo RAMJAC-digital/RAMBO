@@ -63,6 +63,57 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    // ========================================================================
+    // Wayland Client Bindings (for Linux window creation)
+    // ========================================================================
+
+    // Wayland XML paths (standard Linux locations)
+    const wayland_xml = "/usr/share/wayland/wayland.xml";
+    const wayland_protocols = "/usr/share/wayland-protocols";
+
+    // Get wayland dependency and create scanner
+    const wayland_dep = b.lazyDependency("wayland", .{}) orelse return;
+    const wayland_scanner_mod = b.createModule(.{
+        .root_source_file = wayland_dep.path("src/scanner.zig"),
+        .target = b.graph.host,
+    });
+    const wayland_scanner = b.addExecutable(.{
+        .name = "zig-wayland-scanner",
+        .root_module = wayland_scanner_mod,
+    });
+
+    // Run scanner to generate Wayland client bindings
+    const wayland_scanner_run = b.addRunArtifact(wayland_scanner);
+    wayland_scanner_run.addArg("-o");
+    const wayland_zig = wayland_scanner_run.addOutputFileArg("wayland.zig");
+
+    // Add protocol XML files
+    wayland_scanner_run.addArg("-i");
+    wayland_scanner_run.addArg(wayland_xml);
+    wayland_scanner_run.addArg("-i");
+    wayland_scanner_run.addArg(b.fmt("{s}/stable/xdg-shell/xdg-shell.xml", .{wayland_protocols}));
+    wayland_scanner_run.addArg("-i");
+    wayland_scanner_run.addArg(b.fmt("{s}/unstable/xdg-decoration/xdg-decoration-unstable-v1.xml", .{wayland_protocols}));
+
+    // Generate interface code for common Wayland globals
+    inline for (.{
+        .{ "xdg_wm_base", "2" },
+        .{ "wl_compositor", "4" },
+        .{ "wl_output", "4" },
+        .{ "wl_seat", "5" },
+        .{ "wl_shm", "1" },
+        .{ "zxdg_decoration_manager_v1", "1" },
+    }) |pair| {
+        wayland_scanner_run.addArg("-g");
+        wayland_scanner_run.addArg(pair[0]);
+        wayland_scanner_run.addArg(pair[1]);
+    }
+
+    // Create module from generated Wayland bindings
+    const wayland_client_mod = b.addModule("wayland_client", .{
+        .root_source_file = wayland_zig,
+    });
+
     const exe = b.addExecutable(.{
         .name = "RAMBO",
         .root_module = b.createModule(.{
@@ -87,6 +138,8 @@ pub fn build(b: *std.Build) void {
                 .{ .name = "RAMBO", .module = mod },
                 // libxev for event loop and thread pooling
                 .{ .name = "xev", .module = xev_dep.module("xev") },
+                // Wayland client bindings (generated from protocol XMLs)
+                .{ .name = "wayland_client", .module = wayland_client_mod },
             },
         }),
     });

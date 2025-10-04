@@ -42,6 +42,9 @@ pub const Snapshot = @import("snapshot/Snapshot.zig");
 /// Debugger system (breakpoints, watchpoints, stepping, history)
 pub const Debugger = @import("debugger/Debugger.zig");
 
+/// Mailbox system for thread communication (video, emulation, config)
+pub const Mailboxes = @import("mailboxes/Mailboxes.zig");
+
 // ============================================================================
 // Re-export commonly used types for convenience
 // ============================================================================
@@ -90,4 +93,5 @@ test {
     _ = EmulationState;
     _ = Snapshot;
     _ = Debugger;
+    _ = Mailboxes;
 }
