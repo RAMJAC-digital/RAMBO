@@ -238,7 +238,7 @@ pub const BackgroundState = struct {
 /// Complete PPU State
 /// Pure data structure with no hidden state
 /// Suitable for stateless rendering with libxev threading
-pub const State = struct {
+pub const PpuState = struct {
     /// PPU Control Register ($2000)
     ctrl: PpuCtrl = .{},
 
@@ -301,7 +301,7 @@ pub const State = struct {
     frame: u64 = 0,
 
     /// Initialize PPU state to power-on values
-    pub fn init() State {
+    pub fn init() PpuState {
         return .{};
     }
 
@@ -309,53 +309,53 @@ pub const State = struct {
 
     /// Reset PPU (convenience method that delegates to Logic)
     /// For testing with explicit parameters, call Logic.reset() directly
-    pub inline fn reset(self: *State) void {
+    pub inline fn reset(self: *PpuState) void {
         const Logic = @import("Logic.zig");
         Logic.reset(self);
     }
 
     /// Set CHR provider (convenience method)
-    pub inline fn setChrProvider(self: *State, provider: ?ChrProvider) void {
+    pub inline fn setChrProvider(self: *PpuState, provider: ?ChrProvider) void {
         self.chr_provider = provider;
     }
 
     /// Set nametable mirroring mode (convenience method)
-    pub inline fn setMirroring(self: *State, mode: Mirroring) void {
+    pub inline fn setMirroring(self: *PpuState, mode: Mirroring) void {
         self.mirroring = mode;
     }
 
     /// Read from VRAM (convenience method that delegates to Logic)
-    pub inline fn readVram(self: *State, address: u16) u8 {
+    pub inline fn readVram(self: *PpuState, address: u16) u8 {
         const Logic = @import("Logic.zig");
         return Logic.readVram(self, address);
     }
 
     /// Write to VRAM (convenience method that delegates to Logic)
-    pub inline fn writeVram(self: *State, address: u16, value: u8) void {
+    pub inline fn writeVram(self: *PpuState, address: u16, value: u8) void {
         const Logic = @import("Logic.zig");
         Logic.writeVram(self, address, value);
     }
 
     /// Read PPU register (convenience method that delegates to Logic)
-    pub inline fn readRegister(self: *State, address: u16) u8 {
+    pub inline fn readRegister(self: *PpuState, address: u16) u8 {
         const Logic = @import("Logic.zig");
         return Logic.readRegister(self, address);
     }
 
     /// Write PPU register (convenience method that delegates to Logic)
-    pub inline fn writeRegister(self: *State, address: u16, value: u8) void {
+    pub inline fn writeRegister(self: *PpuState, address: u16, value: u8) void {
         const Logic = @import("Logic.zig");
         Logic.writeRegister(self, address, value);
     }
 
     /// Tick PPU one cycle (convenience method that delegates to Logic)
-    pub inline fn tick(self: *State, framebuffer: ?[]u32) void {
+    pub inline fn tick(self: *PpuState, framebuffer: ?[]u32) void {
         const Logic = @import("Logic.zig");
         Logic.tick(self, framebuffer);
     }
 
     /// Poll NMI flag (convenience method that delegates to Logic)
-    pub inline fn pollNmi(self: *State) bool {
+    pub inline fn pollNmi(self: *PpuState) bool {
         const Logic = @import("Logic.zig");
         return Logic.pollNmi(self);
     }

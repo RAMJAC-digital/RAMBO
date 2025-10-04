@@ -1,11 +1,11 @@
 //! PPU Logic
 //!
 //! This module contains pure functions that operate on PPU state.
-//! All functions receive State as the first parameter.
+//! All functions receive PpuState as the first parameter.
 
 const std = @import("std");
 const StateModule = @import("State.zig");
-const State = StateModule.State;
+const PpuState = StateModule.PpuState;
 const PpuCtrl = StateModule.PpuCtrl;
 const PpuMask = StateModule.PpuMask;
 const PpuStatus = StateModule.PpuStatus;
@@ -14,13 +14,13 @@ const ChrProvider = @import("../memory/ChrProvider.zig").ChrProvider;
 const palette = @import("palette.zig");
 
 /// Initialize PPU state to power-on values
-pub fn init() State {
-    return State.init();
+pub fn init() PpuState {
+    return PpuState.init();
 }
 
 /// Reset PPU (RESET button pressed)
 /// Some registers are not affected by RESET
-pub fn reset(state: *State) void {
+pub fn reset(state: *PpuState) void {
     state.ctrl = .{};
     state.mask = .{};
     // Status VBlank bit is random at reset
@@ -98,7 +98,7 @@ fn mirrorPaletteAddress(address: u8) u8 {
 
 /// Read from PPU VRAM address space ($0000-$3FFF)
 /// Handles CHR ROM/RAM, nametables, and palette RAM with proper mirroring
-pub fn readVram(state: *State, address: u16) u8 {
+pub fn readVram(state: *PpuState, address: u16) u8 {
     const addr = address & 0x3FFF; // Mirror at $4000
 
     return switch (addr) {
@@ -144,7 +144,7 @@ pub fn readVram(state: *State, address: u16) u8 {
 
 /// Write to PPU VRAM address space ($0000-$3FFF)
 /// Handles CHR RAM, nametables, and palette RAM (CHR ROM is read-only)
-pub fn writeVram(state: *State, address: u16, value: u8) void {
+pub fn writeVram(state: *PpuState, address: u16, value: u8) void {
     const addr = address & 0x3FFF; // Mirror at $4000
 
     switch (addr) {
@@ -182,7 +182,7 @@ pub fn writeVram(state: *State, address: u16, value: u8) void {
         else => unreachable, // addr is masked to $0000-$3FFF
     }
 }
-    pub fn readRegister(state: *State, address: u16) u8 {
+    pub fn readRegister(state: *PpuState, address: u16) u8 {
         // Registers are mirrored every 8 bytes through $3FFF
         const reg = address & 0x0007;
 
@@ -265,7 +265,7 @@ pub fn writeVram(state: *State, address: u16, value: u8) void {
 
     /// Write to PPU register (via CPU memory bus)
     /// Handles register mirroring and open bus updates
-    pub fn writeRegister(state: *State, address: u16, value: u8) void {
+    pub fn writeRegister(state: *PpuState, address: u16, value: u8) void {
         // Registers are mirrored every 8 bytes through $3FFF
         const reg = address & 0x0007;
 
@@ -345,7 +345,7 @@ pub fn writeVram(state: *State, address: u16, value: u8) void {
 
     /// Increment coarse X scroll (every 8 pixels)
     /// Handles horizontal nametable wrapping
-    fn incrementScrollX(state: *State) void {
+    fn incrementScrollX(state: *PpuState) void {
         if (!state.mask.renderingEnabled()) return;
 
         // Coarse X is bits 0-4 of v register
@@ -361,7 +361,7 @@ pub fn writeVram(state: *State, address: u16, value: u8) void {
 
     /// Increment Y scroll (end of scanline)
     /// Handles vertical nametable wrapping
-    fn incrementScrollY(state: *State) void {
+    fn incrementScrollY(state: *PpuState) void {
         if (!state.mask.renderingEnabled()) return;
 
         // Fine Y is bits 12-14 of v register
@@ -392,7 +392,7 @@ pub fn writeVram(state: *State, address: u16, value: u8) void {
 
     /// Copy horizontal scroll bits from t to v
     /// Called at dot 257 of each visible scanline
-    fn copyScrollX(state: *State) void {
+    fn copyScrollX(state: *PpuState) void {
         if (!state.mask.renderingEnabled()) return;
 
         // Copy bits 0-4 (coarse X) and bit 10 (horizontal nametable)
@@ -401,7 +401,7 @@ pub fn writeVram(state: *State, address: u16, value: u8) void {
 
     /// Copy vertical scroll bits from t to v
     /// Called at dot 280-304 of pre-render scanline
-    fn copyScrollY(state: *State) void {
+    fn copyScrollY(state: *PpuState) void {
         if (!state.mask.renderingEnabled()) return;
 
         // Copy bits 5-9 (coarse Y), bits 12-14 (fine Y), bit 11 (vertical nametable)
@@ -410,7 +410,7 @@ pub fn writeVram(state: *State, address: u16, value: u8) void {
 
     /// Get pattern table address for current tile
     /// high_bitplane: false = bitplane 0, true = bitplane 1
-    fn getPatternAddress(state: *State, high_bitplane: bool) u16 {
+    fn getPatternAddress(state: *PpuState, high_bitplane: bool) u16 {
         // Pattern table base from PPUCTRL ($0000 or $1000)
         const pattern_base: u16 = if (state.ctrl.bg_pattern) 0x1000 else 0x0000;
 
@@ -428,7 +428,7 @@ pub fn writeVram(state: *State, address: u16, value: u8) void {
     }
 
     /// Get attribute table address for current tile
-    fn getAttributeAddress(state: *State) u16 {
+    fn getAttributeAddress(state: *PpuState) u16 {
         // Attribute table is at +$03C0 from nametable base
         // Each attribute byte controls a 4×4 tile area (32×32 pixels)
         const v = state.internal.v;
@@ -440,7 +440,7 @@ pub fn writeVram(state: *State, address: u16, value: u8) void {
 
     /// Fetch background tile data for current cycle
     /// Implements 4-cycle fetch pattern: nametable → attribute → pattern low → pattern high
-    fn fetchBackgroundTile(state: *State) void {
+    fn fetchBackgroundTile(state: *PpuState) void {
         // Tile fetching occurs in 8-cycle chunks
         // Each chunk fetches: NT byte (2 cycles), AT byte (2 cycles),
         // pattern low (2 cycles), pattern high (2 cycles)
@@ -493,7 +493,7 @@ pub fn writeVram(state: *State, address: u16, value: u8) void {
 
     /// Get background pixel from shift registers
     /// Returns palette index (0-31), or 0 for transparent
-    fn getBackgroundPixel(state: *State) u8 {
+    fn getBackgroundPixel(state: *PpuState) u8 {
         if (!state.mask.show_bg) return 0;
 
         // Apply fine X scroll (0-7)
@@ -518,7 +518,7 @@ pub fn writeVram(state: *State, address: u16, value: u8) void {
 
     /// Get final pixel color from palette
     /// Converts palette index to RGBA8888 color
-    fn getPaletteColor(state: *State, palette_index: u8) u32 {
+    fn getPaletteColor(state: *PpuState, palette_index: u8) u32 {
         // Read NES color index from palette RAM
         const nes_color = state.palette_ram[palette_index & 0x1F];
 
@@ -528,7 +528,7 @@ pub fn writeVram(state: *State, address: u16, value: u8) void {
 
     /// Tick PPU by one PPU cycle
     /// Optional framebuffer for pixel output (RGBA8888, 256×240 pixels)
-    pub fn tick(state: *State, framebuffer: ?[]u32) void {
+    pub fn tick(state: *PpuState, framebuffer: ?[]u32) void {
         // === Cycle Advance (happens FIRST) ===
         state.dot += 1;
 
@@ -642,14 +642,14 @@ pub fn writeVram(state: *State, address: u16, value: u8) void {
 
     /// Check if NMI should be triggered
     /// Called by CPU to check NMI line
-    pub fn pollNmi(state: *State) bool {
+    pub fn pollNmi(state: *PpuState) bool {
         const nmi = state.nmi_occurred;
         state.nmi_occurred = false; // Clear on poll
         return nmi;
     }
 
     /// Decay open bus value (called once per frame)
-    pub fn tickFrame(state: *State) void {
+    pub fn tickFrame(state: *PpuState) void {
         state.open_bus.decay();
     }
 
@@ -699,14 +699,14 @@ test "PpuStatus: open bus behavior" {
 }
 
 test "State: initialization" {
-    const ppu = State.init();
+    const ppu = PpuState.init();
     try testing.expect(!ppu.ctrl.nmi_enable);
     try testing.expect(!ppu.mask.renderingEnabled());
     try testing.expect(!ppu.status.vblank);
 }
 
 test "State: PPUCTRL write" {
-    var ppu = State.init();
+    var ppu = PpuState.init();
 
     ppu.writeRegister(0x2000, 0x80); // Enable NMI
     try testing.expect(ppu.ctrl.nmi_enable);
@@ -714,7 +714,7 @@ test "State: PPUCTRL write" {
 }
 
 test "State: PPUSTATUS read clears VBlank" {
-    var ppu = State.init();
+    var ppu = PpuState.init();
     ppu.status.vblank = true;
 
     const value = ppu.readRegister(0x2002);
@@ -723,7 +723,7 @@ test "State: PPUSTATUS read clears VBlank" {
 }
 
 test "State: write-only register reads return open bus" {
-    var ppu = State.init();
+    var ppu = PpuState.init();
     ppu.open_bus.write(0x42);
 
     try testing.expectEqual(@as(u8, 0x42), ppu.readRegister(0x2000)); // PPUCTRL
@@ -732,7 +732,7 @@ test "State: write-only register reads return open bus" {
 }
 
 test "State: register mirroring" {
-    var ppu = State.init();
+    var ppu = PpuState.init();
 
     // Write to $2000
     ppu.writeRegister(0x2000, 0x80);
@@ -748,7 +748,7 @@ test "State: register mirroring" {
 }
 
 test "State: VBlank NMI generation" {
-    var ppu = State.init();
+    var ppu = PpuState.init();
     ppu.ctrl.nmi_enable = true;
 
     // Advance to scanline 240, dot 340
@@ -766,7 +766,7 @@ test "State: VBlank NMI generation" {
 }
 
 test "State: pre-render scanline clears flags" {
-    var ppu = State.init();
+    var ppu = PpuState.init();
     ppu.status.vblank = true;
     ppu.status.sprite_0_hit = true;
     ppu.status.sprite_overflow = true;
@@ -786,7 +786,7 @@ test "State: pre-render scanline clears flags" {
 // ============================================================================
 
 test "VRAM: nametable read/write with horizontal mirroring" {
-    var ppu = State.init();
+    var ppu = PpuState.init();
     ppu.mirroring = .horizontal;
 
     // NT0 ($2000-$23FF) and NT1 ($2400-$27FF) map to first 1KB
@@ -809,7 +809,7 @@ test "VRAM: nametable read/write with horizontal mirroring" {
 }
 
 test "VRAM: nametable read/write with vertical mirroring" {
-    var ppu = State.init();
+    var ppu = PpuState.init();
     ppu.mirroring = .vertical;
 
     // NT0 ($2000-$23FF) and NT2 ($2800-$2BFF) map to first 1KB
@@ -830,7 +830,7 @@ test "VRAM: nametable read/write with vertical mirroring" {
 }
 
 test "VRAM: nametable mirrors ($3000-$3EFF)" {
-    var ppu = State.init();
+    var ppu = PpuState.init();
     ppu.mirroring = .horizontal;
 
     // Write to nametable
@@ -847,7 +847,7 @@ test "VRAM: nametable mirrors ($3000-$3EFF)" {
 }
 
 test "VRAM: palette RAM read/write" {
-    var ppu = State.init();
+    var ppu = PpuState.init();
 
     // Background palette 0
     ppu.writeVram(0x3F00, 0x0F); // Backdrop
@@ -864,7 +864,7 @@ test "VRAM: palette RAM read/write" {
 }
 
 test "VRAM: palette backdrop mirroring" {
-    var ppu = State.init();
+    var ppu = PpuState.init();
 
     // Write to background backdrop
     ppu.writeVram(0x3F00, 0x0F);
@@ -884,7 +884,7 @@ test "VRAM: palette backdrop mirroring" {
 }
 
 test "VRAM: palette RAM mirrors ($3F20-$3FFF)" {
-    var ppu = State.init();
+    var ppu = PpuState.init();
 
     // Write to palette RAM
     ppu.writeVram(0x3F05, 0x42);
@@ -902,7 +902,7 @@ test "VRAM: palette RAM mirrors ($3F20-$3FFF)" {
 }
 
 test "PPUDATA: read with buffering" {
-    var ppu = State.init();
+    var ppu = PpuState.init();
     ppu.mirroring = .horizontal;
 
     // Write test data to VRAM
@@ -928,7 +928,7 @@ test "PPUDATA: read with buffering" {
 }
 
 test "PPUDATA: palette reads not buffered" {
-    var ppu = State.init();
+    var ppu = PpuState.init();
 
     // Write test data to palette
     ppu.writeVram(0x3F00, 0x0F);
@@ -947,7 +947,7 @@ test "PPUDATA: palette reads not buffered" {
 }
 
 test "PPUDATA: write to VRAM" {
-    var ppu = State.init();
+    var ppu = PpuState.init();
     ppu.mirroring = .horizontal;
 
     // Set PPUADDR to $2000
@@ -966,7 +966,7 @@ test "PPUDATA: write to VRAM" {
 }
 
 test "PPUDATA: VRAM increment +1" {
-    var ppu = State.init();
+    var ppu = PpuState.init();
 
     // Set VRAM increment to +1 (PPUCTRL bit 2 = 0)
     ppu.writeRegister(0x2000, 0x00);
@@ -985,7 +985,7 @@ test "PPUDATA: VRAM increment +1" {
 }
 
 test "PPUDATA: VRAM increment +32" {
-    var ppu = State.init();
+    var ppu = PpuState.init();
 
     // Set VRAM increment to +32 (PPUCTRL bit 2 = 1)
     ppu.writeRegister(0x2000, 0x04);

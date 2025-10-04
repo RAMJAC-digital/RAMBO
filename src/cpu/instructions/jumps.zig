@@ -8,17 +8,17 @@
 
 const std = @import("std");
 const Cpu = @import("../Cpu.zig");
-const Bus = @import("../../bus/Bus.zig").Bus;
+const BusState = @import("../../bus/Bus.zig").State.BusState;
 const Logic = @import("../Logic.zig");
 
-const State = Cpu.State.State;
+const CpuState = Cpu.State.CpuState;
 
 /// JMP - Jump
 /// PC = address
 /// No flags affected
 ///
 /// Supports: Absolute (3 cycles), Indirect (5 cycles)
-pub fn jmp(state: *State, bus: *Bus) bool {
+pub fn jmp(state: *CpuState, bus: *BusState) bool {
     if (state.address_mode == .absolute) {
         // Absolute: PC already points to target from addressing mode
         state.pc = state.effective_address;
@@ -47,7 +47,7 @@ pub fn jmp(state: *State, bus: *Bus) bool {
 /// No flags affected
 ///
 /// 6 cycles total
-pub fn jsr(state: *State, bus: *Bus) bool {
+pub fn jsr(state: *CpuState, bus: *BusState) bool {
     // At this point, we've fetched the target address
     // PC currently points to the next instruction
 
@@ -71,7 +71,7 @@ pub fn jsr(state: *State, bus: *Bus) bool {
 /// No flags affected
 ///
 /// 6 cycles total
-pub fn rts(state: *State, bus: *Bus) bool {
+pub fn rts(state: *CpuState, bus: *BusState) bool {
     // Pull return address low byte
     const ret_lo = Logic.pull(state, bus);
 
@@ -92,7 +92,7 @@ pub fn rts(state: *State, bus: *Bus) bool {
 /// Flags: Restored from stack
 ///
 /// 6 cycles total
-pub fn rti(state: *State, bus: *Bus) bool {
+pub fn rti(state: *CpuState, bus: *BusState) bool {
     // Pull processor status (ignore bits 4 and 5)
     const status = Logic.pull(state, bus);
     state.p = @TypeOf(state.p).fromByte(status);
@@ -114,7 +114,7 @@ pub fn rti(state: *State, bus: *Bus) bool {
 /// Flags: I = 1
 ///
 /// 7 cycles total
-pub fn brk(state: *State, bus: *Bus) bool {
+pub fn brk(state: *CpuState, bus: *BusState) bool {
     // PC already incremented past BRK operand (padding byte)
     const return_addr = state.pc;
 
@@ -148,7 +148,7 @@ const testing = std.testing;
 
 test "JMP: absolute mode" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.address_mode = .absolute;
     state.effective_address = 0x8000;
@@ -160,7 +160,7 @@ test "JMP: absolute mode" {
 
 test "JMP: indirect mode - normal" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.address_mode = .indirect;
     state.effective_address = 0x0200; // Pointer address
@@ -175,7 +175,7 @@ test "JMP: indirect mode - normal" {
 
 test "JMP: indirect mode - page boundary bug" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.address_mode = .indirect;
     state.effective_address = 0x10FF; // Pointer at page boundary
@@ -191,7 +191,7 @@ test "JMP: indirect mode - page boundary bug" {
 
 test "JSR: pushes return address and jumps" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.sp = 0xFF;
     state.pc = 0x8003; // Current PC
@@ -208,7 +208,7 @@ test "JSR: pushes return address and jumps" {
 
 test "RTS: pulls return address and increments" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.sp = 0xFD;
     bus.write(0x01FE, 0x02); // Return low
@@ -222,7 +222,7 @@ test "RTS: pulls return address and increments" {
 
 test "RTI: restores status and PC" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.sp = 0xFC;
     bus.write(0x01FD, 0b11000011); // Status byte (N=1, V=1, Z=1, C=1)
@@ -241,7 +241,7 @@ test "RTI: restores status and PC" {
 
 test "BRK: pushes PC+2 and status, loads vector" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     // Allocate test RAM for interrupt vectors
     var test_ram = [_]u8{0} ** 32768; // 32KB for $8000-$FFFF
@@ -276,7 +276,7 @@ test "BRK: pushes PC+2 and status, loads vector" {
 
 test "JSR and RTS: round trip" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.sp = 0xFF;
     state.pc = 0x8003;

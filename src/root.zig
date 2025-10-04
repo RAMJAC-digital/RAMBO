@@ -33,21 +33,15 @@ pub const FrameTimer = @import("timing/FrameTimer.zig");
 /// Emulation state machine (RT loop)
 pub const EmulationState = @import("emulation/State.zig");
 
-/// Async I/O Architecture
-pub const IoArchitecture = @import("io/Architecture.zig");
-
-/// Runtime system with RT/OS thread separation
-pub const Runtime = @import("io/Runtime.zig");
-
 // ============================================================================
 // Re-export commonly used types for convenience
 // ============================================================================
 
 /// CPU type (from Cpu module)
-pub const CpuType = Cpu.Cpu;
+pub const CpuType = Cpu.State.CpuState;
 
 /// Bus type (from Bus module)
-pub const BusType = Bus.Bus;
+pub const BusType = Bus.State.BusState;
 
 /// CPU Status Flags
 pub const StatusFlags = Cpu.StatusFlags;
@@ -65,7 +59,7 @@ pub const CartridgeType = Cartridge.Cartridge;
 pub const MirroringType = Cartridge.Mirroring;
 
 /// PPU type (from Ppu module)
-pub const PpuType = Ppu.Ppu;
+pub const PpuType = Ppu.State.PpuState;
 
 // ============================================================================
 // Test reference (for zig build test)
@@ -84,6 +78,4 @@ test {
     _ = PpuTiming;
     _ = FrameTimer;
     _ = EmulationState;
-    _ = IoArchitecture;
-    _ = Runtime;
 }

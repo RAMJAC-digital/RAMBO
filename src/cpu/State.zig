@@ -97,7 +97,7 @@ pub const InterruptType = enum(u8) {
 };
 
 /// Complete 6502 CPU state
-pub const State = struct {
+pub const CpuState = struct {
     // ===== Registers =====
     a: u8 = 0,      // Accumulator
     x: u8 = 0,      // X index register

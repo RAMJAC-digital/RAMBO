@@ -4,7 +4,7 @@ const BusModule = @import("../bus/Bus.zig");
 const execution = @import("execution.zig");
 
 const Cpu = CpuModule.Cpu;
-const Bus = BusModule.Bus;
+const BusState = BusModule.State.BusState;
 const AddressingMode = CpuModule.AddressingMode;
 const MicrostepFn = execution.MicrostepFn;
 

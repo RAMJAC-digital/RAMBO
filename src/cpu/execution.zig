@@ -2,12 +2,12 @@ const std = @import("std");
 const Cpu = @import("Cpu.zig");
 const BusModule = @import("../bus/Bus.zig");
 
-const State = Cpu.State.State; // CPU State type, not module
-const Bus = BusModule.Bus;
+const CpuState = Cpu.State.CpuState; // CPU State type, not module
+const BusState = BusModule.State.BusState;
 
 /// Microstep function signature
 /// Returns true when the instruction completes
-pub const MicrostepFn = *const fn (*State, *Bus) bool;
+pub const MicrostepFn = *const fn (*CpuState, *BusState) bool;
 
 /// Instruction executor containing array of microsteps
 pub const InstructionExecutor = struct {
@@ -16,7 +16,7 @@ pub const InstructionExecutor = struct {
 
     /// Execute the current microstep for this instruction
     /// Returns true if the instruction is complete
-    pub fn execute(self: InstructionExecutor, state: *State, bus: *Bus) bool {
+    pub fn execute(self: InstructionExecutor, state: *CpuState, bus: *BusState) bool {
         const step = state.instruction_cycle;
 
         // Safety check: ensure we don't exceed microstep array bounds
@@ -42,28 +42,28 @@ pub const InstructionExecutor = struct {
 // ============================================================================
 
 /// Fetch the opcode (always cycle 1)
-pub fn fetchOpcode(state: *State, bus: *Bus) bool {
+pub fn fetchOpcode(state: *CpuState, bus: *BusState) bool {
     state.opcode = bus.read(state.pc);
     state.pc +%= 1;
     return false; // Never completes on opcode fetch
 }
 
 /// Fetch operand low byte (immediate/zero page address)
-pub fn fetchOperandLow(state: *State, bus: *Bus) bool {
+pub fn fetchOperandLow(state: *CpuState, bus: *BusState) bool {
     state.operand_low = bus.read(state.pc);
     state.pc +%= 1;
     return false;
 }
 
 /// Fetch absolute address low byte
-pub fn fetchAbsLow(state: *State, bus: *Bus) bool {
+pub fn fetchAbsLow(state: *CpuState, bus: *BusState) bool {
     state.operand_low = bus.read(state.pc);
     state.pc +%= 1;
     return false;
 }
 
 /// Fetch absolute address high byte
-pub fn fetchAbsHigh(state: *State, bus: *Bus) bool {
+pub fn fetchAbsHigh(state: *CpuState, bus: *BusState) bool {
     state.operand_high = bus.read(state.pc);
     state.pc +%= 1;
     return false;
@@ -74,7 +74,7 @@ pub fn fetchAbsHigh(state: *State, bus: *Bus) bool {
 // ============================================================================
 
 /// Add X index to zero page address (wraps within page 0)
-pub fn addXToZeroPage(state: *State, bus: *Bus) bool {
+pub fn addXToZeroPage(state: *CpuState, bus: *BusState) bool {
     // Dummy read at base address
     _ = bus.read(@as(u16, state.operand_low));
 
@@ -84,7 +84,7 @@ pub fn addXToZeroPage(state: *State, bus: *Bus) bool {
 }
 
 /// Add Y index to zero page address (wraps within page 0)
-pub fn addYToZeroPage(state: *State, bus: *Bus) bool {
+pub fn addYToZeroPage(state: *CpuState, bus: *BusState) bool {
     // Dummy read at base address
     _ = bus.read(@as(u16, state.operand_low));
 
@@ -99,7 +99,7 @@ pub fn addYToZeroPage(state: *State, bus: *Bus) bool {
 
 /// Calculate absolute,X address with page crossing check
 /// Returns true if no page cross (completes addressing for read instructions)
-pub fn calcAbsoluteX(state: *State, bus: *Bus) bool {
+pub fn calcAbsoluteX(state: *CpuState, bus: *BusState) bool {
     const base = (@as(u16, state.operand_high) << 8) | @as(u16, state.operand_low);
     state.effective_address = base +% state.x;
     state.page_crossed = (base & 0xFF00) != (state.effective_address & 0xFF00);
@@ -118,7 +118,7 @@ pub fn calcAbsoluteX(state: *State, bus: *Bus) bool {
 }
 
 /// Calculate absolute,Y address with page crossing check
-pub fn calcAbsoluteY(state: *State, bus: *Bus) bool {
+pub fn calcAbsoluteY(state: *CpuState, bus: *BusState) bool {
     const base = (@as(u16, state.operand_high) << 8) | @as(u16, state.operand_low);
     state.effective_address = base +% state.y;
     state.page_crossed = (base & 0xFF00) != (state.effective_address & 0xFF00);
@@ -133,7 +133,7 @@ pub fn calcAbsoluteY(state: *State, bus: *Bus) bool {
 }
 
 /// Fix high byte after page crossing (for write/RMW instructions)
-pub fn fixHighByte(state: *State, bus: *Bus) bool {
+pub fn fixHighByte(state: *CpuState, bus: *BusState) bool {
     // Dummy read at incorrect address
     _ = bus.read(state.effective_address);
     return false;
@@ -144,14 +144,14 @@ pub fn fixHighByte(state: *State, bus: *Bus) bool {
 // ============================================================================
 
 /// Fetch zero page base for indexed indirect
-pub fn fetchZpBase(state: *State, bus: *Bus) bool {
+pub fn fetchZpBase(state: *CpuState, bus: *BusState) bool {
     state.operand_low = bus.read(state.pc);
     state.pc +%= 1;
     return false;
 }
 
 /// Add X to base address (with dummy read)
-pub fn addXToBase(state: *State, bus: *Bus) bool {
+pub fn addXToBase(state: *CpuState, bus: *BusState) bool {
     // Dummy read at base address
     _ = bus.read(@as(u16, state.operand_low));
 
@@ -161,13 +161,13 @@ pub fn addXToBase(state: *State, bus: *Bus) bool {
 }
 
 /// Fetch low byte of indirect address
-pub fn fetchIndirectLow(state: *State, bus: *Bus) bool {
+pub fn fetchIndirectLow(state: *CpuState, bus: *BusState) bool {
     state.operand_low = bus.read(state.temp_address);
     return false;
 }
 
 /// Fetch high byte of indirect address
-pub fn fetchIndirectHigh(state: *State, bus: *Bus) bool {
+pub fn fetchIndirectHigh(state: *CpuState, bus: *BusState) bool {
     // Wrap within zero page
     const high_addr = @as(u16, @as(u8, @truncate(state.temp_address)) +% 1);
     state.operand_high = bus.read(high_addr);
@@ -180,20 +180,20 @@ pub fn fetchIndirectHigh(state: *State, bus: *Bus) bool {
 // ============================================================================
 
 /// Fetch zero page pointer for indirect indexed
-pub fn fetchZpPointer(state: *State, bus: *Bus) bool {
+pub fn fetchZpPointer(state: *CpuState, bus: *BusState) bool {
     state.operand_low = bus.read(state.pc);
     state.pc +%= 1;
     return false;
 }
 
 /// Fetch low byte of pointer
-pub fn fetchPointerLow(state: *State, bus: *Bus) bool {
+pub fn fetchPointerLow(state: *CpuState, bus: *BusState) bool {
     state.temp_value = bus.read(@as(u16, state.operand_low));
     return false;
 }
 
 /// Fetch high byte of pointer
-pub fn fetchPointerHigh(state: *State, bus: *Bus) bool {
+pub fn fetchPointerHigh(state: *CpuState, bus: *BusState) bool {
     // Wrap within zero page
     const high_addr = @as(u16, state.operand_low +% 1);
     state.operand_high = bus.read(high_addr);
@@ -201,7 +201,7 @@ pub fn fetchPointerHigh(state: *State, bus: *Bus) bool {
 }
 
 /// Add Y and check for page crossing
-pub fn addYCheckPage(state: *State, bus: *Bus) bool {
+pub fn addYCheckPage(state: *CpuState, bus: *BusState) bool {
     const base = (@as(u16, state.operand_high) << 8) | @as(u16, state.temp_value);
     state.effective_address = base +% state.y;
     state.page_crossed = (base & 0xFF00) != (state.effective_address & 0xFF00);
@@ -220,7 +220,7 @@ pub fn addYCheckPage(state: *State, bus: *Bus) bool {
 // ============================================================================
 
 /// Push byte to stack
-pub fn pushByte(state: *State, bus: *Bus, value: u8) bool {
+pub fn pushByte(state: *CpuState, bus: *BusState, value: u8) bool {
     const stack_addr = 0x0100 | @as(u16, state.sp);
     bus.write(stack_addr, value);
     state.sp -%= 1;
@@ -228,7 +228,7 @@ pub fn pushByte(state: *State, bus: *Bus, value: u8) bool {
 }
 
 /// Pull byte from stack (increment SP first)
-pub fn pullByte(state: *State, bus: *Bus) bool {
+pub fn pullByte(state: *CpuState, bus: *BusState) bool {
     state.sp +%= 1;
     const stack_addr = 0x0100 | @as(u16, state.sp);
     state.temp_value = bus.read(stack_addr);
@@ -236,7 +236,7 @@ pub fn pullByte(state: *State, bus: *Bus) bool {
 }
 
 /// Dummy read during stack operation
-pub fn stackDummyRead(state: *State, bus: *Bus) bool {
+pub fn stackDummyRead(state: *CpuState, bus: *BusState) bool {
     const stack_addr = 0x0100 | @as(u16, state.sp);
     _ = bus.read(stack_addr);
     return false;
@@ -247,7 +247,7 @@ pub fn stackDummyRead(state: *State, bus: *Bus) bool {
 // ============================================================================
 
 /// Read operand for RMW instruction
-pub fn rmwRead(state: *State, bus: *Bus) bool {
+pub fn rmwRead(state: *CpuState, bus: *BusState) bool {
     // Determine effective address based on addressing mode
     const addr = switch (state.address_mode) {
         .zero_page => @as(u16, state.operand_low),
@@ -262,7 +262,7 @@ pub fn rmwRead(state: *State, bus: *Bus) bool {
 }
 
 /// Dummy write original value (CRITICAL for hardware accuracy!)
-pub fn rmwDummyWrite(state: *State, bus: *Bus) bool {
+pub fn rmwDummyWrite(state: *CpuState, bus: *BusState) bool {
     // MUST write original value back (hardware quirk)
     // This is visible to memory-mapped I/O!
     bus.write(state.effective_address, state.temp_value);
@@ -274,14 +274,14 @@ pub fn rmwDummyWrite(state: *State, bus: *Bus) bool {
 // ============================================================================
 
 /// Fetch branch offset
-pub fn branchFetchOffset(state: *State, bus: *Bus) bool {
+pub fn branchFetchOffset(state: *CpuState, bus: *BusState) bool {
     state.operand_low = bus.read(state.pc);
     state.pc +%= 1;
     return false;
 }
 
 /// Add offset to PC and check page crossing
-pub fn branchAddOffset(state: *State, bus: *Bus) bool {
+pub fn branchAddOffset(state: *CpuState, bus: *BusState) bool {
     // Dummy read during offset calculation
     _ = bus.read(state.pc);
 
@@ -299,7 +299,7 @@ pub fn branchAddOffset(state: *State, bus: *Bus) bool {
 }
 
 /// Fix PC high byte after page crossing
-pub fn branchFixPch(state: *State, bus: *Bus) bool {
+pub fn branchFixPch(state: *CpuState, bus: *BusState) bool {
     // Dummy read at incorrect address
     const dummy_addr = (state.pc & 0x00FF) | ((state.pc -% (@as(u16, state.operand_low) & 0x0100)) & 0xFF00);
     _ = bus.read(dummy_addr);
@@ -314,7 +314,7 @@ const testing = std.testing;
 
 test "InstructionExecutor - basic execution" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     const nop_steps = [_]MicrostepFn{
         fetchOperandLow,
@@ -338,7 +338,7 @@ test "InstructionExecutor - basic execution" {
 
 test "fetchOpcode - updates PC and stores opcode" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.pc = 0x0000;
     bus.ram[0] = 0xEA; // NOP opcode
@@ -351,7 +351,7 @@ test "fetchOpcode - updates PC and stores opcode" {
 
 test "calcAbsoluteX - no page crossing" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.operand_low = 0x10;
     state.operand_high = 0x20;
@@ -365,7 +365,7 @@ test "calcAbsoluteX - no page crossing" {
 
 test "calcAbsoluteX - page crossing" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.operand_low = 0xFF;
     state.operand_high = 0x20;
@@ -379,7 +379,7 @@ test "calcAbsoluteX - page crossing" {
 
 test "addXToZeroPage - wraps in page 0" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.operand_low = 0xFF;
     state.x = 0x05;

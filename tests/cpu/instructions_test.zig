@@ -322,7 +322,7 @@ test "NOP: 1-byte implied variants - 2 cycles" {
 
     for (opcodes_to_test) |opcode| {
         state = Cpu.Logic.init();
-        bus = Bus.init();
+        bus = Bus.State.BusState.init();
 
         // Setup: NOP at $0000
         bus.ram[0] = opcode;
@@ -360,7 +360,7 @@ test "NOP: 2-byte zero page variants - 3 cycles" {
 
     for (opcodes_to_test) |opcode| {
         state = Cpu.Logic.init();
-        bus = Bus.init();
+        bus = Bus.State.BusState.init();
 
         // Setup: NOP $42 at $0000
         bus.ram[0] = opcode;
@@ -398,7 +398,7 @@ test "NOP: 2-byte zero page,X variants - 4 cycles" {
 
     for (opcodes_to_test) |opcode| {
         state = Cpu.Logic.init();
-        bus = Bus.init();
+        bus = Bus.State.BusState.init();
 
         // Setup: NOP $42,X at $0000 with X=$05
         bus.ram[0] = opcode;
@@ -484,7 +484,7 @@ test "NOP: 3-byte absolute,X variants without page crossing - 4 cycles" {
 
     for (opcodes_to_test) |opcode| {
         state = Cpu.Logic.init();
-        bus = Bus.init();
+        bus = Bus.State.BusState.init();
 
         // Setup: NOP $1000,X with X=$10 (no page cross)
         bus.ram[0] = opcode;
@@ -515,7 +515,7 @@ test "NOP: 3-byte absolute,X with page crossing - 5 cycles" {
 
     for (opcodes_to_test) |opcode| {
         state = Cpu.Logic.init();
-        bus = Bus.init();
+        bus = Bus.State.BusState.init();
 
         // Setup: NOP $10F0,X with X=$20 -> $1110 (page cross)
         bus.ram[0] = opcode;

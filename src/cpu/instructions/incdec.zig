@@ -1,8 +1,8 @@
 const std = @import("std");
 const Cpu = @import("../Cpu.zig");
-const Bus = @import("../../bus/Bus.zig").Bus;
+const BusState = @import("../../bus/Bus.zig").State.BusState;
 
-const State = Cpu.State.State;
+const CpuState = Cpu.State.CpuState;
 
 // ============================================================================
 // INC - Increment Memory
@@ -10,7 +10,7 @@ const State = Cpu.State.State;
 
 /// INC - Increment memory by one
 /// Flags: N Z
-pub fn inc(state: *State, bus: *Bus) bool {
+pub fn inc(state: *CpuState, bus: *BusState) bool {
     // Value already in temp_value from RMW read
     const value = state.temp_value +% 1;
     state.p.updateZN(value);
@@ -26,7 +26,7 @@ pub fn inc(state: *State, bus: *Bus) bool {
 
 /// DEC - Decrement memory by one
 /// Flags: N Z
-pub fn dec(state: *State, bus: *Bus) bool {
+pub fn dec(state: *CpuState, bus: *BusState) bool {
     // Value already in temp_value from RMW read
     const value = state.temp_value -% 1;
     state.p.updateZN(value);
@@ -42,7 +42,7 @@ pub fn dec(state: *State, bus: *Bus) bool {
 
 /// INX - Increment X register by one
 /// Flags: N Z
-pub fn inx(state: *State, bus: *Bus) bool {
+pub fn inx(state: *CpuState, bus: *BusState) bool {
     _ = bus;
     state.x +%= 1;
     state.p.updateZN(state.x);
@@ -55,7 +55,7 @@ pub fn inx(state: *State, bus: *Bus) bool {
 
 /// INY - Increment Y register by one
 /// Flags: N Z
-pub fn iny(state: *State, bus: *Bus) bool {
+pub fn iny(state: *CpuState, bus: *BusState) bool {
     _ = bus;
     state.y +%= 1;
     state.p.updateZN(state.y);
@@ -68,7 +68,7 @@ pub fn iny(state: *State, bus: *Bus) bool {
 
 /// DEX - Decrement X register by one
 /// Flags: N Z
-pub fn dex(state: *State, bus: *Bus) bool {
+pub fn dex(state: *CpuState, bus: *BusState) bool {
     _ = bus;
     state.x -%= 1;
     state.p.updateZN(state.x);
@@ -81,7 +81,7 @@ pub fn dex(state: *State, bus: *Bus) bool {
 
 /// DEY - Decrement Y register by one
 /// Flags: N Z
-pub fn dey(state: *State, bus: *Bus) bool {
+pub fn dey(state: *CpuState, bus: *BusState) bool {
     _ = bus;
     state.y -%= 1;
     state.p.updateZN(state.y);
@@ -96,7 +96,7 @@ const testing = std.testing;
 
 test "INC - basic increment" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.temp_value = 0x42;
     state.effective_address = 0x0010;
@@ -110,7 +110,7 @@ test "INC - basic increment" {
 
 test "INC - zero flag" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.temp_value = 0xFF;
     state.effective_address = 0x0010;
@@ -122,7 +122,7 @@ test "INC - zero flag" {
 
 test "DEC - basic decrement" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.temp_value = 0x42;
     state.effective_address = 0x0010;
@@ -134,7 +134,7 @@ test "DEC - basic decrement" {
 
 test "INX - increment X" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.x = 0x10;
     _ = inx(&state, &bus);
@@ -143,7 +143,7 @@ test "INX - increment X" {
 
 test "DEX - decrement X with wrap" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.x = 0x00;
     _ = dex(&state, &bus);
@@ -153,7 +153,7 @@ test "DEX - decrement X with wrap" {
 
 test "INY - increment Y" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.y = 0xFE;
     _ = iny(&state, &bus);
@@ -163,7 +163,7 @@ test "INY - increment Y" {
 
 test "DEY - decrement Y with zero" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.y = 0x01;
     _ = dey(&state, &bus);

@@ -4,7 +4,7 @@
 
 const std = @import("std");
 const StateModule = @import("State.zig");
-const State = StateModule.State;
+const CpuState = StateModule.CpuState;
 const StatusFlags = StateModule.StatusFlags;
 const ExecutionState = StateModule.ExecutionState;
 const InterruptType = StateModule.InterruptType;
@@ -12,7 +12,7 @@ const InterruptType = StateModule.InterruptType;
 /// Initialize CPU to power-on state
 /// Note: Actual NES power-on has undefined register values,
 /// but we start with known state for testing
-pub fn init() State {
+pub fn init() CpuState {
     return .{
         .a = 0,
         .x = 0,
@@ -28,7 +28,7 @@ pub fn init() State {
 
 /// Reset CPU (via RESET interrupt)
 /// This is what happens when the NES reset button is pressed
-pub fn reset(state: *State, bus: anytype) void {
+pub fn reset(state: *CpuState, bus: anytype) void {
     // Decrement SP by 3 (but don't write to stack)
     state.sp -%= 3;
 
@@ -52,7 +52,7 @@ pub fn reset(state: *State, bus: anytype) void {
 /// Execute one CPU cycle
 /// This is the core of cycle-accurate emulation
 /// Returns true when an instruction completes
-pub fn tick(state: *State, bus: anytype) bool {
+pub fn tick(state: *CpuState, bus: anytype) bool {
     const dispatch = @import("dispatch.zig");
 
     state.cycle_count += 1;
@@ -140,7 +140,7 @@ pub fn tick(state: *State, bus: anytype) bool {
 /// Check and latch interrupt signals
 /// NMI is edge-triggered (falling edge)
 /// IRQ is level-triggered
-fn checkInterrupts(state: *State) void {
+fn checkInterrupts(state: *CpuState) void {
     // NMI has highest priority and is edge-triggered
     // Detect falling edge: was high (nmi_edge_detected=false), now low (nmi_line=true)
     // Note: nmi_line being TRUE means NMI is ASSERTED (active low in hardware)
@@ -159,13 +159,13 @@ fn checkInterrupts(state: *State) void {
 }
 
 /// Start interrupt sequence (7 cycles total)
-fn startInterruptSequence(state: *State) void {
+fn startInterruptSequence(state: *CpuState) void {
     state.state = .interrupt_dummy;
     state.instruction_cycle = 0;
 }
 
 /// Push byte onto stack
-pub inline fn push(state: *State, bus: anytype, value: u8) void {
+pub inline fn push(state: *CpuState, bus: anytype, value: u8) void {
     const stack_addr = 0x0100 | @as(u16, state.sp);
     bus.write(stack_addr, value);
     state.sp -%= 1;
@@ -173,7 +173,7 @@ pub inline fn push(state: *State, bus: anytype, value: u8) void {
 }
 
 /// Pull byte from stack
-pub inline fn pull(state: *State, bus: anytype) u8 {
+pub inline fn pull(state: *CpuState, bus: anytype) u8 {
     state.sp +%= 1;
     const stack_addr = 0x0100 | @as(u16, state.sp);
     const value = bus.read(stack_addr);

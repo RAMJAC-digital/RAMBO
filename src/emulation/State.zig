@@ -12,10 +12,10 @@
 const std = @import("std");
 const Config = @import("../config/Config.zig");
 const CpuModule = @import("../cpu/Cpu.zig");
-const CpuState = CpuModule.State.State;
+const CpuState = CpuModule.State.CpuState;
 const CpuLogic = CpuModule.Logic;
-const BusType = @import("../bus/Bus.zig").Bus;
-const Ppu = @import("../ppu/Ppu.zig").Ppu;
+const BusState = @import("../bus/Bus.zig").State.BusState;
+const PpuState = @import("../ppu/Ppu.zig").State.PpuState;
 
 /// Master timing clock - tracks total PPU cycles
 /// PPU cycles are the finest granularity in NES hardware
@@ -76,8 +76,8 @@ pub const EmulationState = struct {
 
     /// Component states
     cpu: CpuState,
-    ppu: Ppu,
-    bus: BusType,
+    ppu: PpuState,
+    bus: BusState,
 
     /// Hardware configuration (immutable during emulation)
     config: *const Config.Config,
@@ -95,9 +95,9 @@ pub const EmulationState = struct {
 
     /// Initialize emulation state from configuration
     /// Requires the Bus to be already initialized with cartridge
-    pub fn init(config: *const Config.Config, bus: BusType) EmulationState {
+    pub fn init(config: *const Config.Config, bus: BusState) EmulationState {
         const cpu = CpuLogic.init();
-        const ppu = Ppu.init();
+        const ppu = PpuState.init();
 
         // Note: PPU pointer in bus will be connected in connectComponents()
         return .{
@@ -383,7 +383,7 @@ test "EmulationState: initialization" {
     var config = Config.Config.init(testing.allocator);
     defer config.deinit();
 
-    const bus = BusType.init();
+    const bus = BusState.init();
 
     var state = EmulationState.init(&config, bus);
     state.connectComponents();
@@ -396,7 +396,7 @@ test "EmulationState: tick advances PPU clock" {
     var config = Config.Config.init(testing.allocator);
     defer config.deinit();
 
-    const bus = BusType.init();
+    const bus = BusState.init();
 
     var state = EmulationState.init(&config, bus);
     state.connectComponents();
@@ -420,7 +420,7 @@ test "EmulationState: CPU ticks every 3 PPU cycles" {
     var config = Config.Config.init(testing.allocator);
     defer config.deinit();
 
-    const bus = BusType.init();
+    const bus = BusState.init();
 
     var state = EmulationState.init(&config, bus);
     state.connectComponents();
@@ -451,7 +451,7 @@ test "EmulationState: emulateCpuCycles advances correctly" {
     var config = Config.Config.init(testing.allocator);
     defer config.deinit();
 
-    const bus = BusType.init();
+    const bus = BusState.init();
 
     var state = EmulationState.init(&config, bus);
     state.connectComponents();
@@ -470,7 +470,7 @@ test "EmulationState: VBlank timing at scanline 241, dot 1" {
 
     config.ppu.variant = .rp2c02g_ntsc;
 
-    const bus = BusType.init();
+    const bus = BusState.init();
 
     var state = EmulationState.init(&config, bus);
     state.connectComponents();
@@ -494,7 +494,7 @@ test "EmulationState: odd frame skip when rendering enabled" {
 
     config.ppu.variant = .rp2c02g_ntsc;
 
-    const bus = BusType.init();
+    const bus = BusState.init();
 
     var state = EmulationState.init(&config, bus);
     state.connectComponents();
@@ -529,7 +529,7 @@ test "EmulationState: even frame does not skip dot" {
 
     config.ppu.variant = .rp2c02g_ntsc;
 
-    const bus = BusType.init();
+    const bus = BusState.init();
 
     var state = EmulationState.init(&config, bus);
     state.connectComponents();
@@ -557,7 +557,7 @@ test "EmulationState: odd frame without rendering does not skip" {
 
     config.ppu.variant = .rp2c02g_ntsc;
 
-    const bus = BusType.init();
+    const bus = BusState.init();
 
     var state = EmulationState.init(&config, bus);
     state.connectComponents();
@@ -585,7 +585,7 @@ test "EmulationState: frame toggle at scanline boundary" {
 
     config.ppu.variant = .rp2c02g_ntsc;
 
-    const bus = BusType.init();
+    const bus = BusState.init();
 
     var state = EmulationState.init(&config, bus);
     state.connectComponents();

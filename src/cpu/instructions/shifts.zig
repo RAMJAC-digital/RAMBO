@@ -1,8 +1,8 @@
 const std = @import("std");
 const Cpu = @import("../Cpu.zig");
-const Bus = @import("../../bus/Bus.zig").Bus;
+const BusState = @import("../../bus/Bus.zig").State.BusState;
 
-const State = Cpu.State.State;
+const CpuState = Cpu.State.CpuState;
 
 // ============================================================================
 // ASL - Arithmetic Shift Left
@@ -10,7 +10,7 @@ const State = Cpu.State.State;
 
 /// ASL - Shift left one bit (memory or accumulator)
 /// Flags: N Z C
-pub fn asl(state: *State, bus: *Bus) bool {
+pub fn asl(state: *CpuState, bus: *BusState) bool {
     var value: u8 = undefined;
 
     if (state.address_mode == .accumulator) {
@@ -40,7 +40,7 @@ pub fn asl(state: *State, bus: *Bus) bool {
 
 /// LSR - Shift right one bit (memory or accumulator)
 /// Flags: N(0) Z C
-pub fn lsr(state: *State, bus: *Bus) bool {
+pub fn lsr(state: *CpuState, bus: *BusState) bool {
     var value: u8 = undefined;
 
     if (state.address_mode == .accumulator) {
@@ -69,7 +69,7 @@ pub fn lsr(state: *State, bus: *Bus) bool {
 
 /// ROL - Rotate left one bit (memory or accumulator)
 /// Flags: N Z C
-pub fn rol(state: *State, bus: *Bus) bool {
+pub fn rol(state: *CpuState, bus: *BusState) bool {
     var value: u8 = undefined;
 
     if (state.address_mode == .accumulator) {
@@ -99,7 +99,7 @@ pub fn rol(state: *State, bus: *Bus) bool {
 
 /// ROR - Rotate right one bit (memory or accumulator)
 /// Flags: N Z C
-pub fn ror(state: *State, bus: *Bus) bool {
+pub fn ror(state: *CpuState, bus: *BusState) bool {
     var value: u8 = undefined;
 
     if (state.address_mode == .accumulator) {
@@ -131,7 +131,7 @@ const testing = std.testing;
 
 test "ASL accumulator - basic shift" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.a = 0x42; // 01000010
     state.address_mode = .accumulator;
@@ -145,7 +145,7 @@ test "ASL accumulator - basic shift" {
 
 test "ASL accumulator - carry flag" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.a = 0x81; // 10000001
     state.address_mode = .accumulator;
@@ -157,7 +157,7 @@ test "ASL accumulator - carry flag" {
 
 test "LSR accumulator - basic shift" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.a = 0x42; // 01000010
     state.address_mode = .accumulator;
@@ -170,7 +170,7 @@ test "LSR accumulator - basic shift" {
 
 test "ROL with carry" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.a = 0x80; // 10000000
     state.p.carry = true;
@@ -183,7 +183,7 @@ test "ROL with carry" {
 
 test "ROR with carry" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.a = 0x01; // 00000001
     state.p.carry = true;

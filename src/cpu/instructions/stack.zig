@@ -7,17 +7,17 @@
 
 const std = @import("std");
 const Cpu = @import("../Cpu.zig");
-const Bus = @import("../../bus/Bus.zig").Bus;
+const BusState = @import("../../bus/Bus.zig").State.BusState;
 const Logic = @import("../Logic.zig");
 
-const State = Cpu.State.State;
+const CpuState = Cpu.State.CpuState;
 
 /// PHA - Push Accumulator
 /// Push A onto stack
 /// No flags affected
 ///
 /// 3 cycles total
-pub fn pha(state: *State, bus: *Bus) bool {
+pub fn pha(state: *CpuState, bus: *BusState) bool {
     Logic.push(state, bus, state.a);
     return true;
 }
@@ -27,7 +27,7 @@ pub fn pha(state: *State, bus: *Bus) bool {
 /// No flags affected
 ///
 /// 3 cycles total
-pub fn php(state: *State, bus: *Bus) bool {
+pub fn php(state: *CpuState, bus: *BusState) bool {
     var status = state.p.toByte();
     status |= 0x10; // Set B flag (bit 4)
     Logic.push(state, bus, status);
@@ -39,7 +39,7 @@ pub fn php(state: *State, bus: *Bus) bool {
 /// Flags: N, Z
 ///
 /// 4 cycles total
-pub fn pla(state: *State, bus: *Bus) bool {
+pub fn pla(state: *CpuState, bus: *BusState) bool {
     state.a = Logic.pull(state, bus);
     state.p.updateZN(state.a);
     return true;
@@ -50,7 +50,7 @@ pub fn pla(state: *State, bus: *Bus) bool {
 /// Flags: All (restored from stack)
 ///
 /// 4 cycles total
-pub fn plp(state: *State, bus: *Bus) bool {
+pub fn plp(state: *CpuState, bus: *BusState) bool {
     const status = Logic.pull(state, bus);
     state.p = @TypeOf(state.p).fromByte(status);
     return true;
@@ -64,7 +64,7 @@ const testing = std.testing;
 
 test "PHA: push accumulator" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.sp = 0xFF;
     state.a = 0x42;
@@ -77,7 +77,7 @@ test "PHA: push accumulator" {
 
 test "PHP: push status with B flag" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.sp = 0xFF;
     state.p.carry = true;
@@ -96,7 +96,7 @@ test "PHP: push status with B flag" {
 
 test "PLA: pull accumulator and update flags" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.sp = 0xFE;
     bus.write(0x01FF, 0x80);
@@ -111,7 +111,7 @@ test "PLA: pull accumulator and update flags" {
 
 test "PLA: zero flag" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.sp = 0xFE;
     bus.write(0x01FF, 0x00);
@@ -125,7 +125,7 @@ test "PLA: zero flag" {
 
 test "PLP: pull status flags" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.sp = 0xFE;
     bus.write(0x01FF, 0b11000011); // N=1, V=1, Z=1, C=1
@@ -141,7 +141,7 @@ test "PLP: pull status flags" {
 
 test "PHA and PLA: round trip" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.sp = 0xFF;
     state.a = 0x55;
@@ -161,7 +161,7 @@ test "PHA and PLA: round trip" {
 
 test "PHP and PLP: round trip" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.sp = 0xFF;
     state.p.carry = true;

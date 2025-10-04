@@ -8,10 +8,10 @@
 
 const std = @import("std");
 const Cpu = @import("../Cpu.zig");
-const Bus = @import("../../bus/Bus.zig").Bus;
+const BusState = @import("../../bus/Bus.zig").State.BusState;
 const helpers = @import("../helpers.zig");
 
-const State = Cpu.State.State;
+const CpuState = Cpu.State.CpuState;
 
 // ============================================================================
 // LAX - Load A and X (Combo: LDA + TAX)
@@ -26,7 +26,7 @@ const State = Cpu.State.State;
 ///
 /// Addressing modes: zero page, zero page,Y, absolute, absolute,Y,
 ///                   indexed indirect, indirect indexed
-pub fn lax(state: *State, bus: *Bus) bool {
+pub fn lax(state: *CpuState, bus: *BusState) bool {
     const value = helpers.readOperand(state, bus);
     state.a = value;
     state.x = value;
@@ -46,7 +46,7 @@ pub fn lax(state: *State, bus: *Bus) bool {
 /// Does not affect any flags.
 ///
 /// Addressing modes: zero page, zero page,Y, absolute, indexed indirect
-pub fn sax(state: *State, bus: *Bus) bool {
+pub fn sax(state: *CpuState, bus: *BusState) bool {
     const value = state.a & state.x;
     helpers.writeOperand(state, bus, value);
     return true;
@@ -60,7 +60,7 @@ const testing = std.testing;
 
 test "LAX: zero page" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     bus.write(0x0042, 0x55);
     state.address_mode = .zero_page;
@@ -76,7 +76,7 @@ test "LAX: zero page" {
 
 test "LAX: sets both A and X" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.a = 0x00;
     state.x = 0xFF;
@@ -93,7 +93,7 @@ test "LAX: sets both A and X" {
 
 test "LAX: zero flag" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     bus.write(0x0010, 0x00);
     state.address_mode = .zero_page;
@@ -108,7 +108,7 @@ test "LAX: zero flag" {
 
 test "LAX: negative flag" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     bus.write(0x0020, 0x80);
     state.address_mode = .zero_page;
@@ -123,7 +123,7 @@ test "LAX: negative flag" {
 
 test "LAX: absolute,Y page crossing" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.address_mode = .absolute_y;
     state.effective_address = 0x1100;
@@ -138,7 +138,7 @@ test "LAX: absolute,Y page crossing" {
 
 test "LAX: indirect indexed" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.address_mode = .indirect_indexed;
     state.effective_address = 0x2000;
@@ -153,7 +153,7 @@ test "LAX: indirect indexed" {
 
 test "SAX: zero page" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.a = 0xFF;
     state.x = 0x0F;
@@ -167,7 +167,7 @@ test "SAX: zero page" {
 
 test "SAX: AND operation" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.a = 0xF0;
     state.x = 0x0F;
@@ -182,7 +182,7 @@ test "SAX: AND operation" {
 
 test "SAX: does not affect flags" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.a = 0x00;
     state.x = 0x00;
@@ -200,7 +200,7 @@ test "SAX: does not affect flags" {
 
 test "SAX: absolute mode" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.a = 0xAA;
     state.x = 0x55;
@@ -216,7 +216,7 @@ test "SAX: absolute mode" {
 
 test "SAX: zero page,Y" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.a = 0xFF;
     state.x = 0xF0;
@@ -231,7 +231,7 @@ test "SAX: zero page,Y" {
 
 test "SAX: indexed indirect" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.a = 0b11110000;
     state.x = 0b10101010;
@@ -253,7 +253,7 @@ test "SAX: indexed indirect" {
 /// Flags: C (equals N), N, Z
 ///
 /// Immediate mode only (2 cycles)
-pub fn anc(state: *State, bus: *Bus) bool {
+pub fn anc(state: *CpuState, bus: *BusState) bool {
     const value = bus.read(state.pc);
     state.pc +%= 1;
     state.a &= value;
@@ -267,7 +267,7 @@ pub fn anc(state: *State, bus: *Bus) bool {
 /// Flags: C (from LSR), N, Z
 ///
 /// Immediate mode only (2 cycles)
-pub fn alr(state: *State, bus: *Bus) bool {
+pub fn alr(state: *CpuState, bus: *BusState) bool {
     const value = bus.read(state.pc);
     state.pc +%= 1;
     state.a &= value;
@@ -283,7 +283,7 @@ pub fn alr(state: *State, bus: *Bus) bool {
 ///
 /// Immediate mode only (2 cycles)
 /// Flag behavior is complex: C from bit 6, V from bit 6 XOR bit 5
-pub fn arr(state: *State, bus: *Bus) bool {
+pub fn arr(state: *CpuState, bus: *BusState) bool {
     const value = bus.read(state.pc);
     state.pc +%= 1;
     state.a &= value;
@@ -305,7 +305,7 @@ pub fn arr(state: *State, bus: *Bus) bool {
 /// Flags: C (from comparison), N, Z
 ///
 /// Immediate mode only (2 cycles)
-pub fn axs(state: *State, bus: *Bus) bool {
+pub fn axs(state: *CpuState, bus: *BusState) bool {
     const value = bus.read(state.pc);
     state.pc +%= 1;
     const temp = state.a & state.x;
@@ -332,7 +332,7 @@ pub fn axs(state: *State, bus: *Bus) bool {
 ///
 /// UNSTABLE: High byte calculation sometimes fails on some chip revisions
 /// Addressing modes: absolute,Y ($9F), indirect,Y ($93)
-pub fn sha(state: *State, bus: *Bus) bool {
+pub fn sha(state: *CpuState, bus: *BusState) bool {
     const high_byte = @as(u8, @truncate(state.effective_address >> 8));
     const value = state.a & state.x & (high_byte +% 1);
     bus.write(state.effective_address, value);
@@ -345,7 +345,7 @@ pub fn sha(state: *State, bus: *Bus) bool {
 ///
 /// UNSTABLE: High byte calculation sometimes fails on some chip revisions
 /// Addressing mode: absolute,Y ($9E)
-pub fn shx(state: *State, bus: *Bus) bool {
+pub fn shx(state: *CpuState, bus: *BusState) bool {
     const high_byte = @as(u8, @truncate(state.effective_address >> 8));
     const value = state.x & (high_byte +% 1);
     bus.write(state.effective_address, value);
@@ -358,7 +358,7 @@ pub fn shx(state: *State, bus: *Bus) bool {
 ///
 /// UNSTABLE: High byte calculation sometimes fails on some chip revisions
 /// Addressing mode: absolute,X ($9C)
-pub fn shy(state: *State, bus: *Bus) bool {
+pub fn shy(state: *CpuState, bus: *BusState) bool {
     const high_byte = @as(u8, @truncate(state.effective_address >> 8));
     const value = state.y & (high_byte +% 1);
     bus.write(state.effective_address, value);
@@ -372,7 +372,7 @@ pub fn shy(state: *State, bus: *Bus) bool {
 ///
 /// HIGHLY UNSTABLE: Behavior varies significantly between chip revisions
 /// Addressing mode: absolute,Y ($9B)
-pub fn tas(state: *State, bus: *Bus) bool {
+pub fn tas(state: *CpuState, bus: *BusState) bool {
     const temp = state.a & state.x;
     state.sp = temp;
     const high_byte = @as(u8, @truncate(state.effective_address >> 8));
@@ -392,7 +392,7 @@ pub fn tas(state: *State, bus: *Bus) bool {
 ///
 /// Relatively stable compared to other unstable opcodes
 /// Addressing mode: absolute,Y ($BB)
-pub fn lae(state: *State, bus: *Bus) bool {
+pub fn lae(state: *CpuState, bus: *BusState) bool {
     const value = helpers.readOperand(state, bus);
     const result = value & state.sp;
     state.a = result;
@@ -409,7 +409,7 @@ pub fn lae(state: *State, bus: *Bus) bool {
 /// HIGHLY UNSTABLE: Magic constant varies by chip ($00, $EE, $FF, others)
 /// This implementation uses $EE (most common NMOS behavior)
 /// Addressing mode: immediate ($8B)
-pub fn xaa(state: *State, bus: *Bus) bool {
+pub fn xaa(state: *CpuState, bus: *BusState) bool {
     const value = bus.read(state.pc);
     state.pc +%= 1;
     const magic: u8 = 0xEE; // Most common NMOS 6502 magic constant
@@ -425,7 +425,7 @@ pub fn xaa(state: *State, bus: *Bus) bool {
 /// HIGHLY UNSTABLE: Magic constant varies by chip ($00, $EE, $FF, others)
 /// This implementation uses $EE (most common NMOS behavior)
 /// Addressing mode: immediate ($AB)
-pub fn lxa(state: *State, bus: *Bus) bool {
+pub fn lxa(state: *CpuState, bus: *BusState) bool {
     const value = bus.read(state.pc);
     state.pc +%= 1;
     const magic: u8 = 0xEE; // Most common NMOS 6502 magic constant
@@ -453,7 +453,7 @@ pub fn lxa(state: *State, bus: *Bus) bool {
 ///
 /// The CPU will remain halted until a hardware RESET occurs.
 /// NMI and IRQ interrupts are ignored while halted.
-pub fn jam(state: *State, bus: *Bus) bool {
+pub fn jam(state: *CpuState, bus: *BusState) bool {
     _ = bus; // JAM doesn't access the bus after opcode fetch
     state.halted = true; // Set CPU halted state
     // PC does NOT increment - stays at JAM opcode address
@@ -475,7 +475,7 @@ pub fn jam(state: *State, bus: *Bus) bool {
 /// The RMW addressing mode ALREADY handles the critical dummy write.
 /// This function receives temp_value (the original read value) and
 /// must write back the modified value.
-pub fn slo(state: *State, bus: *Bus) bool {
+pub fn slo(state: *CpuState, bus: *BusState) bool {
     // Read current value (addressing already handled RMW sequence)
     var value = state.temp_value;
 
@@ -503,7 +503,7 @@ pub fn slo(state: *State, bus: *Bus) bool {
 /// This is a Read-Modify-Write instruction that:
 /// 1. Rotates memory left through carry (ROL)
 /// 2. ANDs the result with accumulator (AND)
-pub fn rla(state: *State, bus: *Bus) bool {
+pub fn rla(state: *CpuState, bus: *BusState) bool {
     var value = state.temp_value;
 
     // ROL: Rotate left through carry
@@ -531,7 +531,7 @@ pub fn rla(state: *State, bus: *Bus) bool {
 /// This is a Read-Modify-Write instruction that:
 /// 1. Shifts memory right (LSR)
 /// 2. XORs the result with accumulator (EOR)
-pub fn sre(state: *State, bus: *Bus) bool {
+pub fn sre(state: *CpuState, bus: *BusState) bool {
     var value = state.temp_value;
 
     // LSR: Shift right
@@ -560,7 +560,7 @@ pub fn sre(state: *State, bus: *Bus) bool {
 /// 2. Adds the result to accumulator with carry (ADC)
 ///
 /// CRITICAL: The rotate sets a NEW carry, which is then used by ADC.
-pub fn rra(state: *State, bus: *Bus) bool {
+pub fn rra(state: *CpuState, bus: *BusState) bool {
     var value = state.temp_value;
 
     // ROR: Rotate right through carry
@@ -598,7 +598,7 @@ pub fn rra(state: *State, bus: *Bus) bool {
 /// This is a Read-Modify-Write instruction that:
 /// 1. Decrements memory (DEC)
 /// 2. Compares accumulator with the result (CMP)
-pub fn dcp(state: *State, bus: *Bus) bool {
+pub fn dcp(state: *CpuState, bus: *BusState) bool {
     var value = state.temp_value;
 
     // DEC: Decrement
@@ -623,7 +623,7 @@ pub fn dcp(state: *State, bus: *Bus) bool {
 /// This is a Read-Modify-Write instruction that:
 /// 1. Increments memory (INC)
 /// 2. Subtracts the result from accumulator with borrow (SBC)
-pub fn isc(state: *State, bus: *Bus) bool {
+pub fn isc(state: *CpuState, bus: *BusState) bool {
     var value = state.temp_value;
 
     // INC: Increment
@@ -656,7 +656,7 @@ pub fn isc(state: *State, bus: *Bus) bool {
 
 test "SLO: shift left and OR with accumulator" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     bus.write(0x0050, 0b01010101);
     state.temp_value = 0b01010101;
@@ -677,7 +677,7 @@ test "SLO: shift left and OR with accumulator" {
 
 test "SLO: sets carry flag" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.temp_value = 0b10000001;
     state.effective_address = 0x0100;
@@ -692,7 +692,7 @@ test "SLO: sets carry flag" {
 
 test "RLA: rotate left and AND with accumulator" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.temp_value = 0b01010101;
     state.effective_address = 0x0060;
@@ -711,7 +711,7 @@ test "RLA: rotate left and AND with accumulator" {
 
 test "RLA: sets carry from rotate" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.temp_value = 0b11000000;
     state.effective_address = 0x0070;
@@ -727,7 +727,7 @@ test "RLA: sets carry from rotate" {
 
 test "SRE: shift right and XOR with accumulator" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.temp_value = 0b10101010;
     state.effective_address = 0x0080;
@@ -745,7 +745,7 @@ test "SRE: shift right and XOR with accumulator" {
 
 test "SRE: sets carry flag" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.temp_value = 0b00000011;
     state.effective_address = 0x0090;
@@ -759,7 +759,7 @@ test "SRE: sets carry flag" {
 
 test "RRA: rotate right and add with carry" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.temp_value = 0b00000010;
     state.effective_address = 0x00A0;
@@ -778,7 +778,7 @@ test "RRA: rotate right and add with carry" {
 
 test "RRA: carry from rotate used in ADC" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.temp_value = 0b00000001; // Bit 0 = 1, will set carry
     state.effective_address = 0x00B0;
@@ -795,7 +795,7 @@ test "RRA: carry from rotate used in ADC" {
 
 test "DCP: decrement and compare" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.temp_value = 0x50;
     state.effective_address = 0x00C0;
@@ -813,7 +813,7 @@ test "DCP: decrement and compare" {
 
 test "DCP: compare flags when A < M" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.temp_value = 0x60;
     state.effective_address = 0x00D0;
@@ -831,7 +831,7 @@ test "DCP: compare flags when A < M" {
 
 test "ISC: increment and subtract with carry" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.temp_value = 0x0F;
     state.effective_address = 0x00E0;
@@ -850,7 +850,7 @@ test "ISC: increment and subtract with carry" {
 
 test "ISC: subtract with borrow" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.temp_value = 0x0F;
     state.effective_address = 0x00F0;

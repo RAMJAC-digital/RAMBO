@@ -10,17 +10,17 @@
 
 const std = @import("std");
 const Cpu = @import("../Cpu.zig");
-const Bus = @import("../../bus/Bus.zig").Bus;
+const BusState = @import("../../bus/Bus.zig").State.BusState;
 const helpers = @import("../helpers.zig");
 
-const State = Cpu.State.State;
+const CpuState = Cpu.State.CpuState;
 
 /// CMP - Compare Accumulator
 /// Compare A with M (A - M)
 /// Flags: N, Z, C
 ///
 /// Supports all addressing modes (8 total)
-pub fn cmp(state: *State, bus: *Bus) bool {
+pub fn cmp(state: *CpuState, bus: *BusState) bool {
     const value = helpers.readOperand(state, bus);
 
     // Perform comparison (subtraction without storing)
@@ -39,7 +39,7 @@ pub fn cmp(state: *State, bus: *Bus) bool {
 /// Flags: N, Z, C
 ///
 /// Supports: Immediate, Zero Page, Absolute
-pub fn cpx(state: *State, bus: *Bus) bool {
+pub fn cpx(state: *CpuState, bus: *BusState) bool {
     const value = helpers.readOperand(state, bus);
 
     // Perform comparison
@@ -58,7 +58,7 @@ pub fn cpx(state: *State, bus: *Bus) bool {
 /// Flags: N, Z, C
 ///
 /// Supports: Immediate, Zero Page, Absolute
-pub fn cpy(state: *State, bus: *Bus) bool {
+pub fn cpy(state: *CpuState, bus: *BusState) bool {
     const value = helpers.readOperand(state, bus);
 
     // Perform comparison
@@ -80,7 +80,7 @@ const testing = std.testing;
 
 test "CMP: equal values" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.a = 0x42;
     state.pc = 0x0000;
@@ -97,7 +97,7 @@ test "CMP: equal values" {
 
 test "CMP: A greater than M" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.a = 0x50;
     state.pc = 0x0000;
@@ -114,7 +114,7 @@ test "CMP: A greater than M" {
 
 test "CMP: A less than M" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.a = 0x30;
     state.pc = 0x0000;
@@ -131,7 +131,7 @@ test "CMP: A less than M" {
 
 test "CMP: negative flag behavior" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.a = 0x00;
     state.pc = 0x0000;
@@ -148,7 +148,7 @@ test "CMP: negative flag behavior" {
 
 test "CPX: equal values" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.x = 0x42;
     state.pc = 0x0000;
@@ -165,7 +165,7 @@ test "CPX: equal values" {
 
 test "CPX: X greater than M" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.x = 0x80;
     state.pc = 0x0000;
@@ -182,7 +182,7 @@ test "CPX: X greater than M" {
 
 test "CPX: X less than M" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.x = 0x40;
     state.pc = 0x0000;
@@ -199,7 +199,7 @@ test "CPX: X less than M" {
 
 test "CPY: equal values" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.y = 0x42;
     state.pc = 0x0000;
@@ -216,7 +216,7 @@ test "CPY: equal values" {
 
 test "CPY: Y greater than M" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.y = 0xFF;
     state.pc = 0x0000;
@@ -233,7 +233,7 @@ test "CPY: Y greater than M" {
 
 test "CPY: Y less than M" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.y = 0x01;
     state.pc = 0x0000;

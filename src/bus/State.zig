@@ -6,7 +6,7 @@
 
 const std = @import("std");
 const Cartridge = @import("../cartridge/Cartridge.zig").Cartridge;
-const Ppu = @import("../ppu/Ppu.zig").Ppu;
+const PpuState = @import("../ppu/Ppu.zig").State.PpuState;
 
 /// Open bus state tracking
 /// The NES data bus is not driven during reads from unmapped regions,
@@ -37,7 +37,7 @@ pub const OpenBus = struct {
 /// Complete NES Memory Bus State
 /// This is a pure data structure with no hidden state or pointers to other components.
 /// All component references (Cartridge, PPU) are passed to Logic functions as parameters.
-pub const State = struct {
+pub const BusState = struct {
     // ===== Owned Memory Regions =====
 
     /// Internal RAM: 2KB ($0000-$07FF)
@@ -71,11 +71,11 @@ pub const State = struct {
     /// Optional pointer to PPU (non-owning)
     /// Used for delegating to Logic functions conveniently
     /// Tests can leave this null and pass explicit parameters to Logic
-    ppu: ?*Ppu = null,
+    ppu: ?*PpuState = null,
 
     /// Initialize bus state with zeroed RAM
     /// Returns a clean bus state ready for emulation
-    pub fn init() State {
+    pub fn init() BusState {
         return .{
             .ram = std.mem.zeroes([2048]u8),
             .cycle = 0,
@@ -90,41 +90,41 @@ pub const State = struct {
 
     /// Read from bus (convenience method that delegates to Logic)
     /// For testing with explicit parameters, call Logic.read() directly
-    pub inline fn read(self: *State, address: u16) u8 {
+    pub inline fn read(self: *BusState, address: u16) u8 {
         const Logic = @import("Logic.zig");
         return Logic.read(self, self.cartridge, self.ppu, address);
     }
 
     /// Write to bus (convenience method that delegates to Logic)
     /// For testing with explicit parameters, call Logic.write() directly
-    pub inline fn write(self: *State, address: u16, value: u8) void {
+    pub inline fn write(self: *BusState, address: u16, value: u8) void {
         const Logic = @import("Logic.zig");
         Logic.write(self, self.cartridge, self.ppu, address, value);
     }
 
     /// Read 16-bit value (little-endian)
     /// For testing with explicit parameters, call Logic.read16() directly
-    pub inline fn read16(self: *State, address: u16) u16 {
+    pub inline fn read16(self: *BusState, address: u16) u16 {
         const Logic = @import("Logic.zig");
         return Logic.read16(self, self.cartridge, self.ppu, address);
     }
 
     /// Read 16-bit value with JMP indirect page-crossing bug
     /// For testing with explicit parameters, call Logic.read16Bug() directly
-    pub inline fn read16Bug(self: *State, address: u16) u16 {
+    pub inline fn read16Bug(self: *BusState, address: u16) u16 {
         const Logic = @import("Logic.zig");
         return Logic.read16Bug(self, self.cartridge, self.ppu, address);
     }
 
     /// Load a cartridge into the bus
     /// Sets the non-owning pointer to the cartridge
-    pub inline fn loadCartridge(self: *State, cartridge: *Cartridge) void {
+    pub inline fn loadCartridge(self: *BusState, cartridge: *Cartridge) void {
         self.cartridge = cartridge;
     }
 
     /// Unload the current cartridge from the bus
     /// Returns the cartridge pointer that was removed (or null if none was loaded)
-    pub inline fn unloadCartridge(self: *State) ?*Cartridge {
+    pub inline fn unloadCartridge(self: *BusState) ?*Cartridge {
         const old_cart = self.cartridge;
         self.cartridge = null;
         return old_cart;
@@ -138,7 +138,7 @@ pub const State = struct {
 const testing = std.testing;
 
 test "Bus State: initialization" {
-    const state = State.init();
+    const state = BusState.init();
 
     // RAM should be zeroed
     for (state.ram) |byte| {
@@ -173,7 +173,7 @@ test "OpenBus: update and read" {
 }
 
 test "Bus State: default initialization with struct literal" {
-    const state = State{};
+    const state = BusState{};
 
     // Should have default values
     try testing.expectEqual(@as(u64, 0), state.cycle);
@@ -182,7 +182,7 @@ test "Bus State: default initialization with struct literal" {
 }
 
 test "Bus State: RAM is writable" {
-    var state = State.init();
+    var state = BusState.init();
 
     // Write to RAM directly (Logic functions will do this)
     state.ram[0] = 0x42;
@@ -194,7 +194,7 @@ test "Bus State: RAM is writable" {
 }
 
 test "Bus State: cycle counter is mutable" {
-    var state = State.init();
+    var state = BusState.init();
 
     state.cycle = 1000;
     try testing.expectEqual(@as(u64, 1000), state.cycle);
@@ -204,7 +204,7 @@ test "Bus State: cycle counter is mutable" {
 }
 
 test "Bus State: test_ram can be set" {
-    var state = State.init();
+    var state = BusState.init();
     var test_buffer = [_]u8{0} ** 0x8000; // 32KB for ROM space
 
     state.test_ram = &test_buffer;

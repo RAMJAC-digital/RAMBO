@@ -25,14 +25,4 @@ pub const PpuStatus = State.PpuStatus;
 pub const OpenBus = State.OpenBus;
 pub const InternalRegisters = State.InternalRegisters;
 pub const BackgroundState = State.BackgroundState;
-pub const PpuState = State.State;
-
-// Backward compatibility alias
-// Allows existing code to use `Ppu` instead of `State.State`
-pub const Ppu = State.State;
-
-/// Backward compatibility: Initialize a new PPU state
-/// Equivalent to State.State.init() or Logic.init()
-pub inline fn init() State.State {
-    return State.State.init();
-}
+pub const PpuState = State.PpuState;

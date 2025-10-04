@@ -25,14 +25,4 @@ pub const Logic = @import("Logic.zig");
 
 // Re-export commonly used types for convenience
 pub const OpenBus = State.OpenBus;
-pub const BusState = State.State;
-
-// Backward compatibility alias
-// Allows existing code to use `Bus` instead of `State.State`
-pub const Bus = State.State;
-
-/// Backward compatibility: Initialize a new bus state
-/// Equivalent to State.State.init() or Logic.init()
-pub inline fn init() State.State {
-    return State.State.init();
-}
+pub const BusState = State.BusState;

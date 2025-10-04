@@ -4,12 +4,12 @@
 //! All functions are deterministic and have no side effects except state mutation.
 
 const std = @import("std");
-const State = @import("State.zig").State;
+const BusState = @import("State.zig").BusState;
 
 /// Initialize bus state
 /// Returns a clean bus state ready for emulation
-pub fn init() State {
-    return State.init();
+pub fn init() BusState {
+    return BusState.init();
 }
 
 /// Read a byte from the bus
@@ -22,7 +22,7 @@ pub fn init() State {
 ///   - address: 16-bit CPU address to read from
 ///
 /// Returns: Byte value at address (or open bus value if unmapped)
-pub fn read(state: *State, cartridge: anytype, ppu: anytype, address: u16) u8 {
+pub fn read(state: *BusState, cartridge: anytype, ppu: anytype, address: u16) u8 {
     const value = readInternal(state, cartridge, ppu, address);
 
     // Most reads update the open bus (with some exceptions like $4015)
@@ -34,7 +34,7 @@ pub fn read(state: *State, cartridge: anytype, ppu: anytype, address: u16) u8 {
 
 /// Internal read without open bus update
 /// Used for special cases where reads shouldn't affect the bus
-fn readInternal(state: *State, cartridge: anytype, ppu: anytype, address: u16) u8 {
+fn readInternal(state: *BusState, cartridge: anytype, ppu: anytype, address: u16) u8 {
     return switch (address) {
         // RAM and mirrors ($0000-$1FFF)
         // RAM is 2KB ($0000-$07FF) mirrored 4 times
@@ -103,7 +103,7 @@ fn readInternal(state: *State, cartridge: anytype, ppu: anytype, address: u16) u
 ///   - ppu: Optional PPU for register writes
 ///   - address: 16-bit CPU address to write to
 ///   - value: Byte value to write
-pub fn write(state: *State, cartridge: anytype, ppu: anytype, address: u16, value: u8) void {
+pub fn write(state: *BusState, cartridge: anytype, ppu: anytype, address: u16, value: u8) void {
     // ALL writes update the open bus (including writes to ROM)
     // AccuracyCoin Test: "Open Bus #8: Writing should always update the databus"
     state.open_bus.update(value, state.cycle);
@@ -177,7 +177,7 @@ pub fn write(state: *State, cartridge: anytype, ppu: anytype, address: u16, valu
 ///   - address: 16-bit starting address
 ///
 /// Returns: 16-bit value (low byte at address, high byte at address+1)
-pub fn read16(state: *State, cartridge: anytype, ppu: anytype, address: u16) u16 {
+pub fn read16(state: *BusState, cartridge: anytype, ppu: anytype, address: u16) u16 {
     const low = read(state, cartridge, ppu, address);
     const high = read(state, cartridge, ppu, address +% 1); // Wrapping add for address $FFFF
     return (@as(u16, high) << 8) | @as(u16, low);
@@ -196,7 +196,7 @@ pub fn read16(state: *State, cartridge: anytype, ppu: anytype, address: u16) u16
 ///   - address: 16-bit starting address
 ///
 /// Returns: 16-bit value (with page-wrap bug applied)
-pub fn read16Bug(state: *State, cartridge: anytype, ppu: anytype, address: u16) u16 {
+pub fn read16Bug(state: *BusState, cartridge: anytype, ppu: anytype, address: u16) u16 {
     const low_addr = address;
     // If low byte is $FF, wrap to $x00 instead of crossing page
     const high_addr = if ((address & 0x00FF) == 0x00FF)
@@ -219,7 +219,7 @@ pub fn read16Bug(state: *State, cartridge: anytype, ppu: anytype, address: u16) 
 ///   - cartridge: Optional cartridge
 ///   - ppu: Optional PPU
 ///   - address: 16-bit address to read from
-pub inline fn dummyRead(state: *State, cartridge: anytype, ppu: anytype, address: u16) void {
+pub inline fn dummyRead(state: *BusState, cartridge: anytype, ppu: anytype, address: u16) void {
     _ = read(state, cartridge, ppu, address);
 }
 
@@ -237,14 +237,14 @@ pub inline fn dummyRead(state: *State, cartridge: anytype, ppu: anytype, address
 ///   - cartridge: Optional cartridge
 ///   - ppu: Optional PPU
 ///   - address: 16-bit address to write to
-pub inline fn dummyWrite(state: *State, cartridge: anytype, ppu: anytype, address: u16) void {
+pub inline fn dummyWrite(state: *BusState, cartridge: anytype, ppu: anytype, address: u16) void {
     const value = readInternal(state, cartridge, ppu, address);
     write(state, cartridge, ppu, address, value);
 }
 
 /// Increment cycle counter
 /// Should be called once per PPU cycle by the emulation loop
-pub inline fn tick(state: *State) void {
+pub inline fn tick(state: *BusState) void {
     state.cycle += 1;
 }
 

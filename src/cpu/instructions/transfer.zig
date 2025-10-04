@@ -8,9 +8,9 @@
 
 const std = @import("std");
 const Cpu = @import("../Cpu.zig");
-const Bus = @import("../../bus/Bus.zig").Bus;
+const BusState = @import("../../bus/Bus.zig").State.BusState;
 
-const State = Cpu.State.State;
+const CpuState = Cpu.State.CpuState;
 
 // ============================================================================
 // Transfer Instructions (2 cycles, implied mode)
@@ -19,7 +19,7 @@ const State = Cpu.State.State;
 /// TAX - Transfer Accumulator to X
 /// X = A
 /// Flags: N, Z
-pub fn tax(state: *State, bus: *Bus) bool {
+pub fn tax(state: *CpuState, bus: *BusState) bool {
     _ = bus;
     state.x = state.a;
     state.p.updateZN(state.x);
@@ -29,7 +29,7 @@ pub fn tax(state: *State, bus: *Bus) bool {
 /// TXA - Transfer X to Accumulator
 /// A = X
 /// Flags: N, Z
-pub fn txa(state: *State, bus: *Bus) bool {
+pub fn txa(state: *CpuState, bus: *BusState) bool {
     _ = bus;
     state.a = state.x;
     state.p.updateZN(state.a);
@@ -39,7 +39,7 @@ pub fn txa(state: *State, bus: *Bus) bool {
 /// TAY - Transfer Accumulator to Y
 /// Y = A
 /// Flags: N, Z
-pub fn tay(state: *State, bus: *Bus) bool {
+pub fn tay(state: *CpuState, bus: *BusState) bool {
     _ = bus;
     state.y = state.a;
     state.p.updateZN(state.y);
@@ -49,7 +49,7 @@ pub fn tay(state: *State, bus: *Bus) bool {
 /// TYA - Transfer Y to Accumulator
 /// A = Y
 /// Flags: N, Z
-pub fn tya(state: *State, bus: *Bus) bool {
+pub fn tya(state: *CpuState, bus: *BusState) bool {
     _ = bus;
     state.a = state.y;
     state.p.updateZN(state.a);
@@ -59,7 +59,7 @@ pub fn tya(state: *State, bus: *Bus) bool {
 /// TSX - Transfer Stack Pointer to X
 /// X = SP
 /// Flags: N, Z
-pub fn tsx(state: *State, bus: *Bus) bool {
+pub fn tsx(state: *CpuState, bus: *BusState) bool {
     _ = bus;
     state.x = state.sp;
     state.p.updateZN(state.x);
@@ -69,7 +69,7 @@ pub fn tsx(state: *State, bus: *Bus) bool {
 /// TXS - Transfer X to Stack Pointer
 /// SP = X
 /// Flags: None
-pub fn txs(state: *State, bus: *Bus) bool {
+pub fn txs(state: *CpuState, bus: *BusState) bool {
     _ = bus;
     state.sp = state.x;
     return true;
@@ -81,7 +81,7 @@ pub fn txs(state: *State, bus: *Bus) bool {
 
 /// SEC - Set Carry Flag
 /// C = 1
-pub fn sec(state: *State, bus: *Bus) bool {
+pub fn sec(state: *CpuState, bus: *BusState) bool {
     _ = bus;
     state.p.carry = true;
     return true;
@@ -89,7 +89,7 @@ pub fn sec(state: *State, bus: *Bus) bool {
 
 /// CLC - Clear Carry Flag
 /// C = 0
-pub fn clc(state: *State, bus: *Bus) bool {
+pub fn clc(state: *CpuState, bus: *BusState) bool {
     _ = bus;
     state.p.carry = false;
     return true;
@@ -97,7 +97,7 @@ pub fn clc(state: *State, bus: *Bus) bool {
 
 /// SEI - Set Interrupt Disable
 /// I = 1
-pub fn sei(state: *State, bus: *Bus) bool {
+pub fn sei(state: *CpuState, bus: *BusState) bool {
     _ = bus;
     state.p.interrupt = true;
     return true;
@@ -105,7 +105,7 @@ pub fn sei(state: *State, bus: *Bus) bool {
 
 /// CLI - Clear Interrupt Disable
 /// I = 0
-pub fn cli(state: *State, bus: *Bus) bool {
+pub fn cli(state: *CpuState, bus: *BusState) bool {
     _ = bus;
     state.p.interrupt = false;
     return true;
@@ -114,7 +114,7 @@ pub fn cli(state: *State, bus: *Bus) bool {
 /// SED - Set Decimal Flag
 /// D = 1
 /// Note: NES CPU ignores decimal mode, but flag can still be set
-pub fn sed(state: *State, bus: *Bus) bool {
+pub fn sed(state: *CpuState, bus: *BusState) bool {
     _ = bus;
     state.p.decimal = true;
     return true;
@@ -122,7 +122,7 @@ pub fn sed(state: *State, bus: *Bus) bool {
 
 /// CLD - Clear Decimal Flag
 /// D = 0
-pub fn cld(state: *State, bus: *Bus) bool {
+pub fn cld(state: *CpuState, bus: *BusState) bool {
     _ = bus;
     state.p.decimal = false;
     return true;
@@ -130,7 +130,7 @@ pub fn cld(state: *State, bus: *Bus) bool {
 
 /// CLV - Clear Overflow Flag
 /// V = 0
-pub fn clv(state: *State, bus: *Bus) bool {
+pub fn clv(state: *CpuState, bus: *BusState) bool {
     _ = bus;
     state.p.overflow = false;
     return true;
@@ -148,7 +148,7 @@ pub fn clv(state: *State, bus: *Bus) bool {
 /// - Z = (A & M) == 0
 ///
 /// Supports: Zero Page (3 cycles), Absolute (4 cycles)
-pub fn bit(state: *State, bus: *Bus) bool {
+pub fn bit(state: *CpuState, bus: *BusState) bool {
     _ = bus;
     var value: u8 = undefined;
 
@@ -179,7 +179,7 @@ const testing = std.testing;
 
 test "TAX: transfer and update flags" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.a = 0x42;
     _ = tax(&state, &bus);
@@ -191,7 +191,7 @@ test "TAX: transfer and update flags" {
 
 test "TAX: zero flag" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.a = 0x00;
     _ = tax(&state, &bus);
@@ -202,7 +202,7 @@ test "TAX: zero flag" {
 
 test "TXA: transfer and update flags" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.x = 0x80;
     _ = txa(&state, &bus);
@@ -213,7 +213,7 @@ test "TXA: transfer and update flags" {
 
 test "TAY and TYA: round trip" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.a = 0x55;
     _ = tay(&state, &bus);
@@ -226,7 +226,7 @@ test "TAY and TYA: round trip" {
 
 test "TSX: transfer stack pointer" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.sp = 0xFD;
     _ = tsx(&state, &bus);
@@ -237,7 +237,7 @@ test "TSX: transfer stack pointer" {
 
 test "TXS: transfer to stack pointer, no flags" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.x = 0x80;
     const old_flags = state.p;
@@ -251,7 +251,7 @@ test "TXS: transfer to stack pointer, no flags" {
 
 test "SEC and CLC" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.p.carry = false;
     _ = sec(&state, &bus);
@@ -263,7 +263,7 @@ test "SEC and CLC" {
 
 test "SEI and CLI" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.p.interrupt = false;
     _ = sei(&state, &bus);
@@ -275,7 +275,7 @@ test "SEI and CLI" {
 
 test "SED and CLD" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.p.decimal = false;
     _ = sed(&state, &bus);
@@ -287,7 +287,7 @@ test "SED and CLD" {
 
 test "CLV: clear overflow" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.p.overflow = true;
     _ = clv(&state, &bus);
@@ -296,7 +296,7 @@ test "CLV: clear overflow" {
 
 test "BIT: zero page mode" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.a = 0xFF;
     state.temp_value = 0xC0; // Bits 7 and 6 set
@@ -311,7 +311,7 @@ test "BIT: zero page mode" {
 
 test "BIT: zero flag set" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.a = 0x0F;
     state.temp_value = 0xF0; // No overlap with A
@@ -326,7 +326,7 @@ test "BIT: zero flag set" {
 
 test "BIT: flags from memory value" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.a = 0xFF;
     state.temp_value = 0x00; // All bits clear

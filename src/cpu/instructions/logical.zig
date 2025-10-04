@@ -5,17 +5,17 @@
 
 const std = @import("std");
 const Cpu = @import("../Cpu.zig");
-const Bus = @import("../../bus/Bus.zig").Bus;
+const BusState = @import("../../bus/Bus.zig").State.BusState;
 const helpers = @import("../helpers.zig");
 
-const State = Cpu.State.State;
+const CpuState = Cpu.State.CpuState;
 
 /// AND - Logical AND
 /// A = A & M
 /// Flags: N, Z
 ///
 /// Supports all addressing modes (8 total)
-pub fn logicalAnd(state: *State, bus: *Bus) bool {
+pub fn logicalAnd(state: *CpuState, bus: *BusState) bool {
     const value = helpers.readOperand(state, bus);
 
     state.a &= value;
@@ -29,7 +29,7 @@ pub fn logicalAnd(state: *State, bus: *Bus) bool {
 /// Flags: N, Z
 ///
 /// Supports all addressing modes (8 total)
-pub fn logicalOr(state: *State, bus: *Bus) bool {
+pub fn logicalOr(state: *CpuState, bus: *BusState) bool {
     const value = helpers.readOperand(state, bus);
 
     state.a |= value;
@@ -43,7 +43,7 @@ pub fn logicalOr(state: *State, bus: *Bus) bool {
 /// Flags: N, Z
 ///
 /// Supports all addressing modes (8 total)
-pub fn logicalXor(state: *State, bus: *Bus) bool {
+pub fn logicalXor(state: *CpuState, bus: *BusState) bool {
     const value = helpers.readOperand(state, bus);
 
     state.a ^= value;
@@ -60,7 +60,7 @@ const testing = std.testing;
 
 test "AND: immediate mode - basic operation" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.a = 0xFF;
     state.pc = 0x0000;
@@ -77,7 +77,7 @@ test "AND: immediate mode - basic operation" {
 
 test "AND: zero flag" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.a = 0x0F;
     state.pc = 0x0000;
@@ -93,7 +93,7 @@ test "AND: zero flag" {
 
 test "AND: negative flag" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.a = 0xFF;
     state.pc = 0x0000;
@@ -109,7 +109,7 @@ test "AND: negative flag" {
 
 test "ORA: immediate mode - basic operation" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.a = 0x0F;
     state.pc = 0x0000;
@@ -126,7 +126,7 @@ test "ORA: immediate mode - basic operation" {
 
 test "ORA: zero to non-zero" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.a = 0x00;
     state.pc = 0x0000;
@@ -142,7 +142,7 @@ test "ORA: zero to non-zero" {
 
 test "ORA: both zero" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.a = 0x00;
     state.pc = 0x0000;
@@ -158,7 +158,7 @@ test "ORA: both zero" {
 
 test "EOR: immediate mode - basic operation" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.a = 0xFF;
     state.pc = 0x0000;
@@ -175,7 +175,7 @@ test "EOR: immediate mode - basic operation" {
 
 test "EOR: same values give zero" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.a = 0x42;
     state.pc = 0x0000;
@@ -191,7 +191,7 @@ test "EOR: same values give zero" {
 
 test "EOR: invert bits" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.a = 0xAA; // 10101010
     state.pc = 0x0000;

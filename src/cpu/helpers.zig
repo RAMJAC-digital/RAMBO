@@ -5,10 +5,10 @@
 //! abstraction.
 
 const Cpu = @import("Cpu.zig");
-const Bus = @import("../bus/Bus.zig").Bus;
+const BusState = @import("../bus/Bus.zig").State.BusState;
 const constants = @import("constants.zig");
 
-const State = Cpu.State.State; // CPU State type, not module
+const CpuState = Cpu.State.CpuState; // CPU State type, not module
 
 // ============================================================================
 // Memory Access Helpers
@@ -21,7 +21,7 @@ const State = Cpu.State.State; // CPU State type, not module
 /// - Page cross: Perform actual read from effective_address (5 cycles total)
 ///
 /// Applies to: absolute,X / absolute,Y / indirect,Y
-pub inline fn readWithPageCrossing(state: *State, bus: *Bus) u8 {
+pub inline fn readWithPageCrossing(state: *CpuState, bus: *BusState) u8 {
     if ((state.address_mode == .absolute_x or
         state.address_mode == .absolute_y or
         state.address_mode == .indirect_indexed) and
@@ -39,13 +39,13 @@ pub inline fn readWithPageCrossing(state: *State, bus: *Bus) u8 {
 ///
 /// Usage:
 /// ```zig
-/// pub fn lda(state: *State, bus: *Bus) bool {
+/// pub fn lda(state: *CpuState, bus: *BusState) bool {
 ///     state.a = helpers.readOperand(state, bus);
 ///     state.p.updateZN(state.a);
 ///     return true;
 /// }
 /// ```
-pub inline fn readOperand(state: *State, bus: *Bus) u8 {
+pub inline fn readOperand(state: *CpuState, bus: *BusState) u8 {
     return switch (state.address_mode) {
         .immediate => blk: {
             // Immediate mode: fetch operand from PC (part of execute cycle)
@@ -72,12 +72,12 @@ pub inline fn readOperand(state: *State, bus: *Bus) u8 {
 ///
 /// Usage:
 /// ```zig
-/// pub fn sta(state: *State, bus: *Bus) bool {
+/// pub fn sta(state: *CpuState, bus: *BusState) bool {
 ///     helpers.writeOperand(state, bus, state.a);
 ///     return true;
 /// }
 /// ```
-pub inline fn writeOperand(state: *State, bus: *Bus, value: u8) void {
+pub inline fn writeOperand(state: *CpuState, bus: *BusState, value: u8) void {
     switch (state.address_mode) {
         .zero_page => bus.write(@as(u16, state.operand_low), value),
         .zero_page_x, .zero_page_y => bus.write(state.effective_address, value),

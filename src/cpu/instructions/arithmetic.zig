@@ -8,10 +8,10 @@
 
 const std = @import("std");
 const Cpu = @import("../Cpu.zig");
-const Bus = @import("../../bus/Bus.zig").Bus;
+const BusState = @import("../../bus/Bus.zig").State.BusState;
 const helpers = @import("../helpers.zig");
 
-const State = Cpu.State.State;
+const CpuState = Cpu.State.CpuState;
 
 /// ADC - Add with Carry
 /// A = A + M + C
@@ -21,7 +21,7 @@ const State = Cpu.State.State;
 /// - Immediate, Zero Page, Zero Page X
 /// - Absolute, Absolute X, Absolute Y
 /// - Indexed Indirect, Indirect Indexed
-pub fn adc(state: *State, bus: *Bus) bool {
+pub fn adc(state: *CpuState, bus: *BusState) bool {
     const value = helpers.readOperand(state, bus);
 
     // Perform addition with carry
@@ -60,7 +60,7 @@ pub fn adc(state: *State, bus: *Bus) bool {
 /// - Immediate, Zero Page, Zero Page X
 /// - Absolute, Absolute X, Absolute Y
 /// - Indexed Indirect, Indirect Indexed
-pub fn sbc(state: *State, bus: *Bus) bool {
+pub fn sbc(state: *CpuState, bus: *BusState) bool {
     const value = helpers.readOperand(state, bus);
 
     // SBC is equivalent to ADC with inverted operand
@@ -97,7 +97,7 @@ const testing = std.testing;
 
 test "ADC: immediate mode - simple addition" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.a = 0x50;
     state.p.carry = false;
@@ -117,7 +117,7 @@ test "ADC: immediate mode - simple addition" {
 
 test "ADC: addition with carry in" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.a = 0x50;
     state.p.carry = true; // Carry in
@@ -134,7 +134,7 @@ test "ADC: addition with carry in" {
 
 test "ADC: carry flag set on overflow" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.a = 0xFF;
     state.p.carry = false;
@@ -152,7 +152,7 @@ test "ADC: carry flag set on overflow" {
 
 test "ADC: overflow flag - positive + positive = negative" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.a = 0x50; // +80
     state.p.carry = false;
@@ -171,7 +171,7 @@ test "ADC: overflow flag - positive + positive = negative" {
 
 test "ADC: overflow flag - negative + negative = positive" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.a = 0x80; // -128
     state.p.carry = false;
@@ -190,7 +190,7 @@ test "ADC: overflow flag - negative + negative = positive" {
 
 test "ADC: no overflow - positive + negative" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.a = 0x50; // +80
     state.p.carry = false;
@@ -208,7 +208,7 @@ test "ADC: no overflow - positive + negative" {
 
 test "SBC: immediate mode - simple subtraction" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.a = 0x50;
     state.p.carry = true; // No borrow
@@ -226,7 +226,7 @@ test "SBC: immediate mode - simple subtraction" {
 
 test "SBC: subtraction with borrow" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.a = 0x50;
     state.p.carry = false; // Borrow
@@ -243,7 +243,7 @@ test "SBC: subtraction with borrow" {
 
 test "SBC: borrow flag cleared" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.a = 0x10;
     state.p.carry = true; // No borrow
@@ -261,7 +261,7 @@ test "SBC: borrow flag cleared" {
 
 test "SBC: overflow flag - positive - negative = overflow" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.a = 0x50; // +80
     state.p.carry = true;
@@ -277,7 +277,7 @@ test "SBC: overflow flag - positive - negative = overflow" {
 
 test "SBC: zero flag" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.a = 0x50;
     state.p.carry = true;

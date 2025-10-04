@@ -11,10 +11,10 @@
 //! Store instructions do not affect any flags.
 
 const Cpu = @import("../Cpu.zig");
-const Bus = @import("../../bus/Bus.zig").Bus;
+const BusState = @import("../../bus/Bus.zig").State.BusState;
 const helpers = @import("../helpers.zig");
 
-const State = Cpu.State.State;
+const CpuState = Cpu.State.CpuState;
 
 // ============================================================================
 // Load Instructions
@@ -28,7 +28,7 @@ const State = Cpu.State.State;
 /// - Immediate, Zero Page, Zero Page,X
 /// - Absolute, Absolute,X, Absolute,Y
 /// - Indexed Indirect, Indirect Indexed
-pub fn lda(state: *State, bus: *Bus) bool {
+pub fn lda(state: *CpuState, bus: *BusState) bool {
     const value = helpers.readOperand(state, bus);
 
     state.a = value;
@@ -43,7 +43,7 @@ pub fn lda(state: *State, bus: *Bus) bool {
 /// Supports 5 addressing modes:
 /// - Immediate, Zero Page, Zero Page,Y
 /// - Absolute, Absolute,Y
-pub fn ldx(state: *State, bus: *Bus) bool {
+pub fn ldx(state: *CpuState, bus: *BusState) bool {
     const value = helpers.readOperand(state, bus);
 
     state.x = value;
@@ -58,7 +58,7 @@ pub fn ldx(state: *State, bus: *Bus) bool {
 /// Supports 5 addressing modes:
 /// - Immediate, Zero Page, Zero Page,X
 /// - Absolute, Absolute,X
-pub fn ldy(state: *State, bus: *Bus) bool {
+pub fn ldy(state: *CpuState, bus: *BusState) bool {
     const value = helpers.readOperand(state, bus);
 
     state.y = value;
@@ -78,7 +78,7 @@ pub fn ldy(state: *State, bus: *Bus) bool {
 /// - Zero Page, Zero Page,X
 /// - Absolute, Absolute,X, Absolute,Y
 /// - Indexed Indirect, Indirect Indexed
-pub fn sta(state: *State, bus: *Bus) bool {
+pub fn sta(state: *CpuState, bus: *BusState) bool {
     helpers.writeOperand(state, bus, state.a);
     return true;
 }
@@ -90,7 +90,7 @@ pub fn sta(state: *State, bus: *Bus) bool {
 /// Supports 3 addressing modes:
 /// - Zero Page, Zero Page,Y
 /// - Absolute
-pub fn stx(state: *State, bus: *Bus) bool {
+pub fn stx(state: *CpuState, bus: *BusState) bool {
     helpers.writeOperand(state, bus, state.x);
     return true;
 }
@@ -102,7 +102,7 @@ pub fn stx(state: *State, bus: *Bus) bool {
 /// Supports 3 addressing modes:
 /// - Zero Page, Zero Page,X
 /// - Absolute
-pub fn sty(state: *State, bus: *Bus) bool {
+pub fn sty(state: *CpuState, bus: *BusState) bool {
     helpers.writeOperand(state, bus, state.y);
     return true;
 }
@@ -116,7 +116,7 @@ const testing = std.testing;
 
 test "LDA: immediate mode" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.address_mode = .immediate;
     state.pc = 0;
@@ -131,7 +131,7 @@ test "LDA: immediate mode" {
 
 test "LDA: zero flag" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.address_mode = .immediate;
     state.pc = 0;
@@ -146,7 +146,7 @@ test "LDA: zero flag" {
 
 test "LDA: negative flag" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.address_mode = .immediate;
     state.pc = 0;
@@ -161,7 +161,7 @@ test "LDA: negative flag" {
 
 test "LDA: zero page" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     bus.write(0x0042, 0x55);
     state.address_mode = .zero_page;
@@ -174,7 +174,7 @@ test "LDA: zero page" {
 
 test "LDA: absolute" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     bus.write(0x1234, 0xAA);
     state.address_mode = .absolute;
@@ -188,7 +188,7 @@ test "LDA: absolute" {
 
 test "LDX: immediate mode" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.address_mode = .immediate;
     state.pc = 0;
@@ -204,7 +204,7 @@ test "LDX: immediate mode" {
 
 test "LDY: immediate mode" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.address_mode = .immediate;
     state.pc = 0;
@@ -220,7 +220,7 @@ test "LDY: immediate mode" {
 
 test "STA: zero page" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.a = 0x42;
     state.address_mode = .zero_page;
@@ -233,7 +233,7 @@ test "STA: zero page" {
 
 test "STA: absolute" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.a = 0x55;
     state.address_mode = .absolute;
@@ -247,7 +247,7 @@ test "STA: absolute" {
 
 test "STA: does not affect flags" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.a = 0x00; // Would set zero flag if LDA
     state.p.zero = false;
@@ -264,7 +264,7 @@ test "STA: does not affect flags" {
 
 test "STX: zero page" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.x = 0x42;
     state.address_mode = .zero_page;
@@ -277,7 +277,7 @@ test "STX: zero page" {
 
 test "STY: zero page" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.y = 0x42;
     state.address_mode = .zero_page;
@@ -290,7 +290,7 @@ test "STY: zero page" {
 
 test "load/store: page crossing with absolute,X" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     // Setup: absolute,X with page crossing
     state.address_mode = .absolute_x;
@@ -310,7 +310,7 @@ test "load/store: page crossing with absolute,X" {
 
 test "load/store: no page crossing uses temp_value" {
     var state = Cpu.Logic.init();
-    var bus = Bus.init();
+    var bus = BusState.init();
 
     state.address_mode = .absolute_x;
     state.page_crossed = false;
