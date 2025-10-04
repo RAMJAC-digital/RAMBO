@@ -250,6 +250,20 @@ pub fn build(b: *std.Build) void {
 
     const run_sprite_rendering_tests = b.addRunArtifact(sprite_rendering_tests);
 
+    // Snapshot integration tests
+    const snapshot_integration_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/snapshot/snapshot_integration_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+
+    const run_snapshot_integration_tests = b.addRunArtifact(snapshot_integration_tests);
+
     // ========================================================================
     // Test Step Configuration
     // ========================================================================
@@ -263,6 +277,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_chr_integration_tests.step);
     test_step.dependOn(&run_sprite_evaluation_tests.step);
     test_step.dependOn(&run_sprite_rendering_tests.step);
+    test_step.dependOn(&run_snapshot_integration_tests.step);
 
     // Separate step for just unit tests
     const unit_test_step = b.step("test-unit", "Run unit tests only");
@@ -277,6 +292,7 @@ pub fn build(b: *std.Build) void {
     integration_test_step.dependOn(&run_chr_integration_tests.step);
     integration_test_step.dependOn(&run_sprite_evaluation_tests.step);
     integration_test_step.dependOn(&run_sprite_rendering_tests.step);
+    integration_test_step.dependOn(&run_snapshot_integration_tests.step);
 
     // Cycle trace test
     const cycle_trace_test = b.addTest(.{

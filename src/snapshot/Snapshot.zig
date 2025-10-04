@@ -199,7 +199,22 @@ pub fn loadBinary(
     // TODO: Implement full cartridge reconstruction from embedded data
     if (cart_snapshot == .reference) {
         const is_empty_reference = cart_snapshot.reference.rom_path.len == 0;
-        if (!is_empty_reference and cartridge == null) return error.CartridgeRequired;
+
+        // Check if cartridge is required (only for non-empty references)
+        if (!is_empty_reference) {
+            const CartType = @TypeOf(cartridge);
+            const type_info = @typeInfo(CartType);
+
+            // Handle optional pointer types
+            switch (type_info) {
+                .optional => {
+                    if (cartridge == null) return error.CartridgeRequired;
+                },
+                else => {
+                    // Non-optional pointers are always valid (can't be null)
+                },
+            }
+        }
         // TODO: Verify cartridge hash matches snapshot hash when cartridge provided
     }
 
@@ -215,9 +230,21 @@ pub fn loadBinary(
         .rendering_enabled = flags.rendering_enabled,
     };
 
-    // Connect cartridge pointer
-    if (cartridge) |cart| {
-        emu_state.bus.cartridge = cart;
+    // Connect cartridge pointer (handle both optional and non-optional pointers)
+    const CartType = @TypeOf(cartridge);
+    const type_info = @typeInfo(CartType);
+
+    switch (type_info) {
+        .optional => {
+            // Optional pointer - unwrap if present
+            if (cartridge) |cart| {
+                emu_state.bus.cartridge = cart;
+            }
+        },
+        else => {
+            // Non-optional pointer - directly assign
+            emu_state.bus.cartridge = cartridge;
+        },
     }
 
     // Wire up internal pointers (bus.ppu, ppu.cartridge, etc.)
