@@ -51,7 +51,19 @@ zig build run
 ```
 Total: 575/576 tests passing (99.8%)
 
-✅ CPU Tests: 105/105 (100%)
+✅ CPU Opcode Tests: 214/214 (100%)
+  - Arithmetic: 17/17 ✅ (ADC, SBC)
+  - Load/Store: 22/22 ✅ (LDA, LDX, LDY, STA, STX, STY)
+  - Logical: 9/9 ✅ (AND, OR, EOR)
+  - Compare: 19/19 ✅ (CMP, CPX, CPY, BIT)
+  - Transfer: 16/16 ✅ (TAX, TXA, TAY, TYA, TSX, TXS + flags)
+  - Inc/Dec: 15/15 ✅ (INX, INY, DEX, DEY, INC, DEC)
+  - Stack: 7/7 ✅ (PHA, PHP, PLA, PLP)
+  - Shifts: 17/17 ✅ (ASL, LSR, ROL, ROR)
+  - Branch: 12/12 ✅ (BCC, BCS, BEQ, BNE, BMI, BPL, BVC, BVS)
+  - Jumps: 8/8 ✅ (JMP, NOP + placeholders)
+  - Unofficial: 72/72 ✅ (105 unofficial opcodes)
+✅ CPU Integration Tests: 105/105 (100%)
 ✅ PPU Background Tests: 6/6 (100%)
 ✅ PPU Sprite Tests: 73/73 (100%)
   - Sprite Evaluation: 15/15 ✅
@@ -63,7 +75,6 @@ Total: 575/576 tests passing (99.8%)
 ✅ Snapshot Tests: 8/9 (89% - 1 cosmetic metadata issue)
 ✅ Integration Tests: 21/21 (100%)
 ✅ Comptime Tests: 8/8 (100%)
-✅ Inline Unit Tests: ~297 (in implementation files)
 ```
 
 ---
@@ -181,24 +192,25 @@ src/cpu/
 ├── Cpu.zig           # Module re-exports
 ├── State.zig         # CpuState - 6502 registers and microstep state
 ├── Logic.zig         # Pure functions for CPU operations
-├── opcodes.zig       # 256-opcode compile-time table
 ├── execution.zig     # Microstep execution engine
 ├── addressing.zig    # Addressing mode microsteps
 ├── dispatch.zig      # Opcode → executor mapping
 ├── constants.zig     # CPU constants
 ├── helpers.zig       # Helper functions
-└── instructions/     # Instruction implementations (11 files)
-    ├── loadstore.zig # LDA/LDX/LDY, STA/STX/STY
-    ├── arithmetic.zig # ADC, SBC
-    ├── logical.zig   # AND, ORA, EOR
-    ├── shifts.zig    # ASL, LSR, ROL, ROR
-    ├── incdec.zig    # INC, DEC, INX, INY, DEX, DEY
-    ├── compare.zig   # CMP, CPX, CPY, BIT
-    ├── branch.zig    # BCC, BCS, BEQ, BNE, BMI, BPL, BVC, BVS
-    ├── jumps.zig     # JMP, JSR, RTS, RTI, BRK
-    ├── stack.zig     # PHA, PLA, PHP, PLP
-    ├── transfer.zig  # TAX, TXA, TAY, TYA, TSX, TXS, flag ops
-    └── unofficial.zig # All 105 unofficial opcodes
+└── opcodes/          # Pure functional opcodes (12 submodules + mod.zig)
+    ├── mod.zig            # Central re-export module (226 lines)
+    ├── loadstore.zig      # LDA/LDX/LDY, STA/STX/STY (6 functions)
+    ├── arithmetic.zig     # ADC, SBC (2 functions)
+    ├── logical.zig        # AND, ORA, EOR (3 functions)
+    ├── compare.zig        # CMP, CPX, CPY, BIT (4 functions)
+    ├── flags.zig          # CLC, CLD, CLI, CLV, SEC, SED, SEI (7 functions)
+    ├── transfer.zig       # TAX, TXA, TAY, TYA, TSX, TXS (6 functions)
+    ├── stack.zig          # PHA, PLA, PHP, PLP (4 functions)
+    ├── incdec.zig         # INC, DEC, INX, INY, DEX, DEY (6 functions)
+    ├── shifts.zig         # ASL, LSR, ROL, ROR variants (8 functions)
+    ├── branch.zig         # BCC, BCS, BEQ, BNE, BMI, BPL, BVC, BVS (8 functions)
+    ├── control.zig        # JMP, NOP (2 functions)
+    └── unofficial.zig     # All 105 unofficial opcodes (20 functions)
 ```
 
 ---
