@@ -1,41 +1,39 @@
-# RAMBO Code Review Hub
+# RAMBO Code Review Hub - 2025-10-05
 
-**Date:** 2025-10-05
-**Status:** Post-Refactoring Analysis Complete. Ready for Video Subsystem Implementation.
+**Status:** 🔴 **CRITICAL** - Active Bug Fixes & Test Restoration In Progress.
 
 ## 1. Overview
 
-This directory contains the complete and up-to-date code review analysis of the RAMBO project as of 2025-10-05. This review was conducted after major architectural refactoring, including the implementation of the State/Logic pattern, `comptime` generics for mappers, and the new `libxev`-based threading architecture (`mailboxes`).
+This directory contains the complete and up-to-date code review analysis of the RAMBO project as of 2025-10-05.
 
-The project is in a strong state, adhering well to modern Zig practices and the core design principles of the hybrid architecture. The codebase is deterministic, RT-safe in its core components, and well-tested.
+A deep review has revealed a **critical situation** that halts all new feature development (including the video subsystem). While the project's "pure functional" CPU architecture is sound, a major refactoring effort led to two critical issues:
+
+1.  **Critical Bug:** The `SBC` (Subtract with Carry) instruction was implemented incorrectly, producing wrong results for all subtraction operations. **This bug has been fixed.**
+2.  **Critical Test Regression:** 166 opcode-specific unit tests were deleted and not migrated during the refactoring, leaving the CPU's core logic almost entirely unverified at a unit level.
+
+The immediate and sole priority of the project is to restore full test coverage for the CPU to ensure correctness and prevent future bugs.
 
 ## 2. Primary Planning Document
 
-All outstanding tasks and new findings from this review are consolidated into a single, authoritative planning document:
+All outstanding tasks are consolidated into a single, authoritative planning document. This plan supersedes all previous cleanup plans.
 
-*   **[CLEANUP-PLAN-2025-10-05.md](./CLEANUP-PLAN-2025-10-05.md):** This is the prioritized roadmap for all remaining cleanup, refactoring, and minor bug fixes. All future work outside of major feature implementation should be tracked here.
+*   **[STATUS.md](./STATUS.md):** The prioritized roadmap for fixing all critical issues and addressing remaining cleanup tasks.
 
 ## 3. Code Review Status Summary
 
-This review cycle verified the project's adherence to its architectural goals and identified areas for improvement.
+*   **Architecture:** ✅ **Excellent.** The core State/Logic separation and pure functional CPU patterns are well-designed and robust.
+*   **CPU Implementation:** 🔴 **Critical.** The `SBC` bug, while now fixed, highlights the danger of the missing tests. 4 opcodes (JSR, RTS, RTI, BRK) are still unimplemented.
+*   **Testing:** 🔴 **Critical.** The deletion of 166 unit tests is a major regression. The remaining integration tests are insufficient to guarantee correctness, as proven by the `SBC` bug. A full test restoration effort is mandatory.
+*   **PPU & Bus:** 🟡 **Good, but with pending tasks.** The PPU and Bus systems are functional but have several important `TODO` items required for full accuracy (e.g., DMA timing, four-screen mirroring).
+*   **Configuration & Async I/O:** ✅ **Good.** The configuration parser and async I/O architecture are sound foundations for future work.
 
-*   **Architecture & State/Logic:** ✅ **Excellent.** The separation of `State` and `Logic` is applied consistently across all core components (CPU, PPU, Bus), ensuring determinism and testability.
-*   **`comptime` Polymorphism:** ✅ **Excellent.** V-tables have been successfully eliminated in favor of `comptime` duck typing for mappers, resulting in zero-cost abstractions.
-*   **Threading & I/O:** ✅ **Good.** The new `mailboxes` system provides a clean, thread-safe communication layer for I/O. The design is sound, though the `libxev` integration in `main.zig` is currently a placeholder for the full implementation.
-*   **RT-Safety:** ✅ **Good.** The core emulation loop (`EmulationState.tick`) is RT-safe. Minor issues were found in non-critical paths and have been documented in the cleanup plan.
-*   **Testing:** ✅ **Excellent.** The project has a comprehensive test suite, including unit, integration, and cycle-trace tests. The data-driven testing approach using the snapshot/debugger system is a major strength.
-*   **Configuration:** 🟡 **Needs Improvement.** The `Config.zig` system is functional but uses manual KDL parsing, which is brittle. It should be updated to use a proper KDL library.
+## 4. Detailed Review Documents
 
-## 4. Detailed Review Categories
-
-For detailed findings on specific components, refer to the individual review documents:
-
-*   **[01-architecture.md](./01-architecture.md):** Verification of the hybrid architecture and State/Logic pattern.
-*   **[02-cpu.md](./02-cpu.md):** Analysis of the CPU implementation, including the dispatch mechanism.
-*   **[03-ppu.md](./03-ppu.md):** Review of the PPU, including the rendering pipeline and timing.
-*   **[04-memory-and-bus.md](./04-memory-and-bus.md):** Analysis of memory mapping, mirroring, and open bus behavior.
-*   **[05-async-and-io.md](./05-async-and-io.md):** Review of the new `mailboxes` threading architecture.
-*   **[06-configuration.md](./06-configuration.md):** Findings related to the KDL configuration system.
-*   **[07-testing.md](./07-testing.md):** Analysis of test coverage, strategy, and the snapshot system.
-*   **[08-code-safety-and-best-practices.md](./08-code-safety-and-best-practices.md):** General code quality, safety, and Zig best practices.
-*   **[09-dead-code.md](./09-dead-code.md):** Identification of any remaining legacy or unused code.
+*   **[STATUS.md](./STATUS.md):** Master action plan.
+*   **[CPU.md](./CPU.md):** Detailed analysis of the CPU implementation.
+*   **[TESTING.md](./TESTING.md):** Report on the test regression and restoration plan.
+*   **[PPU.md](./PPU.md):** Review of the PPU.
+*   **[MEMORY_AND_BUS.md](./MEMORY_AND_BUS.md):** Analysis of the memory bus.
+*   **[ASYNC_AND_IO.md](./ASYNC_AND_IO.md):** Review of the threading and I/O architecture.
+*   **[CONFIGURATION.md](./CONFIGURATION.md):** Findings on the configuration system.
+*   **[CODE_SAFETY.md](./CODE_SAFETY.md):** General code quality and best practices.

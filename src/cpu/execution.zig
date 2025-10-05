@@ -309,6 +309,33 @@ pub fn branchFixPch(state: *CpuState, bus: *BusState) bool {
 }
 
 // ============================================================================
+// JMP Indirect Addressing (with 6502 page boundary bug)
+// ============================================================================
+
+/// Fetch low byte of JMP indirect target
+pub fn jmpIndirectFetchLow(state: *CpuState, bus: *BusState) bool {
+    // effective_address contains the pointer address
+    state.operand_low = bus.read(state.effective_address);
+    return false;
+}
+
+/// Fetch high byte of JMP indirect target (with page boundary bug)
+pub fn jmpIndirectFetchHigh(state: *CpuState, bus: *BusState) bool {
+    // 6502 bug: If pointer is at page boundary (e.g. $10FF),
+    // high byte is fetched from $1000 instead of $1100 (wraps within page)
+    const ptr = state.effective_address;
+    const high_addr = if ((ptr & 0xFF) == 0xFF)
+        ptr & 0xFF00 // Wrap to start of same page
+    else
+        ptr + 1;
+
+    state.operand_high = bus.read(high_addr);
+    // Construct target address in effective_address for JMP to use
+    state.effective_address = (@as(u16, state.operand_high) << 8) | state.operand_low;
+    return false;
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 

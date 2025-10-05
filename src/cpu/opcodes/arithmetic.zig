@@ -43,21 +43,24 @@ pub fn adc(state: CpuState, operand: u8) OpcodeResult {
 /// A = A - operand - (1 - C)
 /// Flags: N, Z, C, V
 pub fn sbc(state: CpuState, operand: u8) OpcodeResult {
+    // Implemented as A + ~M + C, which is how the 6502 hardware works.
+    // This correctly handles the borrow flag (carry = no borrow).
+    const inverted_operand = ~operand;
     const a = @as(u16, state.a);
-    const m = @as(u16, operand);
+    const m = @as(u16, inverted_operand);
     const c: u16 = if (state.p.carry) 1 else 0;
 
-    const result16 = a -% m -% (1 - c);
+    const result16 = a + m + c;
     const result = @as(u8, @truncate(result16));
 
-    // Overflow: (A and M have different signs) AND (A and result have different signs)
-    const overflow = ((state.a ^ operand) & (state.a ^ result) & 0x80) != 0;
+    // Overflow: (A and ~M have same sign) AND (result has different sign)
+    const overflow = ((state.a ^ result) & (inverted_operand ^ result) & 0x80) != 0;
 
     return .{
         .a = result,
         .flags = state.p
             .setZN(result)
-            .setCarry(result16 <= 0xFF)
+            .setCarry(result16 > 0xFF) // Carry is set if no borrow was needed
             .setOverflow(overflow),
     };
 }

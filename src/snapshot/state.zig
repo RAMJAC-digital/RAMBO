@@ -20,8 +20,6 @@ pub const ConfigValues = struct {
     console: Config.ConsoleVariant,
     cpu_variant: Config.CpuVariant,
     cpu_region: Config.VideoRegion,
-    cpu_unstable_sha: Config.SHABehavior,
-    cpu_unstable_lxa: u8,
     ppu_variant: Config.PpuVariant,
     ppu_region: Config.VideoRegion,
     ppu_accuracy: Config.AccuracyLevel,
@@ -35,8 +33,6 @@ pub fn extractConfigValues(config: *const Config.Config) ConfigValues {
         .console = config.console,
         .cpu_variant = config.cpu.variant,
         .cpu_region = config.cpu.region,
-        .cpu_unstable_sha = config.cpu.unstable_opcodes.sha_behavior,
-        .cpu_unstable_lxa = config.cpu.unstable_opcodes.lxa_magic,
         .ppu_variant = config.ppu.variant,
         .ppu_region = config.ppu.region,
         .ppu_accuracy = config.ppu.accuracy,
@@ -52,7 +48,6 @@ pub fn verifyConfigValues(config: *const Config.Config, values: ConfigValues) !v
     if (config.cpu.region != values.cpu_region) return error.ConfigMismatch;
     if (config.ppu.variant != values.ppu_variant) return error.ConfigMismatch;
     if (config.ppu.region != values.ppu_region) return error.ConfigMismatch;
-    // Note: We don't verify unstable opcode settings as they're behavioral, not structural
 }
 
 /// Write config values to binary format
@@ -62,8 +57,6 @@ pub fn writeConfig(writer: anytype, config: *const Config.Config) !void {
     try writer.writeByte(@intFromEnum(values.console));
     try writer.writeByte(@intFromEnum(values.cpu_variant));
     try writer.writeByte(@intFromEnum(values.cpu_region));
-    try writer.writeByte(@intFromEnum(values.cpu_unstable_sha));
-    try writer.writeByte(values.cpu_unstable_lxa);
     try writer.writeByte(@intFromEnum(values.ppu_variant));
     try writer.writeByte(@intFromEnum(values.ppu_region));
     try writer.writeByte(@intFromEnum(values.ppu_accuracy));
@@ -77,8 +70,6 @@ pub fn readConfig(reader: anytype) !ConfigValues {
         .console = @enumFromInt(try reader.readByte()),
         .cpu_variant = @enumFromInt(try reader.readByte()),
         .cpu_region = @enumFromInt(try reader.readByte()),
-        .cpu_unstable_sha = @enumFromInt(try reader.readByte()),
-        .cpu_unstable_lxa = try reader.readByte(),
         .ppu_variant = @enumFromInt(try reader.readByte()),
         .ppu_region = @enumFromInt(try reader.readByte()),
         .ppu_accuracy = @enumFromInt(try reader.readByte()),

@@ -8,6 +8,8 @@ const CpuState = StateModule.CpuState;
 const StatusFlags = StateModule.StatusFlags;
 const ExecutionState = StateModule.ExecutionState;
 const InterruptType = StateModule.InterruptType;
+const OpcodeResult = StateModule.OpcodeResult;
+const PureCpuState = StateModule.PureCpuState;
 
 /// Initialize CPU to power-on state
 /// Note: Actual NES power-on has undefined register values,
@@ -47,6 +49,113 @@ pub fn reset(state: *CpuState, bus: anytype) void {
 
     // Clear halted state - RESET recovers from JAM/KIL
     state.halted = false;
+}
+
+/// Convert full CPU state to pure CPU state (6502 registers + effective address)
+///
+/// Pure opcode functions operate on immutable 6502 state plus addressing context.
+/// This extracts the architectural registers and computed effective address.
+fn toPureState(state: *const CpuState) PureCpuState {
+    return .{
+        .a = state.a,
+        .x = state.x,
+        .y = state.y,
+        .sp = state.sp,
+        .pc = state.pc,
+        .p = state.p,
+        .effective_address = state.effective_address,
+    };
+}
+
+/// Extract operand value for pure opcode execution
+///
+/// This bridges addressing mode microsteps with pure opcode functions.
+/// RMW operations have temp_value pre-loaded by rmwRead microstep.
+/// Pull operations have temp_value loaded by pullByte microstep.
+/// Regular read operations need to fetch the value based on addressing mode.
+///
+/// Pattern:
+/// - RMW (is_rmw=true): Use temp_value (already read by rmwRead)
+/// - Pull (is_pull=true): Use temp_value (loaded by pullByte)
+/// - Regular reads: Read from computed address or use immediate value
+/// - Indexed modes: Use temp_value if no page cross (dummy read was correct)
+fn extractOperandValue(state: *const CpuState, bus: anytype, is_rmw: bool, is_pull: bool) u8 {
+    // RMW and pull operations always use pre-loaded temp_value
+    if (is_rmw or is_pull) {
+        return state.temp_value;
+    }
+
+    // Regular operations: extract based on addressing mode
+    return switch (state.address_mode) {
+        .immediate => blk: {
+            // Immediate mode: Read operand from PC during execute cycle (critical for 2-cycle timing)
+            const value = bus.read(state.pc);
+            // Note: PC increment happens in extractOperandValue, not here (to maintain const state)
+            break :blk value;
+        },
+        .accumulator => state.a,
+        .implied => 0, // No operand
+        .zero_page => bus.read(@as(u16, state.operand_low)),
+        .zero_page_x, .zero_page_y => bus.read(state.effective_address),
+        .absolute => blk: {
+            const addr = (@as(u16, state.operand_high) << 8) | state.operand_low;
+            break :blk bus.read(addr);
+        },
+        .absolute_x, .absolute_y, .indirect_indexed => blk: {
+            // Indexed modes: use temp_value if no page cross (dummy read was correct)
+            if (state.page_crossed) {
+                break :blk bus.read(state.effective_address);
+            }
+            break :blk state.temp_value;
+        },
+        .indexed_indirect => bus.read(state.effective_address),
+        .indirect => unreachable, // Only for JMP
+        .relative => state.operand_low, // Branch offset
+    };
+}
+
+/// Apply opcode execution result to CPU state
+///
+/// This function bridges pure opcode functions with stateful execution.
+/// Opcodes return OpcodeResult describing desired state changes.
+/// This function applies those changes to the actual CPU state.
+///
+/// Benefits:
+/// - Opcodes remain pure (testable without mocking)
+/// - Execution engine coordinates side effects (bus writes, stack ops)
+/// - Clear separation between computation and coordination
+pub fn applyOpcodeResult(state: *CpuState, bus: anytype, result: OpcodeResult) void {
+    // Apply register updates
+    if (result.a) |new_a| state.a = new_a;
+    if (result.x) |new_x| state.x = new_x;
+    if (result.y) |new_y| state.y = new_y;
+    if (result.sp) |new_sp| state.sp = new_sp;
+    if (result.pc) |new_pc| state.pc = new_pc;
+
+    // Apply flag updates
+    if (result.flags) |new_flags| state.p = new_flags;
+
+    // Handle bus write
+    if (result.bus_write) |write| {
+        bus.write(write.address, write.value);
+        state.data_bus = write.value; // Update open bus
+    }
+
+    // Handle stack push
+    if (result.push) |value| {
+        bus.write(0x0100 | @as(u16, state.sp), value);
+        state.sp -%= 1; // Wrapping decrement
+        state.data_bus = value;
+    }
+
+    // Handle stack pull request
+    // Note: Actual pull happens in execution engine
+    // This flag indicates pull is needed, value comes from bus read
+
+    // Handle halt
+    if (result.halt) {
+        state.halted = true;
+    }
 }
 
 /// Execute one CPU cycle
@@ -117,18 +226,37 @@ pub fn tick(state: *CpuState, bus: anytype) bool {
         return false;
     }
 
-    // Execute instruction
+    // Execute instruction (Pure Function Architecture)
     if (state.state == .execute) {
         const entry = dispatch.DISPATCH_TABLE[state.opcode];
-        const complete = entry.execute(state, bus);
 
-        if (complete) {
-            state.state = .fetch_opcode;
-            state.instruction_cycle = 0;
-            return true;
+        // Extract operand value based on addressing mode, RMW flag, and pull flag
+        const operand = extractOperandValue(state, bus, entry.is_rmw, entry.is_pull);
+
+        // Immediate mode: Increment PC after reading operand (2-cycle timing)
+        if (state.address_mode == .immediate) {
+            state.pc +%= 1;
         }
 
-        return false;
+        // Zero page modes: Set effective_address from operand_low
+        // (Needed for store operations that use effective_address)
+        if (state.address_mode == .zero_page) {
+            state.effective_address = @as(u16, state.operand_low);
+        }
+
+        // Convert to pure CPU state (6502 registers + effective address)
+        const pure_state = toPureState(state);
+
+        // Call pure opcode function (returns delta structure)
+        const result = entry.execute_pure(pure_state, operand);
+
+        // Apply delta to CPU state
+        applyOpcodeResult(state, bus, result);
+
+        // Instruction complete
+        state.state = .fetch_opcode;
+        state.instruction_cycle = 0;
+        return true;
     }
 
     // Handle interrupt states (existing logic preserved)

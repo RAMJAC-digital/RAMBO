@@ -219,6 +219,151 @@ pub fn build(b: *std.Build) void {
 
     const run_cpu_integration_tests = b.addRunArtifact(cpu_integration_tests);
 
+    // CPU opcode unit tests - arithmetic
+    const arithmetic_opcode_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/cpu/opcodes/arithmetic_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+
+    const run_arithmetic_opcode_tests = b.addRunArtifact(arithmetic_opcode_tests);
+
+    // CPU opcode unit tests - loadstore
+    const loadstore_opcode_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/cpu/opcodes/loadstore_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+
+    const run_loadstore_opcode_tests = b.addRunArtifact(loadstore_opcode_tests);
+
+    // CPU opcode unit tests - logical
+    const logical_opcode_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/cpu/opcodes/logical_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+    const run_logical_opcode_tests = b.addRunArtifact(logical_opcode_tests);
+
+    // CPU opcode unit tests - compare
+    const compare_opcode_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/cpu/opcodes/compare_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+    const run_compare_opcode_tests = b.addRunArtifact(compare_opcode_tests);
+
+    // CPU opcode unit tests - transfer
+    const transfer_opcode_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/cpu/opcodes/transfer_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+    const run_transfer_opcode_tests = b.addRunArtifact(transfer_opcode_tests);
+
+    // CPU opcode unit tests - incdec
+    const incdec_opcode_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/cpu/opcodes/incdec_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+    const run_incdec_opcode_tests = b.addRunArtifact(incdec_opcode_tests);
+
+    // CPU opcode unit tests - stack
+    const stack_opcode_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/cpu/opcodes/stack_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+    const run_stack_opcode_tests = b.addRunArtifact(stack_opcode_tests);
+
+    // CPU opcode unit tests - shifts
+    const shifts_opcode_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/cpu/opcodes/shifts_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+    const run_shifts_opcode_tests = b.addRunArtifact(shifts_opcode_tests);
+
+    // CPU opcode unit tests - branch
+    const branch_opcode_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/cpu/opcodes/branch_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+    const run_branch_opcode_tests = b.addRunArtifact(branch_opcode_tests);
+
+    // CPU opcode unit tests - jumps
+    const jumps_opcode_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/cpu/opcodes/jumps_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+    const run_jumps_opcode_tests = b.addRunArtifact(jumps_opcode_tests);
+
+    // CPU opcode unit tests - unofficial
+    const unofficial_opcode_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/cpu/opcodes/unofficial_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+    const run_unofficial_opcode_tests = b.addRunArtifact(unofficial_opcode_tests);
+
     // RMW instruction tests
     const rmw_tests = b.addTest(.{
         .root_module = b.createModule(.{
@@ -232,20 +377,6 @@ pub fn build(b: *std.Build) void {
     });
 
     const run_rmw_tests = b.addRunArtifact(rmw_tests);
-
-    // Unofficial opcodes tests
-    const unofficial_opcodes_tests = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("tests/cpu/unofficial_opcodes_test.zig"),
-            .target = target,
-            .optimize = optimize,
-            .imports = &.{
-                .{ .name = "RAMBO", .module = mod },
-            },
-        }),
-    });
-
-    const run_unofficial_opcodes_tests = b.addRunArtifact(unofficial_opcodes_tests);
 
     // Bus integration tests
     const bus_integration_tests = b.addTest(.{
@@ -380,8 +511,18 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run all tests");
     test_step.dependOn(&run_mod_tests.step);
     test_step.dependOn(&run_cpu_integration_tests.step);
+    test_step.dependOn(&run_arithmetic_opcode_tests.step);
+    test_step.dependOn(&run_loadstore_opcode_tests.step);
+    test_step.dependOn(&run_logical_opcode_tests.step);
+    test_step.dependOn(&run_compare_opcode_tests.step);
+    test_step.dependOn(&run_transfer_opcode_tests.step);
+    test_step.dependOn(&run_incdec_opcode_tests.step);
+    test_step.dependOn(&run_stack_opcode_tests.step);
+    test_step.dependOn(&run_shifts_opcode_tests.step);
+    test_step.dependOn(&run_branch_opcode_tests.step);
+    test_step.dependOn(&run_jumps_opcode_tests.step);
+    test_step.dependOn(&run_unofficial_opcode_tests.step);
     test_step.dependOn(&run_rmw_tests.step);
-    test_step.dependOn(&run_unofficial_opcodes_tests.step);
     test_step.dependOn(&run_bus_integration_tests.step);
     test_step.dependOn(&run_cpu_ppu_integration_tests.step);
     test_step.dependOn(&run_cartridge_tests.step);
@@ -400,7 +541,6 @@ pub fn build(b: *std.Build) void {
     const integration_test_step = b.step("test-integration", "Run integration tests only");
     integration_test_step.dependOn(&run_cpu_integration_tests.step);
     integration_test_step.dependOn(&run_rmw_tests.step);
-    integration_test_step.dependOn(&run_unofficial_opcodes_tests.step);
     integration_test_step.dependOn(&run_bus_integration_tests.step);
     integration_test_step.dependOn(&run_cpu_ppu_integration_tests.step);
     integration_test_step.dependOn(&run_cartridge_tests.step);

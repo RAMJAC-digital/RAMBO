@@ -21,9 +21,9 @@ const MicrostepFn = execution.MicrostepFn;
 // Immediate (2 cycles total)
 // ============================================================================
 
-pub const immediate_steps = [_]MicrostepFn{
-    execution.fetchOperandLow, // Cycle 2: Fetch operand
-};
+// Immediate mode has NO addressing steps - operand is read during execute cycle
+// This is critical for correct cycle timing (2 cycles not 3)
+pub const immediate_steps = [_]MicrostepFn{};
 
 // ============================================================================
 // Zero Page (3 cycles total)
@@ -152,10 +152,10 @@ pub const relative_steps = [_]MicrostepFn{
 // ============================================================================
 
 pub const indirect_jmp_steps = [_]MicrostepFn{
-    execution.fetchAbsLow, // Cycle 2: Fetch pointer low
-    execution.fetchAbsHigh, // Cycle 3: Fetch pointer high
-    // Cycle 4: Fetch low byte of target
-    // Cycle 5: Fetch high byte of target (with page boundary bug)
+    execution.fetchAbsLow,           // Cycle 2: Fetch pointer low byte
+    execution.fetchAbsHigh,           // Cycle 3: Fetch pointer high byte (sets effective_address to pointer)
+    execution.jmpIndirectFetchLow,   // Cycle 4: Fetch target low byte from pointer
+    execution.jmpIndirectFetchHigh,  // Cycle 5: Fetch target high byte (with page bug, sets effective_address to target)
 };
 
 // ============================================================================
@@ -219,6 +219,23 @@ pub const indirect_indexed_rmw_steps = [_]MicrostepFn{
     execution.rmwRead,           // Cycle 6: Read value from correct address
     execution.rmwDummyWrite,     // Cycle 7: Write original value (CRITICAL!)
     // Cycle 8: Execute (modify and write result)
+};
+
+// ============================================================================
+// Stack Operations
+// ============================================================================
+
+/// Stack Push (PHA, PHP) - 3 cycles
+pub const stack_push_steps = [_]MicrostepFn{
+    execution.stackDummyRead, // Cycle 2: Dummy read at SP
+    // Cycle 3: Execute (push value, decrement SP)
+};
+
+/// Stack Pull (PLA, PLP) - 4 cycles
+pub const stack_pull_steps = [_]MicrostepFn{
+    execution.stackDummyRead, // Cycle 2: Dummy read at current SP
+    execution.pullByte,        // Cycle 3: Increment SP, read value into temp_value
+    // Cycle 4: Execute (use temp_value as operand)
 };
 
 // ============================================================================
@@ -289,11 +306,12 @@ pub fn getAddressingSteps(mode: AddressingMode, is_read: bool) AddressingModeSte
 // ============================================================================
 
 const testing = std.testing;
-const opcodes = @import("opcodes.zig");
+const opcodes = @import("opcodes/mod.zig");
 
 test "immediate mode - correct step count" {
     const steps = getAddressingSteps(.immediate, true);
-    try testing.expectEqual(@as(usize, 1), steps.steps.len);
+    // Immediate mode has 0 addressing steps - operand read happens during execute (2-cycle timing)
+    try testing.expectEqual(@as(usize, 0), steps.steps.len);
 }
 
 test "zero_page_x mode - correct step count" {

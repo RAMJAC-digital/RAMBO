@@ -28,10 +28,47 @@ pub const StatusFlags = packed struct(u8) {
         return flags;
     }
 
-    /// Update zero and negative flags based on value
-    pub inline fn updateZN(self: *StatusFlags, value: u8) void {
-        self.zero = (value == 0);
-        self.negative = (value & 0x80) != 0;
+    /// Pure function: Update zero and negative flags based on value
+    /// Returns NEW StatusFlags, does not mutate self
+    pub inline fn setZN(self: StatusFlags, value: u8) StatusFlags {
+        return StatusFlags{
+            .carry = self.carry,
+            .zero = (value == 0),
+            .interrupt = self.interrupt,
+            .decimal = self.decimal,
+            .break_flag = self.break_flag,
+            .unused = true,
+            .overflow = self.overflow,
+            .negative = (value & 0x80) != 0,
+        };
+    }
+
+    /// Pure function: Set carry flag
+    pub inline fn setCarry(self: StatusFlags, carry: bool) StatusFlags {
+        return StatusFlags{
+            .carry = carry,
+            .zero = self.zero,
+            .interrupt = self.interrupt,
+            .decimal = self.decimal,
+            .break_flag = self.break_flag,
+            .unused = true,
+            .overflow = self.overflow,
+            .negative = self.negative,
+        };
+    }
+
+    /// Pure function: Set overflow flag
+    pub inline fn setOverflow(self: StatusFlags, overflow: bool) StatusFlags {
+        return StatusFlags{
+            .carry = self.carry,
+            .zero = self.zero,
+            .interrupt = self.interrupt,
+            .decimal = self.decimal,
+            .break_flag = self.break_flag,
+            .unused = true,
+            .overflow = overflow,
+            .negative = self.negative,
+        };
     }
 };
 
@@ -135,4 +172,66 @@ pub const CpuState = struct {
     // ===== Temporary Storage =====
     temp_value: u8 = 0,             // For RMW operations and other temporary needs
     temp_address: u16 = 0,          // Temporary address storage for indirect modes
+};
+
+// ============================================================================
+// Pure CPU State for Opcode Functions
+// ============================================================================
+
+/// Pure CPU State - 6502 Registers Only
+///
+/// Minimal immutable state containing ONLY architectural registers.
+/// Used by pure opcode functions for computation without side effects.
+///
+/// Design: NO execution context, NO bus access, NO side effects.
+/// Size: ~15 bytes (optimal for frequent copying)
+pub const PureCpuState = struct {
+    a: u8 = 0,       // Accumulator
+    x: u8 = 0,       // X index register
+    y: u8 = 0,       // Y index register
+    sp: u8 = 0xFD,   // Stack pointer
+    pc: u16 = 0,     // Program counter
+    p: StatusFlags = .{}, // Status flags
+    effective_address: u16 = 0,  // Computed address (for stores/RMW)
+};
+
+// ============================================================================
+// Opcode Result - Delta Structure
+// ============================================================================
+
+/// Result of executing a pure opcode function
+///
+/// Describes state changes without performing mutations.
+/// The execution engine applies these deltas to the CPU state.
+///
+/// Design:
+/// - All fields optional (null = no change)
+/// - Separates computation (opcodes) from coordination (engine)
+/// - Enables testability without mocking
+/// - Size: ~24 bytes (most fields optimized away)
+pub const OpcodeResult = struct {
+    // ===== Register Updates (null = unchanged) =====
+    a: ?u8 = null,
+    x: ?u8 = null,
+    y: ?u8 = null,
+    sp: ?u8 = null,
+    pc: ?u16 = null,
+
+    // ===== Flag Updates (null = unchanged) =====
+    flags: ?StatusFlags = null,
+
+    // ===== Bus Operations =====
+    bus_write: ?BusWrite = null,
+
+    // ===== Stack Operations =====
+    push: ?u8 = null,  // Value to push (engine decrements SP)
+    pull: bool = false, // Request pull (engine increments SP, provides value)
+
+    // ===== Special Operations =====
+    halt: bool = false, // Halt CPU (JAM/KIL instructions)
+
+    pub const BusWrite = struct {
+        address: u16,
+        value: u8,
+    };
 };

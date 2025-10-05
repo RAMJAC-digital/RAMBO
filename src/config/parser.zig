@@ -90,7 +90,6 @@ pub fn parseKdl(content: []const u8, allocator: std.mem.Allocator) !Config {
 /// Configuration sections
 const Section = enum {
     cpu,
-    unstable_opcodes,
     ppu,
     cic,
     controllers,
@@ -100,7 +99,6 @@ const Section = enum {
 
     fn fromString(s: []const u8) ?Section {
         if (std.mem.eql(u8, s, "cpu")) return .cpu;
-        if (std.mem.eql(u8, s, "unstable_opcodes")) return .unstable_opcodes;
         if (std.mem.eql(u8, s, "ppu")) return .ppu;
         if (std.mem.eql(u8, s, "cic")) return .cic;
         if (std.mem.eql(u8, s, "controllers")) return .controllers;
@@ -142,7 +140,6 @@ fn parseSectionKeyValue(config: *Config, section: Section, line: []const u8) !vo
 
     switch (section) {
         .cpu => try parseCpuKeyValue(config, key, value),
-        .unstable_opcodes => try parseUnstableOpcodesKeyValue(config, key, value),
         .ppu => try parsePpuKeyValue(config, key, value),
         .cic => try parseCicKeyValue(config, key, value),
         .controllers => try parseControllersKeyValue(config, key, value),
@@ -158,19 +155,8 @@ fn parseCpuKeyValue(config: *Config, key: []const u8, value: []const u8) !void {
         config.cpu.variant = try ConfigModule.CpuVariant.fromString(value);
     } else if (std.mem.eql(u8, key, "region")) {
         config.cpu.region = try ConfigModule.VideoRegion.fromString(value);
-    } else if (std.mem.eql(u8, key, "unstable_opcodes")) {
-        // Nested section indicator (handled separately)
     }
     // Unknown keys silently ignored
-}
-
-/// Parse unstable opcodes section key-value
-fn parseUnstableOpcodesKeyValue(config: *Config, key: []const u8, value: []const u8) !void {
-    if (std.mem.eql(u8, key, "sha_behavior")) {
-        config.cpu.unstable_opcodes.sha_behavior = try ConfigModule.SHABehavior.fromString(value);
-    } else if (std.mem.eql(u8, key, "lxa_magic")) {
-        config.cpu.unstable_opcodes.lxa_magic = try std.fmt.parseInt(u8, value, 0);
-    }
 }
 
 /// Parse PPU section key-value

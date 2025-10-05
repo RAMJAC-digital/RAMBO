@@ -95,43 +95,6 @@ pub const CpuVariant = enum {
             .rp2a07 => "RP2A07",
         };
     }
-
-    /// Get CPU clock frequency in Hz
-    pub fn clockFrequency(self: CpuVariant) u32 {
-        return switch (self) {
-            .rp2a03e, .rp2a03g, .rp2a03h => 1_789_773, // NTSC: 21.47727 MHz ÷ 12
-            .rp2a07 => 1_662_607,                        // PAL: 26.6017 MHz ÷ 16
-        };
-    }
-};
-
-/// SHA opcode behavior differs between CPU revisions
-pub const SHABehavior = enum {
-    /// RP2A03G behavior (standard)
-    rp2a03g,
-
-    /// RP2A03H behavior (different AND result)
-    rp2a03h,
-
-    pub fn fromString(str: []const u8) !SHABehavior {
-        if (std.mem.eql(u8, str, "RP2A03G")) return .rp2a03g;
-        if (std.mem.eql(u8, str, "standard")) return .rp2a03g;
-        if (std.mem.eql(u8, str, "RP2A03H")) return .rp2a03h;
-        return error.InvalidSHABehavior;
-    }
-};
-
-/// Unstable opcode configuration
-/// Some unofficial opcodes have hardware-dependent behavior
-pub const UnstableOpcodeConfig = struct {
-    /// SHA (AXA, AHX) opcode behavior
-    /// Default: RP2A03G (AccuracyCoin target)
-    sha_behavior: SHABehavior = .rp2a03g,
-
-    /// LXA (LAX #imm) magic constant
-    /// Default: 0xEE (most common value)
-    /// Other values: 0x00, 0xFF, 0xEE (varies by chip)
-    lxa_magic: u8 = 0xEE,
 };
 
 /// CPU Configuration
@@ -141,14 +104,6 @@ pub const CpuConfig = struct {
 
     /// Video region (determines clock frequency)
     region: VideoRegion = .ntsc,
-
-    /// Unstable opcode behavior configuration
-    unstable_opcodes: UnstableOpcodeConfig = .{},
-
-    /// Get CPU clock frequency based on variant
-    pub fn clockFrequency(self: CpuConfig) u32 {
-        return self.variant.clockFrequency();
-    }
 };
 
 /// CIC lockout chip variant
@@ -465,8 +420,6 @@ test "Config: default values" {
     // CPU
     try testing.expectEqual(CpuVariant.rp2a03g, config.cpu.variant);
     try testing.expectEqual(VideoRegion.ntsc, config.cpu.region);
-    try testing.expectEqual(SHABehavior.rp2a03g, config.cpu.unstable_opcodes.sha_behavior);
-    try testing.expectEqual(@as(u8, 0xEE), config.cpu.unstable_opcodes.lxa_magic);
 
     // PPU
     try testing.expectEqual(PpuVariant.rp2c02g_ntsc, config.ppu.variant);
@@ -561,30 +514,6 @@ test "Config: CPU variant parsing" {
     try testing.expectError(error.InvalidCpuVariant, CpuVariant.fromString("INVALID"));
 }
 
-test "Config: CPU variant clock frequencies" {
-    try testing.expectEqual(@as(u32, 1_789_773), CpuVariant.rp2a03e.clockFrequency());
-    try testing.expectEqual(@as(u32, 1_789_773), CpuVariant.rp2a03g.clockFrequency());
-    try testing.expectEqual(@as(u32, 1_789_773), CpuVariant.rp2a03h.clockFrequency());
-    try testing.expectEqual(@as(u32, 1_662_607), CpuVariant.rp2a07.clockFrequency());
-}
-
-test "Config: CPU config clock frequency" {
-    var config = Config.init(testing.allocator);
-    defer config.deinit();
-
-    config.cpu.variant = .rp2a03g;
-    try testing.expectEqual(@as(u32, 1_789_773), config.cpu.clockFrequency());
-
-    config.cpu.variant = .rp2a07;
-    try testing.expectEqual(@as(u32, 1_662_607), config.cpu.clockFrequency());
-}
-
-test "Config: SHA behavior parsing" {
-    try testing.expectEqual(SHABehavior.rp2a03g, try SHABehavior.fromString("RP2A03G"));
-    try testing.expectEqual(SHABehavior.rp2a03g, try SHABehavior.fromString("standard"));
-    try testing.expectEqual(SHABehavior.rp2a03h, try SHABehavior.fromString("RP2A03H"));
-    try testing.expectError(error.InvalidSHABehavior, SHABehavior.fromString("INVALID"));
-}
 
 test "Config: CIC variant parsing" {
     try testing.expectEqual(CicVariant.cic_nes_3193, try CicVariant.fromString("CIC-NES-3193"));
@@ -626,10 +555,6 @@ test "Config: parse AccuracyCoin target configuration" {
         \\cpu {
         \\    variant "RP2A03G"
         \\    region "NTSC"
-        \\    unstable_opcodes {
-        \\        sha_behavior "standard"
-        \\        lxa_magic 0xEE
-        \\    }
         \\}
         \\
         \\ppu {
@@ -658,8 +583,6 @@ test "Config: parse AccuracyCoin target configuration" {
     try testing.expectEqual(ConsoleVariant.nes_ntsc_frontloader, config.console);
     try testing.expectEqual(CpuVariant.rp2a03g, config.cpu.variant);
     try testing.expectEqual(VideoRegion.ntsc, config.cpu.region);
-    try testing.expectEqual(SHABehavior.rp2a03g, config.cpu.unstable_opcodes.sha_behavior);
-    try testing.expectEqual(@as(u8, 0xEE), config.cpu.unstable_opcodes.lxa_magic);
     try testing.expectEqual(PpuVariant.rp2c02g_ntsc, config.ppu.variant);
     try testing.expectEqual(VideoRegion.ntsc, config.ppu.region);
     try testing.expectEqual(AccuracyLevel.cycle, config.ppu.accuracy);
@@ -776,74 +699,6 @@ test "Config: parse Famicom configuration" {
     try testing.expectEqual(ControllerType.famicom, config.controllers.type);
 }
 
-test "Config: unstable opcode configuration" {
-    var config = Config.init(testing.allocator);
-    defer config.deinit();
-
-    const kdl_content =
-        \\cpu {
-        \\    variant "RP2A03H"
-        \\    unstable_opcodes {
-        \\        sha_behavior "RP2A03H"
-        \\        lxa_magic 0xFF
-        \\    }
-        \\}
-    ;
-
-    const parser = @import("parser.zig");
-    var parsed = try parser.parseKdl(kdl_content, testing.allocator);
-    defer parsed.deinit();
-    config.copyFrom(parsed);
-
-    try testing.expectEqual(CpuVariant.rp2a03h, config.cpu.variant);
-    try testing.expectEqual(SHABehavior.rp2a03h, config.cpu.unstable_opcodes.sha_behavior);
-    try testing.expectEqual(@as(u8, 0xFF), config.cpu.unstable_opcodes.lxa_magic);
-}
-
-test "Config: LXA magic values" {
-    var config = Config.init(testing.allocator);
-    defer config.deinit();
-
-    // Test common LXA magic values
-    const kdl_0x00 =
-        \\cpu {
-        \\    unstable_opcodes {
-        \\        lxa_magic 0x00
-        \\    }
-        \\}
-    ;
-    const parser = @import("parser.zig");
-    var parsed = try parser.parseKdl(kdl_0x00, testing.allocator);
-    defer parsed.deinit();
-    config.copyFrom(parsed);
-    try testing.expectEqual(@as(u8, 0x00), config.cpu.unstable_opcodes.lxa_magic);
-
-    const kdl_0xee =
-        \\cpu {
-        \\    unstable_opcodes {
-        \\        lxa_magic 0xEE
-        \\    }
-        \\}
-    ;
-    const parser1 = @import("parser.zig");
-    var parsed1 = try parser1.parseKdl(kdl_0xee, testing.allocator);
-    defer parsed1.deinit();
-    config.copyFrom(parsed1);
-    try testing.expectEqual(@as(u8, 0xEE), config.cpu.unstable_opcodes.lxa_magic);
-
-    const kdl_0xff =
-        \\cpu {
-        \\    unstable_opcodes {
-        \\        lxa_magic 0xFF
-        \\    }
-        \\}
-    ;
-    const parser2 = @import("parser.zig");
-    var parsed2 = try parser2.parseKdl(kdl_0xff, testing.allocator);
-    defer parsed2.deinit();
-    config.copyFrom(parsed2);
-    try testing.expectEqual(@as(u8, 0xFF), config.cpu.unstable_opcodes.lxa_magic);
-}
 
 test "Config: complete hardware configuration" {
     var config = Config.init(testing.allocator);
