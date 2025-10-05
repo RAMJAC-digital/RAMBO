@@ -245,6 +245,113 @@ pub fn stackDummyRead(state: *CpuState, bus: *BusState) bool {
 }
 
 // ============================================================================
+// Control Flow Stack Operations (JSR/RTS/RTI/BRK)
+// ============================================================================
+
+/// Push PC high byte to stack (for JSR/BRK)
+pub fn pushPch(state: *CpuState, bus: *BusState) bool {
+    const stack_addr = 0x0100 | @as(u16, state.sp);
+    bus.write(stack_addr, @as(u8, @truncate(state.pc >> 8)));
+    state.sp -%= 1;
+    return false;
+}
+
+/// Push PC low byte to stack (for JSR/BRK)
+pub fn pushPcl(state: *CpuState, bus: *BusState) bool {
+    const stack_addr = 0x0100 | @as(u16, state.sp);
+    bus.write(stack_addr, @as(u8, @truncate(state.pc & 0xFF)));
+    state.sp -%= 1;
+    return false;
+}
+
+/// Push status register to stack with B flag set (for BRK)
+pub fn pushStatusBrk(state: *CpuState, bus: *BusState) bool {
+    const stack_addr = 0x0100 | @as(u16, state.sp);
+    // B flag (bit 4) set, unused flag (bit 5) always set
+    const status = state.p.toByte() | 0x30;
+    bus.write(stack_addr, status);
+    state.sp -%= 1;
+    return false;
+}
+
+/// Pull PC low byte from stack (for RTS/RTI)
+pub fn pullPcl(state: *CpuState, bus: *BusState) bool {
+    state.sp +%= 1;
+    const stack_addr = 0x0100 | @as(u16, state.sp);
+    state.operand_low = bus.read(stack_addr);
+    return false;
+}
+
+/// Pull PC high byte from stack and reconstruct PC (for RTS/RTI)
+pub fn pullPch(state: *CpuState, bus: *BusState) bool {
+    state.sp +%= 1;
+    const stack_addr = 0x0100 | @as(u16, state.sp);
+    state.operand_high = bus.read(stack_addr);
+    // Reconstruct PC from pulled bytes
+    state.pc = (@as(u16, state.operand_high) << 8) | @as(u16, state.operand_low);
+    return false;
+}
+
+/// Pull status register from stack (for RTI)
+pub fn pullStatus(state: *CpuState, bus: *BusState) bool {
+    state.sp +%= 1;
+    const stack_addr = 0x0100 | @as(u16, state.sp);
+    const status = bus.read(stack_addr);
+    state.p = @TypeOf(state.p).fromByte(status);
+    return false;
+}
+
+// ============================================================================
+// Control Flow Helpers (JSR/RTS/RTI/BRK)
+// ============================================================================
+
+/// Increment PC after RTS (PC was pushed as PC-1 by JSR)
+pub fn incrementPcAfterRts(state: *CpuState, bus: *BusState) bool {
+    // Dummy read at current PC
+    _ = bus.read(state.pc);
+    state.pc +%= 1;
+    return true; // RTS complete
+}
+
+/// Stack dummy read for JSR cycle 3 (internal operation)
+pub fn jsrStackDummy(state: *CpuState, bus: *BusState) bool {
+    // Dummy read at stack pointer (internal operation)
+    const stack_addr = 0x0100 | @as(u16, state.sp);
+    _ = bus.read(stack_addr);
+    return false;
+}
+
+/// Fetch absolute high byte for JSR (sets effective_address for jump)
+pub fn fetchAbsHighJsr(state: *CpuState, bus: *BusState) bool {
+    state.operand_high = bus.read(state.pc);
+    // Don't increment PC - JSR pushes current PC-1
+    // Set effective_address for the final jump
+    state.effective_address = (@as(u16, state.operand_high) << 8) | @as(u16, state.operand_low);
+    return false;
+}
+
+/// Jump to effective_address (completes JSR after stack operations)
+pub fn jmpToEffectiveAddress(state: *CpuState, _: *BusState) bool {
+    state.pc = state.effective_address;
+    return true; // JSR complete
+}
+
+/// Fetch IRQ vector low byte (for BRK) and set interrupt disable flag
+pub fn fetchIrqVectorLow(state: *CpuState, bus: *BusState) bool {
+    state.operand_low = bus.read(0xFFFE);
+    // Set interrupt disable flag
+    state.p.interrupt = true;
+    return false;
+}
+
+/// Fetch IRQ vector high byte and jump (completes BRK)
+pub fn fetchIrqVectorHigh(state: *CpuState, bus: *BusState) bool {
+    state.operand_high = bus.read(0xFFFF);
+    state.pc = (@as(u16, state.operand_high) << 8) | @as(u16, state.operand_low);
+    return true; // BRK complete
+}
+
+// ============================================================================
 // Read-Modify-Write (RMW) Operations
 // ============================================================================
 

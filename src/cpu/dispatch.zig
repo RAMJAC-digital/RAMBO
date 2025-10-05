@@ -428,11 +428,12 @@ fn buildJumpOpcodes(table: *[256]DispatchEntry) void {
     table[0x4C] = .{ .addressing_steps = &addressing.absolute_steps, .execute_pure = Opcodes.jmp, .info = decode.OPCODE_TABLE[0x4C] }; // JMP absolute
     table[0x6C] = .{ .addressing_steps = &addressing.indirect_jmp_steps, .execute_pure = Opcodes.jmp, .info = decode.OPCODE_TABLE[0x6C] }; // JMP indirect
 
-    // TODO: Implement JSR/RTS/RTI/BRK - require multi-stack operations
-    table[0x20] = .{ .addressing_steps = &addressing.absolute_steps, .execute_pure = Opcodes.nop, .info = decode.OPCODE_TABLE[0x20] }; // JSR
-    table[0x60] = .{ .addressing_steps = &[_]MicrostepFn{}, .execute_pure = Opcodes.nop, .info = decode.OPCODE_TABLE[0x60] }; // RTS
-    table[0x40] = .{ .addressing_steps = &[_]MicrostepFn{}, .execute_pure = Opcodes.nop, .info = decode.OPCODE_TABLE[0x40] }; // RTI
-    table[0x00] = .{ .addressing_steps = &[_]MicrostepFn{}, .execute_pure = Opcodes.nop, .info = decode.OPCODE_TABLE[0x00] }; // BRK
+    // Control flow opcodes (microstep-based, no pure execution)
+    // All logic is handled in microstep sequences - execute_pure is nop
+    table[0x20] = .{ .addressing_steps = &addressing.jsr_steps, .execute_pure = Opcodes.nop, .info = decode.OPCODE_TABLE[0x20] }; // JSR (6 cycles)
+    table[0x60] = .{ .addressing_steps = &addressing.rts_steps, .execute_pure = Opcodes.nop, .info = decode.OPCODE_TABLE[0x60] }; // RTS (6 cycles)
+    table[0x40] = .{ .addressing_steps = &addressing.rti_steps, .execute_pure = Opcodes.nop, .info = decode.OPCODE_TABLE[0x40] }; // RTI (6 cycles)
+    table[0x00] = .{ .addressing_steps = &addressing.brk_steps, .execute_pure = Opcodes.nop, .info = decode.OPCODE_TABLE[0x00] }; // BRK (7 cycles)
 }
 
 /// Unofficial/Undocumented Opcodes

@@ -239,6 +239,52 @@ pub const stack_pull_steps = [_]MicrostepFn{
 };
 
 // ============================================================================
+// Control Flow Instructions (JSR, RTS, RTI, BRK)
+// ============================================================================
+
+/// JSR - Jump to Subroutine (6 cycles total)
+/// Pushes return address (PC-1) to stack, then jumps to target address
+pub const jsr_steps = [_]MicrostepFn{
+    execution.fetchAbsLow,           // Cycle 2: Fetch target address low byte
+    execution.jsrStackDummy,         // Cycle 3: Internal operation (stack dummy read)
+    execution.pushPch,               // Cycle 4: Push PC high byte
+    execution.pushPcl,               // Cycle 5: Push PC low byte
+    execution.fetchAbsHighJsr,       // Cycle 6: Fetch target high & set effective_address
+    execution.jmpToEffectiveAddress, // Cycle 6: Jump to target (completes)
+};
+
+/// RTS - Return from Subroutine (6 cycles total)
+/// Pulls return address from stack, increments it, and jumps
+pub const rts_steps = [_]MicrostepFn{
+    execution.stackDummyRead,      // Cycle 2: Dummy read at current SP
+    execution.stackDummyRead,      // Cycle 3: Dummy read (SP increment prep)
+    execution.pullPcl,             // Cycle 4: Pull PC low byte
+    execution.pullPch,             // Cycle 5: Pull PC high byte, reconstruct PC
+    execution.incrementPcAfterRts, // Cycle 6: Increment PC & complete
+};
+
+/// RTI - Return from Interrupt (6 cycles total)
+/// Pulls status register and return address from stack
+pub const rti_steps = [_]MicrostepFn{
+    execution.stackDummyRead,  // Cycle 2: Dummy read at current SP
+    execution.stackDummyRead,  // Cycle 3: Dummy read (SP increment prep)
+    execution.pullStatus,      // Cycle 4: Pull status register
+    execution.pullPcl,         // Cycle 5: Pull PC low byte
+    execution.pullPch,         // Cycle 6: Pull PC high byte & complete
+};
+
+/// BRK - Software Interrupt (7 cycles total)
+/// Pushes PC+2 and status (with B flag) to stack, then jumps to IRQ vector
+pub const brk_steps = [_]MicrostepFn{
+    execution.fetchOperandLow,    // Cycle 2: Read & discard padding byte, increment PC
+    execution.pushPch,            // Cycle 3: Push PC high byte
+    execution.pushPcl,            // Cycle 4: Push PC low byte
+    execution.pushStatusBrk,      // Cycle 5: Push status with B flag set
+    execution.fetchIrqVectorLow,  // Cycle 6: Fetch vector low & set I flag
+    execution.fetchIrqVectorHigh, // Cycle 7: Fetch vector high & jump (completes)
+};
+
+// ============================================================================
 // Helper: Get addressing mode microsteps for an instruction
 // ============================================================================
 
