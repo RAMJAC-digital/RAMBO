@@ -15,7 +15,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Debugger:** 100% complete with callback system (62/62 tests) ✅
 - **Bus:** 85% complete (missing controller I/O) 🟡
 - **Cartridge:** Mapper 0 (NROM) complete ✅
-- **Tests:** 575/576 passing (99.8%) - 1 expected failure (snapshot metadata cosmetic)
+- **Tests:** 582/583 passing (99.8%) - 1 expected failure (snapshot metadata cosmetic)
 
 **Current Phase:** Phase 8 - Video Subsystem (Wayland + Vulkan backend)
 **Next Phase:** Phase 9 - Controller I/O
@@ -34,7 +34,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 zig build
 
 # Run all tests (unit + integration)
-zig build test                    # 575/576 tests passing
+zig build test                    # 582/583 tests passing
 
 # Run specific test categories
 zig build test-unit               # Unit tests only (fast)
@@ -49,9 +49,9 @@ zig build run
 ### Test Status by Category
 
 ```
-Total: 575/576 tests passing (99.8%)
+Total: 582/583 tests passing (99.8%)
 
-✅ CPU Opcode Tests: 214/214 (100%)
+✅ CPU Opcode Tests: 226/226 (100%)
   - Arithmetic: 17/17 ✅ (ADC, SBC)
   - Load/Store: 22/22 ✅ (LDA, LDX, LDY, STA, STX, STY)
   - Logical: 9/9 ✅ (AND, OR, EOR)
@@ -61,7 +61,8 @@ Total: 575/576 tests passing (99.8%)
   - Stack: 7/7 ✅ (PHA, PHP, PLA, PLP)
   - Shifts: 17/17 ✅ (ASL, LSR, ROL, ROR)
   - Branch: 12/12 ✅ (BCC, BCS, BEQ, BNE, BMI, BPL, BVC, BVS)
-  - Jumps: 8/8 ✅ (JMP, NOP + placeholders)
+  - Jumps: 8/8 ✅ (JMP, NOP)
+  - Control Flow: 12/12 ✅ (JSR, RTS, RTI, BRK)
   - Unofficial: 72/72 ✅ (105 unofficial opcodes)
 ✅ CPU Integration Tests: 105/105 (100%)
 ✅ PPU Background Tests: 6/6 (100%)

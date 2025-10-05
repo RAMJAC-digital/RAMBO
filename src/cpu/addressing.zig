@@ -245,12 +245,11 @@ pub const stack_pull_steps = [_]MicrostepFn{
 /// JSR - Jump to Subroutine (6 cycles total)
 /// Pushes return address (PC-1) to stack, then jumps to target address
 pub const jsr_steps = [_]MicrostepFn{
-    execution.fetchAbsLow,           // Cycle 2: Fetch target address low byte
-    execution.jsrStackDummy,         // Cycle 3: Internal operation (stack dummy read)
-    execution.pushPch,               // Cycle 4: Push PC high byte
-    execution.pushPcl,               // Cycle 5: Push PC low byte
-    execution.fetchAbsHighJsr,       // Cycle 6: Fetch target high & set effective_address
-    execution.jmpToEffectiveAddress, // Cycle 6: Jump to target (completes)
+    execution.fetchAbsLow,     // Cycle 2: Fetch target address low byte
+    execution.jsrStackDummy,   // Cycle 3: Internal operation (stack dummy read)
+    execution.pushPch,         // Cycle 4: Push PC high byte
+    execution.pushPcl,         // Cycle 5: Push PC low byte
+    execution.fetchAbsHighJsr, // Cycle 6: Fetch target high & jump (completes)
 };
 
 /// RTS - Return from Subroutine (6 cycles total)
@@ -270,7 +269,7 @@ pub const rti_steps = [_]MicrostepFn{
     execution.stackDummyRead,  // Cycle 3: Dummy read (SP increment prep)
     execution.pullStatus,      // Cycle 4: Pull status register
     execution.pullPcl,         // Cycle 5: Pull PC low byte
-    execution.pullPch,         // Cycle 6: Pull PC high byte & complete
+    execution.pullPchRti,      // Cycle 6: Pull PC high byte & complete
 };
 
 /// BRK - Software Interrupt (7 cycles total)

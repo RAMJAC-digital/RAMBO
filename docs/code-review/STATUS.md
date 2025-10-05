@@ -1,20 +1,20 @@
 # RAMBO Status & Action Plan - 2025-10-05
 
-**Overall Status:** 🔴 **CRITICAL**
-**Focus:** CPU Correctness, Test Coverage Restoration
+**Overall Status:** 🟢 **P0 COMPLETE**
+**Focus:** P0 Critical Path Complete - 100% CPU Implementation Achieved
 
 ## Executive Summary
 
-**P0 Progress:** 2/3 tasks complete, 1 in progress (2025-10-05)
+**P0 Progress:** ✅ **3/3 tasks COMPLETE** (2025-10-05)
 
-A deep code review confirmed the project's pure functional CPU architecture is sound. Critical work completed:
+A deep code review confirmed the project's pure functional CPU architecture is sound. All critical work completed:
 1. ✅ `SBC` instruction bug fixed
 2. ✅ 182 opcode unit tests restored (exceeds 166 deleted)
-3. 🟡 JSR/RTS/RTI/BRK implementation in progress (microstep decomposition approach)
+3. ✅ **JSR/RTS/RTI/BRK implementation complete** (microstep decomposition, 12 tests passing)
 
-**Test Status:** 570/571 passing (99.8%) - only 1 cosmetic snapshot metadata issue remains.
+**Test Status:** 582/583 passing (99.8%) - only 1 cosmetic snapshot metadata issue remains.
 
-**Current Focus:** Complete P0.3 (control flow opcodes) to achieve 100% CPU implementation (256/256 opcodes).
+**Achievement:** 🎉 **100% CPU implementation (256/256 opcodes)** - All 6502 instructions implemented and tested!
 
 --- 
 
@@ -46,18 +46,26 @@ A deep code review confirmed the project's pure functional CPU architecture is s
 -   **Pattern:** Pure functional tests using `PureCpuState → Opcodes.fn(state, operand) → OpcodeResult`
 -   **Verification:** 570/571 tests passing (99.8%)
 
-### 3. Implement Missing Control Flow Opcodes
+### ✅ 3. Implement Missing Control Flow Opcodes
 
--   **Status:** 🟡 **IN PROGRESS** (2025-10-05)
--   **Issue:** 4 critical opcodes are unimplemented: `JSR`, `RTS`, `RTI`, `BRK`.
--   **Approach:** Microstep decomposition (see `PLAN-MULTI-BYTE-OPCODES.md`)
--   **Rationale:** Multi-byte stack operations don't fit OpcodeResult delta pattern; using microstep infrastructure maintains architectural purity
--   **Implementation Plan:**
-    1.  Create stack operation microsteps in `src/cpu/execution.zig`
-    2.  Define microstep sequences in `src/cpu/addressing.zig`
-    3.  Update dispatch table in `src/cpu/dispatch.zig`
-    4.  Write integration tests in `tests/cpu/opcodes/control_flow_test.zig`
--   **Reference:** `docs/code-review/CPU.md`, `docs/code-review/PLAN-MULTI-BYTE-OPCODES.md`
+-   **Status:** ✅ **COMPLETE** (2025-10-05)
+-   **Result:** All 4 critical opcodes implemented via microstep decomposition
+-   **Opcodes Implemented:**
+    -   `JSR` (0x20): Jump to Subroutine - 6 cycles
+    -   `RTS` (0x60): Return from Subroutine - 6 cycles
+    -   `RTI` (0x40): Return from Interrupt - 6 cycles
+    -   `BRK` (0x00): Software Interrupt - 7 cycles
+-   **Implementation:**
+    -   11 new microstep functions in `src/cpu/execution.zig` (stack ops, helpers)
+    -   4 microstep sequences in `src/cpu/addressing.zig` (JSR, RTS, RTI, BRK)
+    -   Dispatch table updated in `src/cpu/dispatch.zig`
+    -   12 integration tests in `tests/cpu/opcodes/control_flow_test.zig` (ALL PASSING)
+-   **Architecture:**
+    -   Microstep-only approach (no execute phase needed)
+    -   Final microstep returns `true` to signal completion
+    -   Zero changes to pure functional opcode layer (252 opcodes preserved)
+    -   All side effects isolated in `execution.zig`
+-   **Reference:** `docs/implementation/sessions/2025-10-05-control-flow-implementation.md`
 
 --- 
 

@@ -292,6 +292,16 @@ pub fn pullPch(state: *CpuState, bus: *BusState) bool {
     return false;
 }
 
+/// Pull PC high byte and signal completion (for RTI final cycle)
+pub fn pullPchRti(state: *CpuState, bus: *BusState) bool {
+    state.sp +%= 1;
+    const stack_addr = 0x0100 | @as(u16, state.sp);
+    state.operand_high = bus.read(stack_addr);
+    // Reconstruct PC from pulled bytes
+    state.pc = (@as(u16, state.operand_high) << 8) | @as(u16, state.operand_low);
+    return true; // RTI complete
+}
+
 /// Pull status register from stack (for RTI)
 pub fn pullStatus(state: *CpuState, bus: *BusState) bool {
     state.sp +%= 1;
@@ -321,19 +331,15 @@ pub fn jsrStackDummy(state: *CpuState, bus: *BusState) bool {
     return false;
 }
 
-/// Fetch absolute high byte for JSR (sets effective_address for jump)
+/// Fetch absolute high byte for JSR and jump (final cycle)
+/// This combines the high byte fetch and PC update in one cycle (hardware accurate)
 pub fn fetchAbsHighJsr(state: *CpuState, bus: *BusState) bool {
     state.operand_high = bus.read(state.pc);
     // Don't increment PC - JSR pushes current PC-1
-    // Set effective_address for the final jump
+    // Set effective_address and jump immediately (same cycle)
     state.effective_address = (@as(u16, state.operand_high) << 8) | @as(u16, state.operand_low);
-    return false;
-}
-
-/// Jump to effective_address (completes JSR after stack operations)
-pub fn jmpToEffectiveAddress(state: *CpuState, _: *BusState) bool {
     state.pc = state.effective_address;
-    return true; // JSR complete
+    return true; // JSR complete (6 cycles total)
 }
 
 /// Fetch IRQ vector low byte (for BRK) and set interrupt disable flag

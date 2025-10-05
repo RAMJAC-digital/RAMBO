@@ -214,7 +214,16 @@ pub fn tick(state: *CpuState, bus: anytype) bool {
 
             state.instruction_cycle += 1;
 
-            if (complete or state.instruction_cycle >= entry.addressing_steps.len) {
+            // If microstep signals completion, instruction is done (no execute phase)
+            // This handles microstep-only instructions like JSR/RTS/RTI/BRK
+            if (complete) {
+                state.state = .fetch_opcode;
+                state.instruction_cycle = 0;
+                return true;
+            }
+
+            // If all microsteps done, move to execute phase
+            if (state.instruction_cycle >= entry.addressing_steps.len) {
                 state.state = .execute;
                 return false;
             }

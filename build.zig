@@ -364,6 +364,19 @@ pub fn build(b: *std.Build) void {
     });
     const run_unofficial_opcode_tests = b.addRunArtifact(unofficial_opcode_tests);
 
+    // CPU control flow integration tests (JSR, RTS, RTI, BRK)
+    const control_flow_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/cpu/opcodes/control_flow_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+    const run_control_flow_tests = b.addRunArtifact(control_flow_tests);
+
     // RMW instruction tests
     const rmw_tests = b.addTest(.{
         .root_module = b.createModule(.{
@@ -522,6 +535,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_branch_opcode_tests.step);
     test_step.dependOn(&run_jumps_opcode_tests.step);
     test_step.dependOn(&run_unofficial_opcode_tests.step);
+    test_step.dependOn(&run_control_flow_tests.step);
     test_step.dependOn(&run_rmw_tests.step);
     test_step.dependOn(&run_bus_integration_tests.step);
     test_step.dependOn(&run_cpu_ppu_integration_tests.step);
