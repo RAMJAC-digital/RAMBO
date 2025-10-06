@@ -29,6 +29,7 @@ const TestHarness = struct {
     }
 
     pub fn deinit(self: *TestHarness) void {
+        self.state.deinit(); // Clean up emulation state (including cartridge)
         self.config.deinit();
         testing.allocator.destroy(self.config);
     }
@@ -90,23 +91,19 @@ test "Load AccuracyCoin.nes" {
 test "Load AccuracyCoin.nes through Bus" {
     const accuracycoin_path = "AccuracyCoin/AccuracyCoin.nes";
 
-    var cart = Cartridge.load(testing.allocator, accuracycoin_path) catch |err| {
+    const cart = Cartridge.load(testing.allocator, accuracycoin_path) catch |err| {
         if (err == error.FileNotFound) {
             std.debug.print("Skipping Bus integration test - file not found\n", .{});
             return error.SkipZigTest;
         }
         return err;
     };
+
     var harness = try TestHarness.init();
-    defer harness.deinit();
+    defer harness.deinit(); // Now properly cleans up cartridge via state.deinit()
     const state = harness.statePtr();
 
-    defer {
-        state.cart = null;
-        cart.deinit();
-    }
-
-    state.loadCartridge(cart);
+    state.loadCartridge(cart); // State takes ownership - cart is now invalid
 
     // Verify we can read from ROM through emulator bus
     const value = state.busRead(0x8000);

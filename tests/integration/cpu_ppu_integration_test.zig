@@ -32,6 +32,7 @@ const TestHarness = struct {
     }
 
     pub fn deinit(self: *TestHarness) void {
+        self.state.deinit(); // Clean up emulation state (including cartridge)
         self.config.deinit();
         testing.allocator.destroy(self.config);
     }

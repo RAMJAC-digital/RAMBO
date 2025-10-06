@@ -433,6 +433,20 @@ pub fn build(b: *std.Build) void {
 
     const run_controller_tests = b.addRunArtifact(controller_tests);
 
+    // ROM test runner framework
+    const rom_test_runner_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/rom_test_runner.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+
+    const run_rom_test_runner_tests = b.addRunArtifact(rom_test_runner_tests);
+
     // Cartridge tests (AccuracyCoin.nes integration)
     const cartridge_tests = b.addTest(.{
         .root_module = b.createModule(.{
@@ -531,6 +545,34 @@ pub fn build(b: *std.Build) void {
 
     const run_debugger_integration_tests = b.addRunArtifact(debugger_integration_tests);
 
+    // APU unit tests
+    const apu_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/apu/apu_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+
+    const run_apu_tests = b.addRunArtifact(apu_tests);
+
+    // DPCM DMA integration tests
+    const dpcm_dma_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/dpcm_dma_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+
+    const run_dpcm_dma_tests = b.addRunArtifact(dpcm_dma_tests);
+
     // ========================================================================
     // Test Step Configuration
     // ========================================================================
@@ -555,6 +597,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_cpu_ppu_integration_tests.step);
     test_step.dependOn(&run_oam_dma_tests.step);
     test_step.dependOn(&run_controller_tests.step);
+    test_step.dependOn(&run_rom_test_runner_tests.step);
     test_step.dependOn(&run_cartridge_tests.step);
     test_step.dependOn(&run_chr_integration_tests.step);
     test_step.dependOn(&run_sprite_evaluation_tests.step);
@@ -562,10 +605,13 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_sprite_edge_cases_tests.step);
     test_step.dependOn(&run_snapshot_integration_tests.step);
     test_step.dependOn(&run_debugger_integration_tests.step);
+    test_step.dependOn(&run_apu_tests.step);
+    test_step.dependOn(&run_dpcm_dma_tests.step);
 
     // Separate step for just unit tests
     const unit_test_step = b.step("test-unit", "Run unit tests only");
     unit_test_step.dependOn(&run_mod_tests.step);
+    unit_test_step.dependOn(&run_apu_tests.step);
 
     // Separate step for just integration tests
     const integration_test_step = b.step("test-integration", "Run integration tests only");
@@ -575,6 +621,7 @@ pub fn build(b: *std.Build) void {
     integration_test_step.dependOn(&run_cpu_ppu_integration_tests.step);
     integration_test_step.dependOn(&run_oam_dma_tests.step);
     integration_test_step.dependOn(&run_controller_tests.step);
+    integration_test_step.dependOn(&run_rom_test_runner_tests.step);
     integration_test_step.dependOn(&run_cartridge_tests.step);
     integration_test_step.dependOn(&run_chr_integration_tests.step);
     integration_test_step.dependOn(&run_sprite_evaluation_tests.step);
@@ -582,6 +629,7 @@ pub fn build(b: *std.Build) void {
     integration_test_step.dependOn(&run_sprite_edge_cases_tests.step);
     integration_test_step.dependOn(&run_snapshot_integration_tests.step);
     integration_test_step.dependOn(&run_debugger_integration_tests.step);
+    integration_test_step.dependOn(&run_dpcm_dma_tests.step);
 
     // Just like flags, top level steps are also listed in the `--help` menu.
     //

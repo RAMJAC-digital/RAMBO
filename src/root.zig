@@ -27,6 +27,9 @@ pub const Ppu = @import("ppu/Ppu.zig");
 /// PPU timing constants
 pub const PpuTiming = @import("ppu/timing.zig");
 
+/// APU (Audio Processing Unit)
+pub const Apu = @import("apu/Apu.zig");
+
 /// Frame timing for V-sync
 pub const FrameTimer = @import("timing/FrameTimer.zig");
 
@@ -86,6 +89,7 @@ test {
     _ = Config;
     _ = Ppu;
     _ = PpuTiming;
+    _ = Apu;
     _ = FrameTimer;
     _ = EmulationState;
     _ = Snapshot;

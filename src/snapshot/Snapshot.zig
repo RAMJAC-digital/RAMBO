@@ -241,6 +241,7 @@ pub fn loadBinary(
         .clock = clock,
         .cpu = cpu,
         .ppu = ppu,
+        .apu = .{}, // APU state not yet serialized in snapshots
         .bus = .{
             .ram = ram,
             .open_bus = open_bus,

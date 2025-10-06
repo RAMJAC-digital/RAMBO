@@ -10,7 +10,7 @@ _Update 2025-10-06 (Latest):_ Phase 1 (P1) + Controller I/O complete! Current su
 ## Executive Summary
 
 **P0 Progress:** ✅ **4/4 tasks COMPLETE** (2025-10-06)
-**P1 Progress:** ✅ **2/3 tasks COMPLETE** (2025-10-06) - Tasks 1.1 & 1.2 complete, 1.3 deferred
+**P1 Progress:** ✅ **3/3 tasks COMPLETE** (2025-10-06) - All accuracy fixes complete
 **Controller I/O:** ✅ **COMPLETE** (2025-10-06) - $4016/$4017 registers, shift register logic, 14 integration tests
 
 Phase 0 achieved 100% CPU implementation with cycle-accurate timing:
@@ -151,10 +151,17 @@ Completed migration of PPU timing fields (`scanline`, `dot`, `frame`) from `PpuS
 
 ### 1.3. Replace `anytype` in Bus Logic
 
--   **Status:** 🔴 **TODO**
--   **Issue:** `src/bus/Logic.zig` uses `anytype` for the `ppu` parameter, reducing type safety.
--   **Action:** Change the `ppu: anytype` parameter in the bus logic functions to a concrete `*PpuState` pointer.
--   **Rationale:** Improves type safety and IDE support with no downside.
+-   **Status:** ✅ **COMPLETE** (2025-10-06)
+-   **Resolution:** No separate `src/bus/` module exists. Bus logic is now inline in `src/emulation/State.zig` (lines 311-434).
+-   **Implementation:** All bus routing uses concrete types:
+    -   `busRead(self: *EmulationState, address: u16) u8` - No anytype
+    -   `busWrite(self: *EmulationState, address: u16, value: u8) void` - No anytype
+    -   Direct switch-based routing with concrete `*NromCart` pointers
+-   **Anytype Audit:** Remaining anytype usage is intentional and correct:
+    -   Cartridge/Mapper: Comptime duck typing for zero-cost abstraction (8 occurrences)
+    -   Snapshot I/O: Generic `std.io.Writer/Reader` pattern (idiomatic Zig, 16 occurrences)
+    -   Debugger: Single cartridge parameter (1 occurrence)
+-   **Type Safety:** ✅ VERIFIED - All bus operations use concrete types
 
 ---
 

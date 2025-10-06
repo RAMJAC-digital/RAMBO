@@ -19,6 +19,9 @@ const PpuState = PpuModule.State.PpuState;
 const PpuLogic = PpuModule.Logic;
 const PpuRuntime = @import("Ppu.zig");
 const PpuTiming = PpuRuntime.Timing;
+const ApuModule = @import("../apu/Apu.zig");
+const ApuState = ApuModule.State.ApuState;
+const ApuLogic = ApuModule.Logic;
 const CartridgeModule = @import("../cartridge/Cartridge.zig");
 const NromCart = CartridgeModule.NromCart;
 
@@ -217,6 +220,41 @@ pub const ControllerState = struct {
     }
 };
 
+/// DMC DMA State Machine
+/// Simulates RDY line (CPU stall) during DMC sample fetch
+/// NTSC (2A03) only: Causes controller/PPU register corruption
+pub const DmcDmaState = struct {
+    /// RDY line active (CPU stalled)
+    rdy_low: bool = false,
+
+    /// Cycles remaining in RDY stall (0-4)
+    /// Hardware: 3 idle cycles + 1 fetch cycle
+    stall_cycles_remaining: u8 = 0,
+
+    /// Sample address to fetch
+    sample_address: u16 = 0,
+
+    /// Sample byte fetched (returned to APU)
+    sample_byte: u8 = 0,
+
+    /// Last CPU read address (for repeat reads during stall)
+    /// This is where corruption happens
+    last_read_address: u16 = 0,
+
+    /// Trigger DMC sample fetch
+    /// Called by APU when it needs next sample byte
+    pub fn triggerFetch(self: *DmcDmaState, address: u16) void {
+        self.rdy_low = true;
+        self.stall_cycles_remaining = 4; // 3 idle + 1 fetch
+        self.sample_address = address;
+    }
+
+    /// Reset DMC DMA state
+    pub fn reset(self: *DmcDmaState) void {
+        self.* = .{};
+    }
+};
+
 /// Complete emulation state (pure data, no hidden state)
 /// This is the core of the RT emulation loop
 ///
@@ -231,6 +269,7 @@ pub const EmulationState = struct {
     /// Component states
     cpu: CpuState,
     ppu: PpuState,
+    apu: ApuState,
 
     /// PPU timing owned by emulator runtime
     ppu_timing: PpuTiming = .{},
@@ -244,6 +283,9 @@ pub const EmulationState = struct {
 
     /// DMA state machine
     dma: DmaState = .{},
+
+    /// DMC DMA state machine (RDY line / DPCM sample fetch)
+    dmc_dma: DmcDmaState = .{},
 
     /// Controller state (shift registers, strobe, buttons)
     controller: ControllerState = .{},
@@ -267,19 +309,49 @@ pub const EmulationState = struct {
     pub fn init(config: *const Config.Config) EmulationState {
         const cpu = CpuLogic.init();
         const ppu = PpuState.init();
+        const apu = ApuState.init();
 
         return .{
             .cpu = cpu,
             .ppu = ppu,
+            .apu = apu,
             .config = config,
         };
     }
 
-    /// Load a cartridge into the emulator
+    /// Cleanup emulation state resources
+    /// MUST be called to prevent memory leaks
+    pub fn deinit(self: *EmulationState) void {
+        if (self.cart) |*cart| {
+            cart.deinit();
+        }
+    }
+
+    /// Load a cartridge into the emulator (takes ownership)
+    /// Caller MUST NOT use or deinit the cartridge after this call
     /// Also updates PPU mirroring based on cartridge
+    ///
+    /// Example:
+    ///   var cart = try Cartridge.load(allocator, "game.nes");
+    ///   state.loadCartridge(cart);  // state now owns cart
+    ///   // cart is now invalid - do not use or deinit
     pub fn loadCartridge(self: *EmulationState, cart: NromCart) void {
+        // Clean up existing cartridge if present
+        if (self.cart) |*existing| {
+            existing.deinit();
+        }
+
+        // Take ownership of new cartridge
         self.cart = cart;
         self.ppu.mirroring = cart.mirroring;
+    }
+
+    /// Unload current cartridge (if any)
+    pub fn unloadCartridge(self: *EmulationState) void {
+        if (self.cart) |*cart| {
+            cart.deinit();
+        }
+        self.cart = null;
     }
 
     /// Reset emulation to power-on state
@@ -292,6 +364,7 @@ pub const EmulationState = struct {
         self.ppu_timing = .{};
         self.bus.open_bus = 0;
         self.dma.reset();
+        self.dmc_dma.reset();
         self.controller.reset();
 
         const reset_vector = self.busRead16(0xFFFC);
@@ -300,6 +373,7 @@ pub const EmulationState = struct {
         self.cpu.p.interrupt = true;
 
         PpuLogic.reset(&self.ppu);
+        self.apu.reset();
     }
 
     // =========================================================================
@@ -320,9 +394,15 @@ pub const EmulationState = struct {
             0x2000...0x3FFF => PpuLogic.readRegister(&self.ppu, cart_ptr, address & 0x07),
 
             // APU and I/O registers ($4000-$4017)
-            0x4000...0x4013 => self.bus.open_bus, // APU not implemented
+            0x4000...0x4013 => self.bus.open_bus, // APU channels write-only
             0x4014 => self.bus.open_bus, // OAMDMA write-only
-            0x4015 => self.bus.open_bus, // APU status not implemented
+            0x4015 => blk: {
+                // APU status register (read has side effect)
+                const status = ApuLogic.readStatus(&self.apu);
+                // Side effect: Clear frame IRQ flag
+                ApuLogic.clearFrameIrq(&self.apu);
+                break :blk status;
+            },
             0x4016 => self.controller.read1() | (self.bus.open_bus & 0xE0), // Controller 1 + open bus bits 5-7
             0x4017 => self.controller.read2() | (self.bus.open_bus & 0xE0), // Controller 2 + open bus bits 5-7
 
@@ -377,7 +457,21 @@ pub const EmulationState = struct {
             },
 
             // APU and I/O registers ($4000-$4017)
-            0x4000...0x4013 => {}, // APU not implemented
+            // Pulse 1 ($4000-$4003)
+            0x4000...0x4003 => |addr| ApuLogic.writePulse1(&self.apu, @intCast(addr & 0x03), value),
+
+            // Pulse 2 ($4004-$4007)
+            0x4004...0x4007 => |addr| ApuLogic.writePulse2(&self.apu, @intCast(addr & 0x03), value),
+
+            // Triangle ($4008-$400B)
+            0x4008...0x400B => |addr| ApuLogic.writeTriangle(&self.apu, @intCast(addr & 0x03), value),
+
+            // Noise ($400C-$400F)
+            0x400C...0x400F => |addr| ApuLogic.writeNoise(&self.apu, @intCast(addr & 0x03), value),
+
+            // DMC ($4010-$4013)
+            0x4010...0x4013 => |addr| ApuLogic.writeDmc(&self.apu, @intCast(addr & 0x03), value),
+
             0x4014 => {
                 // OAM DMA trigger
                 // Check if we're on an odd CPU cycle (PPU runs at 3x CPU speed)
@@ -385,12 +479,17 @@ pub const EmulationState = struct {
                 const on_odd_cycle = (cpu_cycle & 1) != 0;
                 self.dma.trigger(value, on_odd_cycle);
             },
-            0x4015 => {}, // APU control not implemented
+
+            // APU Control ($4015)
+            0x4015 => ApuLogic.writeControl(&self.apu, value),
+
             0x4016 => {
                 // Controller strobe (bit 0 controls latch/shift mode)
                 self.controller.writeStrobe(value);
             },
-            0x4017 => {}, // APU frame counter not implemented
+
+            // APU Frame Counter ($4017)
+            0x4017 => ApuLogic.writeFrameCounter(&self.apu, value),
 
             // Cartridge space ($4020-$FFFF)
             0x4020...0xFFFF => {
@@ -470,8 +569,8 @@ pub const EmulationState = struct {
             0x4000...0x4013 => self.bus.open_bus, // APU not implemented
             0x4014 => self.bus.open_bus, // OAMDMA write-only
             0x4015 => self.bus.open_bus, // APU status not implemented
-            0x4016 => self.bus.open_bus, // Controller 1 not implemented
-            0x4017 => self.bus.open_bus, // Controller 2 not implemented
+            0x4016 => (self.controller.shift1 & 0x01) | (self.bus.open_bus & 0xE0), // Controller 1 peek (no shift)
+            0x4017 => (self.controller.shift2 & 0x01) | (self.bus.open_bus & 0xE0), // Controller 2 peek (no shift)
 
             // Cartridge space ($4020-$FFFF)
             0x4020...0xFFFF => blk: {
@@ -542,11 +641,18 @@ pub const EmulationState = struct {
         }
 
         if (cpu_tick) {
-            // Check if DMA is active - DMA stalls the CPU
-            if (self.dma.active) {
+            // Check DMA priority: DMC DMA (RDY line) > OAM DMA > CPU
+            if (self.dmc_dma.rdy_low) {
+                // DMC DMA active - CPU stalled by RDY line
+                self.tickDmcDma();
+            } else if (self.dma.active) {
+                // OAM DMA active - CPU stalled
                 self.tickDma();
             } else {
+                // Normal CPU execution
                 self.tickCpu();
+                // TODO: Track last read address for DMC corruption detection
+                // This requires CPU state tracking during reads
             }
         }
 
@@ -1362,10 +1468,25 @@ pub const EmulationState = struct {
         self.odd_frame = (self.ppu_timing.frame & 1) == 1;
     }
 
-    /// Tick APU state machine (called every 3 PPU cycles, same as CPU)
-    /// Future: APU implementation
-    fn tickApu(_: *EmulationState) void {
-        // APU not yet implemented - see docs/ROADMAP.md for priority
+    /// Tick APU state machine (called every CPU cycle)
+    /// This contains all APU side effects - pure functional helpers are in ApuLogic
+    fn tickApu(self: *EmulationState) void {
+        // Tick frame counter
+        const frame_irq = ApuLogic.tickFrameCounter(&self.apu);
+
+        // If frame IRQ generated, assert CPU IRQ line
+        if (frame_irq) {
+            self.cpu.irq_line = true;
+        }
+
+        // Check if DMC needs sample fetch
+        if (ApuLogic.needsSampleFetch(&self.apu)) {
+            const address = ApuLogic.getSampleAddress(&self.apu);
+            self.dmc_dma.triggerFetch(address);
+        }
+
+        // TODO: Tick DMC timer (Phase 2: Audio Synthesis)
+        // TODO: Tick other channels (Phase 2: Audio Synthesis)
     }
 
     /// Tick DMA state machine (called every 3 PPU cycles, same as CPU)
@@ -1418,6 +1539,68 @@ pub const EmulationState = struct {
 
             // Increment offset for next byte
             self.dma.current_offset +%= 1;
+        }
+    }
+
+    /// Tick DMC DMA state machine (called every CPU cycle when active)
+    ///
+    /// Hardware behavior (NTSC 2A03 only):
+    /// - CPU is stalled via RDY line for 4 cycles (3 idle + 1 fetch)
+    /// - During stall, CPU repeats last read cycle
+    /// - If last read was $4016/$4017 (controller), corruption occurs
+    /// - If last read was $2002/$2007 (PPU), side effects repeat
+    ///
+    /// PAL 2A07: Bug fixed, DMA is clean (no corruption)
+    ///
+    /// Note: Public for testing purposes
+    pub fn tickDmcDma(self: *EmulationState) void {
+        // Increment CPU cycle counter (time passes even though CPU stalled)
+        self.cpu.cycle_count += 1;
+
+        const cycle = self.dmc_dma.stall_cycles_remaining;
+
+        if (cycle == 0) {
+            // DMA complete
+            self.dmc_dma.rdy_low = false;
+            return;
+        }
+
+        self.dmc_dma.stall_cycles_remaining -= 1;
+
+        if (cycle == 1) {
+            // Final cycle: Fetch sample byte
+            const address = self.dmc_dma.sample_address;
+            self.dmc_dma.sample_byte = self.busRead(address);
+
+            // Load into APU
+            ApuLogic.loadSampleByte(&self.apu, self.dmc_dma.sample_byte);
+
+            // DMA complete - clear RDY line
+            self.dmc_dma.rdy_low = false;
+        } else {
+            // Idle cycles (1-3): CPU repeats last read
+            // This is where corruption happens on NTSC
+            const has_dpcm_bug = switch (self.config.cpu.variant) {
+                .rp2a03e, .rp2a03g, .rp2a03h => true, // NTSC - has bug
+                .rp2a07 => false, // PAL - bug fixed
+            };
+
+            if (has_dpcm_bug) {
+                // NTSC: Repeat last read (can cause corruption)
+                const last_addr = self.dmc_dma.last_read_address;
+
+                // If last read was controller, this extra read corrupts shift register
+                if (last_addr == 0x4016 or last_addr == 0x4017) {
+                    // Extra read advances shift register -> corruption
+                    _ = self.busRead(last_addr);
+                }
+
+                // If last read was PPU status/data, side effects occur again
+                if (last_addr == 0x2002 or last_addr == 0x2007) {
+                    _ = self.busRead(last_addr);
+                }
+            }
+            // PAL: Clean DMA, no repeat reads
         }
     }
 
