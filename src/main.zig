@@ -33,11 +33,8 @@ pub fn main() !void {
     var config = RAMBO.Config.Config.init(allocator);
     defer config.deinit();
 
-    // Initialize bus
-    const bus_state = RAMBO.Bus.State.BusState.init();
-
-    // Initialize emulation state
-    var emu_state = RAMBO.EmulationState.EmulationState.init(&config, bus_state);
+    // Initialize emulation state (bus is now flattened into EmulationState)
+    var emu_state = RAMBO.EmulationState.EmulationState.init(&config);
 
     // ========================================================================
     // 3. Initialize libxev Loop (Main Thread Coordinator)

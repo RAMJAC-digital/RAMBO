@@ -51,21 +51,12 @@ pub fn saveBinary(
         if (framebuffer.?.len != 256 * 240 * 4) return error.InvalidFramebufferSize;
     }
 
-    // Calculate sizes
-    var state_size: u32 = 0;
-    state_size += 10; // Config values
-    state_size += 8;  // MasterClock
-    state_size += 33; // CpuState
-    state_size += getSizeForPpuState(); // PpuState (~2407 bytes)
-    state_size += 2048 + 8 + 9; // BusState (ram + cycle + open_bus)
-    state_size += 3; // EmulationState flags
-
     // Create cartridge snapshot
     var cart_snapshot: cartridge_snap.CartridgeSnapshot = undefined;
     var cart_allocated = false;
     defer if (cart_allocated) cartridge_snap.freeCartridgeSnapshot(allocator, &cart_snapshot);
 
-    if (state.bus.cartridge) |cart| {
+    if (state.cart) |cart| {
         cart_snapshot = try createCartridgeSnapshot(allocator, cart, cartridge_mode);
         cart_allocated = true;
     } else {
@@ -79,23 +70,13 @@ pub fn saveBinary(
         };
     }
 
-    const cartridge_size: u32 = @intCast(cart_snapshot.getSerializedSize());
-    const framebuffer_size: u32 = if (include_framebuffer) 256 * 240 * 4 else 0;
-    const total_size: u64 = 72 + state_size + cartridge_size + framebuffer_size;
-
     // Create header
     const flags = binary.SnapshotFlags{
         .has_framebuffer = include_framebuffer,
         .cartridge_embedded = (cartridge_mode == .embed),
     };
 
-    var header = binary.createHeader(
-        total_size,
-        state_size,
-        cartridge_size,
-        framebuffer_size,
-        flags,
-    );
+    var header = binary.createHeader(0, 0, 0, 0, flags);
 
     // Allocate buffer for complete snapshot
     var buffer = std.ArrayListUnmanaged(u8){};
@@ -109,6 +90,8 @@ pub fn saveBinary(
     // Mark position after header for checksum calculation
     const data_start = buffer.items.len;
 
+    const state_start = data_start;
+
     // Write config values
     try state_ser.writeConfig(writer, config);
 
@@ -118,18 +101,43 @@ pub fn saveBinary(
     // Write component states
     try state_ser.writeCpuState(writer, &state.cpu);
     try state_ser.writePpuState(writer, &state.ppu);
-    try state_ser.writeBusState(writer, &state.bus);
+
+    // Write bus state (RAM and open bus) - now flattened into EmulationState
+    try writer.writeAll(state.bus.ram[0..]); // RAM (2048 bytes)
+    try writer.writeByte(state.bus.open_bus); // Open bus value (1 byte)
+
+    // Timing information
+    try writer.writeInt(u64, state.clock.ppu_cycles, .little); // Master PPU cycle counter
+    try writer.writeInt(u16, state.ppu_timing.scanline, .little);
+    try writer.writeInt(u16, state.ppu_timing.dot, .little);
+    try writer.writeInt(u64, state.ppu_timing.frame, .little);
 
     // Write EmulationState flags
     try state_ser.writeEmulationStateFlags(writer, state);
 
+    const state_end = buffer.items.len;
+
     // Write cartridge snapshot
     try cartridge_snap.writeCartridgeSnapshot(writer, &cart_snapshot);
+
+    const cartridge_end = buffer.items.len;
 
     // Write framebuffer if requested
     if (include_framebuffer) {
         try writer.writeAll(framebuffer.?);
     }
+
+    const framebuffer_end = buffer.items.len;
+
+    const state_size_actual: u32 = @intCast(state_end - state_start);
+    const cartridge_size_actual: u32 = @intCast(cartridge_end - state_end);
+    const framebuffer_size_actual: u32 = @intCast(framebuffer_end - cartridge_end);
+    const total_size_actual: u64 = @intCast(framebuffer_end);
+
+    header.state_size = state_size_actual;
+    header.cartridge_size = cartridge_size_actual;
+    header.framebuffer_size = framebuffer_size_actual;
+    header.total_size = total_size_actual;
 
     // Calculate checksum over data after header
     const data = buffer.items[data_start..];
@@ -183,7 +191,17 @@ pub fn loadBinary(
     const clock = try state_ser.readClock(reader);
     const cpu = try state_ser.readCpuState(reader);
     const ppu = try state_ser.readPpuState(reader);
-    const bus = try state_ser.readBusState(reader);
+
+    // Read bus state (RAM and open bus) - now flattened into EmulationState
+    var ram: [2048]u8 = undefined;
+    try reader.readNoEof(&ram); // RAM (2048 bytes)
+    const open_bus = try reader.readByte(); // Open bus value (1 byte)
+
+    const ppu_cycles = try reader.readInt(u64, .little);
+    const timing_scanline = try reader.readInt(u16, .little);
+    const timing_dot = try reader.readInt(u16, .little);
+    const timing_frame = try reader.readInt(u64, .little);
+
     const flags = try state_ser.readEmulationStateFlags(reader);
 
     // Read cartridge snapshot
@@ -223,12 +241,22 @@ pub fn loadBinary(
         .clock = clock,
         .cpu = cpu,
         .ppu = ppu,
-        .bus = bus,
+        .bus = .{
+            .ram = ram,
+            .open_bus = open_bus,
+            .test_ram = null,
+        },
         .config = config,
         .frame_complete = flags.frame_complete,
         .odd_frame = flags.odd_frame,
         .rendering_enabled = flags.rendering_enabled,
+        .ppu_timing = .{
+            .scanline = timing_scanline,
+            .dot = timing_dot,
+            .frame = timing_frame,
+        },
     };
+    emu_state.clock.ppu_cycles = ppu_cycles;
 
     // Connect cartridge pointer (handle both optional and non-optional pointers)
     const CartType = @TypeOf(cartridge);
@@ -236,19 +264,18 @@ pub fn loadBinary(
 
     switch (type_info) {
         .optional => {
-            // Optional pointer - unwrap if present
+            // Optional pointer - unwrap and dereference if present
             if (cartridge) |cart| {
-                emu_state.bus.cartridge = cart;
+                emu_state.cart = cart.*;
             }
         },
         else => {
-            // Non-optional pointer - directly assign
-            emu_state.bus.cartridge = cartridge;
+            // Non-optional pointer - dereference and assign
+            emu_state.cart = cartridge.*;
         },
     }
 
-    // Wire up internal pointers (bus.ppu, ppu.cartridge, etc.)
-    emu_state.connectComponents();
+    // No need to wire up internal pointers - EmulationState owns everything directly
 
     return emu_state;
 }
@@ -296,15 +323,15 @@ pub fn getMetadata(data: []const u8) !SnapshotMetadata {
 /// Get serialized size for PpuState
 fn getSizeForPpuState() u32 {
     var size: u32 = 0;
-    size += 4;   // Registers (ctrl, mask, status, oam_addr)
-    size += 3;   // Open bus (value + decay_timer)
-    size += 10;  // Internal registers (v, t, x, w, read_buffer)
-    size += 10;  // Background state (shift regs + latches)
+    size += 4; // Registers (ctrl, mask, status, oam_addr)
+    size += 3; // Open bus (value + decay_timer)
+    size += 10; // Internal registers (v, t, x, w, read_buffer)
+    size += 10; // Background state (shift regs + latches)
     size += 256; // OAM
-    size += 32;  // Secondary OAM
+    size += 32; // Secondary OAM
     size += 2048; // VRAM
-    size += 32;  // Palette RAM
-    size += 15;  // Metadata (mirroring, nmi_occurred, scanline, dot, frame)
+    size += 32; // Palette RAM
+    size += 15; // Metadata (mirroring, nmi_occurred, scanline, dot, frame)
     return size;
 }
 
@@ -370,9 +397,8 @@ test "Snapshot: create and verify minimal snapshot" {
     var config = Config.Config.init(testing.allocator);
     defer config.deinit();
 
-    const bus = @import("../bus/State.zig").BusState.init();
-    var state = EmulationState.init(&config, bus);
-    state.connectComponents();
+    var state = EmulationState.init(&config);
+    // No need to call connectComponents() - init() sets everything up
 
     // Save snapshot (no cartridge, no framebuffer)
     const snapshot = try saveBinary(
@@ -397,9 +423,8 @@ test "Snapshot: round-trip without cartridge" {
     var config = Config.Config.init(testing.allocator);
     defer config.deinit();
 
-    const bus = @import("../bus/State.zig").BusState.init();
-    var state = EmulationState.init(&config, bus);
-    state.connectComponents();
+    var state = EmulationState.init(&config);
+    // No need to call connectComponents() - init() sets everything up
 
     // Modify state to have non-default values
     state.clock.ppu_cycles = 12345;

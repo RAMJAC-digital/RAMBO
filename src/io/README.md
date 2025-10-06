@@ -1,8 +1,8 @@
 # Input/Output (Controller) - Not Yet Implemented
 
-**Status:** Planned for Phase 8+
+**Status:** Planned for Phase 9+
 **Priority:** HIGH (required for gameplay)
-**Reference:** `docs/06-implementation-notes/STATUS.md`, `CLAUDE.md`
+**Reference:** `docs/implementation/STATUS.md`, `CLAUDE.md`
 
 ## Overview
 

@@ -11,7 +11,7 @@ const helpers = @import("helpers.zig");
 
 const RAMBO = @import("RAMBO");
 const Opcodes = RAMBO.Cpu.opcodes;
-const PureCpuState = helpers.PureCpuState;
+const CpuCoreState = helpers.CpuCoreState;
 
 // ============================================================================
 // ADC Tests (6 tests)

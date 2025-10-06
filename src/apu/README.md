@@ -2,7 +2,7 @@
 
 **Status:** Planned for future phase
 **Priority:** LOW
-**Reference:** `docs/06-implementation-notes/STATUS.md`
+**Reference:** `docs/implementation/STATUS.md`
 
 ## Overview
 

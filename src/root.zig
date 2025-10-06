@@ -9,9 +9,6 @@ const std = @import("std");
 // Core Components
 // ============================================================================
 
-/// Memory bus - central communication hub for all components
-pub const Bus = @import("bus/Bus.zig");
-
 /// 6502 CPU emulation
 pub const Cpu = @import("cpu/Cpu.zig");
 
@@ -27,9 +24,6 @@ pub const ConfigParser = @import("config/parser.zig");
 /// PPU (Picture Processing Unit)
 pub const Ppu = @import("ppu/Ppu.zig");
 
-/// PPU Logic (for testing)
-pub const PpuLogic = @import("ppu/Logic.zig");
-
 /// PPU timing constants
 pub const PpuTiming = @import("ppu/timing.zig");
 
@@ -38,6 +32,10 @@ pub const FrameTimer = @import("timing/FrameTimer.zig");
 
 /// Emulation state machine (RT loop)
 pub const EmulationState = @import("emulation/State.zig");
+/// Emulator runtime helpers (PPU orchestration)
+pub const EmulationPpu = @import("emulation/Ppu.zig");
+/// Shared test harness utilities
+pub const TestHarness = @import("test/Harness.zig");
 
 /// State snapshot system (save/load emulation state)
 pub const Snapshot = @import("snapshot/Snapshot.zig");
@@ -54,9 +52,6 @@ pub const Mailboxes = @import("mailboxes/Mailboxes.zig");
 
 /// CPU type (from Cpu module)
 pub const CpuType = Cpu.State.CpuState;
-
-/// Bus type (from Bus module)
-pub const BusType = Bus.State.BusState;
 
 /// CPU Status Flags
 pub const StatusFlags = Cpu.StatusFlags;
@@ -86,7 +81,6 @@ test {
     std.testing.refAllDecls(@This());
 
     // Import and run tests from core modules
-    _ = Bus;
     _ = Cpu;
     _ = Cartridge;
     _ = Config;

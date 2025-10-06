@@ -6,68 +6,81 @@ const testing = std.testing;
 const RAMBO = @import("RAMBO");
 
 const Cpu = RAMBO.Cpu;
-const Bus = RAMBO.Bus;
+const EmulationState = RAMBO.EmulationState.EmulationState;
+const Config = RAMBO.Config.Config;
+
+// Test helper: Create EmulationState for control flow testing
+fn createTestState() EmulationState {
+    var config = Config.init(testing.allocator);
+    config.deinit(); // Leak for test simplicity
+    return EmulationState.init(&config);
+}
+
+// Test helper: Allocate test RAM for interrupt vector tests
+fn allocTestRam(state: *EmulationState) []u8 {
+    const test_ram = testing.allocator.alloc(u8, 0x8000) catch unreachable;
+    @memset(test_ram, 0);
+    state.bus.test_ram = test_ram;
+    return test_ram;
+}
 
 // ============================================================================
 // JSR Tests (Jump to Subroutine)
 // ============================================================================
 
 test "JSR: jumps to target address" {
-    var cpu = Cpu.Logic.init();
-    var bus = Bus.Logic.init();
+    var state = createTestState();
 
     // JSR $0100 at address $0000
-    cpu.pc = 0x0000;
-    cpu.sp = 0xFF;
+    state.cpu.pc = 0x0000;
+    state.cpu.sp = 0xFF;
 
-    bus.ram[0] = 0x20; // JSR
-    bus.ram[1] = 0x00; // Low byte of target
-    bus.ram[2] = 0x01; // High byte ($0100)
+    state.bus.ram[0] = 0x20; // JSR
+    state.bus.ram[1] = 0x00; // Low byte of target
+    state.bus.ram[2] = 0x01; // High byte ($0100)
 
     // Execute 6 cycles
-    for (0..6) |_| _ = Cpu.Logic.tick(&cpu, &bus);
+    for (0..6) |_| _ = state.tickCpu();
 
-    try testing.expectEqual(@as(u16, 0x0100), cpu.pc);
+    try testing.expectEqual(@as(u16, 0x0100), state.cpu.pc);
 }
 
 test "JSR: pushes return address to stack" {
-    var cpu = Cpu.Logic.init();
-    var bus = Bus.Logic.init();
+    var state = createTestState();
 
-    cpu.pc = 0x0000;
-    cpu.sp = 0xFF;
+    state.cpu.pc = 0x0000;
+    state.cpu.sp = 0xFF;
 
-    bus.ram[0] = 0x20; // JSR
-    bus.ram[1] = 0x00;
-    bus.ram[2] = 0x01;
+    state.bus.ram[0] = 0x20; // JSR
+    state.bus.ram[1] = 0x00;
+    state.bus.ram[2] = 0x01;
 
-    for (0..6) |_| _ = Cpu.Logic.tick(&cpu, &bus);
+    for (0..6) |_| _ = state.tickCpu();
 
     // Return address ($0002) should be on stack
-    const stack_low = bus.read(0x01FE);
-    const stack_high = bus.read(0x01FF);
+    const stack_low = state.busRead(0x01FE);
+    const stack_high = state.busRead(0x01FF);
     const return_addr = (@as(u16, stack_high) << 8) | stack_low;
 
     try testing.expectEqual(@as(u16, 0x0002), return_addr);
-    try testing.expectEqual(@as(u8, 0xFD), cpu.sp);
+    try testing.expectEqual(@as(u8, 0xFD), state.cpu.sp);
 }
 
 test "JSR: takes 6 cycles" {
-    var cpu = Cpu.Logic.init();
-    var bus = Bus.Logic.init();
+    var state = createTestState();
 
-    cpu.pc = 0x0000;
-    cpu.sp = 0xFF;
+    state.cpu.pc = 0x0000;
+    state.cpu.sp = 0xFF;
 
-    bus.ram[0] = 0x20;
-    bus.ram[1] = 0x00;
-    bus.ram[2] = 0x01;
+    state.bus.ram[0] = 0x20;
+    state.bus.ram[1] = 0x00;
+    state.bus.ram[2] = 0x01;
 
-    const start_cycles = cpu.cycle_count;
+    const start_cycles = state.cpu.cycle_count;
 
-    for (0..6) |_| _ = Cpu.Logic.tick(&cpu, &bus);
+    for (0..6) |_| _ = state.tickCpu();
 
-    try testing.expectEqual(@as(u64, start_cycles + 6), cpu.cycle_count);
+    try testing.expectEqual(@as(u64, start_cycles + 6), state.cpu.cycle_count);
 }
 
 // ============================================================================
@@ -75,54 +88,51 @@ test "JSR: takes 6 cycles" {
 // ============================================================================
 
 test "RTS: returns to correct address" {
-    var cpu = Cpu.Logic.init();
-    var bus = Bus.Logic.init();
+    var state = createTestState();
 
     // Setup stack with return address $0002
-    cpu.sp = 0xFD;
-    bus.ram[0x01FE] = 0x02; // Return low
-    bus.ram[0x01FF] = 0x00; // Return high
+    state.cpu.sp = 0xFD;
+    state.bus.ram[0x01FE] = 0x02; // Return low
+    state.bus.ram[0x01FF] = 0x00; // Return high
 
-    cpu.pc = 0x0100;
-    bus.ram[0x100] = 0x60; // RTS
+    state.cpu.pc = 0x0100;
+    state.bus.ram[0x100] = 0x60; // RTS
 
-    for (0..6) |_| _ = Cpu.Logic.tick(&cpu, &bus);
+    for (0..6) |_| _ = state.tickCpu();
 
-    try testing.expectEqual(@as(u16, 0x0003), cpu.pc); // $0002 + 1
+    try testing.expectEqual(@as(u16, 0x0003), state.cpu.pc); // $0002 + 1
 }
 
 test "RTS: restores stack pointer" {
-    var cpu = Cpu.Logic.init();
-    var bus = Bus.Logic.init();
+    var state = createTestState();
 
-    cpu.sp = 0xFD;
-    bus.ram[0x01FE] = 0x02;
-    bus.ram[0x01FF] = 0x00;
+    state.cpu.sp = 0xFD;
+    state.bus.ram[0x01FE] = 0x02;
+    state.bus.ram[0x01FF] = 0x00;
 
-    cpu.pc = 0x0100;
-    bus.ram[0x100] = 0x60;
+    state.cpu.pc = 0x0100;
+    state.bus.ram[0x100] = 0x60;
 
-    for (0..6) |_| _ = Cpu.Logic.tick(&cpu, &bus);
+    for (0..6) |_| _ = state.tickCpu();
 
-    try testing.expectEqual(@as(u8, 0xFF), cpu.sp);
+    try testing.expectEqual(@as(u8, 0xFF), state.cpu.sp);
 }
 
 test "RTS: takes 6 cycles" {
-    var cpu = Cpu.Logic.init();
-    var bus = Bus.Logic.init();
+    var state = createTestState();
 
-    cpu.sp = 0xFD;
-    bus.ram[0x01FE] = 0x02;
-    bus.ram[0x01FF] = 0x00;
+    state.cpu.sp = 0xFD;
+    state.bus.ram[0x01FE] = 0x02;
+    state.bus.ram[0x01FF] = 0x00;
 
-    cpu.pc = 0x0100;
-    bus.ram[0x100] = 0x60;
+    state.cpu.pc = 0x0100;
+    state.bus.ram[0x100] = 0x60;
 
-    const start_cycles = cpu.cycle_count;
+    const start_cycles = state.cpu.cycle_count;
 
-    for (0..6) |_| _ = Cpu.Logic.tick(&cpu, &bus);
+    for (0..6) |_| _ = state.tickCpu();
 
-    try testing.expectEqual(@as(u64, start_cycles + 6), cpu.cycle_count);
+    try testing.expectEqual(@as(u64, start_cycles + 6), state.cpu.cycle_count);
 }
 
 // ============================================================================
@@ -130,28 +140,27 @@ test "RTS: takes 6 cycles" {
 // ============================================================================
 
 test "JSR + RTS: complete round trip" {
-    var cpu = Cpu.Logic.init();
-    var bus = Bus.Logic.init();
+    var state = createTestState();
 
-    cpu.pc = 0x0000;
-    cpu.sp = 0xFF;
+    state.cpu.pc = 0x0000;
+    state.cpu.sp = 0xFF;
 
     // JSR $0100 at $0000
-    bus.ram[0] = 0x20;
-    bus.ram[1] = 0x00;
-    bus.ram[2] = 0x01;
+    state.bus.ram[0] = 0x20;
+    state.bus.ram[1] = 0x00;
+    state.bus.ram[2] = 0x01;
 
     // RTS at $0100
-    bus.ram[0x100] = 0x60;
+    state.bus.ram[0x100] = 0x60;
 
     // Execute JSR
-    for (0..6) |_| _ = Cpu.Logic.tick(&cpu, &bus);
-    try testing.expectEqual(@as(u16, 0x0100), cpu.pc);
+    for (0..6) |_| _ = state.tickCpu();
+    try testing.expectEqual(@as(u16, 0x0100), state.cpu.pc);
 
     // Execute RTS
-    for (0..6) |_| _ = Cpu.Logic.tick(&cpu, &bus);
-    try testing.expectEqual(@as(u16, 0x0003), cpu.pc);
-    try testing.expectEqual(@as(u8, 0xFF), cpu.sp);
+    for (0..6) |_| _ = state.tickCpu();
+    try testing.expectEqual(@as(u16, 0x0003), state.cpu.pc);
+    try testing.expectEqual(@as(u8, 0xFF), state.cpu.sp);
 }
 
 // ============================================================================
@@ -159,44 +168,46 @@ test "JSR + RTS: complete round trip" {
 // ============================================================================
 
 test "RTI: restores status and PC" {
-    var cpu = Cpu.Logic.init();
-    var bus = Bus.Logic.init();
+    var state = createTestState();
+    const test_ram = allocTestRam(&state);
+    defer testing.allocator.free(test_ram);
 
     // Setup stack: status, PC low, PC high
-    cpu.sp = 0xFC;
-    bus.ram[0x01FD] = 0b11000011; // Status (N=1, V=1, Z=1, C=1)
-    bus.ram[0x01FE] = 0x00;       // PC low
-    bus.ram[0x01FF] = 0x02;       // PC high ($0200)
+    state.cpu.sp = 0xFC;
+    state.bus.ram[0x01FD] = 0b11000011; // Status (N=1, V=1, Z=1, C=1)
+    state.bus.ram[0x01FE] = 0x00;       // PC low
+    state.bus.ram[0x01FF] = 0x02;       // PC high ($0200)
 
-    cpu.pc = 0x0100;
-    bus.ram[0x100] = 0x40; // RTI
+    state.cpu.pc = 0x0100;
+    state.bus.ram[0x100] = 0x40; // RTI
 
-    for (0..6) |_| _ = Cpu.Logic.tick(&cpu, &bus);
+    for (0..6) |_| _ = state.tickCpu();
 
-    try testing.expect(cpu.p.negative);
-    try testing.expect(cpu.p.overflow);
-    try testing.expect(cpu.p.zero);
-    try testing.expect(cpu.p.carry);
-    try testing.expectEqual(@as(u16, 0x0200), cpu.pc);
+    try testing.expect(state.cpu.p.negative);
+    try testing.expect(state.cpu.p.overflow);
+    try testing.expect(state.cpu.p.zero);
+    try testing.expect(state.cpu.p.carry);
+    try testing.expectEqual(@as(u16, 0x0200), state.cpu.pc);
 }
 
 test "RTI: takes 6 cycles" {
-    var cpu = Cpu.Logic.init();
-    var bus = Bus.Logic.init();
+    var state = createTestState();
+    const test_ram = allocTestRam(&state);
+    defer testing.allocator.free(test_ram);
 
-    cpu.sp = 0xFC;
-    bus.ram[0x01FD] = 0x00;
-    bus.ram[0x01FE] = 0x00;
-    bus.ram[0x01FF] = 0x02;
+    state.cpu.sp = 0xFC;
+    state.bus.ram[0x01FD] = 0x00;
+    state.bus.ram[0x01FE] = 0x00;
+    state.bus.ram[0x01FF] = 0x02;
 
-    cpu.pc = 0x0100;
-    bus.ram[0x100] = 0x40;
+    state.cpu.pc = 0x0100;
+    state.bus.ram[0x100] = 0x40;
 
-    const start_cycles = cpu.cycle_count;
+    const start_cycles = state.cpu.cycle_count;
 
-    for (0..6) |_| _ = Cpu.Logic.tick(&cpu, &bus);
+    for (0..6) |_| _ = state.tickCpu();
 
-    try testing.expectEqual(@as(u64, start_cycles + 6), cpu.cycle_count);
+    try testing.expectEqual(@as(u64, start_cycles + 6), state.cpu.cycle_count);
 }
 
 // ============================================================================
@@ -204,63 +215,57 @@ test "RTI: takes 6 cycles" {
 // ============================================================================
 
 test "BRK: pushes PC and status to stack" {
-    var cpu = Cpu.Logic.init();
-    var bus = Bus.Logic.init();
+    var state = createTestState();
+    const test_ram = allocTestRam(&state);
+    defer testing.allocator.free(test_ram);
 
-    // Setup test RAM for ROM space (32KB to cover $8000-$FFFF)
-    var test_ram = [_]u8{0} ** 32768;
-    bus.test_ram = &test_ram;
+    state.cpu.pc = 0x0000;
+    state.cpu.sp = 0xFF;
+    state.cpu.p.carry = true;
+    state.cpu.p.zero = true;
 
-    cpu.pc = 0x0000;
-    cpu.sp = 0xFF;
-    cpu.p.carry = true;
-    cpu.p.zero = true;
+    state.bus.ram[0] = 0x00; // BRK
 
-    bus.ram[0] = 0x00; // BRK
+    // Setup IRQ vector at $FFFE/$FFFF using state.busWrite()
+    state.busWrite(0xFFFE, 0x00); // IRQ vector low
+    state.busWrite(0xFFFF, 0x03); // IRQ vector high ($0300)
 
-    // Setup IRQ vector at $FFFE/$FFFF using bus.write()
-    bus.write(0xFFFE, 0x00); // IRQ vector low
-    bus.write(0xFFFF, 0x03); // IRQ vector high ($0300)
-
-    for (0..7) |_| _ = Cpu.Logic.tick(&cpu, &bus);
+    for (0..7) |_| _ = state.tickCpu();
 
     // Check PC on stack (PC+2 = $0002)
-    const pc_high = bus.read(0x01FF);
-    const pc_low = bus.read(0x01FE);
+    const pc_high = state.busRead(0x01FF);
+    const pc_low = state.busRead(0x01FE);
     try testing.expectEqual(@as(u8, 0x00), pc_high);
     try testing.expectEqual(@as(u8, 0x02), pc_low);
 
     // Check status on stack (B flag should be set)
-    const status = bus.read(0x01FD);
+    const status = state.busRead(0x01FD);
     try testing.expectEqual(@as(u8, 1), (status >> 4) & 1); // B flag
 
     // Check I flag set
-    try testing.expect(cpu.p.interrupt);
+    try testing.expect(state.cpu.p.interrupt);
 
     // Check jumped to vector
-    try testing.expectEqual(@as(u16, 0x0300), cpu.pc);
+    try testing.expectEqual(@as(u16, 0x0300), state.cpu.pc);
 }
 
 test "BRK: takes 7 cycles" {
-    var cpu = Cpu.Logic.init();
-    var bus = Bus.Logic.init();
+    var state = createTestState();
+    const test_ram = allocTestRam(&state);
+    defer testing.allocator.free(test_ram);
 
-    // Setup test RAM for ROM space
-    var test_ram = [_]u8{0} ** 32768;
-    bus.test_ram = &test_ram;
+    state.cpu.pc = 0x0000;
+    state.cpu.sp = 0xFF;
 
-    cpu.pc = 0x0000;
-    cpu.sp = 0xFF;
+    state.bus.ram[0] = 0x00;
+    state.busWrite(0xFFFE, 0x00);
+    state.busWrite(0xFFFF, 0x03);
 
-    bus.ram[0] = 0x00;
-    bus.write(0xFFFE, 0x00);
-    bus.write(0xFFFF, 0x03);
+    const start_cycles = state.cpu.cycle_count;
 
-    const start_cycles = cpu.cycle_count;
+    for (0..7) |_| _ = state.tickCpu();
 
-    for (0..7) |_| _ = Cpu.Logic.tick(&cpu, &bus);
-
-    try testing.expectEqual(@as(u64, start_cycles + 7), cpu.cycle_count);
+    try testing.expectEqual(@as(u64, start_cycles + 7), state.cpu.cycle_count);
 }
 
 // ============================================================================
@@ -268,32 +273,29 @@ test "BRK: takes 7 cycles" {
 // ============================================================================
 
 test "BRK + RTI: interrupt round trip" {
-    var cpu = Cpu.Logic.init();
-    var bus = Bus.Logic.init();
+    var state = createTestState();
+    const test_ram = allocTestRam(&state);
+    defer testing.allocator.free(test_ram);
 
-    // Setup test RAM for ROM space
-    var test_ram = [_]u8{0} ** 32768;
-    bus.test_ram = &test_ram;
-
-    cpu.pc = 0x0000;
-    cpu.sp = 0xFF;
-    cpu.p.carry = true;
+    state.cpu.pc = 0x0000;
+    state.cpu.sp = 0xFF;
+    state.cpu.p.carry = true;
 
     // BRK at $0000
-    bus.ram[0] = 0x00;
-    bus.write(0xFFFE, 0x00);
-    bus.write(0xFFFF, 0x03);
+    state.bus.ram[0] = 0x00;
+    state.busWrite(0xFFFE, 0x00);
+    state.busWrite(0xFFFF, 0x03);
 
     // RTI at $0300
-    bus.ram[0x300] = 0x40;
+    state.bus.ram[0x300] = 0x40;
 
     // Execute BRK
-    for (0..7) |_| _ = Cpu.Logic.tick(&cpu, &bus);
-    try testing.expectEqual(@as(u16, 0x0300), cpu.pc);
-    try testing.expect(cpu.p.interrupt);
+    for (0..7) |_| _ = state.tickCpu();
+    try testing.expectEqual(@as(u16, 0x0300), state.cpu.pc);
+    try testing.expect(state.cpu.p.interrupt);
 
     // Execute RTI
-    for (0..6) |_| _ = Cpu.Logic.tick(&cpu, &bus);
-    try testing.expectEqual(@as(u16, 0x0002), cpu.pc);
-    try testing.expect(cpu.p.carry); // Original carry restored
+    for (0..6) |_| _ = state.tickCpu();
+    try testing.expectEqual(@as(u16, 0x0002), state.cpu.pc);
+    try testing.expect(state.cpu.p.carry); // Original carry restored
 }

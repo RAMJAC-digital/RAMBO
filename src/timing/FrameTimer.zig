@@ -54,7 +54,7 @@ pub const FrameTimer = struct {
     vsync: bool = true,
 
     /// Initialize frame timer with configuration
-    pub fn init(config: Config.PpuConfig, vsync: bool) FrameTimer {
+    pub fn init(config: Config.PpuModel, vsync: bool) FrameTimer {
         const frame_ns = switch (config.variant) {
             .rp2c02g_ntsc => timing.NTSC.FRAME_DURATION_NS,
             .rp2c07_pal => timing.PAL.FRAME_DURATION_NS,
@@ -134,7 +134,7 @@ pub const AsyncFrameTimer = struct {
     /// Initialize async frame timer
     pub fn init(
         loop: *xev.Loop,
-        config: Config.PpuConfig,
+        config: Config.PpuModel,
         callback: *const fn (userdata: ?*anyopaque) void,
         userdata: ?*anyopaque,
     ) !AsyncFrameTimer {
@@ -200,7 +200,7 @@ pub const AsyncFrameTimer = struct {
 const testing = std.testing;
 
 test "FrameTimer: NTSC initialization" {
-    const config = Config.PpuConfig{
+    const config = Config.PpuModel{
         .variant = .rp2c02g_ntsc,
         .region = .ntsc,
     };
@@ -211,7 +211,7 @@ test "FrameTimer: NTSC initialization" {
 }
 
 test "FrameTimer: PAL initialization" {
-    const config = Config.PpuConfig{
+    const config = Config.PpuModel{
         .variant = .rp2c07_pal,
         .region = .pal,
     };
@@ -233,7 +233,7 @@ test "FrameTimer: statistics update" {
 }
 
 test "FrameTimer: no vsync returns immediately" {
-    const config = Config.PpuConfig{
+    const config = Config.PpuModel{
         .variant = .rp2c02g_ntsc,
         .region = .ntsc,
     };

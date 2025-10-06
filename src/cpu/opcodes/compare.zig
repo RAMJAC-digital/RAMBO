@@ -13,7 +13,7 @@
 
 const StateModule = @import("../State.zig");
 
-pub const CpuState = StateModule.PureCpuState;
+pub const CpuState = StateModule.CpuCoreState;
 pub const StatusFlags = StateModule.StatusFlags;
 pub const OpcodeResult = StateModule.OpcodeResult;
 

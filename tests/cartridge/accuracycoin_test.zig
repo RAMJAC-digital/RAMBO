@@ -8,6 +8,35 @@ const testing = std.testing;
 const RAMBO = @import("RAMBO");
 
 const Cartridge = RAMBO.CartridgeType;
+const EmulationState = RAMBO.EmulationState.EmulationState;
+const Config = RAMBO.Config;
+
+const TestHarness = struct {
+    config: *Config.Config,
+    state: EmulationState,
+
+    pub fn init() !TestHarness {
+        const cfg = try testing.allocator.create(Config.Config);
+        cfg.* = Config.Config.init(testing.allocator);
+
+        var emu_state = EmulationState.init(cfg);
+        emu_state.reset();
+
+        return .{
+            .config = cfg,
+            .state = emu_state,
+        };
+    }
+
+    pub fn deinit(self: *TestHarness) void {
+        self.config.deinit();
+        testing.allocator.destroy(self.config);
+    }
+
+    pub fn statePtr(self: *TestHarness) *EmulationState {
+        return &self.state;
+    }
+};
 
 test "Load AccuracyCoin.nes" {
     const accuracycoin_path = "AccuracyCoin/AccuracyCoin.nes";
@@ -68,19 +97,24 @@ test "Load AccuracyCoin.nes through Bus" {
         }
         return err;
     };
-    defer cart.deinit();
+    var harness = try TestHarness.init();
+    defer harness.deinit();
+    const state = harness.statePtr();
 
-    // Create bus and load cartridge
-    var bus = RAMBO.BusType.init();
-    bus.loadCartridge(&cart);
+    defer {
+        state.cart = null;
+        cart.deinit();
+    }
 
-    // Verify we can read from ROM through bus
-    const value = bus.read(0x8000);
+    state.loadCartridge(cart);
+
+    // Verify we can read from ROM through emulator bus
+    const value = state.busRead(0x8000);
     _ = value;
 
     // Read reset vector (should point to ROM)
-    const reset_low = bus.read(0xFFFC);
-    const reset_high = bus.read(0xFFFD);
+    const reset_low = state.busRead(0xFFFC);
+    const reset_high = state.busRead(0xFFFD);
     const reset_vector = (@as(u16, reset_high) << 8) | @as(u16, reset_low);
 
     std.debug.print("  Reset vector: ${X:0>4}\n", .{reset_vector});
@@ -88,8 +122,4 @@ test "Load AccuracyCoin.nes through Bus" {
     // Reset vector should be in ROM space ($8000-$FFFF)
     try testing.expect(reset_vector >= 0x8000);
     try testing.expect(reset_vector <= 0xFFFF);
-
-    // Cleanup
-    const removed_cart = bus.unloadCartridge();
-    try testing.expectEqual(&cart, removed_cart);
 }

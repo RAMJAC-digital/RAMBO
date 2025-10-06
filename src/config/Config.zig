@@ -98,7 +98,7 @@ pub const CpuVariant = enum {
 };
 
 /// CPU Configuration
-pub const CpuConfig = struct {
+pub const CpuModel = struct {
     /// CPU variant (RP2A03G/H, RP2A07)
     variant: CpuVariant = .rp2a03g,
 
@@ -154,7 +154,7 @@ pub const CicEmulation = enum {
 };
 
 /// CIC Configuration
-pub const CicConfig = struct {
+pub const CicModel = struct {
     /// CIC chip variant
     variant: CicVariant = .cic_nes_3193,
 
@@ -190,7 +190,7 @@ pub const ControllerType = enum {
 };
 
 /// Controller Configuration
-pub const ControllerConfig = struct {
+pub const ControllerModel = struct {
     /// Controller port type (NES vs Famicom)
     type: ControllerType = .nes,
 };
@@ -264,13 +264,13 @@ pub const VideoBackend = enum {
 };
 
 /// PPU Configuration
-pub const PpuConfig = struct {
+pub const PpuModel = struct {
     variant: PpuVariant = .rp2c02g_ntsc,
     region: VideoRegion = .ntsc,
     accuracy: AccuracyLevel = .cycle,
 
     /// Get scanlines per frame based on variant
-    pub fn scanlinesPerFrame(self: PpuConfig) u16 {
+    pub fn scanlinesPerFrame(self: PpuModel) u16 {
         return switch (self.variant) {
             .rp2c02g_ntsc => 262,
             .rp2c07_pal => 312,
@@ -278,21 +278,21 @@ pub const PpuConfig = struct {
     }
 
     /// Get PPU cycles per scanline (always 341 for 2C02/2C07)
-    pub fn cyclesPerScanline(self: PpuConfig) u16 {
+    pub fn cyclesPerScanline(self: PpuModel) u16 {
         _ = self;
         return 341;
     }
 
     /// Get frame duration in microseconds
-    pub fn frameDurationUs(self: PpuConfig) u64 {
+    pub fn frameDurationUs(self: PpuModel) u64 {
         return switch (self.variant) {
             .rp2c02g_ntsc => 16_639, // 1/60.0988 Hz = 16,639μs
-            .rp2c07_pal => 19_997,   // 1/50.0070 Hz = 19,997μs
+            .rp2c07_pal => 19_997, // 1/50.0070 Hz = 19,997μs
         };
     }
 
     /// Get frame rate in Hz
-    pub fn frameRate(self: PpuConfig) f64 {
+    pub fn frameRate(self: PpuModel) f64 {
         return switch (self.variant) {
             .rp2c02g_ntsc => 60.0988,
             .rp2c07_pal => 50.0070,
@@ -324,16 +324,16 @@ pub const Config = struct {
     console: ConsoleVariant = .nes_ntsc_frontloader,
 
     /// CPU configuration
-    cpu: CpuConfig = .{},
+    cpu: CpuModel = .{},
 
     /// PPU configuration
-    ppu: PpuConfig = .{},
+    ppu: PpuModel = .{},
 
     /// CIC lockout chip configuration
-    cic: CicConfig = .{},
+    cic: CicModel = .{},
 
     /// Controller configuration
-    controllers: ControllerConfig = .{},
+    controllers: ControllerModel = .{},
 
     /// Video output configuration
     video: VideoConfig = .{},
@@ -513,7 +513,6 @@ test "Config: CPU variant parsing" {
     try testing.expectEqual(CpuVariant.rp2a07, try CpuVariant.fromString("RP2A07"));
     try testing.expectError(error.InvalidCpuVariant, CpuVariant.fromString("INVALID"));
 }
-
 
 test "Config: CIC variant parsing" {
     try testing.expectEqual(CicVariant.cic_nes_3193, try CicVariant.fromString("CIC-NES-3193"));
@@ -698,7 +697,6 @@ test "Config: parse Famicom configuration" {
     try testing.expectEqual(ConsoleVariant.famicom, config.console);
     try testing.expectEqual(ControllerType.famicom, config.controllers.type);
 }
-
 
 test "Config: complete hardware configuration" {
     var config = Config.init(testing.allocator);

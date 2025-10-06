@@ -29,10 +29,10 @@ test "LDA absolute,X - no page cross - cycle trace (CURRENT BEHAVIOR)" {
     var state = createTestState();
 
     // Setup: LDA $0130,X with X=$05 → $0135 (no page cross)
-    state.ram[0] = 0xBD; // LDA absolute,X
-    state.ram[1] = 0x30; // Low byte
-    state.ram[2] = 0x01; // High byte
-    state.ram[0x135] = 0x99; // Value at target address
+    state.bus.ram[0] = 0xBD; // LDA absolute,X
+    state.bus.ram[1] = 0x30; // Low byte
+    state.bus.ram[2] = 0x01; // High byte
+    state.bus.ram[0x135] = 0x99; // Value at target address
     state.cpu.pc = 0x0000;
     state.cpu.x = 0x05;
 
@@ -109,10 +109,10 @@ test "LDA absolute,X - page cross - cycle trace (CURRENT BEHAVIOR)" {
     var state = createTestState();
 
     // Setup: LDA $01FF,X with X=$05 → $0204 (page cross)
-    state.ram[0] = 0xBD;
-    state.ram[1] = 0xFF;
-    state.ram[2] = 0x01;
-    state.ram[0x204] = 0xAA;
+    state.bus.ram[0] = 0xBD;
+    state.bus.ram[1] = 0xFF;
+    state.bus.ram[2] = 0x01;
+    state.bus.ram[0x204] = 0xAA;
     state.cpu.pc = 0x0000;
     state.cpu.x = 0x05;
 
@@ -167,8 +167,8 @@ test "LDA absolute,X - page cross - EXPECTED HARDWARE BEHAVIOR" {
 test "LDA immediate - cycle trace (CORRECT)" {
     var state = createTestState();
 
-    state.ram[0] = 0xA9; // LDA immediate
-    state.ram[1] = 0x42;
+    state.bus.ram[0] = 0xA9; // LDA immediate
+    state.bus.ram[1] = 0x42;
     state.cpu.pc = 0x0000;
 
     // Cycle 1: Fetch opcode
@@ -193,10 +193,10 @@ test "LDA immediate - cycle trace (CORRECT)" {
 test "ASL absolute,X - cycle trace (CORRECT - RMW)" {
     var state = createTestState();
 
-    state.ram[0] = 0x1E; // ASL absolute,X
-    state.ram[1] = 0x00;
-    state.ram[2] = 0x02;
-    state.ram[0x205] = 0x01;
+    state.bus.ram[0] = 0x1E; // ASL absolute,X
+    state.bus.ram[1] = 0x00;
+    state.bus.ram[2] = 0x02;
+    state.bus.ram[0x205] = 0x01;
     state.cpu.pc = 0x0000;
     state.cpu.x = 0x05;
 
@@ -206,11 +206,11 @@ test "ASL absolute,X - cycle trace (CORRECT - RMW)" {
             i + 1,
             @tagName(state.cpu.state),
             state.cpu.instruction_cycle,
-            state.ram[0x205],
+            state.bus.ram[0x205],
         });
     }
 
-    try testing.expectEqual(@as(u8, 0x02), state.ram[0x205]);
+    try testing.expectEqual(@as(u8, 0x02), state.bus.ram[0x205]);
     try testing.expectEqual(@as(u64, 7), state.cpu.cycle_count);
 
     // **CORRECT:** 7 cycles for RMW

@@ -185,7 +185,7 @@ pub const CpuState = struct {
 ///
 /// Design: NO execution context, NO bus access, NO side effects.
 /// Size: ~15 bytes (optimal for frequent copying)
-pub const PureCpuState = struct {
+pub const CpuCoreState = struct {
     a: u8 = 0,       // Accumulator
     x: u8 = 0,       // X index register
     y: u8 = 0,       // Y index register

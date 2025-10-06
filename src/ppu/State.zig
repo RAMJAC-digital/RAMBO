@@ -315,11 +315,6 @@ pub const PpuState = struct {
     /// Determines how nametable addresses map to physical VRAM
     mirroring: Mirroring = .horizontal,
 
-    /// Cartridge reference for CHR ROM/RAM access
-    /// Non-owning pointer managed by EmulationState
-    /// PPU calls cartridge.ppuRead() and cartridge.ppuWrite() directly (no VTable)
-    cartridge: ?*NromCart = null,
-
     /// NMI occurred flag
     /// Set when VBlank starts and NMI is enabled
     /// Cleared when NMI is serviced
@@ -331,70 +326,12 @@ pub const PpuState = struct {
     /// Sprite rendering state (shift registers, X counters, attributes)
     sprite_state: SpriteState = .{},
 
-    /// Current scanline (0-261, where 261 is pre-render line)
-    scanline: u16 = 0,
-
-    /// Current dot/cycle within scanline (0-340)
-    dot: u16 = 0,
-
-    /// Frame counter (for odd frame skip)
-    frame: u64 = 0,
-
     /// Initialize PPU state to power-on values
     pub fn init() PpuState {
         return .{};
     }
 
-    // ===== Convenience Methods (Delegate to Logic) =====
-
-    /// Reset PPU (convenience method that delegates to Logic)
-    /// For testing with explicit parameters, call Logic.reset() directly
-    pub inline fn reset(self: *PpuState) void {
-        const Logic = @import("Logic.zig");
-        Logic.reset(self);
-    }
-
-    /// Set cartridge for CHR access (convenience method)
-    pub inline fn setCartridge(self: *PpuState, cart: ?*NromCart) void {
-        self.cartridge = cart;
-    }
-
-    /// Set nametable mirroring mode (convenience method)
-    pub inline fn setMirroring(self: *PpuState, mode: Mirroring) void {
-        self.mirroring = mode;
-    }
-
-    /// Read from VRAM (convenience method that delegates to Logic)
-    pub inline fn readVram(self: *PpuState, address: u16) u8 {
-        const Logic = @import("Logic.zig");
-        return Logic.readVram(self, address);
-    }
-
-    /// Write to VRAM (convenience method that delegates to Logic)
-    pub inline fn writeVram(self: *PpuState, address: u16, value: u8) void {
-        const Logic = @import("Logic.zig");
-        Logic.writeVram(self, address, value);
-    }
-
-    /// Read PPU register (convenience method that delegates to Logic)
-    pub inline fn readRegister(self: *PpuState, address: u16) u8 {
-        const Logic = @import("Logic.zig");
-        return Logic.readRegister(self, address);
-    }
-
-    /// Write PPU register (convenience method that delegates to Logic)
-    pub inline fn writeRegister(self: *PpuState, address: u16, value: u8) void {
-        const Logic = @import("Logic.zig");
-        Logic.writeRegister(self, address, value);
-    }
-
-    /// Tick PPU one cycle (convenience method that delegates to Logic)
-    pub inline fn tick(self: *PpuState, framebuffer: ?[]u32) void {
-        const Logic = @import("Logic.zig");
-        Logic.tick(self, framebuffer);
-    }
-
-    /// Poll NMI flag (convenience method that delegates to Logic)
+    /// Poll NMI flag (delegates to Logic module)
     pub inline fn pollNmi(self: *PpuState) bool {
         const Logic = @import("Logic.zig");
         return Logic.pollNmi(self);

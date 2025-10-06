@@ -1,7 +1,7 @@
 //! Test Helpers for Pure Functional Opcode Tests
 //!
 //! This module provides utilities for testing CPU opcodes using the pure functional API.
-//! All helpers work with PureCpuState and OpcodeResult, not mutable state.
+//! All helpers work with CpuCoreState and OpcodeResult, not mutable state.
 
 const std = @import("std");
 const testing = std.testing;
@@ -11,17 +11,17 @@ const RAMBO = @import("RAMBO");
 const StateModule = RAMBO.Cpu.State;
 
 // Re-export types for convenience
-pub const PureCpuState = StateModule.PureCpuState;
+pub const CpuCoreState = StateModule.CpuCoreState;
 pub const OpcodeResult = StateModule.OpcodeResult;
 pub const StatusFlags = StateModule.StatusFlags;
 
-// ============================================================================
+// ============================================================================ 
 // State Builders
-// ============================================================================
+// ============================================================================ 
 
 /// Create a minimal CPU state for testing
 /// Most tests only care about A, flags, and operand
-pub fn makeState(a: u8, x: u8, y: u8, flags: StatusFlags) PureCpuState {
+pub fn makeState(a: u8, x: u8, y: u8, flags: StatusFlags) CpuCoreState {
     return .{
         .a = a,
         .x = x,
@@ -34,7 +34,7 @@ pub fn makeState(a: u8, x: u8, y: u8, flags: StatusFlags) PureCpuState {
 }
 
 /// Create a state with specific effective_address (for stores/RMW)
-pub fn makeStateWithAddress(a: u8, x: u8, y: u8, flags: StatusFlags, address: u16) PureCpuState {
+pub fn makeStateWithAddress(a: u8, x: u8, y: u8, flags: StatusFlags, address: u16) CpuCoreState {
     return .{
         .a = a,
         .x = x,
@@ -46,9 +46,9 @@ pub fn makeStateWithAddress(a: u8, x: u8, y: u8, flags: StatusFlags, address: u1
     };
 }
 
-// ============================================================================
+// ============================================================================ 
 // Flag Builders
-// ============================================================================
+// ============================================================================ 
 
 /// Create flags with all explicit settings
 pub fn makeFlags(z: bool, n: bool, c: bool, v: bool) StatusFlags {
@@ -74,9 +74,9 @@ pub fn flagsWithCarry() StatusFlags {
     return makeFlags(false, false, true, false);
 }
 
-// ============================================================================
+// ============================================================================ 
 // Result Verifiers
-// ============================================================================
+// ============================================================================ 
 
 /// Verify a register changed to expected value
 /// Fails if register is null (unchanged) or has wrong value
@@ -181,15 +181,15 @@ pub fn expectPull(result: OpcodeResult) !void {
     try testing.expect(result.pull);
 }
 
-// ============================================================================
+// ============================================================================ 
 // Common Test Patterns
-// ============================================================================
+// ============================================================================ 
 
 /// Test pattern: Load instruction (LDA, LDX, LDY)
 /// Expects: Register set to operand, Z and N flags updated
 pub fn testLoad(
     opcodeFn: anytype,
-    state: PureCpuState,
+    state: CpuCoreState,
     operand: u8,
     comptime register: []const u8,
     expected_z: bool,
@@ -206,7 +206,7 @@ pub fn testLoad(
 /// Expects: Bus write to effective_address, no flag changes
 pub fn testStore(
     opcodeFn: anytype,
-    state: PureCpuState,
+    state: CpuCoreState,
     operand: u8,
     expected_value: u8,
 ) !void {

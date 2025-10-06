@@ -11,10 +11,35 @@ const std = @import("std");
 const testing = std.testing;
 const RAMBO = @import("RAMBO");
 
-// Type aliases for clarity
-const BusState = RAMBO.BusType;
-const PpuState = RAMBO.PpuType;
-const CpuState = RAMBO.CpuType;
+const EmulationState = RAMBO.EmulationState.EmulationState;
+const Config = RAMBO.Config;
+
+const TestHarness = struct {
+    config: *Config.Config,
+    state: EmulationState,
+
+    pub fn init() !TestHarness {
+        const cfg = try testing.allocator.create(Config.Config);
+        cfg.* = Config.Config.init(testing.allocator);
+
+        var emu_state = EmulationState.init(cfg);
+        emu_state.reset();
+
+        return .{
+            .config = cfg,
+            .state = emu_state,
+        };
+    }
+
+    pub fn deinit(self: *TestHarness) void {
+        self.config.deinit();
+        testing.allocator.destroy(self.config);
+    }
+
+    pub fn statePtr(self: *TestHarness) *EmulationState {
+        return &self.state;
+    }
+};
 
 // ============================================================================
 // Category 1: NMI Triggering and Timing Tests (5-6 tests)
@@ -23,12 +48,13 @@ const CpuState = RAMBO.CpuType;
 // detection, timing accuracy, and interaction with CPU execution.
 
 test "CPU-PPU Integration: NMI triggered when VBlank flag set and NMI enabled" {
-    var ppu = PpuState.init();
-    var bus = BusState.init();
-    bus.ppu = &ppu;
+    var harness = try TestHarness.init();
+    defer harness.deinit();
+    const state = harness.statePtr();
+    const ppu = &state.ppu;
 
     // Enable NMI in PPUCTRL
-    bus.write(0x2000, 0x80); // Bit 7 = NMI enable
+    state.busWrite(0x2000, 0x80); // Bit 7 = NMI enable
 
     // Simulate VBlank start (as PPU tick would do)
     ppu.status.vblank = true;
@@ -40,12 +66,13 @@ test "CPU-PPU Integration: NMI triggered when VBlank flag set and NMI enabled" {
 }
 
 test "CPU-PPU Integration: NMI not triggered when VBlank set but NMI disabled" {
-    var ppu = PpuState.init();
-    var bus = BusState.init();
-    bus.ppu = &ppu;
+    var harness = try TestHarness.init();
+    defer harness.deinit();
+    const state = harness.statePtr();
+    const ppu = &state.ppu;
 
     // Disable NMI in PPUCTRL
-    bus.write(0x2000, 0x00); // Bit 7 = 0
+    state.busWrite(0x2000, 0x00); // Bit 7 = 0
 
     // Set VBlank flag
     ppu.status.vblank = true;
@@ -56,12 +83,13 @@ test "CPU-PPU Integration: NMI not triggered when VBlank set but NMI disabled" {
 }
 
 test "CPU-PPU Integration: NMI cleared after being polled" {
-    var ppu = PpuState.init();
-    var bus = BusState.init();
-    bus.ppu = &ppu;
+    var harness = try TestHarness.init();
+    defer harness.deinit();
+    const state = harness.statePtr();
+    const ppu = &state.ppu;
 
     // Enable NMI
-    bus.write(0x2000, 0x80);
+    state.busWrite(0x2000, 0x80);
     ppu.status.vblank = true;
     ppu.nmi_occurred = true; // Simulate PPU setting NMI
 
@@ -73,15 +101,16 @@ test "CPU-PPU Integration: NMI cleared after being polled" {
 }
 
 test "CPU-PPU Integration: Reading PPUSTATUS clears VBlank flag" {
-    var ppu = PpuState.init();
-    var bus = BusState.init();
-    bus.ppu = &ppu;
+    var harness = try TestHarness.init();
+    defer harness.deinit();
+    const state = harness.statePtr();
+    const ppu = &state.ppu;
 
     // Set VBlank flag
     ppu.status.vblank = true;
 
     // Read PPUSTATUS
-    const status = bus.read(0x2002);
+    const status = state.busRead(0x2002);
 
     // VBlank bit should be set in the read value
     try testing.expect((status & 0x80) != 0);
@@ -91,29 +120,31 @@ test "CPU-PPU Integration: Reading PPUSTATUS clears VBlank flag" {
 }
 
 test "CPU-PPU Integration: VBlank flag race condition (read during setting)" {
-    var ppu = PpuState.init();
-    var bus = BusState.init();
-    bus.ppu = &ppu;
+    var harness = try TestHarness.init();
+    defer harness.deinit();
+    const state = harness.statePtr();
+    const ppu = &state.ppu;
 
     // Simulate race condition: VBlank just set
     ppu.status.vblank = true;
 
     // Immediate read should see VBlank flag
-    const status = bus.read(0x2002);
+    const status = state.busRead(0x2002);
     try testing.expect((status & 0x80) != 0);
 
     // But flag is now cleared
     try testing.expect(!ppu.status.vblank);
 
     // Next read should not see VBlank
-    const status2 = bus.read(0x2002);
+    const status2 = state.busRead(0x2002);
     try testing.expect((status2 & 0x80) == 0);
 }
 
 test "CPU-PPU Integration: NMI edge detection (enabling NMI during VBlank)" {
-    var ppu = PpuState.init();
-    var bus = BusState.init();
-    bus.ppu = &ppu;
+    var harness = try TestHarness.init();
+    defer harness.deinit();
+    const state = harness.statePtr();
+    const ppu = &state.ppu;
 
     // Set VBlank first (without NMI enable)
     ppu.status.vblank = true;
@@ -123,7 +154,7 @@ test "CPU-PPU Integration: NMI edge detection (enabling NMI during VBlank)" {
     try testing.expect(!ppu.pollNmi());
 
     // Now enable NMI - in real hardware, enabling NMI during VBlank triggers NMI
-    bus.write(0x2000, 0x80);
+    state.busWrite(0x2000, 0x80);
     // Simulate the edge detection behavior
     if (ppu.ctrl.nmi_enable and ppu.status.vblank) {
         ppu.nmi_occurred = true;
@@ -140,100 +171,104 @@ test "CPU-PPU Integration: NMI edge detection (enabling NMI during VBlank)" {
 // CPU cycle and maintain proper state.
 
 test "CPU-PPU Integration: PPUADDR write sequence (2 writes to set address)" {
-    var ppu = PpuState.init();
-    var bus = BusState.init();
-    bus.ppu = &ppu;
+    var harness = try TestHarness.init();
+    defer harness.deinit();
+    const state = harness.statePtr();
+    const ppu = &state.ppu;
 
     // Write high byte
-    bus.write(0x2006, 0x20);
+    state.busWrite(0x2006, 0x20);
 
     // Write low byte
-    bus.write(0x2006, 0x00);
+    state.busWrite(0x2006, 0x00);
 
     // Address should now be $2000
     try testing.expectEqual(@as(u16, 0x2000), ppu.internal.v);
 }
 
 test "CPU-PPU Integration: PPUADDR write latch resets on PPUSTATUS read" {
-    var ppu = PpuState.init();
-    var bus = BusState.init();
-    bus.ppu = &ppu;
+    var harness = try TestHarness.init();
+    defer harness.deinit();
+    const state = harness.statePtr();
+    const ppu = &state.ppu;
 
     // Write high byte
-    bus.write(0x2006, 0x20);
+    state.busWrite(0x2006, 0x20);
 
     // Read PPUSTATUS (should reset write latch)
-    _ = bus.read(0x2002);
+    _ = state.busRead(0x2002);
 
     // Write what should be high byte again (but latch was reset)
-    bus.write(0x2006, 0x30);
+    state.busWrite(0x2006, 0x30);
 
     // Write low byte
-    bus.write(0x2006, 0x00);
+    state.busWrite(0x2006, 0x00);
 
     // Address should be $3000, not some combination with $20
     try testing.expectEqual(@as(u16, 0x3000), ppu.internal.v);
 }
 
 test "CPU-PPU Integration: PPUDATA auto-increment (horizontal)" {
-    var ppu = PpuState.init();
-    var bus = BusState.init();
-    bus.ppu = &ppu;
+    var harness = try TestHarness.init();
+    defer harness.deinit();
+    const state = harness.statePtr();
+    const ppu = &state.ppu;
 
     // Set PPUCTRL for +1 increment (horizontal)
-    bus.write(0x2000, 0x00); // Bit 2 = 0
+    state.busWrite(0x2000, 0x00); // Bit 2 = 0
 
     // Set address to $2000
-    bus.write(0x2006, 0x20);
-    bus.write(0x2006, 0x00);
+    state.busWrite(0x2006, 0x20);
+    state.busWrite(0x2006, 0x00);
 
     // Write to PPUDATA
-    bus.write(0x2007, 0xAA);
+    state.busWrite(0x2007, 0xAA);
 
     // Address should increment by 1
     try testing.expectEqual(@as(u16, 0x2001), ppu.internal.v);
 }
 
 test "CPU-PPU Integration: PPUDATA auto-increment (vertical)" {
-    var ppu = PpuState.init();
-    var bus = BusState.init();
-    bus.ppu = &ppu;
+    var harness = try TestHarness.init();
+    defer harness.deinit();
+    const state = harness.statePtr();
+    const ppu = &state.ppu;
 
     // Set PPUCTRL for +32 increment (vertical)
-    bus.write(0x2000, 0x04); // Bit 2 = 1
+    state.busWrite(0x2000, 0x04); // Bit 2 = 1
 
     // Set address to $2000
-    bus.write(0x2006, 0x20);
-    bus.write(0x2006, 0x00);
+    state.busWrite(0x2006, 0x20);
+    state.busWrite(0x2006, 0x00);
 
     // Write to PPUDATA
-    bus.write(0x2007, 0xAA);
+    state.busWrite(0x2007, 0xAA);
 
     // Address should increment by 32
     try testing.expectEqual(@as(u16, 0x2020), ppu.internal.v);
 }
 
 test "CPU-PPU Integration: PPUDATA read buffering (non-palette)" {
-    var ppu = PpuState.init();
-    var bus = BusState.init();
-    bus.ppu = &ppu;
+    var harness = try TestHarness.init();
+    defer harness.deinit();
+    const state = harness.statePtr();
 
     // Set address to $2000
-    bus.write(0x2006, 0x20);
-    bus.write(0x2006, 0x00);
+    state.busWrite(0x2006, 0x20);
+    state.busWrite(0x2006, 0x00);
 
     // Write known value
-    bus.write(0x2007, 0x42);
+    state.busWrite(0x2007, 0x42);
 
     // Reset address
-    bus.write(0x2006, 0x20);
-    bus.write(0x2006, 0x00);
+    state.busWrite(0x2006, 0x20);
+    state.busWrite(0x2006, 0x00);
 
     // First read is dummy (returns buffer, which is initially 0)
-    _ = bus.read(0x2007);
+    _ = state.busRead(0x2007);
 
     // Second read returns actual data
-    const actual = bus.read(0x2007);
+    const actual = state.busRead(0x2007);
 
     try testing.expectEqual(@as(u8, 0x42), actual);
 }
@@ -245,12 +280,12 @@ test "CPU-PPU Integration: PPUDATA read buffering (non-palette)" {
 // transfers data at the right time.
 
 test "CPU-PPU Integration: OAM DMA triggers on $4014 write" {
-    var ppu = PpuState.init();
-    var bus = BusState.init();
-    bus.ppu = &ppu;
+    var harness = try TestHarness.init();
+    defer harness.deinit();
+    const state = harness.statePtr();
 
     // Write to $4014 to trigger DMA from page $02
-    bus.write(0x4014, 0x02);
+    state.busWrite(0x4014, 0x02);
 
     // Check that DMA was triggered (implementation-specific check)
     // For now, verify the write doesn't crash
@@ -306,37 +341,41 @@ test "CPU-PPU Integration: OAM DMA triggers on $4014 write" {
 // particularly during active rendering.
 
 test "CPU-PPU Integration: PPUSTATUS sprite 0 hit flag" {
-    var ppu = PpuState.init();
-    var bus = BusState.init();
-    bus.ppu = &ppu;
+    var harness = try TestHarness.init();
+    defer harness.deinit();
+    const state = harness.statePtr();
+    const ppu = &state.ppu;
 
     // Set sprite 0 hit flag
     ppu.status.sprite_0_hit = true;
 
     // Read PPUSTATUS
-    const status = bus.read(0x2002);
+    const status = state.busRead(0x2002);
 
     // Bit 6 should be set
     try testing.expect((status & 0x40) != 0);
 }
 
 test "CPU-PPU Integration: PPUSTATUS sprite overflow flag" {
-    var ppu = PpuState.init();
-    var bus = BusState.init();
-    bus.ppu = &ppu;
+    var harness = try TestHarness.init();
+    defer harness.deinit();
+    const state = harness.statePtr();
+    const ppu = &state.ppu;
 
     // Set sprite overflow flag
     ppu.status.sprite_overflow = true;
 
     // Read PPUSTATUS
-    const status = bus.read(0x2002);
+    const status = state.busRead(0x2002);
 
     // Bit 5 should be set
     try testing.expect((status & 0x20) != 0);
 }
 
 test "CPU-PPU Integration: PPUSTATUS clears sprite 0 hit at start of VBlank" {
-    var ppu = PpuState.init();
+    var harness = try TestHarness.init();
+    defer harness.deinit();
+    const ppu = &harness.statePtr().ppu;
 
     // Set sprite 0 hit
     ppu.status.sprite_0_hit = true;
@@ -350,16 +389,17 @@ test "CPU-PPU Integration: PPUSTATUS clears sprite 0 hit at start of VBlank" {
 }
 
 test "CPU-PPU Integration: Reading PPUSTATUS doesn't affect sprite flags" {
-    var ppu = PpuState.init();
-    var bus = BusState.init();
-    bus.ppu = &ppu;
+    var harness = try TestHarness.init();
+    defer harness.deinit();
+    const state = harness.statePtr();
+    const ppu = &state.ppu;
 
     // Set sprite flags
     ppu.status.sprite_0_hit = true;
     ppu.status.sprite_overflow = true;
 
     // Read PPUSTATUS
-    _ = bus.read(0x2002);
+    _ = state.busRead(0x2002);
 
     // Sprite flags should remain set (unlike VBlank)
     try testing.expect(ppu.status.sprite_0_hit);
@@ -367,15 +407,15 @@ test "CPU-PPU Integration: Reading PPUSTATUS doesn't affect sprite flags" {
 }
 
 test "CPU-PPU Integration: PPUSCROLL sets scroll position" {
-    var ppu = PpuState.init();
-    var bus = BusState.init();
-    bus.ppu = &ppu;
+    var harness = try TestHarness.init();
+    defer harness.deinit();
+    const state = harness.statePtr();
 
     // Write X scroll
-    bus.write(0x2005, 0x12);
+    state.busWrite(0x2005, 0x12);
 
     // Write Y scroll
-    bus.write(0x2005, 0x34);
+    state.busWrite(0x2005, 0x34);
 
     // Verify scroll was set (implementation-specific)
     // The actual behavior depends on PPU implementation details
@@ -389,12 +429,13 @@ test "CPU-PPU Integration: PPUSCROLL sets scroll position" {
 // the other component.
 
 test "CPU-PPU Integration: PPU register writes update PPU state" {
-    var ppu = PpuState.init();
-    var bus = BusState.init();
-    bus.ppu = &ppu;
+    var harness = try TestHarness.init();
+    defer harness.deinit();
+    const state = harness.statePtr();
+    const ppu = &state.ppu;
 
     // Write to PPUCTRL
-    bus.write(0x2000, 0xFF);
+    state.busWrite(0x2000, 0xFF);
 
     // Verify all bits were set
     const ctrl_byte: u8 = @bitCast(ppu.ctrl);
@@ -402,12 +443,13 @@ test "CPU-PPU Integration: PPU register writes update PPU state" {
 }
 
 test "CPU-PPU Integration: PPUMASK controls rendering enable" {
-    var ppu = PpuState.init();
-    var bus = BusState.init();
-    bus.ppu = &ppu;
+    var harness = try TestHarness.init();
+    defer harness.deinit();
+    const state = harness.statePtr();
+    const ppu = &state.ppu;
 
     // Enable background and sprites
-    bus.write(0x2001, 0x18); // Bits 3 and 4
+    state.busWrite(0x2001, 0x18); // Bits 3 and 4
 
     // Verify mask was set
     try testing.expect(ppu.mask.show_bg);
@@ -415,19 +457,20 @@ test "CPU-PPU Integration: PPUMASK controls rendering enable" {
 }
 
 test "CPU-PPU Integration: Multiple register writes maintain state" {
-    var ppu = PpuState.init();
-    var bus = BusState.init();
-    bus.ppu = &ppu;
+    var harness = try TestHarness.init();
+    defer harness.deinit();
+    const state = harness.statePtr();
+    const ppu = &state.ppu;
 
     // Set PPUCTRL
-    bus.write(0x2000, 0x80); // NMI enable
+    state.busWrite(0x2000, 0x80); // NMI enable
 
     // Set PPUMASK
-    bus.write(0x2001, 0x1E); // Show BG and sprites
+    state.busWrite(0x2001, 0x1E); // Show BG and sprites
 
     // Set PPUADDR
-    bus.write(0x2006, 0x20);
-    bus.write(0x2006, 0x00);
+    state.busWrite(0x2006, 0x20);
+    state.busWrite(0x2006, 0x00);
 
     // Verify all state maintained
     try testing.expect(ppu.ctrl.nmi_enable);
@@ -437,19 +480,20 @@ test "CPU-PPU Integration: Multiple register writes maintain state" {
 }
 
 test "CPU-PPU Integration: Bus open bus interacts with PPU open bus" {
-    var ppu = PpuState.init();
-    var bus = BusState.init();
-    bus.ppu = &ppu;
+    var harness = try TestHarness.init();
+    defer harness.deinit();
+    const state = harness.statePtr();
+    const ppu = &state.ppu;
 
     // Set bus open bus value
-    bus.write(0x0100, 0xAB);
-    try testing.expectEqual(@as(u8, 0xAB), bus.open_bus.value);
+    state.busWrite(0x0100, 0xAB);
+    try testing.expectEqual(@as(u8, 0xAB), state.bus.open_bus);
 
     // Write to PPU register - this updates BOTH bus and PPU open bus
     // Hardware behavior: ALL writes update bus.open_bus first (line 130 in Logic.zig)
-    bus.write(0x2001, 0xCD);
+    state.busWrite(0x2001, 0xCD);
 
     // Both should now have 0xCD (bus write updates both)
-    try testing.expectEqual(@as(u8, 0xCD), bus.open_bus.value);
+    try testing.expectEqual(@as(u8, 0xCD), state.bus.open_bus);
     try testing.expectEqual(@as(u8, 0xCD), ppu.open_bus.value);
 }
