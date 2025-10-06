@@ -4,7 +4,7 @@
 //! - Pure state machine: state_n+1 = tick(state_n)
 //! - PPU cycle granularity (finest timing unit)
 //! - Deterministic, reproducible execution
-//! - Zero coupling between components (communication via Bus)
+//! - Direct data ownership (no pointer wiring)
 //!
 //! References:
 //! - docs/implementation/design-decisions/final-hybrid-architecture.md
@@ -14,8 +14,13 @@ const Config = @import("../config/Config.zig");
 const CpuModule = @import("../cpu/Cpu.zig");
 const CpuState = CpuModule.State.CpuState;
 const CpuLogic = CpuModule.Logic;
-const BusState = @import("../bus/Bus.zig").State.BusState;
-const PpuState = @import("../ppu/Ppu.zig").State.PpuState;
+const PpuModule = @import("../ppu/Ppu.zig");
+const PpuState = PpuModule.State.PpuState;
+const PpuLogic = PpuModule.Logic;
+const PpuRuntime = @import("Ppu.zig");
+const PpuTiming = PpuRuntime.Timing;
+const CartridgeModule = @import("../cartridge/Cartridge.zig");
+const NromCart = CartridgeModule.NromCart;
 
 /// Master timing clock - tracks total PPU cycles
 /// PPU cycles are the finest granularity in NES hardware
@@ -34,7 +39,7 @@ pub const MasterClock = struct {
 
     /// Current scanline (0-261 NTSC, 0-311 PAL)
     /// Calculated from PPU cycles and configuration
-    pub fn scanline(self: MasterClock, config: Config.PpuConfig) u16 {
+    pub fn scanline(self: MasterClock, config: Config.PpuModel) u16 {
         const cycles_per_scanline: u64 = config.cyclesPerScanline();
         const scanlines_per_frame: u64 = config.scanlinesPerFrame();
         const frame_cycles = cycles_per_scanline * scanlines_per_frame;
@@ -44,14 +49,14 @@ pub const MasterClock = struct {
 
     /// Current dot/cycle within scanline (0-340)
     /// Each scanline is 341 PPU cycles for both NTSC and PAL
-    pub fn dot(self: MasterClock, config: Config.PpuConfig) u16 {
+    pub fn dot(self: MasterClock, config: Config.PpuModel) u16 {
         const cycles_per_scanline: u64 = config.cyclesPerScanline();
         return @intCast(self.ppu_cycles % cycles_per_scanline);
     }
 
     /// Current frame number
     /// Increments at the start of VBlank (scanline 241, dot 1 for NTSC)
-    pub fn frame(self: MasterClock, config: Config.PpuConfig) u64 {
+    pub fn frame(self: MasterClock, config: Config.PpuModel) u64 {
         const cycles_per_scanline: u64 = config.cyclesPerScanline();
         const scanlines_per_frame: u64 = config.scanlinesPerFrame();
         const frame_cycles = cycles_per_scanline * scanlines_per_frame;
@@ -59,7 +64,7 @@ pub const MasterClock = struct {
     }
 
     /// CPU cycles within current frame
-    pub fn cpuCyclesInFrame(self: MasterClock, config: Config.PpuConfig) u32 {
+    pub fn cpuCyclesInFrame(self: MasterClock, config: Config.PpuModel) u32 {
         const cycles_per_scanline: u64 = config.cyclesPerScanline();
         const scanlines_per_frame: u64 = config.scanlinesPerFrame();
         const frame_cycles = cycles_per_scanline * scanlines_per_frame;
@@ -68,8 +73,70 @@ pub const MasterClock = struct {
     }
 };
 
+/// Memory bus state owned by the emulator runtime
+/// Stores all data required to service CPU/PPU bus accesses.
+pub const BusState = struct {
+    /// Internal RAM: 2KB ($0000-$07FF), mirrored through $0000-$1FFF
+    ram: [2048]u8 = std.mem.zeroes([2048]u8),
+
+    /// Last value observed on the CPU data bus (open bus behaviour)
+    open_bus: u8 = 0,
+
+    /// Optional external RAM used by tests in lieu of a cartridge
+    test_ram: ?[]u8 = null,
+};
+
+/// OAM DMA State Machine
+/// Cycle-accurate DMA transfer from CPU RAM to PPU OAM
+/// Follows microstep pattern for hardware accuracy
+pub const DmaState = struct {
+    /// DMA active flag
+    active: bool = false,
+
+    /// Source page number (written to $4014)
+    /// DMA copies from ($source_page << 8) to ($source_page << 8) + 255
+    source_page: u8 = 0,
+
+    /// Current byte offset within page (0-255)
+    current_offset: u8 = 0,
+
+    /// Cycle counter within DMA transfer
+    /// Used for read/write cycle alternation
+    current_cycle: u16 = 0,
+
+    /// Alignment wait needed (odd CPU cycle start)
+    /// True if DMA triggered on odd cycle (adds 1 extra wait cycle)
+    needs_alignment: bool = false,
+
+    /// Temporary value for read/write pair
+    /// Cycle N (even): Read into temp_value
+    /// Cycle N+1 (odd): Write temp_value to OAM
+    temp_value: u8 = 0,
+
+    /// Trigger DMA transfer
+    /// Called when $4014 is written
+    pub fn trigger(self: *DmaState, page: u8, on_odd_cycle: bool) void {
+        self.active = true;
+        self.source_page = page;
+        self.current_offset = 0;
+        self.current_cycle = 0;
+        self.needs_alignment = on_odd_cycle;
+        self.temp_value = 0;
+    }
+
+    /// Reset DMA state
+    pub fn reset(self: *DmaState) void {
+        self.* = .{};
+    }
+};
+
 /// Complete emulation state (pure data, no hidden state)
 /// This is the core of the RT emulation loop
+///
+/// Architecture: Single source of truth with direct data ownership
+/// - No pointer wiring (connectComponents() pattern eliminated)
+/// - Bus routing is inline logic, not separate abstraction
+/// - All state directly owned by EmulationState
 pub const EmulationState = struct {
     /// Master clock (PPU cycle granularity)
     clock: MasterClock = .{},
@@ -77,7 +144,19 @@ pub const EmulationState = struct {
     /// Component states
     cpu: CpuState,
     ppu: PpuState,
-    bus: BusState,
+
+    /// PPU timing owned by emulator runtime
+    ppu_timing: PpuTiming = .{},
+
+    /// Memory bus state (RAM, open bus, optional test RAM)
+    bus: BusState = .{},
+
+    /// Cartridge (direct ownership)
+    /// Currently only supports NROM (Mapper 0)
+    cart: ?NromCart = null,
+
+    /// DMA state machine
+    dma: DmaState = .{},
 
     /// Hardware configuration (immutable during emulation)
     config: *const Config.Config,
@@ -94,31 +173,23 @@ pub const EmulationState = struct {
     rendering_enabled: bool = false,
 
     /// Initialize emulation state from configuration
-    /// Requires the Bus to be already initialized with cartridge
-    pub fn init(config: *const Config.Config, bus: BusState) EmulationState {
+    /// Cartridge can be loaded later with loadCartridge()
+    pub fn init(config: *const Config.Config) EmulationState {
         const cpu = CpuLogic.init();
         const ppu = PpuState.init();
 
-        // Note: PPU pointer in bus will be connected in connectComponents()
         return .{
             .cpu = cpu,
             .ppu = ppu,
-            .bus = bus,
             .config = config,
         };
     }
 
-    /// Connect component pointers (must be called after init)
-    /// This connects the PPU to the bus and cartridge
-    pub fn connectComponents(self: *EmulationState) void {
-        // Connect PPU to bus (non-owning pointer)
-        self.bus.ppu = &self.ppu;
-
-        // Connect cartridge and mirroring to PPU
-        if (self.bus.cartridge) |cart| {
-            self.ppu.setCartridge(cart);
-            self.ppu.setMirroring(cart.mirroring);
-        }
+    /// Load a cartridge into the emulator
+    /// Also updates PPU mirroring based on cartridge
+    pub fn loadCartridge(self: *EmulationState, cart: NromCart) void {
+        self.cart = cart;
+        self.ppu.mirroring = cart.mirroring;
     }
 
     /// Reset emulation to power-on state
@@ -128,12 +199,203 @@ pub const EmulationState = struct {
         self.frame_complete = false;
         self.odd_frame = false;
         self.rendering_enabled = false;
+        self.ppu_timing = .{};
+        self.bus.open_bus = 0;
+        self.dma.reset();
 
-        // Reconnect components after reset
-        self.connectComponents();
+        const reset_vector = self.busRead16(0xFFFC);
+        self.cpu.pc = reset_vector;
+        self.cpu.sp = 0xFD;
+        self.cpu.p.interrupt = true;
 
-        CpuLogic.reset(&self.cpu, &self.bus);
-        self.ppu.reset();
+        PpuLogic.reset(&self.ppu);
+    }
+
+    // =========================================================================
+    // Bus Routing (inline logic - no separate abstraction)
+    // =========================================================================
+
+    /// Read from NES memory bus
+    /// Routes to appropriate component and updates open bus
+    pub inline fn busRead(self: *EmulationState, address: u16) u8 {
+        const cart_ptr = self.cartPtr();
+        const value = switch (address) {
+            // RAM + mirrors ($0000-$1FFF)
+            // 2KB RAM mirrored 4 times through $0000-$1FFF
+            0x0000...0x1FFF => self.bus.ram[address & 0x7FF],
+
+            // PPU registers + mirrors ($2000-$3FFF)
+            // 8 registers mirrored through $2000-$3FFF
+            0x2000...0x3FFF => PpuLogic.readRegister(&self.ppu, cart_ptr, address & 0x07),
+
+            // APU and I/O registers ($4000-$4017)
+            0x4000...0x4013 => self.bus.open_bus, // APU not implemented
+            0x4014 => self.bus.open_bus, // OAMDMA write-only
+            0x4015 => self.bus.open_bus, // APU status not implemented
+            0x4016 => self.bus.open_bus, // Controller 1 not implemented
+            0x4017 => self.bus.open_bus, // Controller 2 not implemented
+
+            // Cartridge space ($4020-$FFFF)
+            0x4020...0xFFFF => blk: {
+                if (self.cart) |*cart| {
+                    break :blk cart.cpuRead(address);
+                }
+                // No cartridge - check test RAM
+                if (self.bus.test_ram) |test_ram| {
+                    if (address >= 0x8000) {
+                        break :blk test_ram[address - 0x8000];
+                    }
+                }
+                // No cartridge or test RAM - open bus
+                break :blk self.bus.open_bus;
+            },
+
+            // Unmapped regions - return open bus
+            else => self.bus.open_bus,
+        };
+
+        // Hardware: All reads update open bus
+        self.bus.open_bus = value;
+        return value;
+    }
+
+    /// Helper to obtain pointer to owned cartridge (if any)
+    fn cartPtr(self: *EmulationState) ?*NromCart {
+        if (self.cart) |*cart_ref| {
+            return cart_ref;
+        }
+        return null;
+    }
+
+    /// Write to NES memory bus
+    /// Routes to appropriate component and updates open bus
+    pub inline fn busWrite(self: *EmulationState, address: u16, value: u8) void {
+        const cart_ptr = self.cartPtr();
+        // Hardware: All writes update open bus
+        self.bus.open_bus = value;
+
+        switch (address) {
+            // RAM + mirrors ($0000-$1FFF)
+            0x0000...0x1FFF => {
+                self.bus.ram[address & 0x7FF] = value;
+            },
+
+            // PPU registers + mirrors ($2000-$3FFF)
+            0x2000...0x3FFF => {
+                PpuLogic.writeRegister(&self.ppu, cart_ptr, address & 0x07, value);
+            },
+
+            // APU and I/O registers ($4000-$4017)
+            0x4000...0x4013 => {}, // APU not implemented
+            0x4014 => {
+                // OAM DMA trigger
+                const on_odd_cycle = (self.clock.ppu_cycles & 1) != 0;
+                self.dma.trigger(value, on_odd_cycle);
+            },
+            0x4015 => {}, // APU control not implemented
+            0x4016 => {}, // Controller 1 strobe not implemented
+            0x4017 => {}, // APU frame counter not implemented
+
+            // Cartridge space ($4020-$FFFF)
+            0x4020...0xFFFF => {
+                if (self.cart) |*cart| {
+                    cart.cpuWrite(address, value);
+                } else if (self.bus.test_ram) |test_ram| {
+                    // Allow test RAM writes
+                    if (address >= 0x8000) {
+                        test_ram[address - 0x8000] = value;
+                    }
+                }
+                // No cartridge or test RAM - write ignored
+            },
+
+            // Unmapped regions - write ignored
+            else => {},
+        }
+    }
+
+    /// Read 16-bit value (little-endian)
+    /// Used for reading interrupt vectors and 16-bit operands
+    pub inline fn busRead16(self: *EmulationState, address: u16) u16 {
+        const low = self.busRead(address);
+        const high = self.busRead(address +% 1);
+        return (@as(u16, high) << 8) | @as(u16, low);
+    }
+
+    /// Read 16-bit value with JMP indirect page wrap bug
+    /// The 6502 has a bug where JMP ($xxFF) wraps within the page
+    pub inline fn busRead16Bug(self: *EmulationState, address: u16) u16 {
+        const low_addr = address;
+        // If low byte is $FF, wrap to $x00 instead of crossing page
+        const high_addr = if ((address & 0x00FF) == 0x00FF)
+            address & 0xFF00
+        else
+            address +% 1;
+
+        const low = self.busRead(low_addr);
+        const high = self.busRead(high_addr);
+        return (@as(u16, high) << 8) | @as(u16, low);
+    }
+
+    /// Peek memory without side effects (for debugging/inspection)
+    /// Does NOT update open bus - safe for debugger inspection
+    ///
+    /// This is distinct from busRead() which updates open bus (hardware behavior).
+    /// Use this for debugger inspection where side effects are undesirable.
+    ///
+    /// Parameters:
+    ///   - address: 16-bit CPU address to read from
+    ///
+    /// Returns: Byte value at address (or open bus value if unmapped)
+    pub inline fn peekMemory(self: *const EmulationState, address: u16) u8 {
+        return switch (address) {
+            // RAM + mirrors ($0000-$1FFF)
+            0x0000...0x1FFF => self.bus.ram[address & 0x7FF],
+
+            // PPU registers + mirrors ($2000-$3FFF)
+            // Note: PPU register reads have side effects, but for debugging we return the raw value
+            0x2000...0x3FFF => blk: {
+                // For debugging, return raw PPU state without side effects
+                // This is safe because we're not triggering PPU read logic
+                break :blk switch (address & 0x07) {
+                    0 => @as(u8, @bitCast(self.ppu.ctrl)), // PPUCTRL
+                    1 => @as(u8, @bitCast(self.ppu.mask)), // PPUMASK
+                    2 => @as(u8, @bitCast(self.ppu.status)), // PPUSTATUS
+                    3 => self.ppu.oam_addr, // OAMADDR
+                    4 => self.ppu.oam[self.ppu.oam_addr], // OAMDATA
+                    5 => self.bus.open_bus, // PPUSCROLL (write-only)
+                    6 => self.bus.open_bus, // PPUADDR (write-only)
+                    7 => self.ppu.internal.read_buffer, // PPUDATA (return buffer, not live read)
+                    else => unreachable,
+                };
+            },
+
+            // APU and I/O registers ($4000-$4017)
+            0x4000...0x4013 => self.bus.open_bus, // APU not implemented
+            0x4014 => self.bus.open_bus, // OAMDMA write-only
+            0x4015 => self.bus.open_bus, // APU status not implemented
+            0x4016 => self.bus.open_bus, // Controller 1 not implemented
+            0x4017 => self.bus.open_bus, // Controller 2 not implemented
+
+            // Cartridge space ($4020-$FFFF)
+            0x4020...0xFFFF => blk: {
+                if (self.cart) |cart| {
+                    break :blk cart.cpuRead(address);
+                }
+                // No cartridge - check test RAM
+                if (self.bus.test_ram) |test_ram| {
+                    if (address >= 0x8000) {
+                        break :blk test_ram[address - 0x8000];
+                    }
+                }
+                // No cartridge or test RAM - open bus
+                break :blk self.bus.open_bus;
+            },
+
+            // Unmapped regions - return open bus
+            else => self.bus.open_bus,
+        };
+        // NO open_bus update - this is the key difference from busRead()
     }
 
     /// RT emulation loop - advances state by exactly 1 PPU cycle
@@ -190,45 +452,813 @@ pub const EmulationState = struct {
         if (apu_tick) {
             self.tickApu();
         }
-
-        // Frame timing events
-        const new_scanline = self.clock.scanline(self.config.ppu);
-        const new_dot = self.clock.dot(self.config.ppu);
-
-        // VBlank start: Scanline 241, dot 1
-        if (new_scanline == 241 and new_dot == 1) {
-            self.frame_complete = true;
-            // VBlank/NMI timing handled by PPU.tick() - already implemented
-        }
-
-        // Pre-render scanline: Scanline -1/261, dot 1
-        // Clears VBlank and sprite 0 hit flags
-        if (new_scanline == 261 and new_dot == 1) {
-            // VBlank/sprite flag clearing handled by PPU.tick() - already implemented
-        }
-
-        // Frame boundary: End of scanline 261 (start of scanline 0)
-        // Toggle odd/even frame
-        if (new_scanline == 0 and current_scanline == 261) {
-            self.odd_frame = !self.odd_frame;
-        }
     }
 
+    // ========================================================================
+    // PRIVATE MICROSTEP HELPERS
+    // ========================================================================
+    // These atomic functions perform cycle-accurate CPU operations.
+    // All side effects (bus access, state mutation) happen here.
+    // Previously in execution.zig, now integrated into EmulationState.
+    // ========================================================================
+
+    // Fetch operand low byte (immediate/zero page address)
+    fn fetchOperandLow(self: *EmulationState) bool {
+        self.cpu.operand_low = self.busRead(self.cpu.pc);
+        self.cpu.pc +%= 1;
+        return false;
+    }
+
+    // Fetch absolute address low byte
+    fn fetchAbsLow(self: *EmulationState) bool {
+        self.cpu.operand_low = self.busRead(self.cpu.pc);
+        self.cpu.pc +%= 1;
+        return false;
+    }
+
+    // Fetch absolute address high byte
+    fn fetchAbsHigh(self: *EmulationState) bool {
+        self.cpu.operand_high = self.busRead(self.cpu.pc);
+        self.cpu.pc +%= 1;
+        return false;
+    }
+
+    // Add X index to zero page address (wraps within page 0)
+    fn addXToZeroPage(self: *EmulationState) bool {
+        _ = self.busRead(@as(u16, self.cpu.operand_low)); // Dummy read
+        self.cpu.effective_address = @as(u16, self.cpu.operand_low +% self.cpu.x);
+        return false;
+    }
+
+    // Add Y index to zero page address (wraps within page 0)
+    fn addYToZeroPage(self: *EmulationState) bool {
+        _ = self.busRead(@as(u16, self.cpu.operand_low)); // Dummy read
+        self.cpu.effective_address = @as(u16, self.cpu.operand_low +% self.cpu.y);
+        return false;
+    }
+
+    // Calculate absolute,X address with page crossing check
+    fn calcAbsoluteX(self: *EmulationState) bool {
+        const base = (@as(u16, self.cpu.operand_high) << 8) | @as(u16, self.cpu.operand_low);
+        self.cpu.effective_address = base +% self.cpu.x;
+        self.cpu.page_crossed = (base & 0xFF00) != (self.cpu.effective_address & 0xFF00);
+
+        // CRITICAL: Dummy read at wrong address (base_high | result_low)
+        const dummy_addr = (base & 0xFF00) | (self.cpu.effective_address & 0x00FF);
+        const dummy_value = self.busRead(dummy_addr);
+        self.cpu.temp_value = dummy_value;
+        return false;
+    }
+
+    // Calculate absolute,Y address with page crossing check
+    fn calcAbsoluteY(self: *EmulationState) bool {
+        const base = (@as(u16, self.cpu.operand_high) << 8) | @as(u16, self.cpu.operand_low);
+        self.cpu.effective_address = base +% self.cpu.y;
+        self.cpu.page_crossed = (base & 0xFF00) != (self.cpu.effective_address & 0xFF00);
+
+        const dummy_addr = (base & 0xFF00) | (self.cpu.effective_address & 0x00FF);
+        _ = self.busRead(dummy_addr);
+        self.cpu.temp_value = self.bus.open_bus;
+        return false;
+    }
+
+    // Fix high byte after page crossing
+    // For reads: Do REAL read when page crossed (hardware behavior)
+    // For RMW: This is always a dummy read before the real read cycle
+    fn fixHighByte(self: *EmulationState) bool {
+        if (self.cpu.page_crossed) {
+            // Read the actual value at correct address
+            // For read instructions: this IS the operand value (execute will use temp_value)
+            // For RMW instructions: this is a dummy read (RMW will re-read in next cycle)
+            self.cpu.temp_value = self.busRead(self.cpu.effective_address);
+        }
+        // Page not crossed: temp_value already has correct value from calcAbsolute
+        return false;
+    }
+
+    // Fetch zero page base for indexed indirect
+    fn fetchZpBase(self: *EmulationState) bool {
+        self.cpu.operand_low = self.busRead(self.cpu.pc);
+        self.cpu.pc +%= 1;
+        return false;
+    }
+
+    // Add X to base address (with dummy read)
+    fn addXToBase(self: *EmulationState) bool {
+        _ = self.busRead(@as(u16, self.cpu.operand_low)); // Dummy read
+        self.cpu.temp_address = @as(u16, self.cpu.operand_low +% self.cpu.x);
+        return false;
+    }
+
+    // Fetch low byte of indirect address
+    fn fetchIndirectLow(self: *EmulationState) bool {
+        self.cpu.operand_low = self.busRead(self.cpu.temp_address);
+        return false;
+    }
+
+    // Fetch high byte of indirect address
+    fn fetchIndirectHigh(self: *EmulationState) bool {
+        const high_addr = @as(u16, @as(u8, @truncate(self.cpu.temp_address)) +% 1);
+        self.cpu.operand_high = self.busRead(high_addr);
+        self.cpu.effective_address = (@as(u16, self.cpu.operand_high) << 8) | @as(u16, self.cpu.operand_low);
+        return false;
+    }
+
+    // Fetch zero page pointer for indirect indexed
+    fn fetchZpPointer(self: *EmulationState) bool {
+        self.cpu.operand_low = self.busRead(self.cpu.pc);
+        self.cpu.pc +%= 1;
+        return false;
+    }
+
+    // Fetch low byte of pointer
+    fn fetchPointerLow(self: *EmulationState) bool {
+        self.cpu.temp_value = self.busRead(@as(u16, self.cpu.operand_low));
+        return false;
+    }
+
+    // Fetch high byte of pointer
+    fn fetchPointerHigh(self: *EmulationState) bool {
+        const high_addr = @as(u16, self.cpu.operand_low +% 1);
+        self.cpu.operand_high = self.busRead(high_addr);
+        return false;
+    }
+
+    // Add Y and check for page crossing
+    fn addYCheckPage(self: *EmulationState) bool {
+        const base = (@as(u16, self.cpu.operand_high) << 8) | @as(u16, self.cpu.temp_value);
+        self.cpu.effective_address = base +% self.cpu.y;
+        self.cpu.page_crossed = (base & 0xFF00) != (self.cpu.effective_address & 0xFF00);
+
+        const dummy_addr = (base & 0xFF00) | (self.cpu.effective_address & 0x00FF);
+        _ = self.busRead(dummy_addr);
+        self.cpu.temp_value = self.bus.open_bus;
+        return false;
+    }
+
+    // Pull byte from stack (increment SP first)
+    fn pullByte(self: *EmulationState) bool {
+        self.cpu.sp +%= 1;
+        const stack_addr = 0x0100 | @as(u16, self.cpu.sp);
+        self.cpu.temp_value = self.busRead(stack_addr);
+        return false;
+    }
+
+    // Dummy read during stack operation
+    fn stackDummyRead(self: *EmulationState) bool {
+        const stack_addr = 0x0100 | @as(u16, self.cpu.sp);
+        _ = self.busRead(stack_addr);
+        return false;
+    }
+
+    // Push PC high byte to stack (for JSR/BRK)
+    fn pushPch(self: *EmulationState) bool {
+        const stack_addr = 0x0100 | @as(u16, self.cpu.sp);
+        self.busWrite(stack_addr, @as(u8, @truncate(self.cpu.pc >> 8)));
+        self.cpu.sp -%= 1;
+        return false;
+    }
+
+    // Push PC low byte to stack (for JSR/BRK)
+    fn pushPcl(self: *EmulationState) bool {
+        const stack_addr = 0x0100 | @as(u16, self.cpu.sp);
+        self.busWrite(stack_addr, @as(u8, @truncate(self.cpu.pc & 0xFF)));
+        self.cpu.sp -%= 1;
+        return false;
+    }
+
+    // Push status register to stack with B flag set (for BRK)
+    fn pushStatusBrk(self: *EmulationState) bool {
+        const stack_addr = 0x0100 | @as(u16, self.cpu.sp);
+        const status = self.cpu.p.toByte() | 0x30; // B flag + unused flag set
+        self.busWrite(stack_addr, status);
+        self.cpu.sp -%= 1;
+        return false;
+    }
+
+    // Pull PC low byte from stack (for RTS/RTI)
+    fn pullPcl(self: *EmulationState) bool {
+        self.cpu.sp +%= 1;
+        const stack_addr = 0x0100 | @as(u16, self.cpu.sp);
+        self.cpu.operand_low = self.busRead(stack_addr);
+        return false;
+    }
+
+    // Pull PC high byte from stack and reconstruct PC (for RTS/RTI)
+    fn pullPch(self: *EmulationState) bool {
+        self.cpu.sp +%= 1;
+        const stack_addr = 0x0100 | @as(u16, self.cpu.sp);
+        self.cpu.operand_high = self.busRead(stack_addr);
+        self.cpu.pc = (@as(u16, self.cpu.operand_high) << 8) | @as(u16, self.cpu.operand_low);
+        return false;
+    }
+
+    // Pull PC high byte and signal completion (for RTI final cycle)
+    fn pullPchRti(self: *EmulationState) bool {
+        self.cpu.sp +%= 1;
+        const stack_addr = 0x0100 | @as(u16, self.cpu.sp);
+        self.cpu.operand_high = self.busRead(stack_addr);
+        self.cpu.pc = (@as(u16, self.cpu.operand_high) << 8) | @as(u16, self.cpu.operand_low);
+        return true; // RTI complete
+    }
+
+    // Pull status register from stack (for RTI)
+    fn pullStatus(self: *EmulationState) bool {
+        self.cpu.sp +%= 1;
+        const stack_addr = 0x0100 | @as(u16, self.cpu.sp);
+        const status = self.busRead(stack_addr);
+        self.cpu.p = @TypeOf(self.cpu.p).fromByte(status);
+        return false;
+    }
+
+    // Increment PC after RTS (PC was pushed as PC-1 by JSR)
+    fn incrementPcAfterRts(self: *EmulationState) bool {
+        _ = self.busRead(self.cpu.pc); // Dummy read
+        self.cpu.pc +%= 1;
+        return true; // RTS complete
+    }
+
+    // Stack dummy read for JSR cycle 3 (internal operation)
+    fn jsrStackDummy(self: *EmulationState) bool {
+        const stack_addr = 0x0100 | @as(u16, self.cpu.sp);
+        _ = self.busRead(stack_addr);
+        return false;
+    }
+
+    // Fetch absolute high byte for JSR and jump (final cycle)
+    fn fetchAbsHighJsr(self: *EmulationState) bool {
+        self.cpu.operand_high = self.busRead(self.cpu.pc);
+        self.cpu.effective_address = (@as(u16, self.cpu.operand_high) << 8) | @as(u16, self.cpu.operand_low);
+        self.cpu.pc = self.cpu.effective_address;
+        return true; // JSR complete
+    }
+
+    // Fetch IRQ vector low byte (for BRK) and set interrupt disable flag
+    fn fetchIrqVectorLow(self: *EmulationState) bool {
+        self.cpu.operand_low = self.busRead(0xFFFE);
+        self.cpu.p.interrupt = true;
+        return false;
+    }
+
+    // Fetch IRQ vector high byte and jump (completes BRK)
+    fn fetchIrqVectorHigh(self: *EmulationState) bool {
+        self.cpu.operand_high = self.busRead(0xFFFF);
+        self.cpu.pc = (@as(u16, self.cpu.operand_high) << 8) | @as(u16, self.cpu.operand_low);
+        return true; // BRK complete
+    }
+
+    // Read operand for RMW instruction
+    fn rmwRead(self: *EmulationState) bool {
+        const addr = switch (self.cpu.address_mode) {
+            .zero_page => @as(u16, self.cpu.operand_low),
+            .zero_page_x, .absolute_x => self.cpu.effective_address,
+            .absolute => (@as(u16, self.cpu.operand_high) << 8) | @as(u16, self.cpu.operand_low),
+            else => unreachable,
+        };
+
+        self.cpu.effective_address = addr;
+        self.cpu.temp_value = self.busRead(addr);
+        return false;
+    }
+
+    // Dummy write original value (CRITICAL for hardware accuracy!)
+    fn rmwDummyWrite(self: *EmulationState) bool {
+        self.busWrite(self.cpu.effective_address, self.cpu.temp_value);
+        return false;
+    }
+
+    // Fetch branch offset
+    fn branchFetchOffset(self: *EmulationState) bool {
+        self.cpu.operand_low = self.busRead(self.cpu.pc);
+        self.cpu.pc +%= 1;
+        return false;
+    }
+
+    // Add offset to PC and check page crossing
+    fn branchAddOffset(self: *EmulationState) bool {
+        _ = self.busRead(self.cpu.pc); // Dummy read during offset calculation
+
+        const offset = @as(i8, @bitCast(self.cpu.operand_low));
+        const old_pc = self.cpu.pc;
+        self.cpu.pc = @as(u16, @bitCast(@as(i16, @bitCast(old_pc)) + offset));
+
+        self.cpu.page_crossed = (old_pc & 0xFF00) != (self.cpu.pc & 0xFF00);
+
+        if (!self.cpu.page_crossed) {
+            return true; // Branch complete (3 cycles total)
+        }
+        return false; // Need page fix (4 cycles total)
+    }
+
+    // Fix PC high byte after page crossing
+    fn branchFixPch(self: *EmulationState) bool {
+        const dummy_addr = (self.cpu.pc & 0x00FF) | ((self.cpu.pc -% (@as(u16, self.cpu.operand_low) & 0x0100)) & 0xFF00);
+        _ = self.busRead(dummy_addr);
+        return true; // Branch complete
+    }
+
+    // Fetch low byte of JMP indirect target
+    fn jmpIndirectFetchLow(self: *EmulationState) bool {
+        self.cpu.operand_low = self.busRead(self.cpu.effective_address);
+        return false;
+    }
+
+    // Fetch high byte of JMP indirect target (with page boundary bug)
+    fn jmpIndirectFetchHigh(self: *EmulationState) bool {
+        // 6502 bug: If pointer is at page boundary, wraps within page
+        const ptr = self.cpu.effective_address;
+        const high_addr = if ((ptr & 0xFF) == 0xFF)
+            ptr & 0xFF00 // Wrap to start of same page
+        else
+            ptr + 1;
+
+        self.cpu.operand_high = self.busRead(high_addr);
+        self.cpu.effective_address = (@as(u16, self.cpu.operand_high) << 8) | self.cpu.operand_low;
+        return false;
+    }
+
+    // ========================================================================
+    // END PRIVATE MICROSTEP HELPERS
+    // ========================================================================
+
     /// Tick CPU state machine (called every 3 PPU cycles)
-    fn tickCpu(self: *EmulationState) void {
-        // Call existing CPU tick function
-        // CPU maintains its own internal state machine
-        _ = CpuLogic.tick(&self.cpu, &self.bus);
+    /// This contains all CPU side effects - pure functional helpers are in CpuLogic
+    pub fn tickCpu(self: *EmulationState) void {
+        self.cpu.cycle_count += 1;
+
+        // If CPU is halted (JAM/KIL), do nothing until RESET
+        if (self.cpu.halted) {
+            return;
+        }
+
+        // Check for interrupts at the start of instruction fetch
+        if (self.cpu.state == .fetch_opcode) {
+            CpuLogic.checkInterrupts(&self.cpu);
+            if (self.cpu.pending_interrupt != .none and self.cpu.pending_interrupt != .reset) {
+                CpuLogic.startInterruptSequence(&self.cpu);
+                return;
+            }
+        }
+
+        // Cycle 1: Always fetch opcode
+        if (self.cpu.state == .fetch_opcode) {
+            self.cpu.opcode = self.busRead(self.cpu.pc);
+            self.cpu.data_bus = self.cpu.opcode;
+            self.cpu.pc +%= 1;
+
+            const entry = CpuModule.dispatch.DISPATCH_TABLE[self.cpu.opcode];
+            self.cpu.address_mode = entry.info.mode;
+
+            // Determine if addressing cycles needed (inline logic, no arrays)
+            // IMPORTANT: Control flow opcodes (JSR/RTS/RTI/BRK/PHA/PLA/PHP/PLP) have custom microstep
+            // sequences even though they're marked as .implied or .absolute in the decode table
+            const needs_addressing = switch (self.cpu.opcode) {
+                0x20, 0x60, 0x40, 0x00, 0x48, 0x68, 0x08, 0x28 => true, // Force addressing state for control flow
+                else => switch (entry.info.mode) {
+                    .implied, .accumulator, .immediate => false,
+                    else => true,
+                },
+            };
+
+            if (needs_addressing) {
+                self.cpu.state = .fetch_operand_low;
+                self.cpu.instruction_cycle = 0;
+            } else {
+                self.cpu.state = .execute;
+            }
+            return;
+        }
+
+        // Handle addressing mode microsteps (inline switch logic)
+        if (self.cpu.state == .fetch_operand_low) {
+            const entry = CpuModule.dispatch.DISPATCH_TABLE[self.cpu.opcode];
+
+            // Check for control flow opcodes with custom microstep sequences FIRST
+            // These have special cycle patterns that don't match their addressing mode
+            const is_control_flow = switch (self.cpu.opcode) {
+                0x20, 0x60, 0x40, 0x00, 0x48, 0x68, 0x08, 0x28 => true, // JSR, RTS, RTI, BRK, PHA, PLA, PHP, PLP
+                else => false,
+            };
+
+            // Call appropriate microstep based on mode and cycle
+            // Returns true if instruction completes early (e.g., branch not taken)
+            const complete = if (is_control_flow) blk: {
+                // Control flow instructions with completely custom microstep sequences
+                break :blk switch (self.cpu.opcode) {
+                    // JSR - 6 cycles
+                    0x20 => switch (self.cpu.instruction_cycle) {
+                        0 => self.fetchAbsLow(),
+                        1 => self.jsrStackDummy(),
+                        2 => self.pushPch(),
+                        3 => self.pushPcl(),
+                        4 => self.fetchAbsHighJsr(),
+                        else => unreachable,
+                    },
+                    // RTS - 6 cycles
+                    0x60 => switch (self.cpu.instruction_cycle) {
+                        0 => self.stackDummyRead(),
+                        1 => self.stackDummyRead(),
+                        2 => self.pullPcl(),
+                        3 => self.pullPch(),
+                        4 => self.incrementPcAfterRts(),
+                        else => unreachable,
+                    },
+                    // RTI - 6 cycles
+                    0x40 => switch (self.cpu.instruction_cycle) {
+                        0 => self.stackDummyRead(),
+                        1 => self.pullStatus(),
+                        2 => self.pullPcl(),
+                        3 => self.pullPch(), // Pull PC high
+                        4 => blk2: { // Dummy read at new PC before completing
+                            _ = self.busRead(self.cpu.pc);
+                            break :blk2 true; // RTI complete
+                        },
+                        else => unreachable,
+                    },
+                    // BRK - 7 cycles
+                    0x00 => switch (self.cpu.instruction_cycle) {
+                        0 => self.fetchOperandLow(),
+                        1 => self.pushPch(),
+                        2 => self.pushPcl(),
+                        3 => self.pushStatusBrk(),
+                        4 => self.fetchIrqVectorLow(),
+                        5 => self.fetchIrqVectorHigh(),
+                        else => unreachable,
+                    },
+                    // PHA - 3 cycles (dummy read, then execute pushes)
+                    0x48 => switch (self.cpu.instruction_cycle) {
+                        0 => self.stackDummyRead(),
+                        else => unreachable,
+                    },
+                    // PHP - 3 cycles (dummy read, then execute pushes)
+                    0x08 => switch (self.cpu.instruction_cycle) {
+                        0 => self.stackDummyRead(),
+                        else => unreachable,
+                    },
+                    // PLA - 4 cycles (dummy read twice, then pull)
+                    0x68 => switch (self.cpu.instruction_cycle) {
+                        0 => self.stackDummyRead(),
+                        1 => self.pullByte(),
+                        else => unreachable,
+                    },
+                    // PLP - 4 cycles
+                    0x28 => switch (self.cpu.instruction_cycle) {
+                        0 => self.stackDummyRead(),
+                        1 => self.pullStatus(),
+                        else => unreachable,
+                    },
+                    else => unreachable,
+                };
+            } else switch (entry.info.mode) {
+                .zero_page => blk: {
+                    if (entry.is_rmw) {
+                        // RMW: 5 cycles (fetch, read, dummy write, execute)
+                        break :blk switch (self.cpu.instruction_cycle) {
+                            0 => self.fetchOperandLow(),
+                            1 => self.rmwRead(),
+                            2 => self.rmwDummyWrite(),
+                            else => unreachable,
+                        };
+                    } else {
+                        break :blk switch (self.cpu.instruction_cycle) {
+                            0 => self.fetchOperandLow(),
+                            else => unreachable,
+                        };
+                    }
+                },
+                .zero_page_x => blk: {
+                    if (entry.is_rmw) {
+                        // RMW: 6 cycles (fetch, add X, read, dummy write, execute)
+                        break :blk switch (self.cpu.instruction_cycle) {
+                            0 => self.fetchOperandLow(),
+                            1 => self.addXToZeroPage(),
+                            2 => self.rmwRead(),
+                            3 => self.rmwDummyWrite(),
+                            else => unreachable,
+                        };
+                    } else {
+                        break :blk switch (self.cpu.instruction_cycle) {
+                            0 => self.fetchOperandLow(),
+                            1 => self.addXToZeroPage(),
+                            else => unreachable,
+                        };
+                    }
+                },
+                .zero_page_y => switch (self.cpu.instruction_cycle) {
+                    0 => self.fetchOperandLow(),
+                    1 => self.addYToZeroPage(),
+                    else => unreachable,
+                },
+                .absolute => blk: {
+                    if (entry.is_rmw) {
+                        // RMW: 6 cycles (fetch low, high, read, dummy write, execute)
+                        break :blk switch (self.cpu.instruction_cycle) {
+                            0 => self.fetchAbsLow(),
+                            1 => self.fetchAbsHigh(),
+                            2 => self.rmwRead(),
+                            3 => self.rmwDummyWrite(),
+                            else => unreachable,
+                        };
+                    } else {
+                        break :blk switch (self.cpu.instruction_cycle) {
+                            0 => self.fetchAbsLow(),
+                            1 => self.fetchAbsHigh(),
+                            else => unreachable,
+                        };
+                    }
+                },
+                .absolute_x => blk: {
+                    // Read vs write have different cycle counts
+                    if (entry.is_rmw) {
+                        // RMW: 7 cycles (fetch low, high, calc+dummy, read, dummy write, execute)
+                        break :blk switch (self.cpu.instruction_cycle) {
+                            0 => self.fetchAbsLow(),
+                            1 => self.fetchAbsHigh(),
+                            2 => self.calcAbsoluteX(),
+                            3 => self.rmwRead(),
+                            4 => self.rmwDummyWrite(),
+                            else => unreachable,
+                        };
+                    } else {
+                        // Regular read: 4-5 cycles (4 if no page cross, 5 if page cross)
+                        break :blk switch (self.cpu.instruction_cycle) {
+                            0 => self.fetchAbsLow(),
+                            1 => self.fetchAbsHigh(),
+                            2 => self.calcAbsoluteX(),
+                            3 => self.fixHighByte(),
+                            else => unreachable,
+                        };
+                    }
+                },
+                .absolute_y => blk: {
+                    if (entry.is_rmw) {
+                        // RMW not used with absolute_y, but handle for completeness
+                        break :blk switch (self.cpu.instruction_cycle) {
+                            0 => self.fetchAbsLow(),
+                            1 => self.fetchAbsHigh(),
+                            2 => self.calcAbsoluteY(),
+                            3 => self.rmwRead(),
+                            4 => self.rmwDummyWrite(),
+                            else => unreachable,
+                        };
+                    } else {
+                        // Regular read: 4-5 cycles (4 if no page cross, 5 if page cross)
+                        break :blk switch (self.cpu.instruction_cycle) {
+                            0 => self.fetchAbsLow(),
+                            1 => self.fetchAbsHigh(),
+                            2 => self.calcAbsoluteY(),
+                            3 => self.fixHighByte(),
+                            else => unreachable,
+                        };
+                    }
+                },
+                .indexed_indirect => blk: {
+                    if (entry.is_rmw) {
+                        // RMW: 8 cycles
+                        break :blk switch (self.cpu.instruction_cycle) {
+                            0 => self.fetchZpBase(),
+                            1 => self.addXToBase(),
+                            2 => self.fetchIndirectLow(),
+                            3 => self.fetchIndirectHigh(),
+                            4 => self.rmwRead(),
+                            5 => self.rmwDummyWrite(),
+                            else => unreachable,
+                        };
+                    } else {
+                        // Regular: 6 cycles
+                        break :blk switch (self.cpu.instruction_cycle) {
+                            0 => self.fetchZpBase(),
+                            1 => self.addXToBase(),
+                            2 => self.fetchIndirectLow(),
+                            3 => self.fetchIndirectHigh(),
+                            else => unreachable,
+                        };
+                    }
+                },
+                .indirect_indexed => blk: {
+                    if (entry.is_rmw) {
+                        // RMW: 8 cycles
+                        break :blk switch (self.cpu.instruction_cycle) {
+                            0 => self.fetchZpPointer(),
+                            1 => self.fetchPointerLow(),
+                            2 => self.fetchPointerHigh(),
+                            3 => self.addYCheckPage(),
+                            4 => self.rmwRead(),
+                            5 => self.rmwDummyWrite(),
+                            else => unreachable,
+                        };
+                    } else {
+                        // Regular read: 5-6 cycles (5 if no page cross, 6 if page cross)
+                        break :blk switch (self.cpu.instruction_cycle) {
+                            0 => self.fetchZpPointer(),
+                            1 => self.fetchPointerLow(),
+                            2 => self.fetchPointerHigh(),
+                            3 => self.addYCheckPage(),
+                            4 => self.fixHighByte(),
+                            else => unreachable,
+                        };
+                    }
+                },
+                .relative => switch (self.cpu.instruction_cycle) {
+                    0 => self.branchFetchOffset(),
+                    1 => self.branchAddOffset(),
+                    2 => self.branchFixPch(),
+                    else => unreachable,
+                },
+                .indirect => switch (self.cpu.instruction_cycle) {
+                    0 => self.fetchAbsLow(),
+                    1 => self.fetchAbsHigh(),
+                    2 => self.jmpIndirectFetchLow(),
+                    3 => self.jmpIndirectFetchHigh(),
+                    else => unreachable,
+                },
+                else => unreachable, // All addressing modes should be handled above
+            };
+
+            self.cpu.instruction_cycle += 1;
+
+            if (complete) {
+                // Instruction completed early (e.g., branch not taken)
+                self.cpu.state = .fetch_opcode;
+                self.cpu.instruction_cycle = 0;
+                return;
+            }
+
+            // Check if addressing is complete and we should move to execute
+            // IMPORTANT: Check for control flow opcodes FIRST before checking addressing mode
+            // These opcodes have conventional addressing modes but custom microstep sequences
+            const addressing_done = if (is_control_flow) blk: {
+                // Control flow instructions complete via their final microstep
+                break :blk switch (self.cpu.opcode) {
+                    0x20 => self.cpu.instruction_cycle >= 5, // JSR (6 cycles total)
+                    0x60 => self.cpu.instruction_cycle >= 5, // RTS (6 cycles total)
+                    0x40 => self.cpu.instruction_cycle >= 5, // RTI (6 cycles total)
+                    0x00 => self.cpu.instruction_cycle >= 6, // BRK (7 cycles total)
+                    0x48, 0x08 => self.cpu.instruction_cycle >= 1, // PHA, PHP (3 cycles total)
+                    0x68, 0x28 => self.cpu.instruction_cycle >= 2, // PLA, PLP (4 cycles total)
+                    else => unreachable,
+                };
+            } else switch (entry.info.mode) {
+                .zero_page => blk: {
+                    if (entry.is_rmw) {
+                        break :blk self.cpu.instruction_cycle >= 3;
+                    } else {
+                        break :blk self.cpu.instruction_cycle >= 1;
+                    }
+                },
+                .zero_page_x => blk: {
+                    if (entry.is_rmw) {
+                        break :blk self.cpu.instruction_cycle >= 4;
+                    } else {
+                        break :blk self.cpu.instruction_cycle >= 2;
+                    }
+                },
+                .zero_page_y => self.cpu.instruction_cycle >= 2,
+                .absolute => blk: {
+                    if (entry.is_rmw) {
+                        break :blk self.cpu.instruction_cycle >= 4;
+                    } else {
+                        break :blk self.cpu.instruction_cycle >= 2;
+                    }
+                },
+                .absolute_x, .absolute_y => blk: {
+                    if (entry.is_rmw) {
+                        break :blk self.cpu.instruction_cycle >= 5;
+                    } else {
+                        // Non-RMW reads: 5 cycles (no page cross) or 6 cycles (page cross)
+                        // After calcAbsolute sets page_crossed flag
+                        const threshold: u8 = if (self.cpu.page_crossed) 4 else 3;
+                        break :blk self.cpu.instruction_cycle >= threshold;
+                    }
+                },
+                .indexed_indirect => blk: {
+                    if (entry.is_rmw) {
+                        break :blk self.cpu.instruction_cycle >= 6;
+                    } else {
+                        break :blk self.cpu.instruction_cycle >= 4;
+                    }
+                },
+                .indirect_indexed => blk: {
+                    if (entry.is_rmw) {
+                        break :blk self.cpu.instruction_cycle >= 6;
+                    } else {
+                        // Non-RMW reads: 6 cycles (no page cross) or 7 cycles (page cross)
+                        // After addYCheckPage sets page_crossed flag
+                        const threshold: u8 = if (self.cpu.page_crossed) 5 else 4;
+                        break :blk self.cpu.instruction_cycle >= threshold;
+                    }
+                },
+                .relative => false, // Branches always complete via return value
+                .indirect => self.cpu.instruction_cycle >= 4,
+                else => true, // implied, accumulator, immediate
+            };
+
+            if (addressing_done) {
+                self.cpu.state = .execute;
+
+                // Conditional fallthrough: ONLY for indexed modes with +1 cycle deviation
+                // Hardware combines final operand read + execute in same cycle for:
+                // - absolute,X / absolute,Y
+                // - indirect,Y (indirect indexed)
+                // Other modes already have correct timing - don't fall through!
+                const dispatch_entry = CpuModule.dispatch.DISPATCH_TABLE[self.cpu.opcode];
+                const should_fallthrough = !dispatch_entry.is_rmw and
+                    (self.cpu.address_mode == .absolute_x or
+                        self.cpu.address_mode == .absolute_y or
+                        self.cpu.address_mode == .indirect_indexed);
+
+                if (should_fallthrough) {
+                    // Fall through to execute state (don't return)
+                    // Indexed modes complete in same tick as final addressing
+                } else {
+                    // All other modes: execute in separate cycle
+                    return;
+                }
+            } else {
+                return;
+            }
+        }
+
+        // Execute instruction (Pure Function Architecture)
+        if (self.cpu.state == .execute) {
+            const entry = CpuModule.dispatch.DISPATCH_TABLE[self.cpu.opcode];
+
+            // Extract operand value based on addressing mode (inline for bus access)
+            const operand = if (entry.is_rmw or entry.is_pull)
+                self.cpu.temp_value
+            else switch (self.cpu.address_mode) {
+                .immediate => self.busRead(self.cpu.pc),
+                .accumulator => self.cpu.a,
+                .implied => 0,
+                .zero_page => self.busRead(@as(u16, self.cpu.operand_low)),
+                .zero_page_x, .zero_page_y => self.busRead(self.cpu.effective_address),
+                .absolute => blk: {
+                    const addr = (@as(u16, self.cpu.operand_high) << 8) | self.cpu.operand_low;
+                    break :blk self.busRead(addr);
+                },
+                // Indexed modes: Always use temp_value (already read in addressing state)
+                // No page cross: calcAbsoluteX/Y read it
+                // Page cross: fixHighByte read it
+                .absolute_x, .absolute_y, .indirect_indexed => self.cpu.temp_value,
+                .indexed_indirect => self.busRead(self.cpu.effective_address),
+                .indirect => unreachable,
+                .relative => self.cpu.operand_low,
+            };
+
+            // Immediate mode: Increment PC after reading operand
+            if (self.cpu.address_mode == .immediate) {
+                self.cpu.pc +%= 1;
+            }
+
+            // Zero page modes: Set effective_address from operand_low
+            if (self.cpu.address_mode == .zero_page) {
+                self.cpu.effective_address = @as(u16, self.cpu.operand_low);
+            }
+
+            // Convert to core CPU state (6502 registers + effective address)
+            const core_state = CpuLogic.toCoreState(&self.cpu);
+
+            // Call pure opcode function (returns delta structure)
+            const result = entry.operation(core_state, operand);
+
+            // Apply result (inline for bus writes)
+            if (result.a) |new_a| self.cpu.a = new_a;
+            if (result.x) |new_x| self.cpu.x = new_x;
+            if (result.y) |new_y| self.cpu.y = new_y;
+            if (result.sp) |new_sp| self.cpu.sp = new_sp;
+            if (result.pc) |new_pc| self.cpu.pc = new_pc;
+            if (result.flags) |new_flags| self.cpu.p = new_flags;
+
+            if (result.bus_write) |write| {
+                self.busWrite(write.address, write.value);
+                self.cpu.data_bus = write.value;
+            }
+
+            if (result.push) |value| {
+                self.busWrite(0x0100 | @as(u16, self.cpu.sp), value);
+                self.cpu.sp -%= 1;
+                self.cpu.data_bus = value;
+            }
+
+            if (result.halt) {
+                self.cpu.halted = true;
+            }
+
+            // Instruction complete
+            self.cpu.state = .fetch_opcode;
+            self.cpu.instruction_cycle = 0;
+        }
     }
 
     /// Tick PPU state machine (called every PPU cycle)
     fn tickPpu(self: *EmulationState) void {
-        // Tick PPU (manages its own scanline/dot tracking)
-        // TODO: Pass framebuffer when implementing display output
-        self.ppu.tick(null);
-
-        // Update rendering_enabled flag for odd frame skip logic
-        self.rendering_enabled = self.ppu.mask.renderingEnabled();
+        const cart_ptr = self.cartPtr();
+        const flags = PpuRuntime.tick(&self.ppu, &self.ppu_timing, cart_ptr, null);
+        self.rendering_enabled = flags.rendering_enabled;
+        if (flags.frame_complete) {
+            self.frame_complete = true;
+        }
+        self.odd_frame = (self.ppu_timing.frame & 1) == 1;
     }
 
     /// Tick APU state machine (called every 3 PPU cycles, same as CPU)
@@ -386,23 +1416,19 @@ test "EmulationState: initialization" {
     var config = Config.Config.init(testing.allocator);
     defer config.deinit();
 
-    const bus = BusState.init();
-
-    var state = EmulationState.init(&config, bus);
-    state.connectComponents();
+    const state = EmulationState.init(&config);
 
     try testing.expectEqual(@as(u64, 0), state.clock.ppu_cycles);
     try testing.expect(!state.frame_complete);
+    try testing.expectEqual(@as(u8, 0), state.bus.open_bus);
+    try testing.expect(!state.dma.active);
 }
 
 test "EmulationState: tick advances PPU clock" {
     var config = Config.Config.init(testing.allocator);
     defer config.deinit();
 
-    const bus = BusState.init();
-
-    var state = EmulationState.init(&config, bus);
-    state.connectComponents();
+    var state = EmulationState.init(&config);
     state.reset();
 
     // Initial state
@@ -423,10 +1449,7 @@ test "EmulationState: CPU ticks every 3 PPU cycles" {
     var config = Config.Config.init(testing.allocator);
     defer config.deinit();
 
-    const bus = BusState.init();
-
-    var state = EmulationState.init(&config, bus);
-    state.connectComponents();
+    var state = EmulationState.init(&config);
     state.reset();
 
     const initial_cpu_cycles = state.cpu.cycle_count;
@@ -454,10 +1477,7 @@ test "EmulationState: emulateCpuCycles advances correctly" {
     var config = Config.Config.init(testing.allocator);
     defer config.deinit();
 
-    const bus = BusState.init();
-
-    var state = EmulationState.init(&config, bus);
-    state.connectComponents();
+    var state = EmulationState.init(&config);
     state.reset();
 
     // Emulate 10 CPU cycles (should be 30 PPU cycles)
@@ -473,21 +1493,18 @@ test "EmulationState: VBlank timing at scanline 241, dot 1" {
 
     config.ppu.variant = .rp2c02g_ntsc;
 
-    const bus = BusState.init();
-
-    var state = EmulationState.init(&config, bus);
-    state.connectComponents();
+    var state = EmulationState.init(&config);
     state.reset();
 
     // Advance to scanline 241, dot 0 (just before VBlank)
-    const target_cycle = (241 * 341) + 0;
-    state.clock.ppu_cycles = target_cycle;
+    state.ppu_timing.scanline = 241;
+    state.ppu_timing.dot = 0;
     try testing.expect(!state.frame_complete);
 
     // Tick once to reach scanline 241, dot 1 (VBlank start)
-    state.tick();
-    try testing.expectEqual(@as(u16, 241), state.clock.scanline(config.ppu));
-    try testing.expectEqual(@as(u16, 1), state.clock.dot(config.ppu));
+    state.tickPpu();
+    try testing.expectEqual(@as(u16, 241), state.ppu_timing.scanline);
+    try testing.expectEqual(@as(u16, 1), state.ppu_timing.dot);
     try testing.expect(state.frame_complete); // VBlank flag set
 }
 
@@ -497,10 +1514,7 @@ test "EmulationState: odd frame skip when rendering enabled" {
 
     config.ppu.variant = .rp2c02g_ntsc;
 
-    const bus = BusState.init();
-
-    var state = EmulationState.init(&config, bus);
-    state.connectComponents();
+    var state = EmulationState.init(&config);
     state.reset();
 
     // Set up odd frame with rendering enabled
@@ -532,10 +1546,7 @@ test "EmulationState: even frame does not skip dot" {
 
     config.ppu.variant = .rp2c02g_ntsc;
 
-    const bus = BusState.init();
-
-    var state = EmulationState.init(&config, bus);
-    state.connectComponents();
+    var state = EmulationState.init(&config);
     state.reset();
 
     // Set up even frame with rendering enabled
@@ -560,10 +1571,7 @@ test "EmulationState: odd frame without rendering does not skip" {
 
     config.ppu.variant = .rp2c02g_ntsc;
 
-    const bus = BusState.init();
-
-    var state = EmulationState.init(&config, bus);
-    state.connectComponents();
+    var state = EmulationState.init(&config);
     state.reset();
 
     // Set up odd frame WITHOUT rendering enabled
@@ -588,29 +1596,29 @@ test "EmulationState: frame toggle at scanline boundary" {
 
     config.ppu.variant = .rp2c02g_ntsc;
 
-    const bus = BusState.init();
-
-    var state = EmulationState.init(&config, bus);
-    state.connectComponents();
+    var state = EmulationState.init(&config);
     state.reset();
 
     // Start with even frame (odd_frame = false)
     try testing.expect(!state.odd_frame);
+    try testing.expectEqual(@as(u64, 0), state.ppu_timing.frame);
 
     // Advance to end of scanline 261 (last scanline of frame)
-    const target_cycle = (261 * 341) + 340;
-    state.clock.ppu_cycles = target_cycle;
+    state.ppu_timing.scanline = 261;
+    state.ppu_timing.dot = 340;
 
     // Tick to cross into scanline 0 of next frame
-    state.tick();
+    state.tickPpu();
 
+    // Frame should have incremented
+    try testing.expectEqual(@as(u64, 1), state.ppu_timing.frame);
     // Should now be odd frame
     try testing.expect(state.odd_frame);
 
-    // Tick again and frame should toggle back to even
     // Advance to next frame boundary
-    state.clock.ppu_cycles = (262 * 341) - 1; // Just before next frame
-    state.tick();
+    state.ppu_timing.scanline = 261;
+    state.ppu_timing.dot = 340;
+    state.tickPpu();
 
     // Should be back to even frame
     try testing.expect(!state.odd_frame);

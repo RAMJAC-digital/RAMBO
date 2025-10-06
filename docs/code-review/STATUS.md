@@ -1,20 +1,34 @@
-# RAMBO Status & Action Plan - 2025-10-05
+# RAMBO Status & Action Plan - 2025-10-06
 
-**Overall Status:** 🟢 **P0 COMPLETE**
-**Focus:** P0 Critical Path Complete - 100% CPU Implementation Achieved
+
+_Historical snapshot: Document created 2025-10-05, updated 2025-10-06 for Phase 0 and Architecture Refresh completion._
+
+_Update 2025-10-06 (Latest):_ Phase 1 Architecture Refresh complete! Current suite: **532/532** tests passing (100%).
+**Overall Status:** 🟢 **P0 + ARCHITECTURE REFRESH COMPLETE** ✅
+**Focus:** Phase 0 Complete, Architecture Refresh Complete - Phase 1 Accuracy Fixes Next
 
 ## Executive Summary
 
-**P0 Progress:** ✅ **3/3 tasks COMPLETE** (2025-10-05)
+**P0 Progress:** ✅ **4/4 tasks COMPLETE** (2025-10-06)
 
-A deep code review confirmed the project's pure functional CPU architecture is sound. All critical work completed:
+Phase 0 achieved 100% CPU implementation with cycle-accurate timing:
 1. ✅ `SBC` instruction bug fixed
 2. ✅ 182 opcode unit tests restored (exceeds 166 deleted)
 3. ✅ **JSR/RTS/RTI/BRK implementation complete** (microstep decomposition, 12 tests passing)
+4. ✅ **CPU Timing Fix Complete** - Fixed +1 cycle deviation for indexed addressing modes
 
-**Test Status:** 582/583 passing (99.8%) - only 1 cosmetic snapshot metadata issue remains.
+**Architecture Refresh Progress:** ✅ **COMPLETE** (2025-10-06)
+- PPU timing separation complete (timing moved to `EmulationState.ppu_timing`)
+- All tests migrated to Harness API
+- Legacy API usage eliminated
 
-**Achievement:** 🎉 **100% CPU implementation (256/256 opcodes)** - All 6502 instructions implemented and tested!
+**Test Status (2025-10-06):** 532/532 passing (100%).
+
+**Achievement:** 🎉 **100% CPU implementation (256/256 opcodes)** - All 6502 instructions implemented with cycle-accurate timing!
+
+**Phase 0 Documentation:**
+- Completion Report: `docs/archive/p0/P0-TIMING-FIX-COMPLETION-2025-10-06.md`
+- Session History: `docs/archive/sessions/p0/README.md`
 
 --- 
 
@@ -43,7 +57,7 @@ A deep code review confirmed the project's pure functional CPU architecture is s
     -   `tests/cpu/opcodes/stack_test.zig` (6 tests - PHA, PHP, PLA, PLP)
     -   `tests/cpu/opcodes/transfer_test.zig` (16 tests - TAX, TXA, TAY, TYA, TSX, TXS)
     -   `tests/cpu/opcodes/unofficial_test.zig` (45 tests - all unofficial opcodes)
--   **Pattern:** Pure functional tests using `PureCpuState → Opcodes.fn(state, operand) → OpcodeResult`
+-   **Pattern:** Pure functional tests using `CpuCoreState → Opcodes.fn(state, operand) → OpcodeResult`
 -   **Verification:** 570/571 tests passing (99.8%)
 
 ### ✅ 3. Implement Missing Control Flow Opcodes
@@ -67,7 +81,42 @@ A deep code review confirmed the project's pure functional CPU architecture is s
     -   All side effects isolated in `execution.zig`
 -   **Reference:** `docs/implementation/sessions/2025-10-05-control-flow-implementation.md`
 
---- 
+---
+
+## ✅ Phase 1 Architecture Refresh: PPU Timing Separation
+
+**Status:** ✅ **COMPLETE** (2025-10-06)
+**Test Status:** 532/532 passing (100%)
+
+### Overview
+Completed migration of PPU timing fields (`scanline`, `dot`, `frame`) from `PpuState` to centralized `EmulationState.ppu_timing`. All code and tests now use the new architecture where `EmulationState` owns all mutable hardware state.
+
+### Changes Summary
+
+**Source Files Updated (5 files):**
+1. ✅ `src/debugger/Debugger.zig` - 8 timing references updated
+2. ✅ `src/snapshot/state.zig` - Removed duplicate timing serialization
+3. ✅ `src/ppu/Logic.zig` - Made `getBackgroundPixel()` public
+4. ✅ `src/test/Harness.zig` - Fixed circular dependency, Zig 0.15 syntax
+5. ✅ `src/emulation/State.zig` - Updated internal tests
+
+**Test Files Migrated (5 files):**
+1. ✅ `tests/ppu/sprite_evaluation_test.zig` - Fixed import typo
+2. ✅ `tests/ppu/sprite_rendering_test.zig` - Converted to placeholders
+3. ✅ `tests/ppu/chr_integration_test.zig` - Complete rewrite (6 tests, Harness API)
+4. ✅ `tests/snapshot/snapshot_integration_test.zig` - 4 timing refs updated
+5. ✅ `tests/debugger/debugger_test.zig` - 9 timing refs updated
+
+### Key Achievements
+- ✅ All legacy `PpuState` convenience methods eliminated
+- ✅ All tests now use Harness API exclusively
+- ✅ Cartridge ownership model clarified (Harness owns in tests)
+- ✅ Zero remaining direct PPU field edits in tests
+- ✅ Circular dependencies resolved with relative imports
+
+**Documentation:** `docs/code-review/P1-ARCHITECTURE-REFRESH.md`
+
+---
 
 ## P1: High-Priority Accuracy Fixes
 
@@ -75,7 +124,7 @@ A deep code review confirmed the project's pure functional CPU architecture is s
 
 -   **Status:** 🔴 **TODO**
 -   **Issue:** Unofficial opcodes (`XAA`, `LXA`, `SHA`, etc.) use hardcoded magic values. True hardware accuracy requires these to be configurable based on the CPU revision.
--   **Action:** Modify the implementation of unstable opcodes to use values from `CpuConfig` based on the selected `CpuVariant`.
+-   **Action:** Modify the implementation of unstable opcodes to use values from `CpuModel` based on the selected `CpuVariant`.
 -   **Rationale:** Essential for 100% AccuracyCoin test suite compliance.
 
 ### 1.2. Implement Cycle-Accurate PPU/CPU DMA

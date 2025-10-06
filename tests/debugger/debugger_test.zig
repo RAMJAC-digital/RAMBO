@@ -17,23 +17,20 @@ const BreakpointType = RAMBO.Debugger.BreakpointType;
 
 const EmulationState = RAMBO.EmulationState.EmulationState;
 const Config = RAMBO.Config.Config;
-const BusState = RAMBO.Bus.State.BusState;
 
 // ============================================================================
 // Test Fixtures
 // ============================================================================
 
 fn createTestState(config: *const Config) EmulationState {
-    const bus = BusState.init();
-    var state = EmulationState.init(config, bus);
-    state.connectComponents();
+    var state = EmulationState.init(config);
 
     // Set distinctive state
     state.cpu.pc = 0x8000;
     state.cpu.sp = 0xFD;
     state.cpu.a = 0x42;
-    state.ppu.scanline = 100;
-    state.ppu.frame = 10;
+    state.ppu_timing.scanline = 100;
+    state.ppu_timing.frame = 10;
 
     return state;
 }
@@ -337,7 +334,7 @@ test "Debugger: step scanline" {
     defer debugger.deinit();
 
     var state = createTestState(&config);
-    state.ppu.scanline = 100;
+    state.ppu_timing.scanline = 100;
 
     debugger.stepScanline(&state);
     try testing.expectEqual(DebugMode.step_scanline, debugger.mode);
@@ -347,7 +344,7 @@ test "Debugger: step scanline" {
     try testing.expect(!try debugger.shouldBreak(&state));
 
     // Should break on target scanline
-    state.ppu.scanline = 101;
+    state.ppu_timing.scanline = 101;
     try testing.expect(try debugger.shouldBreak(&state));
 }
 
@@ -359,7 +356,7 @@ test "Debugger: step frame" {
     defer debugger.deinit();
 
     var state = createTestState(&config);
-    state.ppu.frame = 10;
+    state.ppu_timing.frame = 10;
 
     debugger.stepFrame(&state);
     try testing.expectEqual(DebugMode.step_frame, debugger.mode);
@@ -369,7 +366,7 @@ test "Debugger: step frame" {
     try testing.expect(!try debugger.shouldBreak(&state));
 
     // Should break on target frame
-    state.ppu.frame = 11;
+    state.ppu_timing.frame = 11;
     try testing.expect(try debugger.shouldBreak(&state));
 }
 
@@ -665,11 +662,11 @@ test "State Manipulation: write single memory byte" {
 
     // Write to zero page
     debugger.writeMemory(&state, 0x00, 0x42);
-    try testing.expectEqual(@as(u8, 0x42), state.bus.read(0x00));
+    try testing.expectEqual(@as(u8, 0x42), state.busRead(0x00));
 
     // Write to RAM
     debugger.writeMemory(&state, 0x0200, 0x99);
-    try testing.expectEqual(@as(u8, 0x99), state.bus.read(0x0200));
+    try testing.expectEqual(@as(u8, 0x99), state.busRead(0x0200));
 
     // Verify modifications logged
     const mods = debugger.getModifications();
@@ -692,11 +689,11 @@ test "State Manipulation: write memory range" {
     debugger.writeMemoryRange(&state, 0x0100, &data);
 
     // Verify data written
-    try testing.expectEqual(@as(u8, 0x01), state.bus.read(0x0100));
-    try testing.expectEqual(@as(u8, 0x02), state.bus.read(0x0101));
-    try testing.expectEqual(@as(u8, 0x03), state.bus.read(0x0102));
-    try testing.expectEqual(@as(u8, 0x04), state.bus.read(0x0103));
-    try testing.expectEqual(@as(u8, 0x05), state.bus.read(0x0104));
+    try testing.expectEqual(@as(u8, 0x01), state.busRead(0x0100));
+    try testing.expectEqual(@as(u8, 0x02), state.busRead(0x0101));
+    try testing.expectEqual(@as(u8, 0x03), state.busRead(0x0102));
+    try testing.expectEqual(@as(u8, 0x04), state.busRead(0x0103));
+    try testing.expectEqual(@as(u8, 0x05), state.busRead(0x0104));
 
     // Verify modification logged
     const mods = debugger.getModifications();
@@ -715,7 +712,7 @@ test "State Manipulation: read memory for inspection" {
     var state = createTestState(&config);
 
     // Write some data first
-    state.bus.write(0x0050, 0xAB);
+    state.busWrite(0x0050, 0xAB);
 
     // Read it back via debugger
     const value = debugger.readMemory(&state, 0x0050);
@@ -738,7 +735,7 @@ test "State Manipulation: read memory range" {
     // Write some data
     const write_data = [_]u8{ 0xAA, 0xBB, 0xCC, 0xDD };
     for (write_data, 0..) |byte, i| {
-        state.bus.write(0x0200 + @as(u16, @intCast(i)), byte);
+        state.busWrite(0x0200 + @as(u16, @intCast(i)), byte);
     }
 
     // Read it back
@@ -768,7 +765,7 @@ test "State Manipulation: set PPU scanline" {
 
     // Set scanline
     debugger.setPpuScanline(&state, 200);
-    try testing.expectEqual(@as(u16, 200), state.ppu.scanline);
+    try testing.expectEqual(@as(u16, 200), state.ppu_timing.scanline);
 
     // Verify modification logged
     const mods = debugger.getModifications();
@@ -787,7 +784,7 @@ test "State Manipulation: set PPU frame counter" {
 
     // Set frame counter
     debugger.setPpuFrame(&state, 1000);
-    try testing.expectEqual(@as(u64, 1000), state.ppu.frame);
+    try testing.expectEqual(@as(u64, 1000), state.ppu_timing.frame);
 
     // Verify modification logged
     const mods = debugger.getModifications();
@@ -891,16 +888,15 @@ test "Memory Inspection: readMemory does not affect open bus" {
     var state = createTestState(&config);
 
     // Set open bus to known value
-    state.bus.open_bus.update(0x42, 100);
-    const original_value = state.bus.open_bus.value;
-    const original_cycle = state.bus.open_bus.last_update_cycle;
+    state.bus.open_bus = 0x42;
+    const original_value = state.bus.open_bus;
+    // Cycle tracking removed: open_bus is now just u8
 
     // Read memory via debugger (should NOT affect open bus)
     _ = debugger.readMemory(&state, 0x0200);
 
     // ✅ Verify open bus unchanged
-    try testing.expectEqual(original_value, state.bus.open_bus.value);
-    try testing.expectEqual(original_cycle, state.bus.open_bus.last_update_cycle);
+    try testing.expectEqual(original_value, state.bus.open_bus);
 }
 
 test "Memory Inspection: readMemoryRange does not affect open bus" {
@@ -913,17 +909,16 @@ test "Memory Inspection: readMemoryRange does not affect open bus" {
     var state = createTestState(&config);
 
     // Set open bus to known value
-    state.bus.open_bus.update(0x99, 500);
-    const original_value = state.bus.open_bus.value;
-    const original_cycle = state.bus.open_bus.last_update_cycle;
+    state.bus.open_bus = 0x99;
+    const original_value = state.bus.open_bus;
+    // Cycle tracking removed: open_bus is now just u8
 
     // Read memory range via debugger
     const buffer = try debugger.readMemoryRange(testing.allocator, &state, 0x0100, 16);
     defer testing.allocator.free(buffer);
 
     // ✅ Verify open bus unchanged after multiple reads
-    try testing.expectEqual(original_value, state.bus.open_bus.value);
-    try testing.expectEqual(original_cycle, state.bus.open_bus.last_update_cycle);
+    try testing.expectEqual(original_value, state.bus.open_bus);
 }
 
 test "Memory Inspection: multiple reads preserve state" {
@@ -936,8 +931,8 @@ test "Memory Inspection: multiple reads preserve state" {
     var state = createTestState(&config);
 
     // Capture initial state
-    state.bus.open_bus.update(0xAA, 1000);
-    const initial_value = state.bus.open_bus.value;
+    state.bus.open_bus = 0xAA;
+    const initial_value = state.bus.open_bus;
 
     // Perform 1000 debugger reads
     for (0..1000) |i| {
@@ -945,7 +940,7 @@ test "Memory Inspection: multiple reads preserve state" {
     }
 
     // ✅ Open bus should still be unchanged
-    try testing.expectEqual(initial_value, state.bus.open_bus.value);
+    try testing.expectEqual(initial_value, state.bus.open_bus);
 }
 
 // ============================================================================
@@ -1149,7 +1144,7 @@ test "TAS Support: ROM write intent tracking" {
     try testing.expectEqual(@as(u8, 0xFF), mods[0].memory_write.value);
 
     // ✅ Data bus is updated even though ROM isn't modified
-    try testing.expectEqual(@as(u8, 0x00), state.bus.open_bus.value);
+    try testing.expectEqual(@as(u8, 0x00), state.bus.open_bus);
 }
 
 test "TAS Support: Stack overflow and underflow edge cases" {
@@ -1266,7 +1261,7 @@ test "Isolation: Debugger state changes don't affect runtime" {
     const orig_pc = state.cpu.pc;
     const orig_a = state.cpu.a;
     const orig_sp = state.cpu.sp;
-    const orig_bus = state.bus.open_bus.value;
+    const orig_bus = state.bus.open_bus;
 
     // Perform debugger operations (should NOT affect runtime)
     try debugger.addBreakpoint(0x8100, .execute);
@@ -1278,7 +1273,7 @@ test "Isolation: Debugger state changes don't affect runtime" {
     try testing.expectEqual(orig_pc, state.cpu.pc);
     try testing.expectEqual(orig_a, state.cpu.a);
     try testing.expectEqual(orig_sp, state.cpu.sp);
-    try testing.expectEqual(orig_bus, state.bus.open_bus.value);
+    try testing.expectEqual(orig_bus, state.bus.open_bus);
 
     // Debugger and runtime are COMPLETELY ISOLATED
 }
@@ -1303,8 +1298,8 @@ test "Isolation: Runtime execution doesn't corrupt debugger state" {
     // Simulate runtime operations (direct state manipulation)
     state.cpu.a = 0x99; // Direct write (NOT via debugger)
     state.cpu.pc = 0x8050;
-    state.bus.write(0x0200, 0xFF);
-    state.ppu.scanline = 200;
+    state.busWrite(0x0200, 0xFF);
+    state.ppu_timing.scanline = 200;
 
     // ✅ Verify debugger state UNCHANGED
     const breakpoints = debugger.breakpoints.items;
@@ -1339,13 +1334,12 @@ test "Isolation: Breakpoint state isolation from runtime" {
 
     // Simulate runtime operations that MIGHT affect breakpoints (if shared)
     state.cpu.pc = 0x8000; // PC at breakpoint address
-    state.bus.write(0x8010, 0xFF); // Write to breakpoint address
-    _ = state.bus.read(0x8020); // Read from breakpoint address
+    state.busWrite(0x8010, 0xFF); // Write to breakpoint address
+    _ = state.busRead(0x8020); // Read from breakpoint address
 
     // Execute CPU cycles
-    const CpuLogic = @import("RAMBO").Cpu.Logic;
     for (0..100) |_| {
-        _ = CpuLogic.tick(&state.cpu, &state.bus);
+        state.tickCpu();
     }
 
     // ✅ Breakpoint count UNCHANGED (runtime doesn't modify breakpoints)
@@ -1383,8 +1377,8 @@ test "Isolation: Modification history isolation from runtime" {
     state.cpu.y = 0x77;
     state.cpu.pc = 0x9000;
     state.cpu.sp = 0x00;
-    state.bus.write(0x0300, 0xFF);
-    state.ppu.frame += 1;
+    state.busWrite(0x0300, 0xFF);
+    state.ppu_timing.frame += 1;
 
     // ✅ Modification history UNCHANGED (runtime ops don't auto-log)
     try testing.expectEqual(mod_count, debugger.getModifications().len);
@@ -1408,12 +1402,12 @@ test "Isolation: readMemory() const parameter enforces isolation" {
     var state = createTestState(&config);
 
     // Set known RAM value
-    state.bus.write(0x0200, 0x42);
+    state.busWrite(0x0200, 0x42);
 
     // Set known open bus value
-    state.bus.open_bus.update(0x99, 1000);
-    const orig_bus_value = state.bus.open_bus.value;
-    const orig_bus_cycle = state.bus.open_bus.last_update_cycle;
+    state.bus.open_bus = 0x99;
+    const orig_bus_value = state.bus.open_bus;
+    // Cycle tracking removed: open_bus is now just u8
 
     // ✅ readMemory accepts CONST state (compile-time isolation guarantee)
     const const_state: *const EmulationState = &state;
@@ -1423,8 +1417,7 @@ test "Isolation: readMemory() const parameter enforces isolation" {
     try testing.expectEqual(@as(u8, 0x42), value);
 
     // ✅ Open bus UNCHANGED (const parameter prevents mutation)
-    try testing.expectEqual(orig_bus_value, state.bus.open_bus.value);
-    try testing.expectEqual(orig_bus_cycle, state.bus.open_bus.last_update_cycle);
+    try testing.expectEqual(orig_bus_value, state.bus.open_bus);
 
     // COMPILE-TIME ISOLATION: const parameter prevents mutation
     // If readMemory tried to modify state, it would be a compile error
@@ -1447,7 +1440,7 @@ test "Isolation: shouldBreak() doesn't mutate state" {
     const orig_a = state.cpu.a;
     const orig_pc = state.cpu.pc;
     const orig_sp = state.cpu.sp;
-    const orig_bus = state.bus.open_bus.value;
+    const orig_bus = state.bus.open_bus;
 
     // ✅ shouldBreak() checks breakpoints without mutating state
     const should_break = try debugger.shouldBreak(&state);
@@ -1457,7 +1450,7 @@ test "Isolation: shouldBreak() doesn't mutate state" {
     try testing.expectEqual(orig_a, state.cpu.a);
     try testing.expectEqual(orig_pc, state.cpu.pc);
     try testing.expectEqual(orig_sp, state.cpu.sp);
-    try testing.expectEqual(orig_bus, state.bus.open_bus.value);
+    try testing.expectEqual(orig_bus, state.bus.open_bus);
 
     // Hook functions operate on READ-ONLY state
     // Future user-defined hooks will receive *const EmulationState

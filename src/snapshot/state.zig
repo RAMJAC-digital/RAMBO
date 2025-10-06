@@ -12,7 +12,7 @@ const PpuState = @import("../ppu/State.zig").PpuState;
 const PpuCtrl = @import("../ppu/State.zig").PpuCtrl;
 const PpuMask = @import("../ppu/State.zig").PpuMask;
 const PpuStatus = @import("../ppu/State.zig").PpuStatus;
-const BusState = @import("../bus/State.zig").BusState;
+const BusState = @import("../emulation/State.zig").BusState;
 const Mirroring = @import("../cartridge/ines.zig").Mirroring;
 
 /// Config values for serialization (skip arena and mutex)
@@ -205,12 +205,9 @@ pub fn writePpuState(writer: anytype, ppu: *const PpuState) !void {
     try writer.writeAll(&ppu.vram);
     try writer.writeAll(&ppu.palette_ram);
 
-    // Metadata (15 bytes)
+    // Metadata (2 bytes) - timing now stored in EmulationState.ppu_timing
     try writer.writeByte(@intFromEnum(ppu.mirroring));
     try writer.writeByte(@intFromBool(ppu.nmi_occurred));
-    try writer.writeInt(u16, ppu.scanline, .little);
-    try writer.writeInt(u16, ppu.dot, .little);
-    try writer.writeInt(u64, ppu.frame, .little);
 }
 
 /// Read PpuState from binary format
@@ -252,14 +249,9 @@ pub fn readPpuState(reader: anytype) !PpuState {
     try reader.readNoEof(&ppu.vram);
     try reader.readNoEof(&ppu.palette_ram);
 
-    // Metadata
+    // Metadata - timing now stored in EmulationState.ppu_timing
     ppu.mirroring = @enumFromInt(try reader.readByte());
     ppu.nmi_occurred = try reader.readByte() != 0;
-    ppu.scanline = try reader.readInt(u16, .little);
-    ppu.dot = try reader.readInt(u16, .little);
-    ppu.frame = try reader.readInt(u64, .little);
-
-    // Note: cartridge pointer will be set externally via connectComponents()
 
     return ppu;
 }
@@ -267,14 +259,19 @@ pub fn readPpuState(reader: anytype) !PpuState {
 /// Write BusState to binary format
 pub fn writeBusState(writer: anytype, bus: *const BusState) !void {
     // RAM (2048 bytes)
-    try writer.writeAll(&bus.ram);
+    try writer.writeAll(bus.ram[0..]);
 
-    // Cycle (8 bytes)
-    try writer.writeInt(u64, bus.cycle, .little);
+    // Open bus (1 byte)
+    try writer.writeByte(bus.open_bus);
 
-    // Open bus (9 bytes)
-    try writer.writeByte(bus.open_bus.value);
-    try writer.writeInt(u64, bus.open_bus.last_update_cycle, .little);
+    // Test RAM (optional)
+    if (bus.test_ram) |test_mem| {
+        try writer.writeByte(1);
+        try writer.writeInt(u32, @intCast(test_mem.len), .little);
+        try writer.writeAll(test_mem);
+    } else {
+        try writer.writeByte(0);
+    }
 }
 
 /// Read BusState from binary format
@@ -282,16 +279,21 @@ pub fn readBusState(reader: anytype) !BusState {
     var bus = BusState{};
 
     // RAM
-    try reader.readNoEof(&bus.ram);
-
-    // Cycle
-    bus.cycle = try reader.readInt(u64, .little);
+    try reader.readNoEof(bus.ram[0..]);
 
     // Open bus
-    bus.open_bus.value = try reader.readByte();
-    bus.open_bus.last_update_cycle = try reader.readInt(u64, .little);
+    bus.open_bus = try reader.readByte();
 
-    // Note: cartridge and ppu pointers will be set externally via connectComponents()
+    // Test RAM
+    const has_test_ram = try reader.readByte() != 0;
+    if (has_test_ram) {
+        // Snapshot format currently does not preserve test RAM contents
+        // to avoid unexpected allocations during runtime restores.
+        // Consume the serialized bytes and return an error.
+        const len = try reader.readInt(u32, .little);
+        try reader.skipBytes(len, .{});
+        return error.UnsupportedTestRamSnapshot;
+    }
 
     return bus;
 }

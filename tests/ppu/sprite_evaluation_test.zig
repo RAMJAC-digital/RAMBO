@@ -12,14 +12,16 @@
 const std = @import("std");
 const testing = std.testing;
 const RAMBO = @import("RAMBO");
-const PpuType = RAMBO.PpuType;
+const Harness = RAMBO.TestHarness.Harness;
 
 // ============================================================================
 // SECONDARY OAM TESTS
 // ============================================================================
 
 test "Sprite Evaluation: Secondary OAM cleared to $FF at scanline start" {
-    var ppu = PpuType.init();
+    var harness = try Harness.init();
+    defer harness.deinit();
+    const ppu = &harness.state.ppu;
 
     // Fill secondary OAM with non-$FF values
     for (&ppu.secondary_oam) |*byte| {
@@ -27,13 +29,10 @@ test "Sprite Evaluation: Secondary OAM cleared to $FF at scanline start" {
     }
 
     // Advance to scanline 0, before sprite evaluation
-    ppu.scanline = 0;
-    ppu.dot = 0;
+    harness.setPpuTiming(0, 0);
 
     // Run through clearing phase (cycles 1-64)
-    for (1..65) |_| {
-        ppu.tick(null);
-    }
+    harness.tickPpuCycles(64);
 
     // All secondary OAM should be $FF
     for (ppu.secondary_oam) |byte| {
@@ -42,7 +41,9 @@ test "Sprite Evaluation: Secondary OAM cleared to $FF at scanline start" {
 }
 
 test "Sprite Evaluation: Secondary OAM cleared every visible scanline" {
-    var ppu = PpuType.init();
+    var harness = try Harness.init();
+    defer harness.deinit();
+    const ppu = &harness.state.ppu;
 
     // Test on multiple scanlines
     for ([_]u16{ 0, 50, 120, 200, 239 }) |scanline| {
@@ -52,13 +53,10 @@ test "Sprite Evaluation: Secondary OAM cleared every visible scanline" {
         }
 
         // Position at start of scanline
-        ppu.scanline = scanline;
-        ppu.dot = 0;
+        harness.setPpuTiming(scanline, 0);
 
         // Run clearing phase
-        for (1..65) |_| {
-            ppu.tick(null);
-        }
+        harness.tickPpuCycles(64);
 
         // Verify all $FF
         for (ppu.secondary_oam, 0..) |byte, i| {
@@ -78,7 +76,9 @@ test "Sprite Evaluation: Secondary OAM cleared every visible scanline" {
 // ============================================================================
 
 test "Sprite Evaluation: Sprite Y=0 visible on scanline 0" {
-    var ppu = PpuType.init();
+    var harness = try Harness.init();
+    defer harness.deinit();
+    const ppu = &harness.state.ppu;
 
     // Enable rendering
     ppu.mask.show_sprites = true;
@@ -95,13 +95,10 @@ test "Sprite Evaluation: Sprite Y=0 visible on scanline 0" {
     }
 
     // Run sprite evaluation on scanline 0
-    ppu.scanline = 0;
-    ppu.dot = 0;
+    harness.setPpuTiming(0, 0);
 
     // Run through evaluation phase (cycles 1-256)
-    for (1..257) |_| {
-        ppu.tick(null);
-    }
+    harness.tickPpuCycles(256);
 
     // Secondary OAM should contain sprite 0
     try testing.expectEqual(@as(u8, 0), ppu.secondary_oam[0]); // Y
@@ -111,7 +108,9 @@ test "Sprite Evaluation: Sprite Y=0 visible on scanline 0" {
 }
 
 test "Sprite Evaluation: Sprite Y=$FF never visible" {
-    var ppu = PpuType.init();
+    var harness = try Harness.init();
+    defer harness.deinit();
+    const ppu = &harness.state.ppu;
     ppu.mask.show_sprites = true;
 
     // Place sprite at Y=$FF (should never be visible)
@@ -132,13 +131,10 @@ test "Sprite Evaluation: Sprite Y=$FF never visible" {
             byte.* = 0xAA;
         }
 
-        ppu.scanline = scanline;
-        ppu.dot = 0;
+        harness.setPpuTiming(scanline, 0);
 
         // Run evaluation
-        for (1..257) |_| {
-            ppu.tick(null);
-        }
+        harness.tickPpuCycles(256);
 
         // Secondary OAM should be cleared but empty (all $FF)
         try testing.expectEqual(@as(u8, 0xFF), ppu.secondary_oam[0]);
@@ -149,7 +145,9 @@ test "Sprite Evaluation: Sprite Y=$FF never visible" {
 }
 
 test "Sprite Evaluation: 8×8 sprite range check" {
-    var ppu = PpuType.init();
+    var harness = try Harness.init();
+    defer harness.deinit();
+    const ppu = &harness.state.ppu;
     ppu.mask.show_sprites = true;
     ppu.ctrl.sprite_size = false; // 8×8 mode
 
@@ -171,12 +169,9 @@ test "Sprite Evaluation: 8×8 sprite range check" {
             byte.* = 0xFF;
         }
 
-        ppu.scanline = scanline;
-        ppu.dot = 0;
+        harness.setPpuTiming(scanline, 0);
 
-        for (1..257) |_| {
-            ppu.tick(null);
-        }
+        harness.tickPpuCycles(256);
 
         // Should be in secondary OAM
         testing.expectEqual(@as(u8, 100), ppu.secondary_oam[0]) catch |err| {
@@ -192,12 +187,9 @@ test "Sprite Evaluation: 8×8 sprite range check" {
             byte.* = 0xAA;
         }
 
-        ppu.scanline = scanline;
-        ppu.dot = 0;
+        harness.setPpuTiming(scanline, 0);
 
-        for (1..257) |_| {
-            ppu.tick(null);
-        }
+        harness.tickPpuCycles(256);
 
         // Should NOT be in secondary OAM (all $FF)
         testing.expectEqual(@as(u8, 0xFF), ppu.secondary_oam[0]) catch |err| {
@@ -208,7 +200,9 @@ test "Sprite Evaluation: 8×8 sprite range check" {
 }
 
 test "Sprite Evaluation: 8×16 sprite range check" {
-    var ppu = PpuType.init();
+    var harness = try Harness.init();
+    defer harness.deinit();
+    const ppu = &harness.state.ppu;
     ppu.mask.show_sprites = true;
     ppu.ctrl.sprite_size = true; // 8×16 mode
 
@@ -230,12 +224,9 @@ test "Sprite Evaluation: 8×16 sprite range check" {
             byte.* = 0xFF;
         }
 
-        ppu.scanline = scanline;
-        ppu.dot = 0;
+        harness.setPpuTiming(scanline, 0);
 
-        for (1..257) |_| {
-            ppu.tick(null);
-        }
+        harness.tickPpuCycles(256);
 
         // Should be in secondary OAM
         testing.expectEqual(@as(u8, 100), ppu.secondary_oam[0]) catch |err| {
@@ -251,12 +242,9 @@ test "Sprite Evaluation: 8×16 sprite range check" {
             byte.* = 0xAA;
         }
 
-        ppu.scanline = scanline;
-        ppu.dot = 0;
+        harness.setPpuTiming(scanline, 0);
 
-        for (1..257) |_| {
-            ppu.tick(null);
-        }
+        harness.tickPpuCycles(256);
 
         // Should NOT be in secondary OAM (all $FF)
         testing.expectEqual(@as(u8, 0xFF), ppu.secondary_oam[0]) catch |err| {
@@ -271,7 +259,9 @@ test "Sprite Evaluation: 8×16 sprite range check" {
 // ============================================================================
 
 test "Sprite Evaluation: 8 sprite limit enforced" {
-    var ppu = PpuType.init();
+    var harness = try Harness.init();
+    defer harness.deinit();
+    const ppu = &harness.state.ppu;
     ppu.mask.show_sprites = true;
 
     // Place 10 sprites on scanline 100-107 (all overlapping)
@@ -288,12 +278,9 @@ test "Sprite Evaluation: 8 sprite limit enforced" {
     }
 
     // Run evaluation on scanline 100
-    ppu.scanline = 100;
-    ppu.dot = 0;
+    harness.setPpuTiming(100, 0);
 
-    for (1..257) |_| {
-        ppu.tick(null);
-    }
+    harness.tickPpuCycles(256);
 
     // Secondary OAM should contain first 8 sprites (32 bytes)
     for (0..8) |i| {
@@ -316,7 +303,9 @@ test "Sprite Evaluation: 8 sprite limit enforced" {
 }
 
 test "Sprite Evaluation: Sprite overflow flag set when >8 sprites" {
-    var ppu = PpuType.init();
+    var harness = try Harness.init();
+    defer harness.deinit();
+    const ppu = &harness.state.ppu;
     ppu.mask.show_sprites = true;
 
     // Clear overflow flag
@@ -335,19 +324,18 @@ test "Sprite Evaluation: Sprite overflow flag set when >8 sprites" {
     }
 
     // Run evaluation
-    ppu.scanline = 100;
-    ppu.dot = 0;
+    harness.setPpuTiming(100, 0);
 
-    for (1..257) |_| {
-        ppu.tick(null);
-    }
+    harness.tickPpuCycles(256);
 
     // Overflow flag should be set
     try testing.expect(ppu.status.sprite_overflow);
 }
 
 test "Sprite Evaluation: Sprite overflow flag NOT set when ≤8 sprites" {
-    var ppu = PpuType.init();
+    var harness = try Harness.init();
+    defer harness.deinit();
+    const ppu = &harness.state.ppu;
     ppu.mask.show_sprites = true;
 
     // Clear overflow flag
@@ -366,28 +354,26 @@ test "Sprite Evaluation: Sprite overflow flag NOT set when ≤8 sprites" {
     }
 
     // Run evaluation
-    ppu.scanline = 100;
-    ppu.dot = 0;
+    harness.setPpuTiming(100, 0);
 
-    for (1..257) |_| {
-        ppu.tick(null);
-    }
+    harness.tickPpuCycles(256);
 
     // Overflow flag should NOT be set
     try testing.expect(!ppu.status.sprite_overflow);
 }
 
 test "Sprite Evaluation: Sprite overflow cleared at pre-render scanline" {
-    var ppu = PpuType.init();
+    var harness = try Harness.init();
+    defer harness.deinit();
+    const ppu = &harness.state.ppu;
     ppu.mask.show_sprites = true;
 
     // Set overflow flag
     ppu.status.sprite_overflow = true;
 
     // Advance to pre-render scanline (261), dot 1
-    ppu.scanline = 261;
-    ppu.dot = 0;
-    ppu.tick(null); // Advances to dot 1
+    harness.setPpuTiming(261, 0);
+    harness.tickPpu(); // Advances to dot 1
 
     // Overflow flag should be cleared
     try testing.expect(!ppu.status.sprite_overflow);
@@ -398,7 +384,9 @@ test "Sprite Evaluation: Sprite overflow cleared at pre-render scanline" {
 // ============================================================================
 
 test "Sprite 0 Hit: Not set when sprites disabled" {
-    var ppu = PpuType.init();
+    var harness = try Harness.init();
+    defer harness.deinit();
+    const ppu = &harness.state.ppu;
     ppu.mask.show_sprites = false; // Sprites disabled
     ppu.mask.show_bg = true;
 
@@ -414,12 +402,11 @@ test "Sprite 0 Hit: Not set when sprites disabled" {
     }
 
     // Run full scanline 50
-    ppu.scanline = 50;
-    ppu.dot = 0;
+    harness.setPpuTiming(50, 0);
     var framebuffer = [_]u32{0} ** (256 * 240);
 
     for (0..341) |_| {
-        ppu.tick(&framebuffer);
+        harness.tickPpuWithFramebuffer(framebuffer[0..]);
     }
 
     // Sprite 0 hit should NOT be set (sprites disabled)
@@ -427,7 +414,9 @@ test "Sprite 0 Hit: Not set when sprites disabled" {
 }
 
 test "Sprite 0 Hit: Not set when background disabled" {
-    var ppu = PpuType.init();
+    var harness = try Harness.init();
+    defer harness.deinit();
+    const ppu = &harness.state.ppu;
     ppu.mask.show_sprites = true;
     ppu.mask.show_bg = false; // Background disabled
 
@@ -438,12 +427,11 @@ test "Sprite 0 Hit: Not set when background disabled" {
     ppu.oam[3] = 50;
 
     // Run full scanline
-    ppu.scanline = 50;
-    ppu.dot = 0;
+    harness.setPpuTiming(50, 0);
     var framebuffer = [_]u32{0} ** (256 * 240);
 
     for (0..341) |_| {
-        ppu.tick(&framebuffer);
+        harness.tickPpuWithFramebuffer(framebuffer[0..]);
     }
 
     // Sprite 0 hit should NOT be set (background disabled)
@@ -451,7 +439,9 @@ test "Sprite 0 Hit: Not set when background disabled" {
 }
 
 test "Sprite 0 Hit: Cleared at pre-render scanline" {
-    var ppu = PpuType.init();
+    var harness = try Harness.init();
+    defer harness.deinit();
+    const ppu = &harness.state.ppu;
     ppu.mask.show_sprites = true;
     ppu.mask.show_bg = true;
 
@@ -459,9 +449,8 @@ test "Sprite 0 Hit: Cleared at pre-render scanline" {
     ppu.status.sprite_0_hit = true;
 
     // Advance to pre-render scanline (261), dot 1
-    ppu.scanline = 261;
-    ppu.dot = 0;
-    ppu.tick(null);
+    harness.setPpuTiming(261, 0);
+    harness.tickPpu();
 
     // Flag should be cleared
     try testing.expect(!ppu.status.sprite_0_hit);
@@ -472,7 +461,9 @@ test "Sprite 0 Hit: Cleared at pre-render scanline" {
 // ============================================================================
 
 test "Sprite Evaluation: Only occurs on visible scanlines (0-239)" {
-    var ppu = PpuType.init();
+    var harness = try Harness.init();
+    defer harness.deinit();
+    const ppu = &harness.state.ppu;
     ppu.mask.show_sprites = true;
 
     // Mark all sprites off-screen initially
@@ -487,30 +478,26 @@ test "Sprite Evaluation: Only occurs on visible scanlines (0-239)" {
     ppu.oam[3] = 0x80;
 
     // Test VBlank scanline (241) - no evaluation
-    ppu.scanline = 241;
-    ppu.dot = 0;
+    harness.setPpuTiming(241, 0);
 
-    for (1..257) |_| {
-        ppu.tick(null);
-    }
+    harness.tickPpuCycles(256);
 
     // Secondary OAM should be all $FF (no evaluation during VBlank)
     try testing.expectEqual(@as(u8, 0xFF), ppu.secondary_oam[0]);
 
     // Test pre-render scanline (261) - no evaluation
-    ppu.scanline = 261;
-    ppu.dot = 0;
+    harness.setPpuTiming(261, 0);
 
-    for (1..257) |_| {
-        ppu.tick(null);
-    }
+    harness.tickPpuCycles(256);
 
     // Secondary OAM should still be all $FF
     try testing.expectEqual(@as(u8, 0xFF), ppu.secondary_oam[0]);
 }
 
 test "Sprite Evaluation: Rendering disabled prevents evaluation" {
-    var ppu = PpuType.init();
+    var harness = try Harness.init();
+    defer harness.deinit();
+    const ppu = &harness.state.ppu;
     ppu.mask.show_sprites = false; // Rendering disabled
     ppu.mask.show_bg = false;
 
@@ -526,12 +513,9 @@ test "Sprite Evaluation: Rendering disabled prevents evaluation" {
     ppu.oam[3] = 0x80;
 
     // Run evaluation on scanline 100
-    ppu.scanline = 100;
-    ppu.dot = 0;
+    harness.setPpuTiming(100, 0);
 
-    for (1..257) |_| {
-        ppu.tick(null);
-    }
+    harness.tickPpuCycles(256);
 
     // Secondary OAM should be all $FF (no evaluation when rendering disabled)
     try testing.expectEqual(@as(u8, 0xFF), ppu.secondary_oam[0]);

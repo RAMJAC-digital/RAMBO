@@ -11,7 +11,6 @@ const Snapshot = RAMBO.Snapshot;
 const EmulationState = RAMBO.EmulationState.EmulationState;
 const Config = RAMBO.Config.Config;
 const Cartridge = RAMBO.Cartridge;
-const BusState = RAMBO.Bus.State.BusState;
 
 // ============================================================================
 // Test Fixtures
@@ -52,9 +51,8 @@ fn createTestRom(allocator: std.mem.Allocator) ![]u8 {
 }
 
 /// Create EmulationState with test data
-fn createTestState(config: *const Config, bus: BusState) EmulationState {
-    var state = EmulationState.init(config, bus);
-    state.connectComponents();
+fn createTestState(config: *const Config) EmulationState {
+    var state = EmulationState.init(config);
 
     // Set distinctive values for verification
     state.clock.ppu_cycles = 123456;
@@ -69,9 +67,9 @@ fn createTestState(config: *const Config, bus: BusState) EmulationState {
 
     state.ppu.ctrl = .{ .nmi_enable = true, .sprite_size = true };
     state.ppu.mask = .{ .show_bg = true, .show_sprites = true };
-    state.ppu.scanline = 100;
-    state.ppu.dot = 200;
-    state.ppu.frame = 42;
+    state.ppu_timing.scanline = 100;
+    state.ppu_timing.dot = 200;
+    state.ppu_timing.frame = 42;
 
     state.bus.ram[0x00] = 0xAA;
     state.bus.ram[0x01] = 0xBB;
@@ -92,8 +90,7 @@ test "Snapshot Integration: Full round-trip without cartridge" {
     var config = Config.init(testing.allocator);
     defer config.deinit();
 
-    const bus = BusState.init();
-    const state = createTestState(&config, bus);
+    const state = createTestState(&config);
 
     // Save snapshot
     const snapshot = try Snapshot.saveBinary(
@@ -139,9 +136,9 @@ test "Snapshot Integration: Full round-trip without cartridge" {
     try testing.expectEqual(state.ppu.ctrl.sprite_size, restored.ppu.ctrl.sprite_size);
     try testing.expectEqual(state.ppu.mask.show_bg, restored.ppu.mask.show_bg);
     try testing.expectEqual(state.ppu.mask.show_sprites, restored.ppu.mask.show_sprites);
-    try testing.expectEqual(state.ppu.scanline, restored.ppu.scanline);
-    try testing.expectEqual(state.ppu.dot, restored.ppu.dot);
-    try testing.expectEqual(state.ppu.frame, restored.ppu.frame);
+    try testing.expectEqual(state.ppu_timing.scanline, restored.ppu_timing.scanline);
+    try testing.expectEqual(state.ppu_timing.dot, restored.ppu_timing.dot);
+    try testing.expectEqual(state.ppu_timing.frame, restored.ppu_timing.frame);
 
     // Verify Bus state
     try testing.expectEqual(state.bus.ram[0x00], restored.bus.ram[0x00]);
@@ -166,10 +163,8 @@ test "Snapshot Integration: Full round-trip with cartridge (reference mode)" {
     defer cartridge.deinit();
 
     // Create state with cartridge
-    var bus = BusState.init();
-    bus.cartridge = &cartridge;
-
-    const state = createTestState(&config, bus);
+    var state = createTestState(&config);
+    state.cart = cartridge;
 
     // Save snapshot (reference mode)
     const snapshot = try Snapshot.saveBinary(
@@ -202,15 +197,14 @@ test "Snapshot Integration: Full round-trip with cartridge (reference mode)" {
     // Verify restoration
     try testing.expectEqual(state.cpu.a, restored.cpu.a);
     try testing.expectEqual(state.cpu.pc, restored.cpu.pc);
-    try testing.expectEqual(state.ppu.frame, restored.ppu.frame);
+    try testing.expectEqual(state.ppu_timing.frame, restored.ppu_timing.frame);
 }
 
 test "Snapshot Integration: Snapshot with framebuffer" {
     var config = Config.init(testing.allocator);
     defer config.deinit();
 
-    const bus = BusState.init();
-    const state = createTestState(&config, bus);
+    const state = createTestState(&config);
 
     // Create test framebuffer (256x240 RGBA)
     const framebuffer_size = 256 * 240 * 4;
@@ -256,8 +250,7 @@ test "Snapshot Integration: Config mismatch detection" {
     var config1 = Config.init(testing.allocator);
     defer config1.deinit();
 
-    const bus = BusState.init();
-    const state = createTestState(&config1, bus);
+    const state = createTestState(&config1);
 
     // Save snapshot with config1
     const snapshot = try Snapshot.saveBinary(
@@ -289,8 +282,7 @@ test "Snapshot Integration: Multiple save/load cycles" {
     var config = Config.init(testing.allocator);
     defer config.deinit();
 
-    const bus = BusState.init();
-    var state = createTestState(&config, bus);
+    var state = createTestState(&config);
 
     // Cycle 1: Save and load
     const snapshot1 = try Snapshot.saveBinary(
@@ -313,7 +305,7 @@ test "Snapshot Integration: Multiple save/load cycles" {
     // Modify restored state
     var modified = restored1;
     modified.cpu.a = 0x99;
-    modified.ppu.frame = 100;
+    modified.ppu_timing.frame = 100;
 
     // Cycle 2: Save modified state
     const snapshot2 = try Snapshot.saveBinary(
@@ -335,7 +327,7 @@ test "Snapshot Integration: Multiple save/load cycles" {
 
     // Verify modifications persisted
     try testing.expectEqual(@as(u8, 0x99), restored2.cpu.a);
-    try testing.expectEqual(@as(u64, 100), restored2.ppu.frame);
+    try testing.expectEqual(@as(u64, 100), restored2.ppu_timing.frame);
 
     // Original state should be unchanged
     try testing.expectEqual(@as(u8, 0x42), state.cpu.a);
@@ -345,8 +337,7 @@ test "Snapshot Integration: Metadata inspection" {
     var config = Config.init(testing.allocator);
     defer config.deinit();
 
-    const bus = BusState.init();
-    const state = createTestState(&config, bus);
+    const state = createTestState(&config);
 
     const snapshot = try Snapshot.saveBinary(
         testing.allocator,
@@ -379,8 +370,7 @@ test "Snapshot Integration: Snapshot size verification" {
     var config = Config.init(testing.allocator);
     defer config.deinit();
 
-    const bus = BusState.init();
-    const state = createTestState(&config, bus);
+    const state = createTestState(&config);
 
     // Reference mode snapshot (no cartridge)
     const snapshot_ref = try Snapshot.saveBinary(
@@ -424,8 +414,7 @@ test "Snapshot Integration: Checksum detection" {
     var config = Config.init(testing.allocator);
     defer config.deinit();
 
-    const bus = BusState.init();
-    const state = createTestState(&config, bus);
+    const state = createTestState(&config);
 
     var snapshot = try Snapshot.saveBinary(
         testing.allocator,

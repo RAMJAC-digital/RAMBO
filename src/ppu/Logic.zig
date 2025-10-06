@@ -6,6 +6,7 @@
 const std = @import("std");
 const StateModule = @import("State.zig");
 const PpuState = StateModule.PpuState;
+const NromCart = @import("../cartridge/Cartridge.zig").NromCart;
 const PpuCtrl = StateModule.PpuCtrl;
 const PpuMask = StateModule.PpuMask;
 const PpuStatus = StateModule.PpuStatus;
@@ -97,15 +98,15 @@ fn mirrorPaletteAddress(address: u8) u8 {
 
 /// Read from PPU VRAM address space ($0000-$3FFF)
 /// Handles CHR ROM/RAM, nametables, and palette RAM with proper mirroring
-pub fn readVram(state: *PpuState, address: u16) u8 {
+pub fn readVram(state: *PpuState, cart: ?*NromCart, address: u16) u8 {
     const addr = address & 0x3FFF; // Mirror at $4000
 
     return switch (addr) {
         // CHR ROM/RAM ($0000-$1FFF) - Pattern tables
         // Accessed via cartridge ppuRead() method
         0x0000...0x1FFF => blk: {
-            if (state.cartridge) |cart| {
-                break :blk cart.ppuRead(addr);
+            if (cart) |c| {
+                break :blk c.ppuRead(addr);
             }
             // No cartridge - return PPU open bus (data bus latch)
             break :blk state.open_bus.read();
@@ -121,7 +122,7 @@ pub fn readVram(state: *PpuState, address: u16) u8 {
         // Nametable mirrors ($3000-$3EFF)
         // $3000-$3EFF mirrors $2000-$2EFF
         0x3000...0x3EFF => blk: {
-            break :blk readVram(state, addr - 0x1000);
+            break :blk readVram(state, cart, addr - 0x1000);
         },
 
         // Palette RAM ($3F00-$3F1F)
@@ -134,7 +135,7 @@ pub fn readVram(state: *PpuState, address: u16) u8 {
         // Palette RAM mirrors ($3F20-$3FFF)
         // Mirrors $3F00-$3F1F throughout $3F20-$3FFF
         0x3F20...0x3FFF => blk: {
-            break :blk readVram(state, 0x3F00 | (addr & 0x1F));
+            break :blk readVram(state, cart, 0x3F00 | (addr & 0x1F))|readVram(state, cart, 0x3F00 | (addr & 0x1F));
         },
 
         else => unreachable, // addr is masked to $0000-$3FFF
@@ -143,16 +144,16 @@ pub fn readVram(state: *PpuState, address: u16) u8 {
 
 /// Write to PPU VRAM address space ($0000-$3FFF)
 /// Handles CHR RAM, nametables, and palette RAM (CHR ROM is read-only)
-pub fn writeVram(state: *PpuState, address: u16, value: u8) void {
+pub fn writeVram(state: *PpuState, cart: ?*NromCart, address: u16, value: u8) void {
     const addr = address & 0x3FFF; // Mirror at $4000
 
     switch (addr) {
         // CHR ROM/RAM ($0000-$1FFF)
         // CHR ROM is read-only, CHR RAM is writable via cartridge
         0x0000...0x1FFF => {
-            if (state.cartridge) |cart| {
+            if (cart) |c| {
                 // Cartridge handles write (ignores if CHR ROM)
-                cart.ppuWrite(addr, value);
+                c.ppuWrite(addr, value);
             }
         },
 
@@ -164,7 +165,7 @@ pub fn writeVram(state: *PpuState, address: u16, value: u8) void {
 
         // Nametable mirrors ($3000-$3EFF)
         0x3000...0x3EFF => {
-            writeVram(state, addr - 0x1000, value);
+            writeVram(state, cart, addr - 0x1000, value);
         },
 
         // Palette RAM ($3F00-$3F1F)
@@ -175,13 +176,13 @@ pub fn writeVram(state: *PpuState, address: u16, value: u8) void {
 
         // Palette RAM mirrors ($3F20-$3FFF)
         0x3F20...0x3FFF => {
-            writeVram(state, 0x3F00 | (addr & 0x1F), value);
+            writeVram(state, cart, 0x3F00 | (addr & 0x1F), value);
         },
 
         else => unreachable, // addr is masked to $0000-$3FFF
     }
 }
-    pub fn readRegister(state: *PpuState, address: u16) u8 {
+    pub fn readRegister(state: *PpuState, cart: ?*NromCart, address: u16) u8 {
         // Registers are mirrored every 8 bytes through $3FFF
         const reg = address & 0x0007;
 
@@ -244,7 +245,7 @@ pub fn writeVram(state: *PpuState, address: u16, value: u8) void {
                 const buffered_value = state.internal.read_buffer;
 
                 // Update buffer with current VRAM value
-                state.internal.read_buffer = state.readVram(addr);
+                state.internal.read_buffer = readVram(state, cart, addr);
 
                 // Increment VRAM address after read
                 state.internal.v +%= state.ctrl.vramIncrementAmount();
@@ -264,7 +265,7 @@ pub fn writeVram(state: *PpuState, address: u16, value: u8) void {
 
     /// Write to PPU register (via CPU memory bus)
     /// Handles register mirroring and open bus updates
-    pub fn writeRegister(state: *PpuState, address: u16, value: u8) void {
+    pub fn writeRegister(state: *PpuState, cart: ?*NromCart, address: u16, value: u8) void {
         // Registers are mirrored every 8 bytes through $3FFF
         const reg = address & 0x0007;
 
@@ -333,7 +334,7 @@ pub fn writeVram(state: *PpuState, address: u16, value: u8) void {
                 const addr = state.internal.v;
 
                 // Write to VRAM
-                state.writeVram(addr, value);
+                writeVram(state, cart, addr, value);
 
                 // Increment VRAM address after write
                 state.internal.v +%= state.ctrl.vramIncrementAmount();
@@ -344,7 +345,7 @@ pub fn writeVram(state: *PpuState, address: u16, value: u8) void {
 
     /// Increment coarse X scroll (every 8 pixels)
     /// Handles horizontal nametable wrapping
-    fn incrementScrollX(state: *PpuState) void {
+    pub fn incrementScrollX(state: *PpuState) void {
         if (!state.mask.renderingEnabled()) return;
 
         // Coarse X is bits 0-4 of v register
@@ -360,7 +361,7 @@ pub fn writeVram(state: *PpuState, address: u16, value: u8) void {
 
     /// Increment Y scroll (end of scanline)
     /// Handles vertical nametable wrapping
-    fn incrementScrollY(state: *PpuState) void {
+    pub fn incrementScrollY(state: *PpuState) void {
         if (!state.mask.renderingEnabled()) return;
 
         // Fine Y is bits 12-14 of v register
@@ -391,7 +392,7 @@ pub fn writeVram(state: *PpuState, address: u16, value: u8) void {
 
     /// Copy horizontal scroll bits from t to v
     /// Called at dot 257 of each visible scanline
-    fn copyScrollX(state: *PpuState) void {
+    pub fn copyScrollX(state: *PpuState) void {
         if (!state.mask.renderingEnabled()) return;
 
         // Copy bits 0-4 (coarse X) and bit 10 (horizontal nametable)
@@ -400,7 +401,7 @@ pub fn writeVram(state: *PpuState, address: u16, value: u8) void {
 
     /// Copy vertical scroll bits from t to v
     /// Called at dot 280-304 of pre-render scanline
-    fn copyScrollY(state: *PpuState) void {
+    pub fn copyScrollY(state: *PpuState) void {
         if (!state.mask.renderingEnabled()) return;
 
         // Copy bits 5-9 (coarse Y), bits 12-14 (fine Y), bit 11 (vertical nametable)
@@ -439,11 +440,11 @@ pub fn writeVram(state: *PpuState, address: u16, value: u8) void {
 
     /// Fetch background tile data for current cycle
     /// Implements 4-cycle fetch pattern: nametable → attribute → pattern low → pattern high
-    fn fetchBackgroundTile(state: *PpuState) void {
+    pub fn fetchBackgroundTile(state: *PpuState, cart: ?*NromCart, dot: u16) void {
         // Tile fetching occurs in 8-cycle chunks
         // Each chunk fetches: NT byte (2 cycles), AT byte (2 cycles),
         // pattern low (2 cycles), pattern high (2 cycles)
-        const fetch_cycle = state.dot & 0x07;
+        const fetch_cycle = dot & 0x07;
 
         switch (fetch_cycle) {
             // Cycles 1, 3, 5, 7: Idle (hardware accesses nametable but doesn't use value)
@@ -452,13 +453,13 @@ pub fn writeVram(state: *PpuState, address: u16, value: u8) void {
             // Cycle 0: Fetch nametable byte (tile index)
             0 => {
                 const nt_addr = 0x2000 | (state.internal.v & 0x0FFF);
-                state.bg_state.nametable_latch = state.readVram(nt_addr);
+                state.bg_state.nametable_latch = readVram(state, cart, nt_addr);
             },
 
             // Cycle 2: Fetch attribute byte (palette select)
             2 => {
                 const attr_addr = getAttributeAddress(state);
-                const attr_byte = state.readVram(attr_addr);
+                const attr_byte = readVram(state, cart, attr_addr);
 
                 // Extract 2-bit palette for this 16×16 pixel quadrant
                 // Attribute byte layout: BR BL TR TL (2 bits each)
@@ -471,13 +472,13 @@ pub fn writeVram(state: *PpuState, address: u16, value: u8) void {
             // Cycle 4: Fetch pattern table tile low byte (bitplane 0)
             4 => {
                 const pattern_addr = getPatternAddress(state, false);
-                state.bg_state.pattern_latch_lo = state.readVram(pattern_addr);
+                state.bg_state.pattern_latch_lo = readVram(state, cart, pattern_addr);
             },
 
             // Cycle 6: Fetch pattern table tile high byte (bitplane 1)
             6 => {
                 const pattern_addr = getPatternAddress(state, true);
-                state.bg_state.pattern_latch_hi = state.readVram(pattern_addr);
+                state.bg_state.pattern_latch_hi = readVram(state, cart, pattern_addr);
 
                 // Load shift registers with fetched data
                 state.bg_state.loadShiftRegisters();
@@ -492,7 +493,7 @@ pub fn writeVram(state: *PpuState, address: u16, value: u8) void {
 
     /// Get background pixel from shift registers
     /// Returns palette index (0-31), or 0 for transparent
-    fn getBackgroundPixel(state: *PpuState) u8 {
+    pub fn getBackgroundPixel(state: *PpuState) u8 {
         if (!state.mask.show_bg) return 0;
 
         // Apply fine X scroll (0-7)
@@ -517,7 +518,7 @@ pub fn writeVram(state: *PpuState, address: u16, value: u8) void {
 
     /// Get final pixel color from palette
     /// Converts palette index to RGBA8888 color
-    fn getPaletteColor(state: *PpuState, palette_index: u8) u32 {
+    pub fn getPaletteColor(state: *PpuState, palette_index: u8) u32 {
         // Read NES color index from palette RAM
         const nes_color = state.palette_ram[palette_index & 0x1F];
 
@@ -561,9 +562,9 @@ pub fn writeVram(state: *PpuState, address: u16, value: u8) void {
 
     /// Fetch sprite pattern data for visible scanline
     /// Called during cycles 257-320 (8 sprites × 8 cycles each)
-    fn fetchSprites(state: *PpuState) void {
+    pub fn fetchSprites(state: *PpuState, cart: ?*NromCart, scanline: u16, dot: u16) void {
         // Reset sprite state at start of fetch
-        if (state.dot == 257) {
+        if (dot == 257) {
             state.sprite_state.sprite_count = 0;
             state.sprite_state.sprite_0_present = false;
             state.sprite_state.sprite_0_index = 0xFF;
@@ -578,9 +579,9 @@ pub fn writeVram(state: *PpuState, address: u16, value: u8) void {
         }
 
         // Sprite fetching occurs during cycles 257-320
-        if (state.dot >= 257 and state.dot <= 320) {
-            const fetch_cycle = (state.dot - 257) % 8;
-            const sprite_index = (state.dot - 257) / 8;
+        if (dot >= 257 and dot <= 320) {
+            const fetch_cycle = (dot - 257) % 8;
+            const sprite_index = (dot - 257) / 8;
 
             // Only fetch if we have sprites in secondary OAM
             if (sprite_index < 8) {
@@ -594,7 +595,7 @@ pub fn writeVram(state: *PpuState, address: u16, value: u8) void {
                     const sprite_x = state.secondary_oam[oam_offset + 3];
 
                     // Calculate row within sprite
-                    const row_in_sprite: u8 = @intCast(state.scanline -% sprite_y);
+                    const row_in_sprite: u8 = @intCast(scanline -% sprite_y);
 
                     // Fetch pattern data (cycles 5-6 and 7-8)
                     if (fetch_cycle == 5 or fetch_cycle == 6) {
@@ -607,7 +608,7 @@ pub fn writeVram(state: *PpuState, address: u16, value: u8) void {
                         else
                             getSpritePatternAddress(tile_index, row_in_sprite, 0, state.ctrl.sprite_pattern, vertical_flip);
 
-                        const pattern_lo = state.readVram(addr);
+                        const pattern_lo = readVram(state, cart, addr);
 
                         // Apply horizontal flip by reversing bits
                         const horizontal_flip = (attributes & 0x40) != 0;
@@ -626,7 +627,7 @@ pub fn writeVram(state: *PpuState, address: u16, value: u8) void {
                         else
                             getSpritePatternAddress(tile_index, row_in_sprite, 1, state.ctrl.sprite_pattern, vertical_flip);
 
-                        const pattern_hi = state.readVram(addr);
+                        const pattern_hi = readVram(state, cart, addr);
 
                         // Apply horizontal flip
                         const horizontal_flip = (attributes & 0x40) != 0;
@@ -666,7 +667,7 @@ pub fn writeVram(state: *PpuState, address: u16, value: u8) void {
 
     /// Get sprite pixel for current position
     /// Returns palette index (0 = transparent) and priority flag
-    fn getSpritePixel(state: *PpuState, pixel_x: u16) struct { pixel: u8, priority: bool, sprite_0: bool } {
+    pub fn getSpritePixel(state: *PpuState, pixel_x: u16) struct { pixel: u8, priority: bool, sprite_0: bool } {
         if (!state.mask.show_sprites) {
             return .{ .pixel = 0, .priority = false, .sprite_0 = false };
         }
@@ -716,7 +717,7 @@ pub fn writeVram(state: *PpuState, address: u16, value: u8) void {
     /// Evaluate sprites for the current scanline
     /// Copies up to 8 sprites to secondary OAM
     /// Sets sprite_overflow flag if more than 8 sprites found
-    fn evaluateSprites(state: *PpuState) void {
+    pub fn evaluateSprites(state: *PpuState, scanline: u16) void {
         const sprite_height: u16 = if (state.ctrl.sprite_size) 16 else 8;
         var secondary_oam_index: usize = 0;
         var sprites_found: u8 = 0;
@@ -734,7 +735,7 @@ pub fn writeVram(state: *PpuState, address: u16, value: u8) void {
             // Sprite is visible if: scanline >= sprite_y AND scanline < sprite_y + height
             // Special case: Y=$FF means sprite at -1 (never visible due to overflow)
             const sprite_bottom = @as(u16, sprite_y) + sprite_height;
-            if (state.scanline >= sprite_y and state.scanline < sprite_bottom) {
+            if (scanline >= sprite_y and scanline < sprite_bottom) {
                 // Sprite is in range
                 if (sprites_found < 8) {
                     // Copy sprite to secondary OAM
@@ -755,177 +756,6 @@ pub fn writeVram(state: *PpuState, address: u16, value: u8) void {
         }
     }
 
-    /// Tick PPU by one PPU cycle
-    /// Optional framebuffer for pixel output (RGBA8888, 256×240 pixels)
-    pub fn tick(state: *PpuState, framebuffer: ?[]u32) void {
-        // === Cycle Advance (happens FIRST) ===
-        state.dot += 1;
-
-        // End of scanline
-        if (state.dot > 340) {
-            state.dot = 0;
-            state.scanline += 1;
-
-            // End of frame
-            if (state.scanline > 261) {
-                state.scanline = 0;
-                state.frame += 1;
-            }
-        }
-
-        // Odd frame skip: Skip dot 0 of scanline 0 on odd frames when rendering
-        if (state.scanline == 0 and state.dot == 0 and (state.frame & 1) == 1 and state.mask.renderingEnabled()) {
-            state.dot = 1;
-        }
-
-        // Capture current position AFTER advancing
-        const scanline = state.scanline;
-        const dot = state.dot;
-
-        // Visible scanlines (0-239) + pre-render line (261)
-        const is_visible = scanline < 240;
-        const is_prerender = scanline == 261;
-        const is_rendering_line = is_visible or is_prerender;
-
-        // === Background Tile Fetching ===
-        // Occurs during visible scanlines and pre-render line
-        if (is_rendering_line and state.mask.renderingEnabled()) {
-            // Shift registers every cycle (except dot 0)
-            if (dot >= 1 and dot <= 256) {
-                state.bg_state.shift();
-            }
-
-            // Tile fetching (dots 1-256 and 321-336)
-            if ((dot >= 1 and dot <= 256) or (dot >= 321 and dot <= 336)) {
-                fetchBackgroundTile(state);
-            }
-
-            // Dummy nametable fetches (dots 337-340)
-            // Hardware fetches first two tiles of next scanline
-            if (dot == 338 or dot == 340) {
-                const nt_addr = 0x2000 | (state.internal.v & 0x0FFF);
-                _ = state.readVram(nt_addr);
-            }
-
-            // Y increment at dot 256
-            if (dot == 256) {
-                incrementScrollY(state);
-            }
-
-            // Copy horizontal scroll at dot 257
-            if (dot == 257) {
-                copyScrollX(state);
-            }
-
-            // Copy vertical scroll during pre-render scanline
-            if (is_prerender and dot >= 280 and dot <= 304) {
-                copyScrollY(state);
-            }
-        }
-
-        // === Sprite Evaluation ===
-        // Secondary OAM clearing happens on ALL scanlines (visible + VBlank + pre-render)
-        // Cycles 1-64: Clear secondary OAM to $FF
-        if (dot >= 1 and dot <= 64) {
-            // Clear bytes 0-31 during cycles 1-32
-            // Cycles 33-64 are used for sprite evaluation setup
-            const clear_index = dot - 1;
-            if (clear_index < 32) {
-                state.secondary_oam[clear_index] = 0xFF;
-            }
-        }
-
-        // Sprite evaluation only occurs on visible scanlines (0-239) when rendering enabled
-        if (is_visible) {
-            // Cycles 65-256: Sprite evaluation
-            // Evaluate sprites and copy up to 8 to secondary OAM
-            // Only occurs when rendering is enabled
-            if (dot == 65 and state.mask.renderingEnabled()) {
-                evaluateSprites(state);
-            }
-        }
-
-        // === Sprite Fetching ===
-        // Fetch sprite pattern data during cycles 257-320 on visible scanlines and pre-render
-        if (is_rendering_line and state.mask.renderingEnabled()) {
-            if (dot >= 257 and dot <= 320) {
-                fetchSprites(state);
-            }
-        }
-
-        // === Pixel Output ===
-        // Render pixels to framebuffer during visible scanlines
-        if (is_visible and dot >= 1 and dot <= 256) {
-            const pixel_x = dot - 1;
-            const pixel_y = scanline;
-
-            // Get background pixel
-            const bg_pixel = getBackgroundPixel(state);
-
-            // Get sprite pixel
-            const sprite_result = getSpritePixel(state, pixel_x);
-
-            // Determine final pixel using priority system
-            var final_palette_index: u8 = 0;
-
-            if (bg_pixel == 0 and sprite_result.pixel == 0) {
-                // Both transparent - use backdrop color
-                final_palette_index = 0;
-            } else if (bg_pixel == 0 and sprite_result.pixel != 0) {
-                // Background transparent, sprite opaque - show sprite
-                final_palette_index = sprite_result.pixel;
-            } else if (bg_pixel != 0 and sprite_result.pixel == 0) {
-                // Background opaque, sprite transparent - show background
-                final_palette_index = bg_pixel;
-            } else {
-                // Both opaque - check priority
-                if (sprite_result.priority) {
-                    // Sprite has priority 1 (behind background)
-                    final_palette_index = bg_pixel;
-                } else {
-                    // Sprite has priority 0 (in front of background)
-                    final_palette_index = sprite_result.pixel;
-                }
-
-                // Sprite 0 hit detection
-                // Triggers when opaque BG and opaque sprite 0 pixels overlap
-                // NOT at X=255, NOT before dot 2
-                if (sprite_result.sprite_0 and pixel_x < 255 and dot >= 2) {
-                    state.status.sprite_0_hit = true;
-                }
-            }
-
-            const color = getPaletteColor(state, final_palette_index);
-
-            // Write to framebuffer
-            if (framebuffer) |fb| {
-                const fb_index = pixel_y * 256 + pixel_x;
-                fb[fb_index] = color;
-            }
-        }
-
-        // === VBlank Timing ===
-        // VBlank start: Scanline 241, dot 1
-        if (scanline == 241 and dot == 1) {
-            state.status.vblank = true;
-
-            // Trigger NMI if enabled
-            if (state.ctrl.nmi_enable) {
-                state.nmi_occurred = true;
-            }
-        }
-
-        // === Pre-render Scanline ===
-        // Pre-render scanline: Scanline 261, dot 1
-        // Clear VBlank and sprite flags
-        if (scanline == 261 and dot == 1) {
-            state.status.vblank = false;
-            state.status.sprite_0_hit = false;
-            state.status.sprite_overflow = false;
-            state.nmi_occurred = false;
-        }
-    }
-
     /// Check if NMI should be triggered
     /// Called by CPU to check NMI line
     pub fn pollNmi(state: *PpuState) bool {
@@ -938,403 +768,3 @@ pub fn writeVram(state: *PpuState, address: u16, value: u8) void {
     pub fn tickFrame(state: *PpuState) void {
         state.open_bus.decay();
     }
-
-// ============================================================================
-// Tests
-// ============================================================================
-
-const testing = std.testing;
-
-test "PpuCtrl: byte conversion" {
-    const TestCtrl = StateModule.PpuCtrl;
-    var ctrl = TestCtrl{};
-    try testing.expectEqual(@as(u8, 0x00), ctrl.toByte());
-
-    ctrl.nmi_enable = true;
-    try testing.expectEqual(@as(u8, 0x80), ctrl.toByte());
-
-    ctrl = TestCtrl.fromByte(0xFF);
-    try testing.expect(ctrl.nmi_enable);
-    try testing.expect(ctrl.sprite_size);
-    try testing.expect(ctrl.vram_increment);
-}
-
-test "PpuMask: rendering enabled" {
-    var mask = PpuMask{};
-    try testing.expect(!mask.renderingEnabled());
-
-    mask.show_bg = true;
-    try testing.expect(mask.renderingEnabled());
-
-    mask.show_bg = false;
-    mask.show_sprites = true;
-    try testing.expect(mask.renderingEnabled());
-}
-
-test "PpuStatus: open bus behavior" {
-    var status = PpuStatus{};
-    status.vblank = true;
-
-    // With data bus = 0x1F (all open bus bits set)
-    const value1 = status.toByte(0x1F);
-    try testing.expectEqual(@as(u8, 0x9F), value1); // VBlank + open bus
-
-    // With data bus = 0x00
-    const value2 = status.toByte(0x00);
-    try testing.expectEqual(@as(u8, 0x80), value2); // VBlank only
-}
-
-test "State: initialization" {
-    const ppu = PpuState.init();
-    try testing.expect(!ppu.ctrl.nmi_enable);
-    try testing.expect(!ppu.mask.renderingEnabled());
-    try testing.expect(!ppu.status.vblank);
-}
-
-test "State: PPUCTRL write" {
-    var ppu = PpuState.init();
-
-    ppu.writeRegister(0x2000, 0x80); // Enable NMI
-    try testing.expect(ppu.ctrl.nmi_enable);
-    try testing.expectEqual(@as(u8, 0x80), ppu.open_bus.value);
-}
-
-test "State: PPUSTATUS read clears VBlank" {
-    var ppu = PpuState.init();
-    ppu.status.vblank = true;
-
-    const value = ppu.readRegister(0x2002);
-    try testing.expectEqual(@as(u8, 0x80), value); // VBlank bit set
-    try testing.expect(!ppu.status.vblank); // Cleared after read
-}
-
-test "State: write-only register reads return open bus" {
-    var ppu = PpuState.init();
-    ppu.open_bus.write(0x42);
-
-    try testing.expectEqual(@as(u8, 0x42), ppu.readRegister(0x2000)); // PPUCTRL
-    try testing.expectEqual(@as(u8, 0x42), ppu.readRegister(0x2001)); // PPUMASK
-    try testing.expectEqual(@as(u8, 0x42), ppu.readRegister(0x2005)); // PPUSCROLL
-}
-
-test "State: register mirroring" {
-    var ppu = PpuState.init();
-
-    // Write to $2000
-    ppu.writeRegister(0x2000, 0x80);
-    try testing.expect(ppu.ctrl.nmi_enable);
-
-    // Write to $2008 (mirror of $2000)
-    ppu.writeRegister(0x2008, 0x00);
-    try testing.expect(!ppu.ctrl.nmi_enable);
-
-    // Write to $3456 (mirror of $2006)
-    ppu.writeRegister(0x3456, 0x20);
-    try testing.expect(ppu.internal.w); // First write to PPUADDR sets w flag
-}
-
-test "State: VBlank NMI generation" {
-    var ppu = PpuState.init();
-    ppu.ctrl.nmi_enable = true;
-
-    // Advance to scanline 240, dot 340
-    ppu.scanline = 240;
-    ppu.dot = 340;
-    ppu.tick(null);
-    try testing.expect(!ppu.nmi_occurred);
-
-    // Advance to scanline 241, dot 1 (VBlank start)
-    ppu.scanline = 241;
-    ppu.dot = 0;
-    ppu.tick(null);  // This advances to dot 1
-    try testing.expect(ppu.status.vblank);
-    try testing.expect(ppu.nmi_occurred);
-}
-
-test "State: pre-render scanline clears flags" {
-    var ppu = PpuState.init();
-    ppu.status.vblank = true;
-    ppu.status.sprite_0_hit = true;
-    ppu.status.sprite_overflow = true;
-
-    // Advance to scanline 261, dot 1 (pre-render)
-    ppu.scanline = 261;
-    ppu.dot = 0;
-    ppu.tick(null);
-
-    try testing.expect(!ppu.status.vblank);
-    try testing.expect(!ppu.status.sprite_0_hit);
-    try testing.expect(!ppu.status.sprite_overflow);
-}
-
-// ============================================================================
-// VRAM Tests
-// ============================================================================
-
-test "VRAM: nametable read/write with horizontal mirroring" {
-    var ppu = PpuState.init();
-    ppu.mirroring = .horizontal;
-
-    // NT0 ($2000-$23FF) and NT1 ($2400-$27FF) map to first 1KB
-    ppu.writeVram(0x2000, 0xAA);
-    try testing.expectEqual(@as(u8, 0xAA), ppu.readVram(0x2000));
-    try testing.expectEqual(@as(u8, 0xAA), ppu.vram[0x0000]);
-
-    ppu.writeVram(0x2400, 0xBB);
-    try testing.expectEqual(@as(u8, 0xBB), ppu.readVram(0x2400));
-    try testing.expectEqual(@as(u8, 0xBB), ppu.vram[0x0000]); // Same as NT0
-
-    // NT2 ($2800-$2BFF) and NT3 ($2C00-$2FFF) map to second 1KB
-    ppu.writeVram(0x2800, 0xCC);
-    try testing.expectEqual(@as(u8, 0xCC), ppu.readVram(0x2800));
-    try testing.expectEqual(@as(u8, 0xCC), ppu.vram[0x0400]);
-
-    ppu.writeVram(0x2C00, 0xDD);
-    try testing.expectEqual(@as(u8, 0xDD), ppu.readVram(0x2C00));
-    try testing.expectEqual(@as(u8, 0xDD), ppu.vram[0x0400]); // Same as NT2
-}
-
-test "VRAM: nametable read/write with vertical mirroring" {
-    var ppu = PpuState.init();
-    ppu.mirroring = .vertical;
-
-    // NT0 ($2000-$23FF) and NT2 ($2800-$2BFF) map to first 1KB
-    ppu.writeVram(0x2000, 0xAA);
-    try testing.expectEqual(@as(u8, 0xAA), ppu.readVram(0x2000));
-
-    ppu.writeVram(0x2800, 0xBB);
-    try testing.expectEqual(@as(u8, 0xBB), ppu.readVram(0x2800));
-    try testing.expectEqual(@as(u8, 0xBB), ppu.vram[0x0000]); // Same as NT0
-
-    // NT1 ($2400-$27FF) and NT3 ($2C00-$2FFF) map to second 1KB
-    ppu.writeVram(0x2400, 0xCC);
-    try testing.expectEqual(@as(u8, 0xCC), ppu.readVram(0x2400));
-
-    ppu.writeVram(0x2C00, 0xDD);
-    try testing.expectEqual(@as(u8, 0xDD), ppu.readVram(0x2C00));
-    try testing.expectEqual(@as(u8, 0xDD), ppu.vram[0x0400]); // Same as NT1
-}
-
-test "VRAM: nametable mirrors ($3000-$3EFF)" {
-    var ppu = PpuState.init();
-    ppu.mirroring = .horizontal;
-
-    // Write to nametable
-    ppu.writeVram(0x2123, 0x42);
-
-    // Read from mirror
-    try testing.expectEqual(@as(u8, 0x42), ppu.readVram(0x3123));
-
-    // Write to mirror
-    ppu.writeVram(0x3456, 0x99);
-
-    // Read from nametable
-    try testing.expectEqual(@as(u8, 0x99), ppu.readVram(0x2456));
-}
-
-test "VRAM: palette RAM read/write" {
-    var ppu = PpuState.init();
-
-    // Background palette 0
-    ppu.writeVram(0x3F00, 0x0F); // Backdrop
-    ppu.writeVram(0x3F01, 0x30);
-    ppu.writeVram(0x3F02, 0x10);
-    ppu.writeVram(0x3F03, 0x00);
-
-    try testing.expectEqual(@as(u8, 0x0F), ppu.readVram(0x3F00));
-    try testing.expectEqual(@as(u8, 0x30), ppu.readVram(0x3F01));
-
-    // Sprite palette 0
-    ppu.writeVram(0x3F11, 0x38);
-    try testing.expectEqual(@as(u8, 0x38), ppu.readVram(0x3F11));
-}
-
-test "VRAM: palette backdrop mirroring" {
-    var ppu = PpuState.init();
-
-    // Write to background backdrop
-    ppu.writeVram(0x3F00, 0x0F);
-
-    // Sprite palette 0 backdrop should mirror BG backdrop
-    try testing.expectEqual(@as(u8, 0x0F), ppu.readVram(0x3F10));
-
-    // Same for other sprite palettes
-    ppu.writeVram(0x3F04, 0x30);
-    try testing.expectEqual(@as(u8, 0x30), ppu.readVram(0x3F14));
-
-    ppu.writeVram(0x3F08, 0x10);
-    try testing.expectEqual(@as(u8, 0x10), ppu.readVram(0x3F18));
-
-    ppu.writeVram(0x3F0C, 0x00);
-    try testing.expectEqual(@as(u8, 0x00), ppu.readVram(0x3F1C));
-}
-
-test "VRAM: palette RAM mirrors ($3F20-$3FFF)" {
-    var ppu = PpuState.init();
-
-    // Write to palette RAM
-    ppu.writeVram(0x3F05, 0x42);
-
-    // Read from mirrors
-    try testing.expectEqual(@as(u8, 0x42), ppu.readVram(0x3F25));
-    try testing.expectEqual(@as(u8, 0x42), ppu.readVram(0x3F45));
-    try testing.expectEqual(@as(u8, 0x42), ppu.readVram(0x3FE5));
-
-    // Write to mirror
-    ppu.writeVram(0x3F67, 0x99);
-
-    // Read from base
-    try testing.expectEqual(@as(u8, 0x99), ppu.readVram(0x3F07));
-}
-
-test "PPUDATA: read with buffering" {
-    var ppu = PpuState.init();
-    ppu.mirroring = .horizontal;
-
-    // Write test data to VRAM
-    ppu.writeVram(0x2000, 0xAA);
-    ppu.writeVram(0x2001, 0xBB);
-    ppu.writeVram(0x2002, 0xCC);
-
-    // Set PPUADDR to $2000
-    ppu.writeRegister(0x2006, 0x20);
-    ppu.writeRegister(0x2006, 0x00);
-
-    // First read returns buffer (0), buffer fills with $AA
-    const read1 = ppu.readRegister(0x2007);
-    try testing.expectEqual(@as(u8, 0x00), read1);
-
-    // Second read returns $AA, buffer fills with $BB
-    const read2 = ppu.readRegister(0x2007);
-    try testing.expectEqual(@as(u8, 0xAA), read2);
-
-    // Third read returns $BB
-    const read3 = ppu.readRegister(0x2007);
-    try testing.expectEqual(@as(u8, 0xBB), read3);
-}
-
-test "PPUDATA: palette reads not buffered" {
-    var ppu = PpuState.init();
-
-    // Write test data to palette
-    ppu.writeVram(0x3F00, 0x0F);
-    ppu.writeVram(0x3F01, 0x30);
-
-    // Set PPUADDR to $3F00 (palette)
-    ppu.writeRegister(0x2006, 0x3F);
-    ppu.writeRegister(0x2006, 0x00);
-
-    // Palette reads are NOT buffered - return immediately
-    const read1 = ppu.readRegister(0x2007);
-    try testing.expectEqual(@as(u8, 0x0F), read1);
-
-    const read2 = ppu.readRegister(0x2007);
-    try testing.expectEqual(@as(u8, 0x30), read2);
-}
-
-test "PPUDATA: write to VRAM" {
-    var ppu = PpuState.init();
-    ppu.mirroring = .horizontal;
-
-    // Set PPUADDR to $2000
-    ppu.writeRegister(0x2006, 0x20);
-    ppu.writeRegister(0x2006, 0x00);
-
-    // Write via PPUDATA
-    ppu.writeRegister(0x2007, 0xAA);
-    ppu.writeRegister(0x2007, 0xBB);
-    ppu.writeRegister(0x2007, 0xCC);
-
-    // Verify data written
-    try testing.expectEqual(@as(u8, 0xAA), ppu.readVram(0x2000));
-    try testing.expectEqual(@as(u8, 0xBB), ppu.readVram(0x2001));
-    try testing.expectEqual(@as(u8, 0xCC), ppu.readVram(0x2002));
-}
-
-test "PPUDATA: VRAM increment +1" {
-    var ppu = PpuState.init();
-
-    // Set VRAM increment to +1 (PPUCTRL bit 2 = 0)
-    ppu.writeRegister(0x2000, 0x00);
-
-    // Set PPUADDR to $2000
-    ppu.writeRegister(0x2006, 0x20);
-    ppu.writeRegister(0x2006, 0x00);
-
-    // Write 3 bytes
-    ppu.writeRegister(0x2007, 0xAA);
-    ppu.writeRegister(0x2007, 0xBB);
-    ppu.writeRegister(0x2007, 0xCC);
-
-    // VRAM address should now be $2003
-    try testing.expectEqual(@as(u16, 0x2003), ppu.internal.v);
-}
-
-test "PPUDATA: VRAM increment +32" {
-    var ppu = PpuState.init();
-
-    // Set VRAM increment to +32 (PPUCTRL bit 2 = 1)
-    ppu.writeRegister(0x2000, 0x04);
-
-    // Set PPUADDR to $2000
-    ppu.writeRegister(0x2006, 0x20);
-    ppu.writeRegister(0x2006, 0x00);
-
-    // Write 2 bytes
-    ppu.writeRegister(0x2007, 0xAA);
-    ppu.writeRegister(0x2007, 0xBB);
-
-    // VRAM address should now be $2040 (2000 + 32 + 32)
-    try testing.expectEqual(@as(u16, 0x2040), ppu.internal.v);
-}
-
-test "mirrorNametableAddress: horizontal mirroring" {
-    // NT0 ($2000) -> VRAM $0000
-    try testing.expectEqual(@as(u16, 0x0000), mirrorNametableAddress(0x2000, .horizontal));
-
-    // NT1 ($2400) -> VRAM $0000 (same as NT0)
-    try testing.expectEqual(@as(u16, 0x0000), mirrorNametableAddress(0x2400, .horizontal));
-
-    // NT2 ($2800) -> VRAM $0400
-    try testing.expectEqual(@as(u16, 0x0400), mirrorNametableAddress(0x2800, .horizontal));
-
-    // NT3 ($2C00) -> VRAM $0400 (same as NT2)
-    try testing.expectEqual(@as(u16, 0x0400), mirrorNametableAddress(0x2C00, .horizontal));
-
-    // Test with offset
-    try testing.expectEqual(@as(u16, 0x0123), mirrorNametableAddress(0x2123, .horizontal));
-    try testing.expectEqual(@as(u16, 0x0123), mirrorNametableAddress(0x2523, .horizontal));
-}
-
-test "mirrorNametableAddress: vertical mirroring" {
-    // NT0 ($2000) -> VRAM $0000
-    try testing.expectEqual(@as(u16, 0x0000), mirrorNametableAddress(0x2000, .vertical));
-
-    // NT1 ($2400) -> VRAM $0400
-    try testing.expectEqual(@as(u16, 0x0400), mirrorNametableAddress(0x2400, .vertical));
-
-    // NT2 ($2800) -> VRAM $0000 (same as NT0)
-    try testing.expectEqual(@as(u16, 0x0000), mirrorNametableAddress(0x2800, .vertical));
-
-    // NT3 ($2C00) -> VRAM $0400 (same as NT1)
-    try testing.expectEqual(@as(u16, 0x0400), mirrorNametableAddress(0x2C00, .vertical));
-}
-
-test "mirrorPaletteAddress: backdrop mirroring" {
-    // Background backdrops map to themselves
-    try testing.expectEqual(@as(u8, 0x00), mirrorPaletteAddress(0x00));
-    try testing.expectEqual(@as(u8, 0x04), mirrorPaletteAddress(0x04));
-    try testing.expectEqual(@as(u8, 0x08), mirrorPaletteAddress(0x08));
-    try testing.expectEqual(@as(u8, 0x0C), mirrorPaletteAddress(0x0C));
-
-    // Sprite backdrops mirror to background backdrops
-    try testing.expectEqual(@as(u8, 0x00), mirrorPaletteAddress(0x10));
-    try testing.expectEqual(@as(u8, 0x04), mirrorPaletteAddress(0x14));
-    try testing.expectEqual(@as(u8, 0x08), mirrorPaletteAddress(0x18));
-    try testing.expectEqual(@as(u8, 0x0C), mirrorPaletteAddress(0x1C));
-
-    // Non-backdrop colors map to themselves
-    try testing.expectEqual(@as(u8, 0x01), mirrorPaletteAddress(0x01));
-    try testing.expectEqual(@as(u8, 0x11), mirrorPaletteAddress(0x11));
-    try testing.expectEqual(@as(u8, 0x1F), mirrorPaletteAddress(0x1F));
-}

@@ -1,12 +1,13 @@
 //! CHR Integration Tests
 //!
-//! Tests PPU CHR ROM/RAM access through the ChrProvider interface.
-//! Verifies the complete integration chain: Cartridge → ChrProvider → PPU
+//! Tests PPU CHR ROM/RAM access through the emulator architecture.
+//! Verifies the complete integration chain: Cartridge → EmulationState → PPU
 
 const std = @import("std");
 const testing = std.testing;
-const Ppu = @import("RAMBO").PpuType;
-const Cartridge = @import("RAMBO").CartridgeType;
+const RAMBO = @import("RAMBO");
+const Harness = RAMBO.TestHarness.Harness;
+const Cartridge = RAMBO.CartridgeType;
 
 // Test PPU CHR ROM access via cartridge
 test "PPU VRAM: CHR ROM read through cartridge" {
@@ -37,19 +38,19 @@ test "PPU VRAM: CHR ROM read through cartridge" {
     rom_data[chr_start + 0x1FFF] = 0xEF; // Test byte at $1FFF (last CHR byte)
 
     // Load cartridge
-    var cart = try Cartridge.loadFromData(allocator, &rom_data);
-    defer cart.deinit();
+    const cart = try Cartridge.loadFromData(allocator, &rom_data);
 
-    // Create PPU and connect cartridge
-    var ppu = Ppu.init();
-    ppu.setCartridge(&cart);
+    // Create harness and load cartridge (takes ownership)
+    var harness = try Harness.init();
+    defer harness.deinit();
+    harness.loadCartridge(cart);
 
     // Test CHR ROM reads
-    try testing.expectEqual(@as(u8, 0x42), ppu.readVram(0x0000));
-    try testing.expectEqual(@as(u8, 0x99), ppu.readVram(0x0007));
-    try testing.expectEqual(@as(u8, 0xAA), ppu.readVram(0x0008));
-    try testing.expectEqual(@as(u8, 0xCD), ppu.readVram(0x1000));
-    try testing.expectEqual(@as(u8, 0xEF), ppu.readVram(0x1FFF));
+    try testing.expectEqual(@as(u8, 0x42), harness.ppuReadVram(0x0000));
+    try testing.expectEqual(@as(u8, 0x99), harness.ppuReadVram(0x0007));
+    try testing.expectEqual(@as(u8, 0xAA), harness.ppuReadVram(0x0008));
+    try testing.expectEqual(@as(u8, 0xCD), harness.ppuReadVram(0x1000));
+    try testing.expectEqual(@as(u8, 0xEF), harness.ppuReadVram(0x1FFF));
 }
 
 // Test PPU CHR RAM write/read cycle
@@ -70,27 +71,27 @@ test "PPU VRAM: CHR RAM write and read" {
     rom_data[7] = 0;
 
     // Load cartridge (will allocate 8KB CHR RAM)
-    var cart = try Cartridge.loadFromData(allocator, &rom_data);
-    defer cart.deinit();
+    const cart = try Cartridge.loadFromData(allocator, &rom_data);
 
-    // Create PPU and connect cartridge
-    var ppu = Ppu.init();
-    ppu.setCartridge(&cart);
+    // Create harness and load cartridge (takes ownership)
+    var harness = try Harness.init();
+    defer harness.deinit();
+    harness.loadCartridge(cart);
 
     // CHR RAM should be initialized to zero
-    try testing.expectEqual(@as(u8, 0x00), ppu.readVram(0x0000));
+    try testing.expectEqual(@as(u8, 0x00), harness.ppuReadVram(0x0000));
 
     // Write to CHR RAM via PPU
-    ppu.writeVram(0x0000, 0x42);
-    ppu.writeVram(0x0FFF, 0x99);
-    ppu.writeVram(0x1000, 0xAA);
-    ppu.writeVram(0x1FFF, 0xBB);
+    harness.ppuWriteVram(0x0000, 0x42);
+    harness.ppuWriteVram(0x0FFF, 0x99);
+    harness.ppuWriteVram(0x1000, 0xAA);
+    harness.ppuWriteVram(0x1FFF, 0xBB);
 
     // Read back and verify
-    try testing.expectEqual(@as(u8, 0x42), ppu.readVram(0x0000));
-    try testing.expectEqual(@as(u8, 0x99), ppu.readVram(0x0FFF));
-    try testing.expectEqual(@as(u8, 0xAA), ppu.readVram(0x1000));
-    try testing.expectEqual(@as(u8, 0xBB), ppu.readVram(0x1FFF));
+    try testing.expectEqual(@as(u8, 0x42), harness.ppuReadVram(0x0000));
+    try testing.expectEqual(@as(u8, 0x99), harness.ppuReadVram(0x0FFF));
+    try testing.expectEqual(@as(u8, 0xAA), harness.ppuReadVram(0x1000));
+    try testing.expectEqual(@as(u8, 0xBB), harness.ppuReadVram(0x1FFF));
 }
 
 // Test mirroring synchronization from cartridge header
@@ -111,24 +112,24 @@ test "PPU VRAM: Mirroring from cartridge header" {
     rom_data[7] = 0;
 
     // Load cartridge
-    var cart = try Cartridge.loadFromData(allocator, &rom_data);
-    defer cart.deinit();
+    const cart = try Cartridge.loadFromData(allocator, &rom_data);
 
-    // Create PPU and set mirroring from cartridge
-    var ppu = Ppu.init();
-    ppu.setMirroring(cart.mirroring);
-
-    // Verify vertical mirroring is set
+    // Verify vertical mirroring is set from cartridge header
     try testing.expectEqual(@as(@TypeOf(cart.mirroring), .vertical), cart.mirroring);
+
+    // Create harness and load cartridge (takes ownership)
+    var harness = try Harness.init();
+    defer harness.deinit();
+    harness.loadCartridge(cart);
 
     // Test vertical mirroring behavior
     // NT0 ($2000) and NT2 ($2800) should map to same VRAM
-    ppu.writeVram(0x2000, 0xAA);
-    try testing.expectEqual(@as(u8, 0xAA), ppu.readVram(0x2800)); // Same as NT0
+    harness.ppuWriteVram(0x2000, 0xAA);
+    try testing.expectEqual(@as(u8, 0xAA), harness.ppuReadVram(0x2800)); // Same as NT0
 
     // NT1 ($2400) and NT3 ($2C00) should map to same VRAM
-    ppu.writeVram(0x2400, 0xBB);
-    try testing.expectEqual(@as(u8, 0xBB), ppu.readVram(0x2C00)); // Same as NT1
+    harness.ppuWriteVram(0x2400, 0xBB);
+    try testing.expectEqual(@as(u8, 0xBB), harness.ppuReadVram(0x2C00)); // Same as NT1
 }
 
 // Test PPUDATA ($2007) accessing CHR region
@@ -155,49 +156,48 @@ test "PPU VRAM: PPUDATA CHR access with buffering" {
     rom_data[chr_start + 2] = 0x33;
 
     // Load cartridge
-    var cart = try Cartridge.loadFromData(allocator, &rom_data);
-    defer cart.deinit();
+    const cart = try Cartridge.loadFromData(allocator, &rom_data);
 
-    // Create PPU and connect
-    var ppu = Ppu.init();
-    ppu.setCartridge(&cart);
+    // Create harness and load cartridge (takes ownership)
+    var harness = try Harness.init();
+    defer harness.deinit();
+    harness.loadCartridge(cart);
 
     // Set PPUADDR to CHR region ($0000)
-    ppu.writeRegister(0x2006, 0x00); // High byte
-    ppu.writeRegister(0x2006, 0x00); // Low byte
+    harness.ppuWriteRegister(0x2006, 0x00); // High byte
+    harness.ppuWriteRegister(0x2006, 0x00); // Low byte
 
     // First read from PPUDATA returns buffer (0), fills buffer with $11
-    const read1 = ppu.readRegister(0x2007);
+    const read1 = harness.ppuReadRegister(0x2007);
     try testing.expectEqual(@as(u8, 0x00), read1);
 
     // Second read returns $11, fills buffer with $22
-    const read2 = ppu.readRegister(0x2007);
+    const read2 = harness.ppuReadRegister(0x2007);
     try testing.expectEqual(@as(u8, 0x11), read2);
 
     // Third read returns $22
-    const read3 = ppu.readRegister(0x2007);
+    const read3 = harness.ppuReadRegister(0x2007);
     try testing.expectEqual(@as(u8, 0x22), read3);
 }
 
 // Test open bus behavior without cartridge
 test "PPU VRAM: Open bus when no cartridge" {
-    var ppu = Ppu.init();
+    var harness = try Harness.init();
+    defer harness.deinit();
 
-    // No cartridge connected - should be null
-    try testing.expect(ppu.cartridge == null);
+    // No cartridge loaded - accessing CHR region should return open bus value
+    // Set open bus to known value via PPU write
+    harness.state.ppu.open_bus.write(0x42);
 
-    // Set open bus to known value
-    ppu.open_bus.write(0x42);
-
-    // Reading CHR with no provider should return open bus value
-    const value = ppu.readVram(0x0000);
+    // Reading CHR with no cartridge should return open bus value
+    const value = harness.ppuReadVram(0x0000);
     try testing.expectEqual(@as(u8, 0x42), value);
 
     // Change open bus value
-    ppu.open_bus.write(0x99);
+    harness.state.ppu.open_bus.write(0x99);
 
     // Should return new open bus value
-    const value2 = ppu.readVram(0x1000);
+    const value2 = harness.ppuReadVram(0x1000);
     try testing.expectEqual(@as(u8, 0x99), value2);
 }
 
@@ -223,19 +223,19 @@ test "PPU VRAM: CHR ROM writes are ignored" {
     rom_data[chr_start + 0] = 0x42;
 
     // Load cartridge
-    var cart = try Cartridge.loadFromData(allocator, &rom_data);
-    defer cart.deinit();
+    const cart = try Cartridge.loadFromData(allocator, &rom_data);
 
-    // Create PPU and connect
-    var ppu = Ppu.init();
-    ppu.setCartridge(&cart);
+    // Create harness and load cartridge (takes ownership)
+    var harness = try Harness.init();
+    defer harness.deinit();
+    harness.loadCartridge(cart);
 
     // Verify initial value
-    try testing.expectEqual(@as(u8, 0x42), ppu.readVram(0x0000));
+    try testing.expectEqual(@as(u8, 0x42), harness.ppuReadVram(0x0000));
 
     // Try to write (should be ignored for CHR ROM)
-    ppu.writeVram(0x0000, 0x99);
+    harness.ppuWriteVram(0x0000, 0x99);
 
     // Value should remain unchanged
-    try testing.expectEqual(@as(u8, 0x42), ppu.readVram(0x0000));
+    try testing.expectEqual(@as(u8, 0x42), harness.ppuReadVram(0x0000));
 }

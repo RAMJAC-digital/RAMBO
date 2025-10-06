@@ -358,7 +358,7 @@ pub const Debugger = struct {
     pub fn stepScanline(self: *Debugger, state: *const EmulationState) void {
         self.mode = .step_scanline;
         self.step_state = .{
-            .target_scanline = (state.ppu.scanline + 1) % 262,
+            .target_scanline = (state.ppu_timing.scanline + 1) % 262,
         };
     }
 
@@ -366,7 +366,7 @@ pub const Debugger = struct {
     pub fn stepFrame(self: *Debugger, state: *const EmulationState) void {
         self.mode = .step_frame;
         self.step_state = .{
-            .target_frame = state.ppu.frame + 1,
+            .target_frame = state.ppu_timing.frame + 1,
         };
     }
 
@@ -480,7 +480,7 @@ pub const Debugger = struct {
             },
             .step_scanline => {
                 if (self.step_state.target_scanline) |target| {
-                    if (state.ppu.scanline == target) {
+                    if (state.ppu_timing.scanline == target) {
                         self.mode = .paused;
                         try self.setBreakReason("Scanline step complete");
                         return true;
@@ -489,7 +489,7 @@ pub const Debugger = struct {
             },
             .step_frame => {
                 if (self.step_state.target_frame) |target| {
-                    if (state.ppu.frame >= target) {
+                    if (state.ppu_timing.frame >= target) {
                         self.mode = .paused;
                         try self.setBreakReason("Frame step complete");
                         return true;
@@ -661,8 +661,8 @@ pub const Debugger = struct {
         const entry = HistoryEntry{
             .snapshot = snapshot,
             .pc = state.cpu.pc,
-            .scanline = state.ppu.scanline,
-            .frame = state.ppu.frame,
+            .scanline = state.ppu_timing.scanline,
+            .frame = state.ppu_timing.frame,
             .timestamp = std.time.timestamp(),
         };
 
@@ -869,7 +869,7 @@ pub const Debugger = struct {
         address: u16,
         value: u8,
     ) void {
-        state.bus.write(address, value);
+        state.busWrite(address, value);
         self.logModification(.{ .memory_write = .{
             .address = address,
             .value = value,
@@ -885,7 +885,7 @@ pub const Debugger = struct {
     ) void {
         for (data, 0..) |byte, offset| {
             const addr = start_address +% @as(u16, @intCast(offset));
-            state.bus.write(addr, byte);
+            state.busWrite(addr, byte);
         }
         self.logModification(.{ .memory_range = .{
             .start = start_address,
@@ -899,14 +899,17 @@ pub const Debugger = struct {
     /// This uses Logic.peekMemory() which reads memory without triggering
     /// hardware side effects. This is critical for time-travel debugging:
     /// inspection reads must not corrupt the state being inspected.
+    /// Read memory for inspection WITHOUT side effects
+    /// Does NOT update open bus - safe for debugger inspection
+    /// Uses EmulationState.peekMemory() to avoid side effects
     pub fn readMemory(
         self: *Debugger,
         state: *const EmulationState,
         address: u16,
     ) u8 {
         _ = self;
-        const Logic = @import("../bus/Logic.zig");
-        return Logic.peekMemory(&state.bus, state.bus.cartridge, state.bus.ppu, address);
+        // Use peekMemory() which does NOT update open_bus
+        return state.peekMemory(address);
     }
 
     /// Read memory range for inspection WITHOUT side effects
@@ -919,13 +922,10 @@ pub const Debugger = struct {
         length: u16,
     ) ![]u8 {
         _ = self;
-        const Logic = @import("../bus/Logic.zig");
         const buffer = try allocator.alloc(u8, length);
+        // Use peekMemory() which does NOT update open_bus
         for (0..length) |i| {
-            buffer[i] = Logic.peekMemory(
-                &state.bus,
-                state.bus.cartridge,
-                state.bus.ppu,
+            buffer[i] = state.peekMemory(
                 start_address +% @as(u16, @intCast(i))
             );
         }
@@ -938,13 +938,13 @@ pub const Debugger = struct {
 
     /// Set PPU scanline (for testing)
     pub fn setPpuScanline(self: *Debugger, state: *EmulationState, scanline: u16) void {
-        state.ppu.scanline = scanline;
+        state.ppu_timing.scanline = scanline;
         self.logModification(.{ .ppu_scanline = scanline });
     }
 
     /// Set PPU frame counter
     pub fn setPpuFrame(self: *Debugger, state: *EmulationState, frame: u64) void {
-        state.ppu.frame = frame;
+        state.ppu_timing.frame = frame;
         self.logModification(.{ .ppu_frame = frame });
     }
 

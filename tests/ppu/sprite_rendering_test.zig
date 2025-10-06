@@ -12,7 +12,7 @@ const std = @import("std");
 const testing = std.testing;
 const RAMBO = @import("RAMBO");
 const PpuType = RAMBO.PpuType;
-const Logic = RAMBO.PpuLogic;
+const Logic = RAMBO.Ppu.Logic;
 
 // ============================================================================
 // PATTERN ADDRESS CALCULATION TESTS (8×8 mode)
@@ -371,59 +371,25 @@ test "Sprite Rendering: Sprite palette RAM address calculation" {
 // ============================================================================
 
 test "Sprite Rendering: Sprite fetch occurs cycles 257-320" {
-    var ppu = PpuType.init();
-    ppu.mask.show_sprites = true;
-
-    // Place sprite in secondary OAM
-    ppu.secondary_oam[0] = 50;
-    ppu.secondary_oam[1] = 0x42;
-    ppu.secondary_oam[2] = 0x00;
-    ppu.secondary_oam[3] = 100;
-
-    // Position at scanline 50, dot 256 (just before sprite fetch)
-    ppu.scanline = 50;
-    ppu.dot = 256;
-
-    // TODO: Verify sprite pattern data is fetched during cycles 257-320
-    // 8 cycles per sprite (garbage NT, garbage NT, pattern low, pattern high)
+    // TODO: Implement sprite fetch timing verification
+    // This test is a placeholder for future implementation
+    // When implemented, should use Harness to set PPU timing:
+    // var harness = try RAMBO.TestHarness.Harness.init();
+    // defer harness.deinit();
+    // harness.setPpuTiming(50, 256);
+    // ... verify sprite pattern data is fetched during cycles 257-320
 }
 
 test "Sprite Rendering: 8 sprites fetched per scanline" {
-    var ppu = PpuType.init();
-    ppu.mask.show_sprites = true;
-
-    // Fill secondary OAM with 8 sprites
-    for (0..8) |i| {
-        ppu.secondary_oam[i * 4 + 0] = 50; // Y
-        ppu.secondary_oam[i * 4 + 1] = @intCast(i); // Tile (unique per sprite)
-        ppu.secondary_oam[i * 4 + 2] = 0x00; // Attributes
-        ppu.secondary_oam[i * 4 + 3] = @intCast(i * 8); // X (spread out)
-    }
-
-    // TODO: Verify all 8 sprites are fetched (64 cycles: 8 sprites × 8 cycles)
+    // TODO: Implement 8-sprite fetch verification
+    // This test is a placeholder for future implementation
+    // When implemented, should use Harness to setup sprites and verify timing
 }
 
 test "Sprite Rendering: Sprite fetch with <8 sprites" {
-    var ppu = PpuType.init();
-    ppu.mask.show_sprites = true;
-
-    // Only 3 sprites in secondary OAM
-    for (0..3) |i| {
-        ppu.secondary_oam[i * 4 + 0] = 50;
-        ppu.secondary_oam[i * 4 + 1] = @intCast(i);
-        ppu.secondary_oam[i * 4 + 2] = 0x00;
-        ppu.secondary_oam[i * 4 + 3] = @intCast(i * 8);
-    }
-
-    // Fill remaining with $FF (empty)
-    for (3..8) |i| {
-        ppu.secondary_oam[i * 4 + 0] = 0xFF;
-        ppu.secondary_oam[i * 4 + 1] = 0xFF;
-        ppu.secondary_oam[i * 4 + 2] = 0xFF;
-        ppu.secondary_oam[i * 4 + 3] = 0xFF;
-    }
-
-    // TODO: Verify fetch still occurs for all 8 slots (using $FF bytes for empty sprites)
+    // TODO: Implement sprite fetch with <8 sprites verification
+    // This test is a placeholder for future implementation
+    // Should verify fetch still occurs for all 8 slots (using $FF bytes for empty sprites)
 }
 
 // ============================================================================
