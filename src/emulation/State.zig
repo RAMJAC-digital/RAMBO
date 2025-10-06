@@ -289,7 +289,9 @@ pub const EmulationState = struct {
             0x4000...0x4013 => {}, // APU not implemented
             0x4014 => {
                 // OAM DMA trigger
-                const on_odd_cycle = (self.clock.ppu_cycles & 1) != 0;
+                // Check if we're on an odd CPU cycle (PPU runs at 3x CPU speed)
+                const cpu_cycle = self.clock.ppu_cycles / 3;
+                const on_odd_cycle = (cpu_cycle & 1) != 0;
                 self.dma.trigger(value, on_odd_cycle);
             },
             0x4015 => {}, // APU control not implemented
@@ -446,7 +448,12 @@ pub const EmulationState = struct {
         }
 
         if (cpu_tick) {
-            self.tickCpu();
+            // Check if DMA is active - DMA stalls the CPU
+            if (self.dma.active) {
+                self.tickDma();
+            } else {
+                self.tickCpu();
+            }
         }
 
         if (apu_tick) {
@@ -1265,6 +1272,59 @@ pub const EmulationState = struct {
     /// Future: APU implementation
     fn tickApu(_: *EmulationState) void {
         // APU not yet implemented - see docs/ROADMAP.md for priority
+    }
+
+    /// Tick DMA state machine (called every 3 PPU cycles, same as CPU)
+    /// Executes OAM DMA transfer from CPU RAM ($XX00-$XXFF) to PPU OAM ($2004)
+    ///
+    /// Timing (hardware-accurate):
+    /// - Cycle 0 (if needed): Alignment wait (odd CPU cycle start)
+    /// - Cycles 1-512: 256 read/write pairs
+    ///   * Even cycles: Read byte from CPU RAM
+    ///   * Odd cycles: Write byte to PPU OAM
+    /// - Total: 513 cycles (even start) or 514 cycles (odd start)
+    ///
+    /// Hardware behavior:
+    /// - CPU is stalled (no instruction execution)
+    /// - PPU continues running normally
+    /// - Bus is monopolized by DMA controller
+    fn tickDma(self: *EmulationState) void {
+        // Increment CPU cycle counter (time passes even though CPU is stalled)
+        self.cpu.cycle_count += 1;
+
+        // Increment DMA cycle counter
+        const cycle = self.dma.current_cycle;
+        self.dma.current_cycle += 1;
+
+        // Alignment wait cycle (if needed)
+        if (self.dma.needs_alignment and cycle == 0) {
+            // Wait one cycle for alignment
+            // This happens when DMA is triggered on an odd CPU cycle
+            return;
+        }
+
+        // Calculate effective cycle (after alignment)
+        const effective_cycle = if (self.dma.needs_alignment) cycle - 1 else cycle;
+
+        // Check if DMA is complete (512 cycles = 256 read/write pairs)
+        if (effective_cycle >= 512) {
+            self.dma.reset();
+            return;
+        }
+
+        // DMA transfer: Alternate between read and write
+        if (effective_cycle % 2 == 0) {
+            // Even cycle: Read from CPU RAM
+            const source_addr = (@as(u16, self.dma.source_page) << 8) | @as(u16, self.dma.current_offset);
+            self.dma.temp_value = self.busRead(source_addr);
+        } else {
+            // Odd cycle: Write to PPU OAM
+            // PPU OAM is 256 bytes at $2004 (auto-incremented by PPU)
+            self.ppu.oam[self.dma.current_offset] = self.dma.temp_value;
+
+            // Increment offset for next byte
+            self.dma.current_offset +%= 1;
+        }
     }
 
     /// Emulate a complete frame (convenience wrapper)
