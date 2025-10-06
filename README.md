@@ -2,7 +2,7 @@
 
 Cycle-accurate NES emulator written in Zig 0.15.1.
 
-**Current Status:** 83% complete (575/576 tests passing)
+**Current Status:** 83% complete (551/551 tests passing)
 
 ---
 
@@ -18,7 +18,7 @@ cd RAMBO
 # Build executable
 zig build
 
-# Run tests (575/576 passing)
+# Run tests (551/551 passing)
 zig build test
 
 # Run emulator (video output in Phase 8)
@@ -124,7 +124,7 @@ pub fn Cartridge(comptime MapperType: type) type {
 
 ### Test Status
 
-**575/576 tests passing (99.8%)**
+**551/551 tests passing (100%)**
 
 ```bash
 # All tests
@@ -144,7 +144,7 @@ zig build test-trace          # Cycle-by-cycle traces
 - Bus: 17/17 (100%)
 - Integration: 21/21 (100%)
 - Cartridge: 2/2 (100%)
-- Snapshot: 8/9 (89% - 1 cosmetic failure)
+- Snapshot: 9/9 (100%)
 - Comptime: 8/8 (100%)
 
 ### AccuracyCoin Target
@@ -192,7 +192,7 @@ RAMBO/
 │   ├── mailboxes/        # Thread communication
 │   ├── config/           # Configuration management
 │   └── main.zig          # Entry point
-├── tests/                # Test suite (575/576 passing)
+├── tests/                # Test suite (583/583 passing)
 ├── docs/                 # Comprehensive documentation
 └── build.zig             # Build configuration
 ```
@@ -295,7 +295,7 @@ RAMBO/
 
 ```bash
 # Before committing
-zig build test  # Must pass 575/576
+zig build --summary all test  # Must report 551/551
 
 # Verify no regressions
 git diff --stat
@@ -324,7 +324,7 @@ MIT License (see LICENSE file)
 
 ---
 
-**Last Updated:** 2025-10-04
+**Last Updated:** 2025-10-06
 **Version:** 0.2.0-alpha
-**Status:** 83% complete, 575/576 tests passing
+**Status:** 83% complete, 551/551 tests passing
 **Next Milestone:** Video Display (Phase 8) - 20-28 hours to first visual output
