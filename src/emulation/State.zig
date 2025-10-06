@@ -130,6 +130,93 @@ pub const DmaState = struct {
     }
 };
 
+/// NES Controller State
+/// Implements cycle-accurate 4021 8-bit shift register behavior
+/// Button order: A, B, Select, Start, Up, Down, Left, Right
+pub const ControllerState = struct {
+    /// Controller 1 shift register
+    /// Bits shift out LSB-first on each read
+    shift1: u8 = 0,
+
+    /// Controller 2 shift register
+    shift2: u8 = 0,
+
+    /// Strobe state (latched buttons or shifting mode)
+    /// True = reload shift registers on each read (strobe high)
+    /// False = shift out bits on each read (strobe low)
+    strobe: bool = false,
+
+    /// Button data for controller 1
+    /// Reloaded into shift1 when strobe goes high
+    buttons1: u8 = 0,
+
+    /// Button data for controller 2
+    buttons2: u8 = 0,
+
+    /// Latch controller buttons into shift registers
+    /// Called when strobe transitions high (bit 0 of $4016 write)
+    pub fn latch(self: *ControllerState) void {
+        self.shift1 = self.buttons1;
+        self.shift2 = self.buttons2;
+    }
+
+    /// Update button data from mailbox
+    /// Called each frame to sync with current input
+    pub fn updateButtons(self: *ControllerState, buttons1: u8, buttons2: u8) void {
+        self.buttons1 = buttons1;
+        self.buttons2 = buttons2;
+        // If strobe is high, immediately reload shift registers
+        if (self.strobe) {
+            self.latch();
+        }
+    }
+
+    /// Read controller 1 serial data (bit 0)
+    /// Returns next bit from shift register
+    pub fn read1(self: *ControllerState) u8 {
+        if (self.strobe) {
+            // Strobe high: continuously reload shift register
+            return self.buttons1 & 0x01;
+        } else {
+            // Strobe low: shift out bits
+            const bit = self.shift1 & 0x01;
+            self.shift1 = (self.shift1 >> 1) | 0x80; // Shift right, fill with 1
+            return bit;
+        }
+    }
+
+    /// Read controller 2 serial data (bit 0)
+    pub fn read2(self: *ControllerState) u8 {
+        if (self.strobe) {
+            return self.buttons2 & 0x01;
+        } else {
+            const bit = self.shift2 & 0x01;
+            self.shift2 = (self.shift2 >> 1) | 0x80;
+            return bit;
+        }
+    }
+
+    /// Write strobe state ($4016 write, bit 0)
+    /// Transition high→low starts shift mode
+    /// Transition low→high latches button state
+    pub fn writeStrobe(self: *ControllerState, value: u8) void {
+        const new_strobe = (value & 0x01) != 0;
+        const rising_edge = new_strobe and !self.strobe;
+
+        self.strobe = new_strobe;
+
+        // Latch on rising edge (0→1 transition)
+        if (rising_edge) {
+            self.latch();
+        }
+    }
+
+    /// Reset controller state
+    pub fn reset(self: *ControllerState) void {
+        self.* = .{};
+    }
+};
+
 /// Complete emulation state (pure data, no hidden state)
 /// This is the core of the RT emulation loop
 ///
@@ -157,6 +244,9 @@ pub const EmulationState = struct {
 
     /// DMA state machine
     dma: DmaState = .{},
+
+    /// Controller state (shift registers, strobe, buttons)
+    controller: ControllerState = .{},
 
     /// Hardware configuration (immutable during emulation)
     config: *const Config.Config,
@@ -202,6 +292,7 @@ pub const EmulationState = struct {
         self.ppu_timing = .{};
         self.bus.open_bus = 0;
         self.dma.reset();
+        self.controller.reset();
 
         const reset_vector = self.busRead16(0xFFFC);
         self.cpu.pc = reset_vector;
@@ -232,8 +323,8 @@ pub const EmulationState = struct {
             0x4000...0x4013 => self.bus.open_bus, // APU not implemented
             0x4014 => self.bus.open_bus, // OAMDMA write-only
             0x4015 => self.bus.open_bus, // APU status not implemented
-            0x4016 => self.bus.open_bus, // Controller 1 not implemented
-            0x4017 => self.bus.open_bus, // Controller 2 not implemented
+            0x4016 => self.controller.read1() | (self.bus.open_bus & 0xE0), // Controller 1 + open bus bits 5-7
+            0x4017 => self.controller.read2() | (self.bus.open_bus & 0xE0), // Controller 2 + open bus bits 5-7
 
             // Cartridge space ($4020-$FFFF)
             0x4020...0xFFFF => blk: {
@@ -295,7 +386,10 @@ pub const EmulationState = struct {
                 self.dma.trigger(value, on_odd_cycle);
             },
             0x4015 => {}, // APU control not implemented
-            0x4016 => {}, // Controller 1 strobe not implemented
+            0x4016 => {
+                // Controller strobe (bit 0 controls latch/shift mode)
+                self.controller.writeStrobe(value);
+            },
             0x4017 => {}, // APU frame counter not implemented
 
             // Cartridge space ($4020-$FFFF)

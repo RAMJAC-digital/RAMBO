@@ -9,6 +9,7 @@ const std = @import("std");
 const WaylandEventMailbox = @import("WaylandEventMailbox.zig").WaylandEventMailbox;
 const FrameMailbox = @import("FrameMailbox.zig").FrameMailbox;
 const ConfigMailbox = @import("ConfigMailbox.zig").ConfigMailbox;
+const ControllerInputMailbox = @import("ControllerInputMailbox.zig").ControllerInputMailbox;
 
 /// Container for all application mailboxes
 /// Uses by-value ownership to prevent memory leaks
@@ -23,17 +24,22 @@ pub const Mailboxes = struct {
     /// Configuration updates (Main thread → Emulation thread)
     config: ConfigMailbox,
 
+    /// Controller input (Input thread → Emulation thread)
+    controller: ControllerInputMailbox,
+
     /// Initialize all mailboxes
     pub fn init(allocator: std.mem.Allocator) !Mailboxes {
         return Mailboxes{
             .wayland = try WaylandEventMailbox.init(allocator),
             .frame = try FrameMailbox.init(allocator),
             .config = ConfigMailbox.init(allocator),
+            .controller = ControllerInputMailbox.init(allocator),
         };
     }
 
     /// Cleanup all mailboxes
     pub fn deinit(self: *Mailboxes) void {
+        self.controller.deinit();
         self.config.deinit();
         self.frame.deinit();
         self.wayland.deinit();
@@ -56,4 +62,5 @@ test "mailboxes by-value memory safety" {
     _ = &mailboxes.wayland;
     _ = &mailboxes.frame;
     _ = &mailboxes.config;
+    _ = &mailboxes.controller;
 }

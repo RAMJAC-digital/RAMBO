@@ -3,14 +3,15 @@
 
 _Historical snapshot: Document created 2025-10-05, updated 2025-10-06 for Phase 0 and Architecture Refresh completion._
 
-_Update 2025-10-06 (Latest):_ Phase 1 (P1) Accuracy Fixes complete! Current suite: **551/551** tests passing (100%).
-**Overall Status:** 🟢 **P0 + ARCHITECTURE REFRESH + P1 ACCURACY FIXES COMPLETE** ✅
-**Focus:** P1 Complete (Unstable Opcodes + OAM DMA) - Phase 8 Video Display Next
+_Update 2025-10-06 (Latest):_ Phase 1 (P1) + Controller I/O complete! Current suite: **571/571** tests passing (100%).
+**Overall Status:** 🟢 **P0 + ARCHITECTURE REFRESH + P1 + CONTROLLER I/O COMPLETE** ✅
+**Focus:** Controller I/O Complete ($4016/$4017) - Phase 8 Video Display Next
 
 ## Executive Summary
 
 **P0 Progress:** ✅ **4/4 tasks COMPLETE** (2025-10-06)
 **P1 Progress:** ✅ **2/3 tasks COMPLETE** (2025-10-06) - Tasks 1.1 & 1.2 complete, 1.3 deferred
+**Controller I/O:** ✅ **COMPLETE** (2025-10-06) - $4016/$4017 registers, shift register logic, 14 integration tests
 
 Phase 0 achieved 100% CPU implementation with cycle-accurate timing:
 1. ✅ `SBC` instruction bug fixed
@@ -23,7 +24,7 @@ Phase 0 achieved 100% CPU implementation with cycle-accurate timing:
 - All tests migrated to Harness API
 - Legacy API usage eliminated
 
-**Test Status (2025-10-06):** 551/551 passing (100%).
+**Test Status (2025-10-06):** 571/571 passing (100%) - Added 20 tests (6 mailbox + 14 controller).
 
 **Achievement:** 🎉 **100% CPU implementation (256/256 opcodes)** - All 6502 instructions implemented with cycle-accurate timing!
 
@@ -155,7 +156,36 @@ Completed migration of PPU timing fields (`scanline`, `dot`, `frame`) from `PpuS
 -   **Action:** Change the `ppu: anytype` parameter in the bus logic functions to a concrete `*PpuState` pointer.
 -   **Rationale:** Improves type safety and IDE support with no downside.
 
---- 
+---
+
+## Controller I/O Implementation
+
+### Hardware-Accurate NES Controller Support ($4016/$4017)
+
+-   **Status:** ✅ **COMPLETE** (2025-10-06)
+-   **Implementation:**
+    -   `src/mailboxes/ControllerInputMailbox.zig` - Atomic button state mailbox (thread-safe)
+    -   `src/emulation/State.zig` (lines 133-218) - ControllerState with 4021 shift register logic
+    -   $4016 read: Controller 1 serial data (bit 0) + open bus (bits 5-7)
+    -   $4016 write: Strobe control (bit 0 only, rising edge latch)
+    -   $4017 read: Controller 2 serial data (bit 0) + open bus (bits 5-7)
+-   **Tests:** `tests/integration/controller_test.zig` - 14 comprehensive tests (ALL PASSING)
+-   **Features:**
+    -   Hardware-accurate 4021 8-bit shift register behavior
+    -   NES-specific clocking (strobe high prevents shifting, strobe low shifts)
+    -   Button order: A, B, Select, Start, Up, Down, Left, Right
+    -   Reads >8 return 1 (shift register fills with 1s)
+    -   Open bus bits 5-7 preserved
+    -   Independent dual controller support
+-   **Result:** Controller I/O fully functional, ready for AccuracyCoin controller tests
+-   **Rationale:** Required for playable games - final missing I/O component
+
+**Architecture Decision:**
+- **Chose:** ControllerState embedded in EmulationState (like DmaState), input via ControllerInputMailbox
+- **Rationale:** Follows established patterns, RT-safe, deterministic, zero heap allocations
+- **Benefit:** Pure functional state machine, mailbox decouples input thread from emulation thread
+
+---
 
 ## P2: General Refactoring & Best Practices
 

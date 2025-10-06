@@ -14,13 +14,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **PPU Background:** 100% complete (registers, VRAM, rendering pipeline) ✅
 - **PPU Sprites:** 100% complete (73/73 tests passing) ✅
 - **Debugger:** 100% complete with callback system (62/62 tests) ✅
-- **Bus:** 85% complete (missing controller I/O) 🟡
+- **Controller I/O:** 100% complete ($4016/$4017, 14 tests passing) ✅
+- **Bus:** 100% complete (all I/O registers implemented) ✅
 - **Cartridge:** Mapper 0 (NROM) complete ✅
-- **Tests:** 551/551 passing (100%)
+- **Tests:** 571/571 passing (100%)
 
-**Current Phase:** Phase 1 (P1) - ✅ COMPLETE (unstable opcodes, DMA)
+**Current Phase:** Controller I/O - ✅ COMPLETE ($4016/$4017 registers)
 **Next Phase:** Phase 8 - Video Subsystem (Wayland + Vulkan backend)
-**Critical Path:** P1 Accuracy → Video Display → Controller I/O → Playable Games
+**Critical Path:** ✅ P1 Accuracy → ✅ Controller I/O → Video Display → Playable Games
 
 **Key Requirement:** Hardware-accurate 6502 emulation with cycle-level precision for AccuracyCoin compatibility.
 
@@ -35,7 +36,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 zig build
 
 # Run all tests (unit + integration)
-zig build --summary all test      # 551/551 tests passing
+zig build --summary all test      # 571/571 tests passing
 
 # Run specific test categories
 zig build test-unit               # Unit tests only (fast)
@@ -43,20 +44,22 @@ zig build test-integration        # Integration tests (CPU instructions, PPU, et
 zig build test-trace              # Cycle-by-cycle execution traces
 zig build test-rmw-debug          # RMW instruction debugging
 
-# Run executable (not playable yet - needs video, controller)
+# Run executable (not playable yet - needs video display)
 zig build run
 ```
 
 ### Test Status by Category
 
-- **Total:** 551 / 551 tests passing (100%)
+- **Total:** 571 / 571 tests passing (100%)
 - **CPU suites:** 105 unit + integration tests covering all 256 opcodes and microstep timing
 - **PPU suites:** 79 tests (background rendering, sprite evaluation, rendering, and edge cases)
 - **Debugger:** 62 tests validating breakpoints, watchpoints, and callback wiring
+- **Controller:** 14 tests (strobe protocol, shift register, button sequence, open bus)
+- **Mailboxes:** 6 tests (ControllerInputMailbox, thread-safety, atomic updates)
 - **Bus & Memory:** 17 tests (open bus, mirroring, mapper routing)
 - **Cartridge:** 2 NROM loader/validation tests
 - **Snapshot:** 9 tests (metadata, serialization, checksum, load/save)
-- **Integration:** 21 multi-component scenarios (CPU⇆PPU, AccuracyCoin traces)
+- **Integration:** 21 multi-component scenarios (CPU⇆PPU, AccuracyCoin traces, OAM DMA)
 - **Comptime:** 8 compile-time validation suites for mappers and opcode tables
 
 ---
@@ -215,7 +218,6 @@ src/cpu/
 - ✅ Horizontal/vertical mirroring
 
 **Missing Features (Future):**
-- ⬜ OAM DMA ($4014) - deferred to later phase
 - ⬜ Emphasis bits - minor feature
 
 **Tests:** 79/79 passing (100% - 6 background + 73 sprite)
@@ -234,16 +236,16 @@ src/ppu/
 
 ### Bus (`src/bus/`)
 
-**Status:** ✅ 85% Complete - Missing Controller I/O
+**Status:** ✅ 100% Complete - All I/O Registers Implemented
 
 **Features:**
 - ✅ RAM mirroring (2KB → $0000-$1FFF)
 - ✅ Open bus tracking with decay timer
 - ✅ ROM write protection
 - ✅ PPU register routing ($2000-$2007)
+- ✅ Controller I/O routing ($4016/$4017)
 - ✅ Cartridge integration ($4020-$FFFF)
 - ✅ Special methods: `read16()`, `read16Bug()` (JMP indirect page wrap bug)
-- ❌ Controller I/O ($4016/$4017) - Phase 9
 
 **Tests:** 17/17 passing (100%)
 
@@ -253,6 +255,39 @@ src/bus/
 ├── Bus.zig           # Module re-exports
 ├── State.zig         # BusState - RAM, open bus, non-owning component pointers
 └── Logic.zig         # Pure functions for bus operations
+```
+
+---
+
+### Controller I/O (`src/emulation/State.zig` + `src/mailboxes/`)
+
+**Status:** ✅ 100% Complete - Hardware-Accurate NES Controller Implementation
+
+**Implementation:**
+- Cycle-accurate 4021 8-bit shift register emulation
+- NES-specific clocking behavior (strobe high prevents shifting)
+- Button order: A, B, Select, Start, Up, Down, Left, Right
+- Shift register fills with 1s after 8 reads (hardware behavior)
+- Open bus bits 5-7 preserved on reads
+- Independent dual controller support
+
+**Registers:**
+- `$4016` read: Controller 1 serial data (bit 0) + open bus (bits 5-7)
+- `$4016` write: Strobe control (bit 0 only, rising edge latches button state)
+- `$4017` read: Controller 2 serial data (bit 0) + open bus (bits 5-7)
+
+**Architecture:**
+- `ControllerState` embedded in `EmulationState` (follows `DmaState` pattern)
+- `ControllerInputMailbox` for thread-safe button state updates
+- Pure functional methods: `latch()`, `read1()`, `read2()`, `writeStrobe()`
+
+**Tests:** 20/20 passing (100% - 6 mailbox + 14 integration)
+
+**Files:**
+```
+src/emulation/State.zig           # ControllerState (lines 133-218)
+src/mailboxes/ControllerInputMailbox.zig  # Atomic button state mailbox
+tests/integration/controller_test.zig     # 14 comprehensive tests
 ```
 
 ---
@@ -571,8 +606,10 @@ git commit -m "feat(video): Implement Wayland window management"
 tests/
 ├── bus/                         # Bus-specific tests (17 tests)
 │   └── bus_test.zig                   # RAM mirroring, routing, open bus
-├── integration/                 # Cross-component tests (21 tests)
-│   └── cpu_ppu_integration_test.zig   # CPU-PPU coordination
+├── integration/                 # Cross-component tests (35 tests)
+│   ├── cpu_ppu_integration_test.zig   # CPU-PPU coordination
+│   ├── oam_dma_test.zig               # OAM DMA (14 tests)
+│   └── controller_test.zig            # Controller I/O (14 tests)
 ├── cpu/                         # CPU tests (105 tests)
 │   ├── instructions_test.zig          # Instruction execution
 │   ├── unofficial_opcodes_test.zig    # Unofficial opcodes
@@ -595,7 +632,7 @@ tests/
 ### Running Tests
 
 ```bash
-# All tests (551/551 passing)
+# All tests (571/571 passing)
 zig build test
 
 # Specific categories
@@ -639,7 +676,7 @@ zig test tests/ppu/sprite_evaluation_test.zig --dep RAMBO -Mroot=src/root.zig
 
 ## Critical Path to Playability
 
-**Current Progress: 83% Architecture Complete**
+**Current Progress: 87.5% Architecture Complete**
 
 1. ✅ **CPU Emulation** (100%) - Production ready
 2. ✅ **Architecture Refactoring** (100%) - State/Logic, comptime generics
@@ -647,10 +684,10 @@ zig test tests/ppu/sprite_evaluation_test.zig --dep RAMBO -Mroot=src/root.zig
 4. ✅ **PPU Sprites** (100%) - Evaluation, fetching, rendering pipeline ✨ COMPLETE
 5. ✅ **Debugger** (100%) - Full debugging system
 6. ✅ **Thread Architecture** (100%) - Mailbox pattern, timer-driven emulation
-7. 🟡 **Video Display** (0%) - Wayland + Vulkan backend (scaffolding ready)
-8. ⬜ **Controller I/O** (0%) - $4016/$4017 registers
+7. ✅ **Controller I/O** (100%) - $4016/$4017 registers, 4021 shift register ✨ COMPLETE
+8. 🟡 **Video Display** (0%) - Wayland + Vulkan backend (scaffolding ready)
 
-**Estimated Time to Playable:** 23-34 hours (3-5 days)**
+**Estimated Time to Playable:** 20-28 hours (2.5-3.5 days)**
 
 ---
 
@@ -677,8 +714,9 @@ zig test tests/ppu/sprite_evaluation_test.zig --dep RAMBO -Mroot=src/root.zig
 
 4. **Phase 8.3: Integration (4-6 hours)**
    - Connect PPU rendering to FrameMailbox
+   - Connect ControllerInputMailbox to keyboard input
    - Integrate video thread with main loop
-   - Test with AccuracyCoin.nes graphics (background + sprites)
+   - Test with AccuracyCoin.nes graphics (background + sprites + controller)
 
 5. **Phase 8.4: Polish (2-4 hours)**
    - Add FPS counter
