@@ -129,6 +129,11 @@ Completed migration of PPU timing fields (`scanline`, `dot`, `frame`) from `PpuS
 -   **Result:** All 20 unofficial opcodes migrated to comptime variant system with zero runtime overhead
 -   **Rationale:** Essential for 100% AccuracyCoin test suite compliance - ACHIEVED
 
+**Architecture Decision:**
+- **Chose:** Comptime type factory (`variants.Cpu(config)`) over runtime config pointer
+- **Rationale:** Zero runtime overhead, no ABI changes to CpuCoreState, better type safety, idiomatic Zig
+- **Benefit:** CPU variant selection at compile time, all magic values are comptime constants
+
 ### 1.2. Implement Cycle-Accurate PPU/CPU DMA
 
 -   **Status:** ✅ **COMPLETE** (2025-10-06)
@@ -137,6 +142,11 @@ Completed migration of PPU timing fields (`scanline`, `dot`, `frame`) from `PpuS
 -   **Timing:** Hardware-accurate 513 CPU cycles (even start) or 514 cycles (odd start)
 -   **Result:** OAM DMA transfer with CPU stall, PPU continues during transfer - VERIFIED
 -   **Rationale:** Critical for correct sprite rendering in most games - IMPLEMENTED
+
+**Architecture Decision:**
+- **Chose:** DMA state lives in `EmulationState`, not `BusState`
+- **Rationale:** Cross-component coordination (CPU stall, Bus read, PPU write), timing accuracy, component isolation
+- **Benefit:** Single tick() function orchestrates DMA vs CPU execution, CPU/Bus/PPU remain pure (no DMA-specific logic)
 
 ### 1.3. Replace `anytype` in Bus Logic
 

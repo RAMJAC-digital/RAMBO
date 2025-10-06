@@ -2,7 +2,18 @@
 
 _Last updated: 2025-10-06 — Test suite: **551/551** passing — P1 Accuracy Fixes COMPLETE ✅_
 
-Welcome! This directory hosts the technical documentation for the RAMBO NES emulator. Use this page as the entry point for architecture notes, API references, testing plans, and historical archives.
+---
+
+## Documentation Hierarchy
+
+**🎯 Primary Reference:** [`CLAUDE.md`](../CLAUDE.md) is the **single source of truth** for:
+- Test counts and detailed breakdown (lines 50-60)
+- Component status and completion (lines 155-313)
+- Architecture patterns and design (lines 64-152)
+- Current development phase and roadmap (lines 405-471)
+- Next actions and priorities (lines 657-692)
+
+**This file (docs/README.md) provides navigation only.** For canonical project information, always refer to CLAUDE.md.
 
 ---
 
@@ -13,24 +24,21 @@ Welcome! This directory hosts the technical documentation for the RAMBO NES emul
 | Getting Started | Build, test, and contributor onboarding | [`README.md`](../README.md), [`AGENTS.md`](../AGENTS.md) |
 | Architecture | Deep dives into core subsystems | [`architecture/`](architecture/) — sprites, threading model, video plan |
 | API Guides | Public-facing modules | [`api-reference/debugger-api.md`](api-reference/debugger-api.md), [`api-reference/snapshot-api.md`](api-reference/snapshot-api.md) |
-| Implementation Status | Current progress and roadmap | [`implementation/STATUS.md`](implementation/STATUS.md), [`DEVELOPMENT-ROADMAP.md`](DEVELOPMENT-ROADMAP.md) |
+| Implementation Status | Task tracking and completion | [`code-review/STATUS.md`](code-review/STATUS.md), [`implementation/completed/`](implementation/completed/) |
 | Testing | AccuracyCoin requirements and strategy | [`testing/accuracycoin-cpu-requirements.md`](testing/accuracycoin-cpu-requirements.md) |
-| Code Review Findings | Current status and P1 planning | [`code-review/STATUS.md`](code-review/STATUS.md), [`code-review/PLAN-P1-ACCURACY-FIXES.md`](code-review/PLAN-P1-ACCURACY-FIXES.md) |
+| Archived Planning | Historical roadmaps and plans | [`archive/phases/roadmaps/`](archive/phases/roadmaps/), [`archive/p1/planning/`](archive/p1/planning/) |
 | Historical Archive | P0 sessions, archived reviews | [`archive/sessions/p0/`](archive/sessions/p0/), [`archive/p0/`](archive/p0/), [`archive/code-review-2025-10-04/`](archive/code-review-2025-10-04/) |
 
 ---
 
-## Component Snapshot (Active Documents)
+## Component Summary
 
-| Component | Location | Tests | Notes |
-|-----------|----------|-------|-------|
-| CPU (6502) | `src/cpu/` + [`code-review/archive/2025-10-05/02-cpu.md`](code-review/archive/2025-10-05/02-cpu.md) | 105/105 | ✅ P0 Complete - Cycle-accurate, all 256 opcodes |
-| PPU (2C02) | `src/ppu/` + [`architecture/ppu-sprites.md`](architecture/ppu-sprites.md) | 79/79 | Background + sprite pipelines validated |
-| Bus & Memory | `src/bus/` + [`code-review/archive/2025-10-05/04-memory-and-bus.md`](code-review/archive/2025-10-05/04-memory-and-bus.md) | 17/17 | Controller I/O pending (Phase 9) |
-| Snapshot System | `src/snapshot/` + [`api-reference/snapshot-api.md`](api-reference/snapshot-api.md) | 9/9 | Metadata sizing now measured at runtime |
-| Debugger | `src/debugger/` + [`api-reference/debugger-api.md`](api-reference/debugger-api.md) | 62/62 | Breakpoints, watchpoints, virtual console |
-| Thread Architecture | `src/mailboxes/`, [`architecture/threading.md`](architecture/threading.md) | N/A | Two-thread mailbox design; third thread reserved for video |
-| Video Plan | `architecture/video-system.md` | N/A | Wayland + Vulkan roadmap for Phase 8 |
+**For detailed test breakdown and component status, see [CLAUDE.md](../CLAUDE.md) lines 50-313.**
+
+Quick links to component documentation:
+- **Architecture:** [`architecture/ppu-sprites.md`](architecture/ppu-sprites.md), [`architecture/threading.md`](architecture/threading.md), [`architecture/video-system.md`](architecture/video-system.md)
+- **API Guides:** [`api-reference/debugger-api.md`](api-reference/debugger-api.md), [`api-reference/snapshot-api.md`](api-reference/snapshot-api.md)
+- **Code Reviews:** [`code-review/CPU.md`](code-review/CPU.md), [`code-review/PPU.md`](code-review/PPU.md), [`code-review/TESTING.md`](code-review/TESTING.md)
 
 ---
 

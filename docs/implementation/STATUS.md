@@ -1,48 +1,42 @@
-# RAMBO NES Emulator - Implementation Status
+# Implementation Status - Quick Reference
 
 **Last Updated:** 2025-10-06
-**Version:** 0.2.0-alpha
-**Target:** Cycle-accurate NES emulation passing AccuracyCoin test suite
 **Tests:** 551/551 passing (100%)
+**Current Phase:** Phase 8 (Video Display) - Next
 
-## Project Overview
+---
 
-RAMBO is a hardware-accurate NES emulator written in Zig. The project follows a **hybrid architecture**, combining a synchronous, single-threaded emulation core (CPU, PPU, Bus) with an asynchronous I/O layer for video, input, and file handling. This design ensures cycle-accuracy while maintaining a responsive user experience.
+## 📋 Primary Reference
 
-The project has completed major architectural refactoring and the full PPU rendering pipeline (background and sprites). The next focus is on implementing the video subsystem to display the rendered frames.
+**For complete project status, component details, and roadmap:**
+➡️ **See [CLAUDE.md](../../CLAUDE.md)** (single source of truth)
 
-## Current Component Status
+---
 
-- ✅ **CPU:** 100% complete (105/105 tests). All 256 opcodes implemented and tested.
-- ✅ **PPU:** 100% complete (79/79 tests). Background and sprite rendering pipelines fully implemented and tested.
-- ✅ **Bus & Memory:** 85% complete (17/17 tests). Core functionality robust and tested. Controller I/O ($4016/$4017) pending.
-- ✅ **Thread Architecture:** 100% complete. Mailbox pattern with timer-driven emulation (62.97 FPS measured).
-- ✅ **Debugger & Snapshots:** Production-ready (62/62 debugger tests, 9/9 snapshot tests).
-- ✅ **Testing:** 583 total tests (all passing). Test infrastructure covers all major components.
+## ✅ Quick Status
 
-## Development Plan
+- **P0 (CPU):** ✅ COMPLETE - All 256 opcodes, cycle-accurate
+- **P1 (Accuracy):** ✅ COMPLETE - Unstable opcodes + OAM DMA
+- **Phase 8 (Video):** 🟡 NEXT - Wayland + Vulkan (20-28 hours)
+- **Phase 9 (Input):** ⬜ PLANNED - Controller I/O (3-4 hours)
 
-The authoritative development plan is now maintained in:
+---
 
-**[DEVELOPMENT-ROADMAP.md](../DEVELOPMENT-ROADMAP.md)** (see also [`DOCUMENTATION-STATUS-2025-10-06.md`](../DOCUMENTATION-STATUS-2025-10-06.md) for the latest audit log)
-
-This roadmap outlines the critical path to a playable emulator and long-term vision.
-
-### Next Immediate Priorities:
-
-1.  **Video Subsystem:** Implement the video backend to display the PPU's output on screen.
-2.  **Controller I/O:** Implement controller registers to allow user input.
-3.  **Mappers:** Implement additional mappers (MMC1, MMC3) to expand game compatibility.
-
-## Build Commands
+## 🏗️ Build Commands
 
 ```bash
-# Build executable
+# Build and test
 zig build
+zig build test  # 551/551 passing
 
-# Run all tests (unit + integration)
-zig build test
-
-# Run executable
+# Run emulator
 zig build run -- <path/to/rom.nes>
 ```
+
+---
+
+## 📂 Completion Documentation
+
+Detailed completion docs for finished phases:
+- **P1 Tasks 1.1 & 1.2:** [P1-TASKS-1.1-1.2-COMPLETION-2025-10-06.md](completed/P1-TASKS-1.1-1.2-COMPLETION-2025-10-06.md)
+- **P0 Timing Fix:** [../archive/p0/P0-TIMING-FIX-COMPLETION-2025-10-06.md](../archive/p0/P0-TIMING-FIX-COMPLETION-2025-10-06.md)
