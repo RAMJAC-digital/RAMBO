@@ -1036,19 +1036,19 @@ pub const HardwareConfig = struct {
     console: ConsoleVariant = .nes_ntsc_frontloader,
 
     /// CPU configuration
-    cpu: CpuConfig = .{},
+    cpu: CpuModel = .{},
 
     /// PPU configuration
-    ppu: PpuConfig = .{},
+    ppu: PpuModel = .{},
 
     /// APU configuration
     apu: ApuConfig = .{},
 
     /// CIC configuration
-    cic: CicConfig = .{},
+    cic: CicModel = .{},
 
     /// Controller configuration
-    controllers: ControllerConfig = .{},
+    controllers: ControllerModel = .{},
 
     /// Timing configuration (derived from variants)
     timing: TimingConfig,
@@ -1084,7 +1084,7 @@ pub const HardwareConfig = struct {
     }
 };
 
-pub const CpuConfig = struct {
+pub const CpuModel = struct {
     variant: CpuVariant = .rp2a03g,
     region: VideoRegion = .ntsc,
 
@@ -1107,7 +1107,7 @@ pub const SHABehavior = enum {
     rp2a03h,          // RP2A03H behavior
 };
 
-pub const CicConfig = struct {
+pub const CicModel = struct {
     variant: CicVariant = .cic_nes_3193,
     enabled: bool = true,
     emulation: CicEmulation = .state_machine,
@@ -1126,7 +1126,7 @@ pub const CicEmulation = enum {
     disabled,       // No CIC chip
 };
 
-pub const ControllerConfig = struct {
+pub const ControllerModel = struct {
     type: ControllerType = .nes,
 };
 

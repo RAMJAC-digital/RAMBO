@@ -36,14 +36,14 @@ pub const UnstableOpcodeConfig = struct {
     lxa_magic: u8 = 0xEE,
 };
 
-pub const CpuConfig = struct {
+pub const CpuModel = struct {
     variant: CpuVariant = .rp2a03g,
     unstable_opcodes: UnstableOpcodeConfig = .{},
 };
 ```
 
 **Implementation Recommendation:**
-- Thread config through instruction functions: `pub fn xaa(state: *CpuState, bus: *BusState, config: *const CpuConfig) bool`
+- Thread config through instruction functions: `pub fn xaa(state: *CpuState, bus: *BusState, config: *const CpuModel) bool`
 - Update 7 unstable opcode implementations
 - Modify dispatch table to include config parameter
 - Estimated time: 6-8 hours

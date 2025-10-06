@@ -1,5 +1,7 @@
 # Session: 2025-10-02 - Initial Project Setup
 
+_Historical snapshot: Metrics and status values reflect the project state on 2025-10-02._
+
 **Date:** 2025-10-02
 **Duration:** ~1 hour
 **Focus:** Project infrastructure setup, dependency management, directory structure

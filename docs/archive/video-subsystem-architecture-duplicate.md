@@ -253,13 +253,13 @@ pub const VideoSubsystem = struct {
 
     /// Configuration (immutable during operation)
     config: *const Config.VideoConfig,
-    ppu_config: *const Config.PpuConfig,
+    ppu_config: *const Config.PpuModel,
 
     pub fn init(
         allocator: std.mem.Allocator,
         loop: *xev.Loop,
         config: *const Config.VideoConfig,
-        ppu_config: *const Config.PpuConfig,
+        ppu_config: *const Config.PpuModel,
     ) !VideoSubsystem {
         var self: VideoSubsystem = undefined;
         self.allocator = allocator;
@@ -536,7 +536,7 @@ pub const VsyncTimer = struct {
     last_frame_time: i128,
     frame_count: u64,
 
-    pub fn init(loop: *xev.Loop, ppu_config: *const Config.PpuConfig) !VsyncTimer {
+    pub fn init(loop: *xev.Loop, ppu_config: *const Config.PpuModel) !VsyncTimer {
         const frame_duration_us = ppu_config.frameDurationUs();
 
         return .{

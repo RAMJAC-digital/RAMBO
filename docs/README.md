@@ -1,211 +1,78 @@
-# RAMBO Documentation
+# RAMBO Documentation Hub
 
-Cycle-accurate NES emulator written in Zig 0.15.1.
+_Last updated: 2025-10-06 — Test suite: **551/551** passing — P1 Accuracy Fixes COMPLETE ✅_
 
-## Quick Links
-
-### Getting Started
-- [Build & Run Instructions](../README.md) (see root README)
-- [Architecture Overview](ARCHITECTURE.md) *(coming soon)*
-- [Development Roadmap](DEVELOPMENT-ROADMAP.md) *(coming soon)*
-
-### Architecture Documentation
-- **Core Components:**
-  - CPU (6502) - Complete *(docs in code-review/02-cpu.md)*
-  - PPU (2C02) - Complete *(docs in code-review/03-ppu.md)*
-  - Bus & Memory - Complete *(docs in code-review/04-memory-and-bus.md)*
-  - Cartridge System - Mapper 0 complete *(docs in code-review/)*
-
-- **Advanced Topics:**
-  - [Sprite Rendering](architecture/ppu-sprites.md) - Complete specification
-  - [Thread Architecture](architecture/threading.md) *(coming soon)*
-  - [Video System Plan](architecture/video-system.md) *(coming soon)*
-  - [Hybrid State/Logic Pattern](implementation/design-decisions/final-hybrid-architecture.md)
-  - [Comptime Generics](code-review/PHASE-3-COMPTIME-GENERICS-PLAN.md)
-
-### API Reference
-- [Debugger API](api-reference/debugger-api.md) - Complete debugging system
-- [Snapshot API](api-reference/snapshot-api.md) - State save/restore
-
-### Development
-- **Current Status:** [Implementation Status](implementation/STATUS.md)
-- **Code Reviews:** [Review Findings](code-review/README.md)
-- **Testing:** [Test Strategy](05-testing/)
-- **Session Notes:** [Implementation Sessions](implementation/sessions/)
-- **Design Decisions:** [Architecture Decisions](implementation/design-decisions/)
-
-### Archive
-- **Historical Documents:** [Archived Documentation](archive/) - Superseded plans and completed phases
+Welcome! This directory hosts the technical documentation for the RAMBO NES emulator. Use this page as the entry point for architecture notes, API references, testing plans, and historical archives.
 
 ---
 
-## Current Status
+## Quick Navigation
 
-**Last Updated:** 2025-10-04
-**Version:** 0.2.0-alpha
-
-### Component Status
-
-| Component | Status | Tests | Notes |
-|-----------|--------|-------|-------|
-| CPU (6502) | ✅ 100% | 105/105 | All 256 opcodes implemented |
-| PPU Background | ✅ 100% | 6/6 | Full tile rendering pipeline |
-| PPU Sprites | ✅ 100% | 73/73 | Evaluation, fetching, rendering complete |
-| Debugger | ✅ 100% | 62/62 | Breakpoints, watchpoints, callbacks |
-| Bus & Memory | ✅ 85% | 17/17 | Missing controller I/O ($4016/$4017) |
-| Cartridge | ✅ Mapper 0 | 2/2 | NROM complete, ~5% game coverage |
-| Thread Architecture | ✅ 100% | N/A | Mailbox pattern, timer-driven |
-| Snapshot System | ✅ 99% | 8/9 | 1 cosmetic metadata test |
-| Video Display | ⬜ 0% | N/A | Wayland+Vulkan planned |
-| Controller I/O | ⬜ 0% | N/A | Phase 9 |
-| APU (Audio) | ⬜ 0% | N/A | Future |
-
-**Overall: 575/576 tests passing (99.8%)**
-
-### Architecture Highlights
-
-- **State/Logic Separation:** All components use hybrid pattern for modularity and RT-safety
-- **Comptime Generics:** Zero-cost polymorphism via duck typing (no VTables)
-- **Thread Architecture:** 2-thread mailbox pattern with libxev event loops
-- **Mailbox Communication:**
-  - FrameMailbox: Double-buffered (480 KB total)
-  - ConfigMailbox: Single-value atomic updates
-  - WaylandEventMailbox: Double-buffered event queue (awaiting Phase 8)
-
-### Performance Metrics
-
-- **Emulation Speed:** 62.97 FPS average (target: 60.10 NTSC)
-- **Frame Timing:** 16ms intervals (libxev timer-driven)
-- **Accuracy:** Cycle-accurate 6502, PPU rendering
-- **Memory Usage:** ~500 KB frame buffers, minimal heap allocations
+| Topic | Purpose | Key Files |
+|-------|---------|-----------|
+| Getting Started | Build, test, and contributor onboarding | [`README.md`](../README.md), [`AGENTS.md`](../AGENTS.md) |
+| Architecture | Deep dives into core subsystems | [`architecture/`](architecture/) — sprites, threading model, video plan |
+| API Guides | Public-facing modules | [`api-reference/debugger-api.md`](api-reference/debugger-api.md), [`api-reference/snapshot-api.md`](api-reference/snapshot-api.md) |
+| Implementation Status | Current progress and roadmap | [`implementation/STATUS.md`](implementation/STATUS.md), [`DEVELOPMENT-ROADMAP.md`](DEVELOPMENT-ROADMAP.md) |
+| Testing | AccuracyCoin requirements and strategy | [`testing/accuracycoin-cpu-requirements.md`](testing/accuracycoin-cpu-requirements.md) |
+| Code Review Findings | Current status and P1 planning | [`code-review/STATUS.md`](code-review/STATUS.md), [`code-review/PLAN-P1-ACCURACY-FIXES.md`](code-review/PLAN-P1-ACCURACY-FIXES.md) |
+| Historical Archive | P0 sessions, archived reviews | [`archive/sessions/p0/`](archive/sessions/p0/), [`archive/p0/`](archive/p0/), [`archive/code-review-2025-10-04/`](archive/code-review-2025-10-04/) |
 
 ---
 
-## Critical Path to Playability
+## Component Snapshot (Active Documents)
 
-**Current Progress: 83% Complete**
-
-1. ✅ **CPU Emulation** - Production ready (256/256 opcodes)
-2. ✅ **Architecture Refactoring** - State/Logic pattern, comptime generics
-3. ✅ **PPU Background** - Tile fetching and rendering
-4. ✅ **PPU Sprites** - Evaluation, fetching, rendering
-5. ✅ **Debugger** - Full debugging system
-6. ✅ **Thread Architecture** - Mailbox pattern complete
-7. 🟡 **Video Display (Next)** - Wayland + Vulkan backend (20-30 hours)
-8. ⬜ **Controller I/O** - $4016/$4017 registers (3-4 hours)
-
-**Estimated Time to Playable:** 23-34 hours (3-5 days)
+| Component | Location | Tests | Notes |
+|-----------|----------|-------|-------|
+| CPU (6502) | `src/cpu/` + [`code-review/archive/2025-10-05/02-cpu.md`](code-review/archive/2025-10-05/02-cpu.md) | 105/105 | ✅ P0 Complete - Cycle-accurate, all 256 opcodes |
+| PPU (2C02) | `src/ppu/` + [`architecture/ppu-sprites.md`](architecture/ppu-sprites.md) | 79/79 | Background + sprite pipelines validated |
+| Bus & Memory | `src/bus/` + [`code-review/archive/2025-10-05/04-memory-and-bus.md`](code-review/archive/2025-10-05/04-memory-and-bus.md) | 17/17 | Controller I/O pending (Phase 9) |
+| Snapshot System | `src/snapshot/` + [`api-reference/snapshot-api.md`](api-reference/snapshot-api.md) | 9/9 | Metadata sizing now measured at runtime |
+| Debugger | `src/debugger/` + [`api-reference/debugger-api.md`](api-reference/debugger-api.md) | 62/62 | Breakpoints, watchpoints, virtual console |
+| Thread Architecture | `src/mailboxes/`, [`architecture/threading.md`](architecture/threading.md) | N/A | Two-thread mailbox design; third thread reserved for video |
+| Video Plan | `architecture/video-system.md` | N/A | Wayland + Vulkan roadmap for Phase 8 |
 
 ---
 
-## Quick Start
+## How to Use This Directory
 
-### Running Tests
-
-```bash
-# All tests (575/576 passing)
-zig build test
-
-# Specific categories
-zig build test-unit               # Fast unit tests
-zig build test-integration        # Integration tests
-zig build test-trace              # Cycle-by-cycle traces
-```
-
-### Running Emulator
-
-```bash
-# Demo (no video output yet)
-zig build run
-
-# Outputs FPS statistics and emulation metrics
-# Phase 1: Thread Architecture Demo
-```
-
-### Test Breakdown
-
-- **CPU Tests:** 105 (instructions, unofficial opcodes, RMW)
-- **PPU Tests:** 79 (6 background/CHR + 73 sprite)
-- **Debugger Tests:** 62 (breakpoints, watchpoints, callbacks)
-- **Bus Tests:** 17 (RAM mirroring, PPU routing, open bus)
-- **Cartridge Tests:** 2 (ROM loading and validation)
-- **Snapshot Tests:** 9 (8 passing, 1 cosmetic failure)
-- **Integration Tests:** 21 (CPU-PPU cross-component)
-- **Comptime Tests:** 8 (mapper generic validation)
-- **Inline Tests:** ~297 (within implementation files)
-
-**Known Failure:** 1 snapshot metadata test (4-byte size discrepancy, cosmetic only)
+1. **Start with the overview:** The root [`README.md`](../README.md) describes the current feature set and test commands.
+2. **Consult the roadmap:** [`DEVELOPMENT-ROADMAP.md`](DEVELOPMENT-ROADMAP.md) outlines the critical path (Video → Controller I/O → Playable games).
+3. **Dive into subsystems:** Architecture notes explain the rationale behind the State/Logic split and thread model.
+4. **Reference APIs:** Use the guides under `api-reference/` when integrating with external tooling or writing tests.
+5. **Review historical context:** Everything under `docs/archive/` retains earlier decisions and progress reports. Each file now carries a historical note with its original date.
 
 ---
 
-## Documentation Structure
+## Recent Documentation Changes (2025-10-06)
 
-```
-docs/
-├── README.md                     # This file - navigation hub
-├── ARCHITECTURE.md               # High-level architecture (coming soon)
-├── DEVELOPMENT-ROADMAP.md        # Development plan (coming soon)
-│
-├── architecture/                 # Architecture documentation
-│   ├── ppu-sprites.md            # Sprite rendering specification
-│   ├── threading.md              # Thread architecture (coming soon)
-│   └── video-system.md           # Wayland+Vulkan plan (coming soon)
-│
-├── api-reference/                # API documentation
-│   ├── debugger-api.md           # Debugger API guide
-│   └── snapshot-api.md           # Snapshot API guide
-│
-├── implementation/               # Implementation notes
-│   ├── STATUS.md                 # Current implementation status
-│   ├── sessions/                 # Development session notes
-│   ├── design-decisions/         # Architecture decision records
-│   └── completed/                # Completed work summaries
-│
-├── code-review/                  # Code review findings
-│   ├── README.md                 # Review overview
-│   ├── 01-architecture.md        # Hybrid State/Logic pattern
-│   ├── 02-cpu.md                 # CPU implementation review
-│   ├── 03-ppu.md                 # PPU implementation review
-│   ├── 04-memory-and-bus.md      # Bus architecture review
-│   └── ... (additional reviews)
-│
-├── 05-testing/                   # Testing documentation
-│   └── accuracycoin-cpu-requirements.md
-│
-└── archive/                      # Historical/superseded docs
-    └── (Phase plans, old designs, audit reports)
-```
+**Phase 1 (P1) Accuracy Fixes Complete:**
+- ✅ Task 1.1: Unstable Opcode Configuration (comptime variant dispatch)
+- ✅ Task 1.2: OAM DMA Implementation (14 tests, cycle-accurate 513/514 cycles)
+- ✅ 551/551 tests passing (100%)
+- ✅ P1 completion documented in `implementation/completed/P1-TASKS-1.1-1.2-COMPLETION-2025-10-06.md`
+
+**Documentation Updates:**
+- Test counts corrected throughout (562/583 → 551, verified count)
+- P1 task status updated to COMPLETE in `code-review/STATUS.md`
+- Build system cleaned up (removed deleted test file references)
+- Generated docs added to .gitignore
+- All documentation hubs updated with current state
+
+**Phase 0 Complete:**
+- ✅ All 256 CPU opcodes implemented with cycle-accurate timing
+- ✅ Fixed +1 cycle deviation for indexed addressing modes
+- ✅ Phase 0 session docs archived to `archive/sessions/p0/`
+- ✅ Timing fix completion documented in `archive/p0/P0-TIMING-FIX-COMPLETION-2025-10-06.md`
+
+For detailed update plan, see [`DOCUMENTATION-UPDATE-PLAN-2025-10-06.md`](DOCUMENTATION-UPDATE-PLAN-2025-10-06.md).
 
 ---
 
-## Key Principles
+## Need Help?
 
-1. **Hardware Accuracy:** Cycle-accurate 6502 emulation, accurate PPU timing
-2. **RT-Safety:** Zero heap allocations in hot path, deterministic execution
-3. **State/Logic Separation:** Testable, serializable state; pure functional logic
-4. **Comptime Over Runtime:** Zero-cost abstractions via duck typing
-5. **Documentation First:** Code changes require corresponding doc updates
+- **Slack / ChatOps:** Refer to the team channel `#rambo-dev` (internal) for coordination.
+- **Issues & Tasks:** Track progress in the project board linked from `STATUS.md`.
+- **Testing:** Always run `zig build --summary all test` before submitting changes; the command is documented in the root README and produces step-by-step counts.
 
----
-
-## Next Actions
-
-### For New Contributors
-1. Read [Architecture Overview](ARCHITECTURE.md) *(coming soon)*
-2. Check [Development Roadmap](DEVELOPMENT-ROADMAP.md) *(coming soon)*
-3. Review [Code Review Findings](code-review/README.md)
-4. Pick a task from current phase
-
-### For Current Development
-**Current Phase:** Video Display (Wayland + Vulkan)
-- See [Video System Plan](architecture/video-system.md) *(coming soon)*
-- Estimated: 20-30 hours implementation
-- Dependencies: zig-wayland (already in build.zig.zon)
-- Scaffolding: WaylandEventMailbox implemented
-
----
-
-**Project:** RAMBO NES Emulator
-**Language:** Zig 0.15.1
-**Target:** AccuracyCoin Test Suite (cycle-accurate validation)
-**License:** MIT
+Happy emulating!

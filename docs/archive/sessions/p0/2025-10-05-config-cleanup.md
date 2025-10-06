@@ -1,5 +1,7 @@
 # Config.zig Cleanup - Removing Implementation Details
 
+_Historical snapshot: Metrics and status values reflect the project state on 2025-10-05._
+
 **Date:** 2025-10-05
 **Objective:** Strip Config.zig of CPU implementation details, maintaining only user configuration choices
 **Status:** ✅ **COMPLETE**
@@ -29,7 +31,7 @@ pub fn clockFrequency(self: CpuVariant) u32 { ... }  // Lines 99-105
 pub const SHABehavior = enum { ... }                  // Lines 108-122
 pub const UnstableOpcodeConfig = struct { ... }       // Lines 124-135
 unstable_opcodes: UnstableOpcodeConfig                // Line 146 (field)
-pub fn clockFrequency(self: CpuConfig) u32 { ... }   // Lines 148-151
+pub fn clockFrequency(self: CpuModel) u32 { ... }   // Lines 148-151
 ```
 
 **Kept** (pure configuration):
@@ -40,7 +42,7 @@ pub const CpuVariant = enum {
     pub fn toString(...) []const u8 { ... }
 };
 
-pub const CpuConfig = struct {
+pub const CpuModel = struct {
     variant: CpuVariant = .rp2a03g,
     region: VideoRegion = .ntsc,
 };

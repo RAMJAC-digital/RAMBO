@@ -440,11 +440,11 @@ video {
 pub const HardwareConfig = struct {
     console: ConsoleVariant,
     board_revision: BoardRevision,
-    cpu: CpuConfig,
-    ppu: PpuConfig,
+    cpu: CpuModel,
+    ppu: PpuModel,
     apu: ApuConfig,
-    cic: CicConfig,
-    controllers: ControllerConfig,
+    cic: CicModel,
+    controllers: ControllerModel,
 };
 
 pub const ConsoleVariant = enum {
@@ -456,7 +456,7 @@ pub const ConsoleVariant = enum {
     dendy,
 };
 
-pub const CpuConfig = struct {
+pub const CpuModel = struct {
     variant: CpuVariant,
     region: VideoRegion,
     clock_divider: u8,
@@ -484,7 +484,7 @@ pub const SHABehavior = enum {
     rp2a03h,      // RP2A03H behavior
 };
 
-pub const CicConfig = struct {
+pub const CicModel = struct {
     enabled: bool,
     variant: CicVariant,
     emulation: CicEmulation,
@@ -503,7 +503,7 @@ pub const CicEmulation = enum {
     disabled,       // No CIC chip
 };
 
-pub const ControllerConfig = struct {
+pub const ControllerModel = struct {
     type: ControllerType,
 };
 
@@ -667,7 +667,7 @@ pub const CpuComponent = struct {
     pub const component_id = ComponentId.cpu;
 
     cpu: Cpu,
-    config: CpuConfig,
+    config: CpuModel,
 
     pub const vtable = Component.VTable{
         .init = init,

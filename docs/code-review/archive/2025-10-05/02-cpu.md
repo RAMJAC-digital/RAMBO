@@ -31,7 +31,7 @@ However, there are several areas for improvement, primarily related to code orga
 
 -   **Status:** 🔴 **High Priority TODO**
 -   **Issue:** The implementation of unstable unofficial opcodes (e.g., `XAA`, `LXA`, `SHA`) in `src/cpu/instructions/unofficial.zig` uses hardcoded "magic" constants (e.g., `const magic: u8 = 0xEE;`). The behavior of these opcodes varies between different 6502 revisions. To pass the full AccuracyCoin test suite, the emulator must be able to replicate the behavior of specific CPU revisions.
--   **Action:** Modify the implementation of these opcodes to be configurable based on the `CpuConfig` struct in `src/config/Config.zig`. The magic constants and behavioral variations should be selected based on the configured `CpuVariant`.
+-   **Action:** Modify the implementation of these opcodes to be configurable based on the `CpuModel` struct in `src/config/Config.zig`. The magic constants and behavioral variations should be selected based on the configured `CpuVariant`.
 -   **Rationale:** Essential for achieving 100% hardware accuracy and passing the AccuracyCoin test suite.
 -   **Code References:** `src/cpu/instructions/unofficial.zig`, `src/config/Config.zig`
 

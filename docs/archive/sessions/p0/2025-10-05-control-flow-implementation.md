@@ -1,5 +1,7 @@
 # Control Flow Opcodes Implementation Session - 2025-10-05
 
+_Historical snapshot: Metrics and status values reflect the project state on 2025-10-05._
+
 **Status:** Phase 2 Complete - Implementation Done, Tests Pending
 **Time:** ~2 hours
 **Result:** ✅ All 4 opcodes implemented via microstep decomposition
@@ -101,16 +103,16 @@ Updated buildJumpOpcodes():
 
 ```zig
 // Old (placeholder):
-table[0x20] = { ..., .execute_pure = Opcodes.nop, ... }  // JSR (wrong steps)
-table[0x60] = { ..., .execute_pure = Opcodes.nop, ... }  // RTS (empty steps)
-table[0x40] = { ..., .execute_pure = Opcodes.nop, ... }  // RTI (empty steps)
-table[0x00] = { ..., .execute_pure = Opcodes.nop, ... }  // BRK (empty steps)
+table[0x20] = { ..., .operation = Opcodes.nop, ... }  // JSR (wrong steps)
+table[0x60] = { ..., .operation = Opcodes.nop, ... }  // RTS (empty steps)
+table[0x40] = { ..., .operation = Opcodes.nop, ... }  // RTI (empty steps)
+table[0x00] = { ..., .operation = Opcodes.nop, ... }  // BRK (empty steps)
 
 // New (implemented):
-table[0x20] = { .addressing_steps = &addressing.jsr_steps, .execute_pure = Opcodes.nop, ... }
-table[0x60] = { .addressing_steps = &addressing.rts_steps, .execute_pure = Opcodes.nop, ... }
-table[0x40] = { .addressing_steps = &addressing.rti_steps, .execute_pure = Opcodes.nop, ... }
-table[0x00] = { .addressing_steps = &addressing.brk_steps, .execute_pure = Opcodes.nop, ... }
+table[0x20] = { .addressing_steps = &addressing.jsr_steps, .operation = Opcodes.nop, ... }
+table[0x60] = { .addressing_steps = &addressing.rts_steps, .operation = Opcodes.nop, ... }
+table[0x40] = { .addressing_steps = &addressing.rti_steps, .operation = Opcodes.nop, ... }
+table[0x00] = { .addressing_steps = &addressing.brk_steps, .operation = Opcodes.nop, ... }
 ```
 
 **Removed:** TODO comment about multi-stack operations

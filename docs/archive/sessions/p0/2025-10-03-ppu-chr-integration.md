@@ -1,4 +1,6 @@
 # Session: PPU-CHR Integration with Proper Architecture
+
+_Historical snapshot: Metrics and status values reflect the project state on 2025-10-03._
 **Date:** 2025-10-03
 **Duration:** ~4 hours
 **Focus:** Fix critical PPU-cartridge integration gap and implement proper dependency injection

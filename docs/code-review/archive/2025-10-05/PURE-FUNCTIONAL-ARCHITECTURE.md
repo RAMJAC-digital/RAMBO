@@ -222,7 +222,7 @@ const operand = extractOperandValue(state, bus, entry.is_rmw, entry.is_pull);
 ### 4. Pure Opcode Execution
 ```zig
 const pure_state = toPureState(state);
-const result = entry.execute_pure(pure_state, operand);
+const result = entry.operation(pure_state, operand);
 ```
 
 ### 5. Delta Application

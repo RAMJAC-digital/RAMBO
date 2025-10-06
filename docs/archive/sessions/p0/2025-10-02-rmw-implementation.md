@@ -1,5 +1,7 @@
 # Session: RMW Implementation (2025-10-02)
 
+_Historical snapshot: Metrics and status values reflect the project state on 2025-10-02._
+
 ## Objective
 Implement Read-Modify-Write (RMW) instructions with hardware-accurate dummy write cycles, addressing a critical 6502 hardware quirk required for AccuracyCoin test suite compliance.
 

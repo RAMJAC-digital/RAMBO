@@ -3,7 +3,7 @@
 **Project:** Cycle-Accurate NES Emulator
 **Language:** Zig 0.15.1
 **Target:** AccuracyCoin Test Suite (128 tests)
-**Current Status:** 83% Complete (575/576 tests passing)
+**Current Status:** 83% Complete (551/551 tests passing)
 
 ---
 
@@ -31,11 +31,11 @@ Build a **hardware-accurate NES emulator** demonstrating:
 | Debugger | ✅ Complete | 62/62 | 100% |
 | Thread Architecture | ✅ Complete | N/A | 100% |
 | Mailbox System | ✅ Complete | N/A | 100% |
-| Snapshot System | ✅ Complete | 8/9 | 99% |
+| Snapshot System | ✅ Complete | 9/9 | 100% |
 | Bus & Memory | ✅ Mostly Complete | 17/17 | 85% |
 | Cartridge (Mapper 0) | ✅ Complete | 2/2 | 100% |
 
-**Overall:** 575/576 tests passing (99.8%)
+**Overall:** 551/551 tests passing (100%)
 
 ### In Progress / Planned 🟡
 
@@ -251,7 +251,7 @@ Right  → Arrow Right
 
 ## Testing Strategy
 
-### Unit Tests (Current: 575/576)
+### Unit Tests (Current: 551/551)
 
 **CPU Tests** (105 tests)
 - Instruction execution
@@ -268,13 +268,19 @@ Right  → Arrow Right
 **Integration Tests** (21 tests)
 - CPU-PPU coordination
 - NMI triggering
+- Snapshot load/save verification
+
+**Snapshot Tests** (9 tests)
+- Metadata extraction and size accounting
+- Checksum validation
+- Reference vs embedded cartridge modes
 - DMA suspension
 
 **System Tests** (Remaining)
 - Debugger (62 tests)
 - Bus (17 tests)
 - Cartridge (2 tests)
-- Snapshot (8/9 tests)
+- Snapshot (9/9 tests)
 - Comptime (8 tests)
 
 ### AccuracyCoin Validation (Future)
@@ -343,8 +349,8 @@ Right  → Arrow Right
 - ✅ Open bus simulation
 - ✅ NMI edge detection
 
-**Test Suite Coverage:**
-- ✅ 99.8% of implemented tests (575/576)
+- **Test Suite Coverage:**
+- ✅ 100% of implemented tests (551/551)
 - ⬜ AccuracyCoin full validation (future)
 
 ### Advanced Features (Post-Playability)
@@ -475,7 +481,7 @@ zig version  # Verify 0.15.1
 **Before Committing:**
 ```bash
 # Run full test suite
-zig build test  # Must pass 575/576
+zig build --summary all test  # Must report 551/551
 
 # Run specific categories
 zig build test-unit
@@ -594,7 +600,7 @@ git diff --stat  # Check test count unchanged
 
 ---
 
-**Last Updated:** 2025-10-04
+**Last Updated:** 2025-10-06
 **Current Phase:** Phase 8 (Video Display - Wayland + Vulkan)
 **Next Milestone:** First visible PPU output on screen (20-28 hours)
 **Ultimate Goal:** Cycle-accurate NES emulation with playable games

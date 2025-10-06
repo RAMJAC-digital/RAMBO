@@ -1,5 +1,7 @@
 # Opcodes Module Refactoring - COMPLETE
 
+_Historical snapshot: Metrics and status values reflect the project state on 2025-10-05._
+
 **Date:** 2025-10-05
 **Objective:** Refactor monolithic opcodes.zig (1250 lines, 36KB) into focused submodules
 **Status:** ✅ **COMPLETE - All 12 categories extracted successfully**

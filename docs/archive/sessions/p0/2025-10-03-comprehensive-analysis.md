@@ -1,4 +1,6 @@
 # Session: Comprehensive Analysis & Architecture Review
+
+_Historical snapshot: Metrics and status values reflect the project state on 2025-10-03._
 **Date:** 2025-10-03
 **Focus:** Complete codebase inventory, async I/O design, documentation update
 

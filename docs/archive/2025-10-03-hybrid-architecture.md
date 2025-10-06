@@ -283,11 +283,11 @@ fn frameTimerCallback(...) {
 ```zig
 pub const HardwareConfig = struct {
     console: ConsoleVariant,
-    cpu: CpuConfig,      // Variant + unstable opcodes
-    ppu: PpuConfig,      // Variant + region
+    cpu: CpuModel,      // Variant + unstable opcodes
+    ppu: PpuModel,      // Variant + region
     apu: ApuConfig,      // Enabled + region
-    cic: CicConfig,      // Variant + emulation mode
-    controllers: ControllerConfig,  // NES vs Famicom
+    cic: CicModel,      // Variant + emulation mode
+    controllers: ControllerModel,  // NES vs Famicom
     timing: TimingConfig,  // Derived from variants
 };
 ```

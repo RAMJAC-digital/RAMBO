@@ -29,6 +29,7 @@ The RAMBO snapshot system provides complete EmulationState serialization to bina
 - **Flexible Cartridge**: Reference mode (ROM path+hash) or Embed mode (full ROM data)
 - **Optional Framebuffer**: Include rendered output (~250KB) or skip (~5KB)
 - **Fast**: ~5ms to save/load on modern hardware
+- **Test Coverage**: 9 dedicated snapshot tests covering metadata, checksum, load/save, and error handling
 
 ### Architecture
 

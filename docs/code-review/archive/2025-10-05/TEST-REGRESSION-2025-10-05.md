@@ -166,7 +166,7 @@ test "ADC immediate - basic addition" {
 
 // NEW (pure functional):
 test "ADC immediate - basic addition" {
-    const state = PureCpuState{ .a = 0x50, .p = .{} };
+    const state = CpuCoreState{ .a = 0x50, .p = .{} };
     const result = Opcodes.adc(state, 0x30);
     try testing.expectEqual(@as(?u8, 0x80), result.a);
     try testing.expect(result.flags.?.negative);

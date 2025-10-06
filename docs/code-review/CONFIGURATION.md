@@ -26,8 +26,8 @@ The data structures in `Config.zig` are well-defined, and the overall approach i
     }
 
     pub const HardwareConfig = struct {
-        cpu: CpuConfig = .{},
-        ppu: PpuConfig = .{},
+        cpu: CpuModel = .{},
+        ppu: PpuModel = .{},
     }
     ```
 -   **Rationale:** Improves architectural clarity by separating the emulated machine's specification from the emulator application's settings.

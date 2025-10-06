@@ -1,5 +1,7 @@
 # Session: Cartridge/ROM Loading Implementation (2025-10-02)
 
+_Historical snapshot: Metrics and status values reflect the project state on 2025-10-02._
+
 ## Objective
 Implement complete cartridge/ROM loading infrastructure with iNES format support, polymorphic mapper interface, and Mapper 0 (NROM) implementation to enable loading and reading from AccuracyCoin.nes.
 

@@ -1,5 +1,7 @@
 # Session: 2025-10-05 - Architecture Cleanup (FAILED)
 
+_Historical snapshot: Metrics and status values reflect the project state on 2025-10-05._
+
 **Date:** 2025-10-05
 **Status:** 🔴 **FAILED - CRITICAL REGRESSION**
 **Session Type:** Architecture Refactoring
@@ -28,7 +30,7 @@
 ### Actions Taken
 
 1. ✅ Moved functional/Opcodes.zig to opcodes.zig
-2. ✅ Merged functional/State.zig into State.zig (added PureCpuState, OpcodeResult)
+2. ✅ Merged functional/State.zig into State.zig (added CpuCoreState, OpcodeResult)
 3. ✅ Moved functional/Cpu.zig to variants.zig
 4. ✅ Renamed opcodes.zig to decode.zig
 5. ✅ Deleted functional/ directory
@@ -148,7 +150,7 @@
 - ✅ `docs/code-review/TEST-REGRESSION-2025-10-05.md`
 
 ### Modified
-- ✅ `src/cpu/State.zig` (added PureCpuState, OpcodeResult, pure flag methods)
+- ✅ `src/cpu/State.zig` (added CpuCoreState, OpcodeResult, pure flag methods)
 - ✅ `src/cpu/opcodes.zig` (moved from functional/Opcodes.zig)
 - ✅ `src/cpu/Logic.zig` (updated imports)
 - ✅ `src/cpu/dispatch.zig` (updated imports to use decode.zig)
@@ -237,7 +239,7 @@ test "ADC immediate - basic addition" {
 NEW (pure functional):
 ```zig
 test "ADC immediate - basic addition" {
-    const state = PureCpuState{
+    const state = CpuCoreState{
         .a = 0x50,
         .x = 0,
         .y = 0,

@@ -1,5 +1,7 @@
 # Session Notes: Immediate Mode Refactoring & Code Deduplication
 
+_Historical snapshot: Metrics and status values reflect the project state on 2025-10-02._
+
 **Date:** 2025-10-02
 **Duration:** ~2 hours
 **Focus:** Critical bug fixes and architectural cleanup

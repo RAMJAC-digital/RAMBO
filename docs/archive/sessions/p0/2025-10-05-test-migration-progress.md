@@ -1,5 +1,7 @@
 # Test Migration Progress - 2025-10-05
 
+_Historical snapshot: Metrics and status values reflect the project state on 2025-10-05._
+
 **Objective:** Migrate all CPU opcode unit tests from old imperative API to new pure functional API
 
 **Target:** Restore test count to 575+ tests passing (baseline before cleanup)
@@ -157,7 +159,7 @@ All test dependencies added to `test_step`.
 
 ### Test Infrastructure
 - `tests/cpu/opcodes/helpers.zig` - Test helper functions for pure functional API
-  - `makeState()` - Create PureCpuState with registers and flags
+  - `makeState()` - Create CpuCoreState with registers and flags
   - `makeStateWithAddress()` - Create state with effective address
   - `expectRegister()` - Verify register changes
   - `expectFlags()` - Verify flag state

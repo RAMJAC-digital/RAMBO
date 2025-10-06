@@ -51,7 +51,7 @@ This plan consolidates all outstanding minor cleanup tasks, refactoring opportun
 
 -   **Status:** 🔴 **High Priority TODO**
 -   **Issue:** Unofficial opcodes in `unofficial.zig` use hardcoded magic values. True hardware accuracy requires these to be configurable based on the CPU revision.
--   **Action:** Modify the implementation of unstable opcodes (`XAA`, `LXA`, `SHA`, etc.) to use values from `CpuConfig` based on the selected `CpuVariant`.
+-   **Action:** Modify the implementation of unstable opcodes (`XAA`, `LXA`, `SHA`, etc.) to use values from `CpuModel` based on the selected `CpuVariant`.
 -   **Rationale:** Essential for 100% AccuracyCoin test suite compliance.
 -   **Reference:** `docs/code-review/02-cpu.md`
 

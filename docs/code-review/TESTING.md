@@ -1,5 +1,7 @@
 # Testing Status & Restoration Plan - 2025-10-05
 
+
+_Historical snapshot: Captures the testing backlog as of 2025-10-05 (pre-configuration rename)._
 **Status:** 🔴 **CRITICAL REGRESSION**
 
 ## 1. Summary
@@ -24,7 +26,7 @@ The following plan, based on the analysis in `docs/code-review/archive/2025-10-0
 
 ### 3.1. Migration Pattern
 
-All restored tests must use the new pure functional pattern. This involves creating a `PureCpuState`, calling the opcode function directly, and asserting against the returned `OpcodeResult` delta.
+All restored tests must use the new pure functional pattern. This involves creating a `CpuCoreState`, calling the opcode function directly, and asserting against the returned `OpcodeResult` delta.
 
 **Old Imperative Test (Example):**
 ```zig
@@ -42,7 +44,7 @@ test "ADC immediate - basic addition" {
 ```zig
 // NEW (pure functional):
 test "ADC immediate - basic addition" {
-    const state = PureCpuState{ .a = 0x50, .p = .{} };
+    const state = CpuCoreState{ .a = 0x50, .p = .{} };
     const result = Opcodes.adc(state, 0x10); // No mutation
     try testing.expectEqual(@as(?u8, 0x60), result.a);
     try testing.expect(!result.flags.?.carry);
@@ -72,6 +74,6 @@ The 166 tests must be restored in an order that prioritizes the most critical an
 
 To prevent this from happening again, the following should be implemented after the test restoration is complete:
 
-1.  **Pre-commit Hook:** Add a script that runs `zig build test --summary` and fails the commit if the test count decreases.
+1.  **Pre-commit Hook:** Add a script that runs `zig build --summary all test` and fails the commit if the test count decreases.
 2.  **CI Check:** Implement a CI job that fails if the test count goes down in a pull request.
 3.  **Mandatory Policy:** All future refactoring that involves deleting files containing tests must include a migration plan for those tests, to be verified in code review.

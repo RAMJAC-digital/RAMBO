@@ -180,7 +180,7 @@ test "ADC immediate - basic addition" {
 
 ```zig
 test "ADC immediate - basic addition" {
-    const state = PureCpuState{
+    const state = CpuCoreState{
         .a = 0x50,
         .p = .{ .carry = false },
     };
@@ -489,7 +489,7 @@ test "ADC immediate - basic addition" {
 ```zig
 test "ADC immediate - basic addition" {
     // Setup: Minimal pure state
-    const state = PureCpuState{
+    const state = CpuCoreState{
         .a = 0x50,
         .p = .{ .carry = false },
     };
@@ -539,7 +539,7 @@ test "STA absolute - write to memory" {
 **NEW:**
 ```zig
 test "STA absolute - write to memory" {
-    const state = PureCpuState{
+    const state = CpuCoreState{
         .a = 0x42,
         .effective_address = 0x1234,
     };
@@ -573,7 +573,7 @@ test "PHA - push accumulator" {
 **NEW:**
 ```zig
 test "PHA - push accumulator" {
-    const state = PureCpuState{
+    const state = CpuCoreState{
         .a = 0x42,
         .sp = 0xFF,
     };
@@ -607,7 +607,7 @@ test "BCC - branch when carry clear" {
 **NEW:**
 ```zig
 test "BCC - branch when carry clear" {
-    const state = PureCpuState{
+    const state = CpuCoreState{
         .p = .{ .carry = false },
         .pc = 0x1000,
     };
@@ -644,7 +644,7 @@ test "XAA #imm - AND X with A, then AND with immediate (magic constant 0xEE)" {
 **NEW:**
 ```zig
 test "XAA #imm - AND X with A, then AND with immediate (magic constant 0xEE)" {
-    const state = PureCpuState{
+    const state = CpuCoreState{
         .a = 0xFF,
         .x = 0xFF,
     };
@@ -725,7 +725,7 @@ pub fn xaa(state: CpuState, operand: u8) OpcodeResult {
 1. ✅ Verify result with 0xEE constant
 2. ✅ Verify result changes if constant were different (0xFF, 0x00)
 3. ✅ Test with multiple operand values
-4. ✅ Cross-reference with CpuConfig.cpu_variant
+4. ✅ Cross-reference with CpuModel.cpu_variant
 
 **Priority:** P2 - ACCURACY REQUIREMENT
 
@@ -1228,7 +1228,7 @@ output="$2"
 
 # Example transformation:
 # OLD: var cpu = Cpu.init();
-# NEW: const state = PureCpuState{ ... };
+# NEW: const state = CpuCoreState{ ... };
 
 # OLD: _ = opcode(&cpu, &bus);
 # NEW: const result = Opcodes.opcode(state, operand);

@@ -39,7 +39,7 @@ However, there are several areas where the implementation can be improved to ali
 *   **Rationale:** To achieve true hardware accuracy, the emulator must be able to replicate the behavior of specific CPU revisions. This is a requirement for passing the AccuracyCoin test suite.
 *   **Code References:**
     *   `src/cpu/instructions/unofficial.zig`: The `xaa`, `lxa`, `sha`, `shx`, `shy`, and `tas` functions need to be made configurable.
-    *   `src/config/Config.zig`: The `CpuConfig` struct should be extended to include configuration for unstable opcode behavior.
+    *   `src/config/Config.zig`: The `CpuModel` struct should be extended to include configuration for unstable opcode behavior.
 *   **Status:** **TODO**.
 
 ### 2.4. Remove `anytype` from `tick` and `reset`

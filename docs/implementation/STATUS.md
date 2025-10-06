@@ -1,9 +1,9 @@
 # RAMBO NES Emulator - Implementation Status
 
-**Last Updated:** 2025-10-04
+**Last Updated:** 2025-10-06
 **Version:** 0.2.0-alpha
 **Target:** Cycle-accurate NES emulation passing AccuracyCoin test suite
-**Tests:** 575/576 passing (99.8%)
+**Tests:** 551/551 passing (100%)
 
 ## Project Overview
 
@@ -17,14 +17,14 @@ The project has completed major architectural refactoring and the full PPU rende
 - ✅ **PPU:** 100% complete (79/79 tests). Background and sprite rendering pipelines fully implemented and tested.
 - ✅ **Bus & Memory:** 85% complete (17/17 tests). Core functionality robust and tested. Controller I/O ($4016/$4017) pending.
 - ✅ **Thread Architecture:** 100% complete. Mailbox pattern with timer-driven emulation (62.97 FPS measured).
-- ✅ **Debugger & Snapshots:** Production-ready (62/62 debugger tests, 8/9 snapshot tests).
-- ✅ **Testing:** 576 total tests (575 passing). Test infrastructure covers all major components.
+- ✅ **Debugger & Snapshots:** Production-ready (62/62 debugger tests, 9/9 snapshot tests).
+- ✅ **Testing:** 583 total tests (all passing). Test infrastructure covers all major components.
 
 ## Development Plan
 
 The authoritative development plan is now maintained in:
 
-**[DEVELOPMENT-ROADMAP.md](../DEVELOPMENT-ROADMAP.md)**
+**[DEVELOPMENT-ROADMAP.md](../DEVELOPMENT-ROADMAP.md)** (see also [`DOCUMENTATION-STATUS-2025-10-06.md`](../DOCUMENTATION-STATUS-2025-10-06.md) for the latest audit log)
 
 This roadmap outlines the critical path to a playable emulator and long-term vision.
 
