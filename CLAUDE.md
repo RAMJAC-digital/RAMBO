@@ -17,11 +17,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Controller I/O:** 100% complete ($4016/$4017, 14 tests passing) ✅
 - **Bus:** 100% complete (all I/O registers implemented) ✅
 - **Cartridge:** Mapper 0 (NROM) complete ✅
-- **Tests:** 571/571 passing (100%)
+- **APU:** 57% complete (4/7 milestones - DMC, Envelopes, Linear Counter, Sweep Units) ⏳
+- **Tests:** 712/714 passing (99.7%, 2 skipped due to missing PRG RAM)
 
-**Current Phase:** Controller I/O - ✅ COMPLETE ($4016/$4017 registers)
-**Next Phase:** Phase 8 - Video Subsystem (Wayland + Vulkan backend)
-**Critical Path:** ✅ P1 Accuracy → ✅ Controller I/O → Video Display → Playable Games
+**Current Phase:** APU Development - Milestones 3 & 4 ✅ COMPLETE
+**Next Phase:** APU Milestones 5-7 (Frame IRQ, Open Bus, Integration) OR Video Subsystem
+**Critical Path:** ✅ P1 Accuracy → ✅ Controller I/O → APU/Video → Playable Games
 
 **Key Requirement:** Hardware-accurate 6502 emulation with cycle-level precision for AccuracyCoin compatibility.
 
@@ -36,7 +37,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 zig build
 
 # Run all tests (unit + integration)
-zig build --summary all test      # 571/571 tests passing
+zig build --summary all test      # 712/714 tests passing (2 skipped)
 
 # Run specific test categories
 zig build test-unit               # Unit tests only (fast)
@@ -50,11 +51,12 @@ zig build run
 
 ### Test Status by Category
 
-- **Total:** 571 / 571 tests passing (100%)
+- **Total:** 712 / 714 tests passing (99.7%, 2 skipped)
 - **CPU suites:** 105 unit + integration tests covering all 256 opcodes and microstep timing
 - **PPU suites:** 79 tests (background rendering, sprite evaluation, rendering, and edge cases)
 - **Debugger:** 62 tests validating breakpoints, watchpoints, and callback wiring
 - **Controller:** 14 tests (strobe protocol, shift register, button sequence, open bus)
+- **APU:** 60 tests (DMC 25, Envelopes 20, Linear Counter 15, Sweep Units 25, plus framework tests)
 - **Mailboxes:** 6 tests (ControllerInputMailbox, thread-safety, atomic updates)
 - **Bus & Memory:** 17 tests (open bus, mirroring, mapper routing)
 - **Cartridge:** 2 NROM loader/validation tests
@@ -292,6 +294,61 @@ tests/integration/controller_test.zig     # 14 comprehensive tests
 
 ---
 
+### APU (`src/apu/`)
+
+**Status:** ⏳ 57% Complete - 4/7 Milestones Implemented
+
+**Completed Milestones:**
+- ✅ **Milestone 1: DMC Channel** - DMA, IRQ, sample playback state (25 tests)
+- ✅ **Milestone 2: Envelopes** - Volume control for pulse/noise channels (20 tests)
+- ✅ **Milestone 3: Linear Counter** - Triangle channel timing (15 tests)
+- ✅ **Milestone 4: Sweep Units** - Pulse channel frequency modulation (25 tests)
+
+**Remaining Milestones:**
+- ⬜ **Milestone 5: Frame IRQ Edge Cases** - IRQ flag timing refinement
+- ⬜ **Milestone 6: APU Register Open Bus** - Write-only register behavior
+- ⬜ **Milestone 7: Integration & Refinement** - Full AccuracyCoin validation
+
+**Implementation:**
+- Frame counter (4-step/5-step modes) with quarter-frame (240 Hz) and half-frame (120 Hz) clocking
+- Generic reusable components: `Envelope` (pulse1, pulse2, noise), `Sweep` (pulse1, pulse2)
+- Channel-specific: Linear counter (triangle), DMC state machine
+- Register handlers: $4000-$4017 (all APU registers)
+- Pure functional architecture with State/Logic separation
+
+**Tests:** 60/60 passing (100%)
+
+**Files:**
+```
+src/apu/
+├── Apu.zig           # Module re-exports
+├── State.zig         # ApuState - frame counter, channels, envelopes, sweeps
+├── Logic.zig         # Pure functions for APU operations
+├── Dmc.zig           # DMC channel logic (140 lines)
+├── Envelope.zig      # Generic envelope component (106 lines)
+├── Sweep.zig         # Generic sweep component (140 lines)
+└── (TODO: waveform generation for Phase 3+)
+
+tests/apu/
+├── apu_test.zig              # Frame counter tests
+├── dmc_test.zig              # DMC channel tests (25 tests)
+├── envelope_test.zig         # Envelope tests (20 tests)
+├── linear_counter_test.zig   # Linear counter tests (15 tests)
+└── sweep_test.zig            # Sweep tests (25 tests)
+```
+
+**Key Features:**
+- Cycle-accurate frame counter timing (NTSC timing constants)
+- Hardware-accurate sweep units (one's complement for Pulse 1, two's complement for Pulse 2)
+- DMC DMA integration with CPU cycle stealing
+- Quarter-frame clocking: Envelopes + Linear Counter (240 Hz)
+- Half-frame clocking: Length Counters + Sweep Units (120 Hz)
+
+**Documentation:**
+- `docs/APU-UNIFIED-IMPLEMENTATION-PLAN.md` - Complete implementation roadmap
+
+---
+
 ### Cartridge (`src/cartridge/`)
 
 **Status:** ✅ Mapper 0 Complete - Generic Architecture Ready
@@ -402,6 +459,20 @@ NMI triggers on falling edge (high → low transition), not level. IRQ is level-
 - **Fix:** State machine refactor to support in-cycle execution completion
 
 **Documented in:** `docs/code-review/archive/2025-10-05/02-cpu.md` (archived)
+
+### PRG RAM Not Implemented (High Priority)
+
+**Issue:** PRG RAM ($6000-$7FFF) not implemented - blocks AccuracyCoin test validation
+
+- **Current:** Mapper0 returns open bus (0xFF) for $6000-$7FFF
+- **Required:** 8KB battery-backed RAM for test ROMs and save data
+- **Impact:** Cannot extract AccuracyCoin test results (writes to $6000-$6003)
+- **Workaround:** Use comprehensive unit tests for APU validation (712/714 passing)
+- **Priority:** HIGH (blocks AccuracyCoin validation, but not gameplay)
+- **Time:** 2-3 hours to implement
+- **Status:** Deferred until APU Milestones 2-7 complete
+
+**Documented in:** `docs/PRG-RAM-GAP.md`
 
 ---
 
@@ -632,7 +703,7 @@ tests/
 ### Running Tests
 
 ```bash
-# All tests (571/571 passing)
+# All tests (712/714 passing, 2 skipped)
 zig build test
 
 # Specific categories
@@ -657,8 +728,8 @@ zig test tests/ppu/sprite_evaluation_test.zig --dep RAMBO -Mroot=src/root.zig
 
 ### Test Status
 
-- **Total Tests:** 551/551 (100%)
-- **Expected Failures:** 0
+- **Total Tests:** 712/714 (99.7%, 2 skipped)
+- **Expected Failures:** 0 (2 AccuracyCoin tests skipped due to missing PRG RAM)
 
 ### Architecture Completion
 
@@ -730,7 +801,7 @@ zig test tests/ppu/sprite_evaluation_test.zig --dep RAMBO -Mroot=src/root.zig
 
 ---
 
-**Last Updated:** 2025-10-04
-**Current Phase:** Phase 8 (Video Subsystem - Wayland + Vulkan)
-**Status:** Sprites complete, thread architecture ready, video subsystem next
-**Tests:** 551/551 passing (100%)
+**Last Updated:** 2025-10-06
+**Current Phase:** APU Development (4/7 milestones complete)
+**Status:** DMC, Envelopes, Linear Counter, Sweep Units complete
+**Tests:** 712/714 passing (99.7%, 2 skipped due to missing PRG RAM)

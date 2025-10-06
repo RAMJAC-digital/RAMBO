@@ -1479,13 +1479,19 @@ pub const EmulationState = struct {
             self.cpu.irq_line = true;
         }
 
-        // Check if DMC needs sample fetch
-        if (ApuLogic.needsSampleFetch(&self.apu)) {
+        // Tick DMC timer and output unit
+        // Returns true if sample buffer needs refill (trigger DMA)
+        const dmc_needs_sample = ApuLogic.tickDmc(&self.apu);
+        if (dmc_needs_sample) {
             const address = ApuLogic.getSampleAddress(&self.apu);
             self.dmc_dma.triggerFetch(address);
         }
 
-        // TODO: Tick DMC timer (Phase 2: Audio Synthesis)
+        // Check DMC IRQ flag and assert CPU IRQ line if needed
+        if (self.apu.dmc_irq_flag) {
+            self.cpu.irq_line = true;
+        }
+
         // TODO: Tick other channels (Phase 2: Audio Synthesis)
     }
 

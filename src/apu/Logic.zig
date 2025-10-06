@@ -8,6 +8,9 @@ const std = @import("std");
 const StateModule = @import("State.zig");
 const ApuState = StateModule.ApuState;
 const Config = @import("../config/Config.zig");
+const Dmc = @import("Dmc.zig");
+const Envelope = @import("Envelope.zig");
+const Sweep = @import("Sweep.zig");
 
 // ============================================================================
 // Frame Counter Timing Constants (NTSC)
@@ -82,17 +85,28 @@ pub fn writePulse1(state: *ApuState, offset: u2, value: u8) void {
         0 => { // $4000: DDLC VVVV
             // Bit 5: Length counter halt / Envelope loop
             state.pulse1_halt = (value & 0x20) != 0;
-            // TODO Phase 2: Duty, constant volume, envelope period
+            // Bits 0-5: Envelope control
+            Envelope.writeControl(&state.pulse1_envelope, value);
         },
-        3 => { // $4003: LLLL Lttt
+        1 => { // $4001: EPPP NSSS (Sweep control)
+            Sweep.writeControl(&state.pulse1_sweep, value);
+        },
+        2 => { // $4002: TTTT TTTT (Timer low 8 bits)
+            // Update low 8 bits of period
+            state.pulse1_period = (state.pulse1_period & 0x700) | @as(u11, value);
+        },
+        3 => { // $4003: LLLL Lttt (Length counter load + timer high 3 bits)
             // Bits 3-7: Length counter table index (load if channel enabled)
             if (state.pulse1_enabled) {
                 const table_index = (value >> 3) & 0x1F;
                 state.pulse1_length = LENGTH_TABLE[table_index];
             }
-            // TODO Phase 2: Timer high bits
+            // Bits 0-2: Timer high 3 bits
+            const timer_high = @as(u11, value & 0x07) << 8;
+            state.pulse1_period = (state.pulse1_period & 0x0FF) | timer_high;
+            // Restart envelope (sets start flag)
+            Envelope.restart(&state.pulse1_envelope);
         },
-        else => {}, // $4001 (sweep), $4002 (timer low) - not needed for length counter
     }
 }
 
@@ -104,17 +118,28 @@ pub fn writePulse2(state: *ApuState, offset: u2, value: u8) void {
         0 => { // $4004: DDLC VVVV
             // Bit 5: Length counter halt / Envelope loop
             state.pulse2_halt = (value & 0x20) != 0;
-            // TODO Phase 2: Duty, constant volume, envelope period
+            // Bits 0-5: Envelope control
+            Envelope.writeControl(&state.pulse2_envelope, value);
         },
-        3 => { // $4007: LLLL Lttt
+        1 => { // $4005: EPPP NSSS (Sweep control)
+            Sweep.writeControl(&state.pulse2_sweep, value);
+        },
+        2 => { // $4006: TTTT TTTT (Timer low 8 bits)
+            // Update low 8 bits of period
+            state.pulse2_period = (state.pulse2_period & 0x700) | @as(u11, value);
+        },
+        3 => { // $4007: LLLL Lttt (Length counter load + timer high 3 bits)
             // Bits 3-7: Length counter table index (load if channel enabled)
             if (state.pulse2_enabled) {
                 const table_index = (value >> 3) & 0x1F;
                 state.pulse2_length = LENGTH_TABLE[table_index];
             }
-            // TODO Phase 2: Timer high bits
+            // Bits 0-2: Timer high 3 bits
+            const timer_high = @as(u11, value & 0x07) << 8;
+            state.pulse2_period = (state.pulse2_period & 0x0FF) | timer_high;
+            // Restart envelope (sets start flag)
+            Envelope.restart(&state.pulse2_envelope);
         },
-        else => {},
     }
 }
 
@@ -126,7 +151,8 @@ pub fn writeTriangle(state: *ApuState, offset: u2, value: u8) void {
         0 => { // $4008: CRRR RRRR
             // Bit 7: Length counter halt / Linear counter control
             state.triangle_halt = (value & 0x80) != 0;
-            // TODO Phase 2: Linear counter reload value
+            // Bits 0-6: Linear counter reload value
+            state.triangle_linear_reload = @intCast(value & 0x7F);
         },
         3 => { // $400B: LLLL Lttt
             // Bits 3-7: Length counter table index (load if channel enabled)
@@ -134,7 +160,9 @@ pub fn writeTriangle(state: *ApuState, offset: u2, value: u8) void {
                 const table_index = (value >> 3) & 0x1F;
                 state.triangle_length = LENGTH_TABLE[table_index];
             }
-            // TODO Phase 2: Timer high bits
+            // Set linear counter reload flag
+            state.triangle_linear_reload_flag = true;
+            // TODO Phase 4: Timer high bits
         },
         else => {},
     }
@@ -148,7 +176,8 @@ pub fn writeNoise(state: *ApuState, offset: u2, value: u8) void {
         0 => { // $400C: --LC VVVV
             // Bit 5: Length counter halt / Envelope loop
             state.noise_halt = (value & 0x20) != 0;
-            // TODO Phase 2: Constant volume, envelope period
+            // Bits 0-5: Envelope control
+            Envelope.writeControl(&state.noise_envelope, value);
         },
         3 => { // $400F: LLLL L---
             // Bits 3-7: Length counter table index (load if channel enabled)
@@ -156,6 +185,8 @@ pub fn writeNoise(state: *ApuState, offset: u2, value: u8) void {
                 const table_index = (value >> 3) & 0x1F;
                 state.noise_length = LENGTH_TABLE[table_index];
             }
+            // Restart envelope (sets start flag)
+            Envelope.restart(&state.noise_envelope);
         },
         else => {},
     }
@@ -166,21 +197,10 @@ pub fn writeDmc(state: *ApuState, offset: u2, value: u8) void {
     state.dmc_regs[offset] = value;
 
     switch (offset) {
-        0 => { // $4010: IRQ enable, loop, frequency
-            const rate_index = value & 0x0F;
-            // Rate table selection depends on NTSC/PAL (caller provides config)
-            // For now, use NTSC table (will be parameterized in tickApu)
-            state.dmc_timer_period = DMC_RATE_TABLE_NTSC[rate_index];
-        },
-        1 => { // $4011: Direct load (7-bit output level)
-            state.dmc_output = @intCast(value & 0x7F);
-        },
-        2 => { // $4012: Sample address
-            state.dmc_sample_address = value;
-        },
-        3 => { // $4013: Sample length
-            state.dmc_sample_length = value;
-        },
+        0 => Dmc.write4010(state, value), // $4010: IRQ enable, loop, frequency
+        1 => Dmc.write4011(state, value), // $4011: Direct load (7-bit output level)
+        2 => Dmc.write4012(state, value), // $4012: Sample address
+        3 => Dmc.write4013(state, value), // $4013: Sample length
     }
 }
 
@@ -198,17 +218,14 @@ pub fn writeControl(state: *ApuState, value: u8) void {
     if (!state.triangle_enabled) state.triangle_length = 0;
     if (!state.noise_enabled) state.noise_length = 0;
 
-    // If DMC enabled and no bytes remaining, load sample
-    if (state.dmc_enabled and state.dmc_bytes_remaining == 0) {
-        // Load sample address and length
-        state.dmc_current_address = 0xC000 + (@as(u16, state.dmc_sample_address) << 6);
-        state.dmc_bytes_remaining = (@as(u16, state.dmc_sample_length) << 4) + 1;
-        state.dmc_active = true;
+    // If DMC enabled, start sample (if not already playing)
+    if (state.dmc_enabled) {
+        Dmc.startSample(state);
     }
 
     // If DMC disabled, stop playback
     if (!state.dmc_enabled) {
-        state.dmc_active = false;
+        Dmc.stopSample(state);
     }
 
     // Clear DMC IRQ flag
@@ -245,22 +262,57 @@ fn clockLengthCounters(state: *ApuState) void {
 }
 
 // ============================================================================
+// Linear Counter Logic
+// ============================================================================
+
+/// Clock triangle linear counter (called on quarter-frame events)
+/// The linear counter controls triangle channel timing
+/// Hardware behavior:
+/// - If reload flag set: Load counter with reload value
+/// - Else if counter > 0: Decrement counter
+/// - If halt flag clear: Clear reload flag
+///
+/// Public for testing
+pub fn clockLinearCounter(state: *ApuState) void {
+    if (state.triangle_linear_reload_flag) {
+        state.triangle_linear_counter = state.triangle_linear_reload;
+    } else if (state.triangle_linear_counter > 0) {
+        state.triangle_linear_counter -= 1;
+    }
+
+    // Clear reload flag if halt flag is not set
+    // triangle_halt is the "control flag" (bit 7 of $4008)
+    if (!state.triangle_halt) {
+        state.triangle_linear_reload_flag = false;
+    }
+}
+
+// ============================================================================
 // Frame Counter Clocking
 // ============================================================================
 
 /// Clock quarter-frame events (envelopes and triangle linear counter)
 /// Called at frame counter steps: 1, 2, 3 (and 5 in 5-step mode)
+/// Runs at ~240 Hz (every 7457 CPU cycles)
 fn clockQuarterFrame(state: *ApuState) void {
-    // TODO Phase 2: Clock envelopes (pulse 1, pulse 2, noise)
-    // TODO Phase 2: Clock triangle linear counter
-    _ = state;
+    // Clock envelopes (pulse 1, pulse 2, noise)
+    Envelope.clock(&state.pulse1_envelope);
+    Envelope.clock(&state.pulse2_envelope);
+    Envelope.clock(&state.noise_envelope);
+
+    // Clock triangle linear counter
+    clockLinearCounter(state);
 }
 
 /// Clock half-frame events (length counters and sweep units)
 /// Called at frame counter steps: 2, 4 (and 5 in 5-step mode)
+/// Runs at ~120 Hz (every 14913 CPU cycles)
 fn clockHalfFrame(state: *ApuState) void {
     clockLengthCounters(state);
-    // TODO Phase 2: Clock sweep units (pulse 1, pulse 2)
+
+    // Clock sweep units (pulse 1 uses one's complement, pulse 2 uses two's complement)
+    Sweep.clock(&state.pulse1_sweep, &state.pulse1_period, true);  // Pulse 1: one's complement
+    Sweep.clock(&state.pulse2_sweep, &state.pulse2_period, false); // Pulse 2: two's complement
 }
 
 // ============================================================================
@@ -380,12 +432,6 @@ pub fn tickFrameCounter(state: *ApuState) bool {
 // DMC Channel Logic
 // ============================================================================
 
-/// Check if DMC needs to fetch next sample byte
-/// Returns true if DMA should be triggered
-pub fn needsSampleFetch(state: *const ApuState) bool {
-    return state.dmc_active and state.dmc_bytes_remaining > 0;
-}
-
 /// Get current DMC sample address for DMA fetch
 pub fn getSampleAddress(state: *const ApuState) u16 {
     return state.dmc_current_address;
@@ -393,35 +439,12 @@ pub fn getSampleAddress(state: *const ApuState) u16 {
 
 /// Load sample byte into DMC buffer (called by DMA after fetch)
 pub fn loadSampleByte(state: *ApuState, value: u8) void {
-    state.dmc_sample_buffer = value;
+    Dmc.loadSampleByte(state, value);
+}
 
-    // Increment address with wrap at $FFFF -> $8000
-    if (state.dmc_current_address == 0xFFFF) {
-        state.dmc_current_address = 0x8000;
-    } else {
-        state.dmc_current_address += 1;
-    }
-
-    // Decrement bytes remaining
-    state.dmc_bytes_remaining -= 1;
-
-    // If sample complete, check for loop or IRQ
-    if (state.dmc_bytes_remaining == 0) {
-        const loop_flag = (state.dmc_regs[0] & 0x40) != 0;
-        const irq_enabled = (state.dmc_regs[0] & 0x80) != 0;
-
-        if (loop_flag) {
-            // Restart sample
-            state.dmc_current_address = 0xC000 + (@as(u16, state.dmc_sample_address) << 6);
-            state.dmc_bytes_remaining = (@as(u16, state.dmc_sample_length) << 4) + 1;
-        } else {
-            // Sample complete
-            state.dmc_active = false;
-
-            // Generate IRQ if enabled
-            if (irq_enabled) {
-                state.dmc_irq_flag = true;
-            }
-        }
-    }
+/// Tick DMC timer and output unit (called every CPU cycle)
+/// Returns true if DMA should be triggered to fetch next sample byte
+/// The caller (EmulationState) is responsible for handling the DMA side effect
+pub fn tickDmc(state: *ApuState) bool {
+    return Dmc.tick(state);
 }

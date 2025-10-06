@@ -446,3 +446,78 @@ test "Integration: Reloading length counter mid-playback" {
     // Should be 10, not 11
     try testing.expectEqual(@as(u8, 10), state.pulse1_length);
 }
+
+test "Integration: Sequential frame counter resets (multi-frame continuity)" {
+    var state = ApuLogic.init();
+
+    // Enable pulse 1, load counter
+    ApuLogic.writeControl(&state, 0x01);
+    ApuLogic.writePulse1(&state, 3, 0x00); // Load 10
+
+    // Run through 3 complete 4-step frame sequences
+    for (0..3) |frame_num| {
+        const start_length = state.pulse1_length;
+
+        // First half-frame at cycle 14913
+        state.frame_counter_cycles = 14913 - 1;
+        _ = ApuLogic.tickFrameCounter(&state);
+        try testing.expectEqual(start_length - 1, state.pulse1_length);
+
+        // Second half-frame at cycle 29829
+        state.frame_counter_cycles = 29829 - 1;
+        _ = ApuLogic.tickFrameCounter(&state);
+        try testing.expectEqual(start_length - 2, state.pulse1_length);
+
+        // Tick one more cycle to trigger reset
+        _ = ApuLogic.tickFrameCounter(&state);
+
+        // Verify counter reset to 0
+        try testing.expectEqual(@as(u32, 0), state.frame_counter_cycles);
+
+        // Verify we're in frame N+1 and counter decremented correctly
+        const expected_after_frame = @as(u8, @intCast(10 - ((frame_num + 1) * 2)));
+        try testing.expectEqual(expected_after_frame, state.pulse1_length);
+    }
+
+    // After 3 frames: 10 - 6 = 4
+    try testing.expectEqual(@as(u8, 4), state.pulse1_length);
+    try testing.expectEqual(@as(u32, 0), state.frame_counter_cycles);
+}
+
+test "Integration: Sequential 5-step frame counter resets" {
+    var state = ApuLogic.init();
+
+    // Enable pulse 1, load counter
+    ApuLogic.writeControl(&state, 0x01);
+    ApuLogic.writePulse1(&state, 3, 0x00); // Load 10
+
+    // Enable 5-step mode (immediate clock: 10 -> 9)
+    ApuLogic.writeFrameCounter(&state, 0x80);
+    try testing.expectEqual(@as(u8, 9), state.pulse1_length);
+
+    // Run through 2 complete 5-step frame sequences
+    for (0..2) |frame_num| {
+        const start_length = state.pulse1_length;
+
+        // First half-frame at cycle 14913
+        state.frame_counter_cycles = 14913 - 1;
+        _ = ApuLogic.tickFrameCounter(&state);
+        try testing.expectEqual(start_length - 1, state.pulse1_length);
+
+        // Second half-frame at cycle 37281 (5-step mode)
+        state.frame_counter_cycles = 37281 - 1;
+        _ = ApuLogic.tickFrameCounter(&state);
+
+        // This tick should both decrement AND reset counter
+        try testing.expectEqual(@as(u32, 0), state.frame_counter_cycles);
+        try testing.expectEqual(start_length - 2, state.pulse1_length);
+
+        // Verify we're ready for next frame
+        const expected_after_frame = @as(u8, @intCast(9 - ((frame_num + 1) * 2)));
+        try testing.expectEqual(expected_after_frame, state.pulse1_length);
+    }
+
+    // After 2 frames starting from 9: 9 - 4 = 5
+    try testing.expectEqual(@as(u8, 5), state.pulse1_length);
+    try testing.expectEqual(@as(u32, 0), state.frame_counter_cycles);
+}

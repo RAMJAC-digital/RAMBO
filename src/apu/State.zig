@@ -4,6 +4,8 @@
 //! All state is owned directly by EmulationState (no pointers).
 
 const std = @import("std");
+const Envelope = @import("Envelope.zig").Envelope;
+const Sweep = @import("Sweep.zig").Sweep;
 
 /// APU Frame Counter State
 /// Drives envelope, sweep, and length counter clocks at ~240 Hz
@@ -53,6 +55,53 @@ pub const ApuState = struct {
     triangle_halt: bool = false,
     noise_halt: bool = false,
 
+    // ===== Envelopes =====
+    // Each channel with volume control has an envelope generator
+    // Clocked at 240 Hz (quarter-frame rate)
+    // Provides either constant volume or decaying volume (0-15)
+
+    pulse1_envelope: Envelope = .{},
+    pulse2_envelope: Envelope = .{},
+    noise_envelope: Envelope = .{},
+
+    // ===== Linear Counter (Triangle Channel) =====
+    // Triangle channel uses a linear counter instead of an envelope
+    // Clocked at 240 Hz (quarter-frame rate)
+    // Controls triangle channel timing along with length counter
+
+    /// Linear counter value (7-bit, 0-127)
+    /// Counts down each quarter frame when not reloading
+    /// Triangle is silenced when zero
+    triangle_linear_counter: u7 = 0,
+
+    /// Linear counter reload value (from $4008 bits 0-6)
+    /// Loaded into linear_counter when reload_flag is set
+    triangle_linear_reload: u7 = 0,
+
+    /// Linear counter reload flag
+    /// Set when $400B is written (triangle length counter load)
+    /// Cleared when halt flag is clear and quarter frame clocks
+    triangle_linear_reload_flag: bool = false,
+
+    // ===== Sweep Units (Pulse Channels) =====
+    // Each pulse channel has a sweep unit that modulates its period
+    // Clocked at 120 Hz (half-frame rate)
+    // Controls frequency sweeps (pitch bends)
+
+    pulse1_sweep: Sweep = .{},
+    pulse2_sweep: Sweep = .{},
+
+    // ===== Pulse Channel Periods (Timers) =====
+    // 11-bit timer periods for pulse channels
+    // Modified by sweep units, used for waveform generation (Phase 3+)
+    // Formula: frequency = CPU_CLOCK / (16 * (period + 1))
+
+    /// Pulse 1 timer period (11-bit, $4002/$4003)
+    pulse1_period: u11 = 0,
+
+    /// Pulse 2 timer period (11-bit, $4006/$4007)
+    pulse2_period: u11 = 0,
+
     // ===== DMC (DPCM) Channel State =====
 
     /// DMC sample playback active
@@ -60,6 +109,12 @@ pub const ApuState = struct {
 
     /// DMC IRQ flag (bit 7 of $4015)
     dmc_irq_flag: bool = false,
+
+    /// DMC IRQ enable flag (bit 7 of $4010)
+    dmc_irq_enabled: bool = false,
+
+    /// DMC loop flag (bit 6 of $4010)
+    dmc_loop_flag: bool = false,
 
     /// DMC sample address (16-bit)
     /// Computed as $C000 + (dmc_sample_address × 64)
@@ -75,13 +130,25 @@ pub const ApuState = struct {
     /// DMC current address (increments as sample plays)
     dmc_current_address: u16 = 0,
 
-    /// DMC sample buffer (8-bit shift register)
+    /// DMC sample buffer holds the next byte to be played
     dmc_sample_buffer: u8 = 0,
 
-    /// DMC output level (7-bit DAC)
+    /// DMC sample buffer empty flag (true when buffer needs refill)
+    dmc_sample_buffer_empty: bool = true,
+
+    /// DMC output shift register (shifts out bits for playback)
+    dmc_shift_register: u8 = 0,
+
+    /// DMC bits remaining in shift register (0-8)
+    dmc_bits_remaining: u4 = 0,
+
+    /// DMC silence flag (set when no sample data available)
+    dmc_silence_flag: bool = true,
+
+    /// DMC output level (7-bit DAC, 0-127)
     dmc_output: u7 = 0,
 
-    /// DMC rate timer (controls playback frequency)
+    /// DMC rate timer (counts down each CPU cycle)
     dmc_timer: u16 = 0,
 
     /// DMC timer period (from rate table, NTSC/PAL-specific)
@@ -125,6 +192,10 @@ pub const ApuState = struct {
         // Reset DMC state
         self.dmc_active = false;
         self.dmc_bytes_remaining = 0;
+        self.dmc_sample_buffer_empty = true;
+        self.dmc_silence_flag = true;
+        self.dmc_bits_remaining = 0;
+        self.dmc_shift_register = 0;
 
         // NOTE: frame_counter_mode and irq_inhibit are NOT reset
         // This matches hardware behavior

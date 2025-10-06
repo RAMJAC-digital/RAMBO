@@ -587,6 +587,62 @@ pub fn build(b: *std.Build) void {
 
     const run_apu_length_counter_tests = b.addRunArtifact(apu_length_counter_tests);
 
+    // APU DMC tests (Milestone 1)
+    const apu_dmc_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/apu/dmc_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+
+    const run_apu_dmc_tests = b.addRunArtifact(apu_dmc_tests);
+
+    // APU Envelope tests (Milestone 2)
+    const apu_envelope_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/apu/envelope_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+
+    const run_apu_envelope_tests = b.addRunArtifact(apu_envelope_tests);
+
+    // APU Linear Counter tests (Milestone 3)
+    const apu_linear_counter_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/apu/linear_counter_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+
+    const run_apu_linear_counter_tests = b.addRunArtifact(apu_linear_counter_tests);
+
+    // APU Sweep tests (Milestone 4)
+    const apu_sweep_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/apu/sweep_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+
+    const run_apu_sweep_tests = b.addRunArtifact(apu_sweep_tests);
+
     // DPCM DMA integration tests
     const dpcm_dma_tests = b.addTest(.{
         .root_module = b.createModule(.{
@@ -650,6 +706,10 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_debugger_integration_tests.step);
     test_step.dependOn(&run_apu_tests.step);
     test_step.dependOn(&run_apu_length_counter_tests.step);
+    test_step.dependOn(&run_apu_dmc_tests.step);
+    test_step.dependOn(&run_apu_envelope_tests.step);
+    test_step.dependOn(&run_apu_linear_counter_tests.step);
+    test_step.dependOn(&run_apu_sweep_tests.step);
     test_step.dependOn(&run_dpcm_dma_tests.step);
     test_step.dependOn(&run_benchmark_tests.step);
 
@@ -658,6 +718,10 @@ pub fn build(b: *std.Build) void {
     unit_test_step.dependOn(&run_mod_tests.step);
     unit_test_step.dependOn(&run_apu_tests.step);
     unit_test_step.dependOn(&run_apu_length_counter_tests.step);
+    unit_test_step.dependOn(&run_apu_dmc_tests.step);
+    unit_test_step.dependOn(&run_apu_envelope_tests.step);
+    unit_test_step.dependOn(&run_apu_linear_counter_tests.step);
+    unit_test_step.dependOn(&run_apu_sweep_tests.step);
 
     // Separate step for just integration tests
     const integration_test_step = b.step("test-integration", "Run integration tests only");
