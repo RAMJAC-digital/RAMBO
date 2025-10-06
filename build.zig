@@ -191,20 +191,6 @@ pub fn build(b: *std.Build) void {
     // Integration Tests (in tests/ directory)
     // ========================================================================
 
-    // Simple NOP debug test
-    const simple_nop_test = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("tests/cpu/simple_nop_test.zig"),
-            .target = target,
-            .optimize = optimize,
-            .imports = &.{
-                .{ .name = "RAMBO", .module = mod },
-            },
-        }),
-    });
-
-    const run_simple_nop_test = b.addRunArtifact(simple_nop_test);
-
     // CPU instruction tests
     const cpu_integration_tests = b.addTest(.{
         .root_module = b.createModule(.{
@@ -419,6 +405,20 @@ pub fn build(b: *std.Build) void {
 
     const run_cpu_ppu_integration_tests = b.addRunArtifact(cpu_ppu_integration_tests);
 
+    // OAM DMA integration tests
+    const oam_dma_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/oam_dma_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+
+    const run_oam_dma_tests = b.addRunArtifact(oam_dma_tests);
+
     // Cartridge tests (AccuracyCoin.nes integration)
     const cartridge_tests = b.addTest(.{
         .root_module = b.createModule(.{
@@ -539,6 +539,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_rmw_tests.step);
     test_step.dependOn(&run_bus_integration_tests.step);
     test_step.dependOn(&run_cpu_ppu_integration_tests.step);
+    test_step.dependOn(&run_oam_dma_tests.step);
     test_step.dependOn(&run_cartridge_tests.step);
     test_step.dependOn(&run_chr_integration_tests.step);
     test_step.dependOn(&run_sprite_evaluation_tests.step);
@@ -557,6 +558,7 @@ pub fn build(b: *std.Build) void {
     integration_test_step.dependOn(&run_rmw_tests.step);
     integration_test_step.dependOn(&run_bus_integration_tests.step);
     integration_test_step.dependOn(&run_cpu_ppu_integration_tests.step);
+    integration_test_step.dependOn(&run_oam_dma_tests.step);
     integration_test_step.dependOn(&run_cartridge_tests.step);
     integration_test_step.dependOn(&run_chr_integration_tests.step);
     integration_test_step.dependOn(&run_sprite_evaluation_tests.step);
@@ -564,46 +566,6 @@ pub fn build(b: *std.Build) void {
     integration_test_step.dependOn(&run_sprite_edge_cases_tests.step);
     integration_test_step.dependOn(&run_snapshot_integration_tests.step);
     integration_test_step.dependOn(&run_debugger_integration_tests.step);
-
-    // Cycle trace test
-    const cycle_trace_test = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("tests/cpu/cycle_trace_test.zig"),
-            .target = target,
-            .optimize = optimize,
-            .imports = &.{
-                .{ .name = "RAMBO", .module = mod },
-            },
-        }),
-    });
-
-    const run_cycle_trace_test = b.addRunArtifact(cycle_trace_test);
-
-    // RMW debug trace test
-    const rmw_debug_test = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("tests/cpu/rmw_debug_test.zig"),
-            .target = target,
-            .optimize = optimize,
-            .imports = &.{
-                .{ .name = "RAMBO", .module = mod },
-            },
-        }),
-    });
-
-    const run_rmw_debug_test = b.addRunArtifact(rmw_debug_test);
-
-    // Debug test step
-    const debug_test_step = b.step("test-debug", "Run debug test");
-    debug_test_step.dependOn(&run_simple_nop_test.step);
-
-    // Cycle trace test step
-    const trace_test_step = b.step("test-trace", "Run cycle trace tests");
-    trace_test_step.dependOn(&run_cycle_trace_test.step);
-
-    // RMW debug trace test step
-    const rmw_debug_step = b.step("test-rmw-debug", "Run RMW debug trace test");
-    rmw_debug_step.dependOn(&run_rmw_debug_test.step);
 
     // Just like flags, top level steps are also listed in the `--help` menu.
     //
