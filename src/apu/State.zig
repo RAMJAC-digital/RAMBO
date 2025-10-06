@@ -31,6 +31,28 @@ pub const ApuState = struct {
     noise_enabled: bool = false,
     dmc_enabled: bool = false,
 
+    // ===== Length Counters =====
+    // Each channel has a length counter that:
+    // - Loads from LENGTH_TABLE when $400X register 3 is written
+    // - Decrements on half-frame clock events (~120 Hz)
+    // - Silences channel when it reaches zero
+    // - Can be halted (prevented from decrementing) by halt flag
+
+    pulse1_length: u8 = 0,
+    pulse2_length: u8 = 0,
+    triangle_length: u8 = 0,
+    noise_length: u8 = 0,
+
+    // ===== Length Counter Halt Flags =====
+    // From $4000 bit 5 (pulse1), $4004 bit 5 (pulse2),
+    // $4008 bit 7 (triangle), $400C bit 5 (noise)
+    // When set: Length counter does NOT decrement (infinite play)
+
+    pulse1_halt: bool = false,
+    pulse2_halt: bool = false,
+    triangle_halt: bool = false,
+    noise_halt: bool = false,
+
     // ===== DMC (DPCM) Channel State =====
 
     /// DMC sample playback active
@@ -89,6 +111,12 @@ pub const ApuState = struct {
         self.triangle_enabled = false;
         self.noise_enabled = false;
         self.dmc_enabled = false;
+
+        // Clear length counters
+        self.pulse1_length = 0;
+        self.pulse2_length = 0;
+        self.triangle_length = 0;
+        self.noise_length = 0;
 
         // Clear IRQ flags
         self.frame_irq_flag = false;

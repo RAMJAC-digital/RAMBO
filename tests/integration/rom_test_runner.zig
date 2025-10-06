@@ -156,7 +156,7 @@ pub const RomTestRunner = struct {
     }
 
     /// Execute one frame of emulation (29780 CPU cycles)
-    fn runFrame(self: *RomTestRunner) !usize {
+    pub fn runFrame(self: *RomTestRunner) !usize {
         var instructions: usize = 0;
         const cycles_per_frame = 29780; // NTSC: ~1.79 MHz / 60 Hz
 

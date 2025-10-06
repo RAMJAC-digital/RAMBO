@@ -447,6 +447,20 @@ pub fn build(b: *std.Build) void {
 
     const run_rom_test_runner_tests = b.addRunArtifact(rom_test_runner_tests);
 
+    // AccuracyCoin execution test (runs ROM and extracts test results)
+    const accuracycoin_execution_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/accuracycoin_execution_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+
+    const run_accuracycoin_execution_tests = b.addRunArtifact(accuracycoin_execution_tests);
+
     // Cartridge tests (AccuracyCoin.nes integration)
     const cartridge_tests = b.addTest(.{
         .root_module = b.createModule(.{
@@ -598,6 +612,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_oam_dma_tests.step);
     test_step.dependOn(&run_controller_tests.step);
     test_step.dependOn(&run_rom_test_runner_tests.step);
+    test_step.dependOn(&run_accuracycoin_execution_tests.step);
     test_step.dependOn(&run_cartridge_tests.step);
     test_step.dependOn(&run_chr_integration_tests.step);
     test_step.dependOn(&run_sprite_evaluation_tests.step);
@@ -622,6 +637,7 @@ pub fn build(b: *std.Build) void {
     integration_test_step.dependOn(&run_oam_dma_tests.step);
     integration_test_step.dependOn(&run_controller_tests.step);
     integration_test_step.dependOn(&run_rom_test_runner_tests.step);
+    integration_test_step.dependOn(&run_accuracycoin_execution_tests.step);
     integration_test_step.dependOn(&run_cartridge_tests.step);
     integration_test_step.dependOn(&run_chr_integration_tests.step);
     integration_test_step.dependOn(&run_sprite_evaluation_tests.step);
