@@ -573,6 +573,20 @@ pub fn build(b: *std.Build) void {
 
     const run_apu_tests = b.addRunArtifact(apu_tests);
 
+    // APU length counter tests (Phase 1.5)
+    const apu_length_counter_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/apu/length_counter_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+
+    const run_apu_length_counter_tests = b.addRunArtifact(apu_length_counter_tests);
+
     // DPCM DMA integration tests
     const dpcm_dma_tests = b.addTest(.{
         .root_module = b.createModule(.{
@@ -586,6 +600,20 @@ pub fn build(b: *std.Build) void {
     });
 
     const run_dpcm_dma_tests = b.addRunArtifact(dpcm_dma_tests);
+
+    // Benchmark integration tests
+    const benchmark_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/benchmark_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+
+    const run_benchmark_tests = b.addRunArtifact(benchmark_tests);
 
     // ========================================================================
     // Test Step Configuration
@@ -621,12 +649,15 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_snapshot_integration_tests.step);
     test_step.dependOn(&run_debugger_integration_tests.step);
     test_step.dependOn(&run_apu_tests.step);
+    test_step.dependOn(&run_apu_length_counter_tests.step);
     test_step.dependOn(&run_dpcm_dma_tests.step);
+    test_step.dependOn(&run_benchmark_tests.step);
 
     // Separate step for just unit tests
     const unit_test_step = b.step("test-unit", "Run unit tests only");
     unit_test_step.dependOn(&run_mod_tests.step);
     unit_test_step.dependOn(&run_apu_tests.step);
+    unit_test_step.dependOn(&run_apu_length_counter_tests.step);
 
     // Separate step for just integration tests
     const integration_test_step = b.step("test-integration", "Run integration tests only");
@@ -646,6 +677,7 @@ pub fn build(b: *std.Build) void {
     integration_test_step.dependOn(&run_snapshot_integration_tests.step);
     integration_test_step.dependOn(&run_debugger_integration_tests.step);
     integration_test_step.dependOn(&run_dpcm_dma_tests.step);
+    integration_test_step.dependOn(&run_benchmark_tests.step);
 
     // Just like flags, top level steps are also listed in the `--help` menu.
     //

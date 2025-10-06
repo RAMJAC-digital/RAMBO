@@ -49,6 +49,9 @@ pub const Debugger = @import("debugger/Debugger.zig");
 /// Mailbox system for thread communication (video, emulation, config)
 pub const Mailboxes = @import("mailboxes/Mailboxes.zig");
 
+/// Benchmarking infrastructure for performance measurement
+pub const Benchmark = @import("benchmark/Benchmark.zig");
+
 // ============================================================================
 // Re-export commonly used types for convenience
 // ============================================================================
