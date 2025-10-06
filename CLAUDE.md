@@ -17,12 +17,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Controller I/O:** 100% complete ($4016/$4017, 14 tests passing) ✅
 - **Bus:** 100% complete (all I/O registers implemented) ✅
 - **Cartridge:** Mapper 0 (NROM) complete ✅
-- **APU:** 57% complete (4/7 milestones - DMC, Envelopes, Linear Counter, Sweep Units) ⏳
-- **Tests:** 712/714 passing (99.7%, 2 skipped due to missing PRG RAM)
+- **APU:** 86% complete (6/7 milestones - DMC, Envelopes, Linear Counter, Sweep, Frame IRQ, Open Bus) ⏳
+- **Tests:** 729/731 passing (99.7%, 2 skipped due to missing PRG RAM)
 
-**Current Phase:** APU Development - Milestones 3 & 4 ✅ COMPLETE
-**Next Phase:** APU Milestones 5-7 (Frame IRQ, Open Bus, Integration) OR Video Subsystem
-**Critical Path:** ✅ P1 Accuracy → ✅ Controller I/O → APU/Video → Playable Games
+**Current Phase:** APU Development - Milestones 5 & 6 ✅ COMPLETE (Frame IRQ Edge Cases + Open Bus)
+**Next Phase:** APU Milestone 7 (AccuracyCoin Integration - requires PRG RAM) OR Video Subsystem
+**Critical Path:** ✅ P1 Accuracy → ✅ Controller I/O → ✅ APU (86%) → Video → Playable Games
 
 **Key Requirement:** Hardware-accurate 6502 emulation with cycle-level precision for AccuracyCoin compatibility.
 
@@ -296,18 +296,18 @@ tests/integration/controller_test.zig     # 14 comprehensive tests
 
 ### APU (`src/apu/`)
 
-**Status:** ⏳ 57% Complete - 4/7 Milestones Implemented
+**Status:** ⏳ 86% Complete - 6/7 Milestones Implemented
 
 **Completed Milestones:**
 - ✅ **Milestone 1: DMC Channel** - DMA, IRQ, sample playback state (25 tests)
 - ✅ **Milestone 2: Envelopes** - Volume control for pulse/noise channels (20 tests)
 - ✅ **Milestone 3: Linear Counter** - Triangle channel timing (15 tests)
 - ✅ **Milestone 4: Sweep Units** - Pulse channel frequency modulation (25 tests)
+- ✅ **Milestone 5: Frame IRQ Edge Cases** - IRQ flag timing refinement (11 tests)
+- ✅ **Milestone 6: APU Register Open Bus** - Write-only register behavior (8 tests)
 
 **Remaining Milestones:**
-- ⬜ **Milestone 5: Frame IRQ Edge Cases** - IRQ flag timing refinement
-- ⬜ **Milestone 6: APU Register Open Bus** - Write-only register behavior
-- ⬜ **Milestone 7: Integration & Refinement** - Full AccuracyCoin validation
+- ⬜ **Milestone 7: Integration & Refinement** - Full AccuracyCoin validation (requires PRG RAM)
 
 **Implementation:**
 - Frame counter (4-step/5-step modes) with quarter-frame (240 Hz) and half-frame (120 Hz) clocking
@@ -316,7 +316,7 @@ tests/integration/controller_test.zig     # 14 comprehensive tests
 - Register handlers: $4000-$4017 (all APU registers)
 - Pure functional architecture with State/Logic separation
 
-**Tests:** 60/60 passing (100%)
+**Tests:** 131/131 passing (100%)
 
 **Files:**
 ```
@@ -330,16 +330,21 @@ src/apu/
 └── (TODO: waveform generation for Phase 3+)
 
 tests/apu/
-├── apu_test.zig              # Frame counter tests
+├── apu_test.zig              # Frame counter tests (8 tests)
+├── length_counter_test.zig   # Length counter tests (25 tests)
 ├── dmc_test.zig              # DMC channel tests (25 tests)
 ├── envelope_test.zig         # Envelope tests (20 tests)
 ├── linear_counter_test.zig   # Linear counter tests (15 tests)
-└── sweep_test.zig            # Sweep tests (25 tests)
+├── sweep_test.zig            # Sweep tests (25 tests)
+├── frame_irq_edge_test.zig   # Frame IRQ edge case tests (11 tests)
+└── open_bus_test.zig         # APU register open bus tests (8 tests)
 ```
 
 **Key Features:**
 - Cycle-accurate frame counter timing (NTSC timing constants)
 - Hardware-accurate sweep units (one's complement for Pulse 1, two's complement for Pulse 2)
+- **Frame IRQ edge case:** IRQ flag actively RE-SET during cycles 29829-29831 (prevents software from clearing during critical window)
+- **Open bus behavior:** Write-only APU registers ($4000-$4013) return open_bus, $4015 reads don't update open_bus
 - DMC DMA integration with CPU cycle stealing
 - Quarter-frame clocking: Envelopes + Linear Counter (240 Hz)
 - Half-frame clocking: Length Counters + Sweep Units (120 Hz)

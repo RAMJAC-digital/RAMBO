@@ -396,16 +396,19 @@ pub fn tickFrameCounter(state: *ApuState) bool {
             clockQuarterFrame(state);
         } else if (cycles == FRAME_4STEP_IRQ) {
             clockHalfFrame(state);
+        }
 
-            // Set IRQ flag if not inhibited
+        // IRQ Edge Case: Flag is actively RE-SET during cycles 29829-29831
+        // Even if $4015 is read at 29829 (clearing the flag), it gets set again on 29830-29831
+        if (cycles >= FRAME_4STEP_IRQ and cycles <= FRAME_4STEP_IRQ + 2) {
             if (!state.irq_inhibit) {
                 state.frame_irq_flag = true;
                 should_irq = true;
             }
         }
 
-        // Reset at end of sequence
-        if (cycles >= FRAME_4STEP_TOTAL) {
+        // Reset after IRQ edge case period (after cycle 29831)
+        if (cycles >= FRAME_4STEP_IRQ + 3) {
             state.frame_counter_cycles = 0;
         }
     } else {

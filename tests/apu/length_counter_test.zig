@@ -468,7 +468,8 @@ test "Integration: Sequential frame counter resets (multi-frame continuity)" {
         _ = ApuLogic.tickFrameCounter(&state);
         try testing.expectEqual(start_length - 2, state.pulse1_length);
 
-        // Tick one more cycle to trigger reset
+        // Tick to 29832 to trigger reset (after IRQ edge case period 29829-29831)
+        state.frame_counter_cycles = 29831;
         _ = ApuLogic.tickFrameCounter(&state);
 
         // Verify counter reset to 0

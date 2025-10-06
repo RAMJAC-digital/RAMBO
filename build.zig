@@ -643,6 +643,34 @@ pub fn build(b: *std.Build) void {
 
     const run_apu_sweep_tests = b.addRunArtifact(apu_sweep_tests);
 
+    // APU Frame IRQ Edge Case tests (Milestone 5)
+    const apu_frame_irq_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/apu/frame_irq_edge_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+
+    const run_apu_frame_irq_tests = b.addRunArtifact(apu_frame_irq_tests);
+
+    // APU Open Bus tests (Milestone 6)
+    const apu_open_bus_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/apu/open_bus_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+
+    const run_apu_open_bus_tests = b.addRunArtifact(apu_open_bus_tests);
+
     // DPCM DMA integration tests
     const dpcm_dma_tests = b.addTest(.{
         .root_module = b.createModule(.{
@@ -670,6 +698,20 @@ pub fn build(b: *std.Build) void {
     });
 
     const run_benchmark_tests = b.addRunArtifact(benchmark_tests);
+
+    // Release build benchmark (production settings)
+    const benchmark_release_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/benchmark_test.zig"),
+            .target = target,
+            .optimize = .ReleaseFast,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+
+    const run_benchmark_release_tests = b.addRunArtifact(benchmark_release_tests);
 
     // ========================================================================
     // Test Step Configuration
@@ -710,6 +752,8 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_apu_envelope_tests.step);
     test_step.dependOn(&run_apu_linear_counter_tests.step);
     test_step.dependOn(&run_apu_sweep_tests.step);
+    test_step.dependOn(&run_apu_frame_irq_tests.step);
+    test_step.dependOn(&run_apu_open_bus_tests.step);
     test_step.dependOn(&run_dpcm_dma_tests.step);
     test_step.dependOn(&run_benchmark_tests.step);
 
@@ -722,6 +766,8 @@ pub fn build(b: *std.Build) void {
     unit_test_step.dependOn(&run_apu_envelope_tests.step);
     unit_test_step.dependOn(&run_apu_linear_counter_tests.step);
     unit_test_step.dependOn(&run_apu_sweep_tests.step);
+    unit_test_step.dependOn(&run_apu_frame_irq_tests.step);
+    unit_test_step.dependOn(&run_apu_open_bus_tests.step);
 
     // Separate step for just integration tests
     const integration_test_step = b.step("test-integration", "Run integration tests only");
@@ -742,6 +788,9 @@ pub fn build(b: *std.Build) void {
     integration_test_step.dependOn(&run_debugger_integration_tests.step);
     integration_test_step.dependOn(&run_dpcm_dma_tests.step);
     integration_test_step.dependOn(&run_benchmark_tests.step);
+
+    const benchmark_release_step = b.step("bench-release", "Run release-optimized benchmark suite");
+    benchmark_release_step.dependOn(&run_benchmark_release_tests.step);
 
     // Just like flags, top level steps are also listed in the `--help` menu.
     //

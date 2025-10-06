@@ -425,8 +425,11 @@ pub const EmulationState = struct {
             else => self.bus.open_bus,
         };
 
-        // Hardware: All reads update open bus
-        self.bus.open_bus = value;
+        // Hardware: All reads update open bus (except $4015 which is a special case)
+        // $4015 (APU Status) doesn't update open bus because the value is synthesized
+        if (address != 0x4015) {
+            self.bus.open_bus = value;
+        }
         return value;
     }
 

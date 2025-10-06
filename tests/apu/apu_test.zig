@@ -74,9 +74,9 @@ test "APU: Frame counter 4-step timing" {
     var apu = ApuState.init();
     ApuLogic.writeFrameCounter(&apu, 0x00);
 
-    // Should reset at cycle 29830
+    // Should reset at cycle 29832 (after IRQ edge case period 29829-29831)
     var i: u32 = 0;
-    while (i < 29830) : (i += 1) {
+    while (i < 29832) : (i += 1) {
         _ = ApuLogic.tickFrameCounter(&apu);
     }
 
