@@ -8,7 +8,9 @@ const Ppu = @import("../ppu/Ppu.zig");
 const PpuLogic = Ppu.Logic;
 const PpuRuntime = @import("../emulation/Ppu.zig");
 const Cartridge = @import("../cartridge/Cartridge.zig");
-const CartridgeType = Cartridge.NromCart;
+const RegistryModule = @import("../cartridge/mappers/registry.zig");
+const AnyCartridge = RegistryModule.AnyCartridge;
+const NromCart = Cartridge.NromCart;
 const MirroringType = @import("../cartridge/ines.zig").Mirroring;
 
 pub const Harness = struct {
@@ -40,7 +42,7 @@ pub const Harness = struct {
         testing.allocator.destroy(self.config);
     }
 
-    fn cartPtr(self: *Harness) ?*CartridgeType {
+    fn cartPtr(self: *Harness) ?*AnyCartridge {
         if (self.state.cart) |*cart| {
             return cart;
         }
@@ -85,9 +87,15 @@ pub const Harness = struct {
         self.state.ppu_timing = .{};
     }
 
-    pub fn loadCartridge(self: *Harness, cart: CartridgeType) void {
+    pub fn loadCartridge(self: *Harness, cart: AnyCartridge) void {
         self.state.loadCartridge(cart);
         self.cart_loaded = true;
+    }
+
+    /// Helper: Load NROM cartridge (wraps in AnyCartridge for convenience)
+    pub fn loadNromCartridge(self: *Harness, cart: NromCart) void {
+        const any_cart = AnyCartridge{ .nrom = cart };
+        self.loadCartridge(any_cart);
     }
 
     pub fn setMirroring(self: *Harness, mode: MirroringType) void {

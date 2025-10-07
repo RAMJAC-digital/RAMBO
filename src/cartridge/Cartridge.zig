@@ -46,6 +46,9 @@ pub const CartridgeError = error{
 /// - ppuRead(self: *const MapperType, cart: anytype, address: u16) u8
 /// - ppuWrite(self: *MapperType, cart: anytype, address: u16, value: u8) void
 /// - reset(self: *MapperType, cart: anytype) void
+/// - tickIrq(self: *MapperType) bool  (return false if no IRQ support)
+/// - ppuA12Rising(self: *MapperType) void  (no-op if not used)
+/// - acknowledgeIrq(self: *MapperType) void  (no-op if no IRQ support)
 pub fn Cartridge(comptime MapperType: type) type {
     return struct {
         const Self = @This();
@@ -62,6 +65,12 @@ pub fn Cartridge(comptime MapperType: type) type {
         /// - CHR RAM: Mutable, used when header.chr_rom_size == 0
         /// Size: header.chr_rom_size * 8KB (or 8KB if CHR RAM)
         chr_data: []u8,
+
+        /// PRG RAM data (battery-backed or work RAM at $6000-$7FFF)
+        /// Size: Always 8KB for Mapper 0 (industry standard)
+        /// Note: AccuracyCoin and other test ROMs require this even if
+        /// the iNES header indicates 0 PRG RAM size
+        prg_ram: ?[]u8,
 
         /// iNES header metadata
         header: InesHeader,
@@ -121,11 +130,22 @@ pub fn Cartridge(comptime MapperType: type) type {
             };
             errdefer allocator.free(chr_data);
 
+            // Allocate PRG RAM (8KB - industry standard for Mapper 0)
+            // Note: Always allocate for Mapper 0, even if iNES header indicates 0 bytes
+            // Many test ROMs (like AccuracyCoin) require PRG RAM but have header.prg_ram_size = 0
+            const prg_ram = blk: {
+                const ram = try allocator.alloc(u8, 8192);
+                @memset(ram, 0);
+                break :blk ram;
+            };
+            errdefer allocator.free(prg_ram);
+
             // Create cartridge with mapper instance
             var cart = Self{
                 .mapper = MapperType{}, // Default init - mappers can add init() if needed
                 .prg_rom = prg_rom,
                 .chr_data = chr_data,
+                .prg_ram = prg_ram,
                 .header = header,
                 .mirroring = header.getMirroring(),
                 .allocator = allocator,
@@ -147,6 +167,9 @@ pub fn Cartridge(comptime MapperType: type) type {
         pub fn deinit(self: *Self) void {
             self.allocator.free(self.prg_rom);
             self.allocator.free(self.chr_data);
+            if (self.prg_ram) |ram| {
+                self.allocator.free(ram);
+            }
         }
 
         /// Read from CPU address space ($4020-$FFFF)

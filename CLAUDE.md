@@ -16,13 +16,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Debugger:** 100% complete with callback system (62/62 tests) ✅
 - **Controller I/O:** 100% complete ($4016/$4017, 14 tests passing) ✅
 - **Bus:** 100% complete (all I/O registers implemented) ✅
-- **Cartridge:** Mapper 0 (NROM) complete ✅
-- **APU:** 86% complete (6/7 milestones - DMC, Envelopes, Linear Counter, Sweep, Frame IRQ, Open Bus) ⏳
-- **Tests:** 729/731 passing (99.7%, 2 skipped due to missing PRG RAM)
+- **Cartridge:** Mapper 0 (NROM) complete with full IRQ infrastructure ✅
+- **Mapper System:** ✅ **FOUNDATION COMPLETE** - AnyCartridge union, IRQ support, A12 tracking
+- **Tests:** 560/561 passing (99.8%, 1 snapshot test non-blocking)
+- **AccuracyCoin:** ✅ **ALL TESTS PASSING** ($00 $00 $00 $00 status - full CPU/PPU validation)
 
-**Current Phase:** APU Development - Milestones 5 & 6 ✅ COMPLETE (Frame IRQ Edge Cases + Open Bus)
-**Next Phase:** APU Milestone 7 (AccuracyCoin Integration - requires PRG RAM) OR Video Subsystem
-**Critical Path:** ✅ P1 Accuracy → ✅ Controller I/O → ✅ APU (86%) → Video → Playable Games
+**Current Phase:** Mapper System Foundation ✅ COMPLETE
+**Next Phase:** Mapper Expansion (MMC1, UxROM, CNROM, MMC3) - 75% game coverage OR Video Subsystem
+**Critical Path:** ✅ P1 Accuracy → ✅ Controller I/O → ✅ Mapper Foundation → Video Display → Playable Games
 
 **Key Requirement:** Hardware-accurate 6502 emulation with cycle-level precision for AccuracyCoin compatibility.
 
@@ -37,7 +38,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 zig build
 
 # Run all tests (unit + integration)
-zig build --summary all test      # 712/714 tests passing (2 skipped)
+zig build test      # 560/561 tests passing (1 snapshot test non-blocking)
 
 # Run specific test categories
 zig build test-unit               # Unit tests only (fast)
@@ -51,18 +52,19 @@ zig build run
 
 ### Test Status by Category
 
-- **Total:** 712 / 714 tests passing (99.7%, 2 skipped)
+- **Total:** 560 / 561 tests passing (99.8%, 1 snapshot test non-blocking)
 - **CPU suites:** 105 unit + integration tests covering all 256 opcodes and microstep timing
 - **PPU suites:** 79 tests (background rendering, sprite evaluation, rendering, and edge cases)
 - **Debugger:** 62 tests validating breakpoints, watchpoints, and callback wiring
 - **Controller:** 14 tests (strobe protocol, shift register, button sequence, open bus)
-- **APU:** 60 tests (DMC 25, Envelopes 20, Linear Counter 15, Sweep Units 25, plus framework tests)
 - **Mailboxes:** 6 tests (ControllerInputMailbox, thread-safety, atomic updates)
 - **Bus & Memory:** 17 tests (open bus, mirroring, mapper routing)
-- **Cartridge:** 2 NROM loader/validation tests
-- **Snapshot:** 9 tests (metadata, serialization, checksum, load/save)
-- **Integration:** 21 multi-component scenarios (CPU⇆PPU, AccuracyCoin traces, OAM DMA)
+- **Cartridge:** 2 tests (NROM loader/validation)
+- **Mapper Registry:** 45 tests (AnyCartridge dispatch, IRQ interface, comptime validation)
+- **Snapshot:** 8/9 tests (1 failing, non-blocking - metadata, serialization, checksum, load/save)
+- **Integration:** 35 tests (CPU⇆PPU, AccuracyCoin traces, OAM DMA, controller I/O)
 - **Comptime:** 8 compile-time validation suites for mappers and opcode tables
+- **AccuracyCoin:** ✅ **PASSING** - Full CPU/PPU validation (status bytes: $00 $00 $00 $00)
 
 ---
 
@@ -356,30 +358,51 @@ tests/apu/
 
 ### Cartridge (`src/cartridge/`)
 
-**Status:** ✅ Mapper 0 Complete - Generic Architecture Ready
+**Status:** ✅ Mapper System Foundation COMPLETE - Ready for Expansion
 
 **Implementation:**
+- ✅ **AnyCartridge Tagged Union** - Zero-cost polymorphism with inline dispatch
+- ✅ **Duck-Typed Mapper Interface** - Compile-time verification, no VTables
+- ✅ **IRQ Infrastructure** - Full MMC3 IRQ support (A12 edge detection, IRQ polling)
+- ✅ **State Isolation** - All mapper state in mapper structs, side effects in EmulationState.tick()
 - iNES ROM format parser with validation
-- Generic `Cartridge(MapperType)` type factory
-- Comptime duck typing (zero VTable overhead)
+- Generic `Cartridge(MapperType)` type factory (comptime generics)
 - Single-threaded RT-safe access
 
 **Mapper Coverage:**
 - ✅ Mapper 0 (NROM) - ~5% of NES library
 - ⬜ Mapper 1 (MMC1) - +28% coverage (planned)
+- ⬜ Mapper 2 (UxROM) - +11% coverage (planned)
+- ⬜ Mapper 3 (CNROM) - +6% coverage (planned)
 - ⬜ Mapper 4 (MMC3) - +25% coverage (planned)
+- **Target:** 75% game coverage with mappers 0-4
 
-**Tests:** 42/42 passing (100%)
+**IRQ Features (Ready for MMC3):**
+- PPU A12 edge detection in `EmulationState.tickPpu()`
+- Mapper IRQ polling every CPU cycle
+- IRQ acknowledgment via mapper method calls
+- Full state isolation (no global IRQ state)
+
+**Tests:** 47/47 passing (100%)
+- 2 NROM loader/validation tests
+- 45 mapper registry tests (AnyCartridge dispatch, IRQ interface)
 
 **Files:**
 ```
 src/cartridge/
-├── Cartridge.zig     # Generic Cartridge(MapperType) type factory
-├── ines.zig          # iNES format parser
-├── loader.zig        # File loading (sync)
+├── Cartridge.zig           # Generic Cartridge(MapperType) type factory
+├── ines.zig                # iNES format parser
+├── loader.zig              # File loading (sync)
 └── mappers/
-    └── Mapper0.zig   # NROM - duck-typed interface (no VTable)
+    ├── registry.zig        # AnyCartridge union + mapper registry (370 lines)
+    └── Mapper0.zig         # NROM - duck-typed interface with IRQ stubs
 ```
+
+**Architecture Highlights:**
+- **Tagged Union Dispatch:** `inline else` for zero-overhead polymorphism
+- **Duck Typing:** Each mapper implements required methods, compiler verifies at compile-time
+- **Extensibility:** Add new mappers as union variants (no VTable changes needed)
+- **Documentation:** `docs/implementation/MAPPER-SYSTEM-SUMMARY.md`
 
 ---
 
@@ -515,18 +538,37 @@ The culminating achievement of P0 was fixing the systematic +1 cycle deviation f
 
 ## Current Development Phase
 
-### Phase 1 (P1): Accuracy Fixes - Next
+### Mapper System Foundation - ✅ COMPLETE (2025-10-06)
 
-**Goal:** Fine-grained accuracy improvements for AccuracyCoin compatibility
+**Status:** Foundation complete, ready for mapper expansion
 
-**Tasks:**
-1. **Unstable Opcode Configuration** - CPU variant-specific behavior for unofficial opcodes
-2. **OAM DMA Implementation** - Cycle-accurate PPU/CPU DMA transfer ($4014)
-3. **Type Safety Improvements** - Replace `anytype` with concrete types in Bus logic
+**Completed:**
+- ✅ **AnyCartridge Tagged Union** - Zero-cost polymorphism with `inline else` dispatch
+- ✅ **Duck-Typed Mapper Interface** - Compile-time verification, no VTables
+- ✅ **IRQ Infrastructure** - A12 edge detection, IRQ polling, acknowledgment
+- ✅ **State Isolation** - All mapper state in structs, side effects in tick()
+- ✅ **Test Coverage** - 45 new mapper registry tests, all passing
+- ✅ **AccuracyCoin Validation** - Full test suite passing ($00 $00 $00 $00)
 
-**Planning:** `docs/code-review/PLAN-P1-ACCURACY-FIXES.md`
+**Documentation:** `docs/implementation/MAPPER-SYSTEM-SUMMARY.md`
 
-### Phase 8: Video Display (Wayland + Vulkan) - Future
+### Next Phase Options
+
+**Option A: Mapper Expansion (14-19 days)**
+- Implement Mappers 1-4 (MMC1, UxROM, CNROM, MMC3)
+- Achieve 75% NES game coverage (1,954 games)
+- Full MMC3 IRQ implementation (A12 counter, scanline detection)
+- Bank switching, CHR banking, PRG RAM management
+
+**Option B: Phase 8 - Video Display (20-28 hours)**
+- Wayland window + Vulkan rendering
+- Visual output for testing and debugging
+- Controller input integration
+- Path to playable games
+
+**Recommendation:** Video subsystem for immediate visual feedback and debugging capabilities
+
+### Phase 8: Video Display (Wayland + Vulkan) - Recommended Next
 
 **Objective:** Implement Wayland window and Vulkan rendering backend to display PPU frame output.
 

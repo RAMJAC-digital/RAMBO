@@ -7,7 +7,8 @@ const std = @import("std");
 const testing = std.testing;
 const RAMBO = @import("RAMBO");
 
-const Cartridge = RAMBO.CartridgeType;
+const NromCart = RAMBO.CartridgeType;
+const AnyCartridge = RAMBO.AnyCartridge;
 const EmulationState = RAMBO.EmulationState.EmulationState;
 const Config = RAMBO.Config;
 
@@ -43,7 +44,7 @@ test "Load AccuracyCoin.nes" {
     const accuracycoin_path = "AccuracyCoin/AccuracyCoin.nes";
 
     // Load cartridge from file
-    var cart = Cartridge.load(testing.allocator, accuracycoin_path) catch |err| {
+    var cart = NromCart.load(testing.allocator, accuracycoin_path) catch |err| {
         // If file doesn't exist, skip test (not an error)
         if (err == error.FileNotFound) {
             std.debug.print("Skipping AccuracyCoin test - file not found at: {s}\n", .{accuracycoin_path});
@@ -91,13 +92,16 @@ test "Load AccuracyCoin.nes" {
 test "Load AccuracyCoin.nes through Bus" {
     const accuracycoin_path = "AccuracyCoin/AccuracyCoin.nes";
 
-    const cart = Cartridge.load(testing.allocator, accuracycoin_path) catch |err| {
+    const nrom_cart = NromCart.load(testing.allocator, accuracycoin_path) catch |err| {
         if (err == error.FileNotFound) {
             std.debug.print("Skipping Bus integration test - file not found\n", .{});
             return error.SkipZigTest;
         }
         return err;
     };
+
+    // Wrap in AnyCartridge
+    const cart = AnyCartridge{ .nrom = nrom_cart };
 
     var harness = try TestHarness.init();
     defer harness.deinit(); // Now properly cleans up cartridge via state.deinit()

@@ -4,8 +4,9 @@ const std = @import("std");
 const Config = @import("../config/Config.zig");
 const Cartridge = @import("../cartridge/Cartridge.zig");
 const PpuModule = @import("../ppu/Ppu.zig");
+const RegistryModule = @import("../cartridge/mappers/registry.zig");
 
-const NromCart = Cartridge.NromCart;
+const AnyCartridge = RegistryModule.AnyCartridge;
 const PpuState = PpuModule.State.PpuState;
 const PpuLogic = PpuModule.Logic;
 
@@ -14,6 +15,11 @@ pub const Timing = struct {
     scanline: u16 = 0,
     dot: u16 = 0,
     frame: u64 = 0,
+
+    /// PPU A12 state (for MMC3 IRQ detection)
+    /// Bit 12 of PPU address - transitions during tile fetches
+    /// MMC3 IRQ counter decrements on rising edge (0→1)
+    a12_state: bool = false,
 };
 
 /// Result flags produced by a single PPU tick
@@ -32,7 +38,7 @@ pub fn resetTiming(timing: *Timing) void {
 pub fn tick(
     state: *PpuState,
     timing: *Timing,
-    cart: ?*NromCart,
+    cart: ?*AnyCartridge,
     framebuffer: ?[]u32,
 ) TickFlags {
     var flags = TickFlags{

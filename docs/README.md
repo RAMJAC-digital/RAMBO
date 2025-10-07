@@ -1,6 +1,6 @@
 # RAMBO Documentation Hub
 
-_Last updated: 2025-10-06 — Test suite: **551/551** passing — P1 Accuracy Fixes COMPLETE ✅_
+_Last updated: 2025-10-06 — Test suite: **560/561** passing — Mapper System Foundation COMPLETE ✅_
 
 ---
 
@@ -22,6 +22,7 @@ _Last updated: 2025-10-06 — Test suite: **551/551** passing — P1 Accuracy Fi
 | Topic | Purpose | Key Files |
 |-------|---------|-----------|
 | Getting Started | Build, test, and contributor onboarding | [`README.md`](../README.md), [`AGENTS.md`](../AGENTS.md) |
+| ROM Toolchain | Assemble AccuracyCoin / future test ROMs | [`compiler/README.md`](../compiler/README.md), [`compiler/docs/microsoft-basic-port-plan.md`](../compiler/docs/microsoft-basic-port-plan.md) |
 | Architecture | Deep dives into core subsystems | [`architecture/`](architecture/) — sprites, threading model, video plan |
 | API Guides | Public-facing modules | [`api-reference/debugger-api.md`](api-reference/debugger-api.md), [`api-reference/snapshot-api.md`](api-reference/snapshot-api.md) |
 | Implementation Status | Task tracking and completion | [`code-review/STATUS.md`](code-review/STATUS.md), [`implementation/completed/`](implementation/completed/) |
@@ -54,26 +55,27 @@ Quick links to component documentation:
 
 ## Recent Documentation Changes (2025-10-06)
 
-**Phase 1 (P1) Accuracy Fixes Complete:**
-- ✅ Task 1.1: Unstable Opcode Configuration (comptime variant dispatch)
-- ✅ Task 1.2: OAM DMA Implementation (14 tests, cycle-accurate 513/514 cycles)
-- ✅ 551/551 tests passing (100%)
-- ✅ P1 completion documented in `implementation/completed/P1-TASKS-1.1-1.2-COMPLETION-2025-10-06.md`
+**Mapper System Foundation Complete:**
+- ✅ **AnyCartridge Tagged Union** - Zero-cost polymorphism with inline dispatch (370 lines)
+- ✅ **Duck-Typed Mapper Interface** - Compile-time verification, no VTables
+- ✅ **IRQ Infrastructure** - A12 edge detection, IRQ polling every CPU cycle
+- ✅ **45 New Tests** - Mapper registry tests (dispatch, IRQ interface, comptime validation)
+- ✅ **AccuracyCoin PASSING** - Full CPU/PPU validation ($00 $00 $00 $00 status)
+- ✅ 560/561 tests passing (99.8%, 1 snapshot test non-blocking)
 
-**Documentation Updates:**
-- Test counts corrected throughout (562/583 → 551, verified count)
-- P1 task status updated to COMPLETE in `code-review/STATUS.md`
-- Build system cleaned up (removed deleted test file references)
-- Generated docs added to .gitignore
-- All documentation hubs updated with current state
+**Documentation Cleanup:**
+- Archived outdated APU planning docs to `archive/apu-planning/`
+- Archived Phase 1.5 docs to `archive/phase-1.5/`
+- Archived gap analyses and audits to `archive/audits-2025-10-06/`
+- Moved mapper summary to `implementation/MAPPER-SYSTEM-SUMMARY.md`
+- Updated all high-level docs with mapper system completion
 
-**Phase 0 Complete:**
+**Phase 0 & P1 Complete:**
 - ✅ All 256 CPU opcodes implemented with cycle-accurate timing
 - ✅ Fixed +1 cycle deviation for indexed addressing modes
+- ✅ P1 accuracy fixes (unstable opcodes, OAM DMA)
 - ✅ Phase 0 session docs archived to `archive/sessions/p0/`
 - ✅ Timing fix completion documented in `archive/p0/P0-TIMING-FIX-COMPLETION-2025-10-06.md`
-
-For detailed update plan, see [`DOCUMENTATION-UPDATE-PLAN-2025-10-06.md`](DOCUMENTATION-UPDATE-PLAN-2025-10-06.md).
 
 ---
 

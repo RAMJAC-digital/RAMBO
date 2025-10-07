@@ -52,6 +52,9 @@ pub const Mailboxes = @import("mailboxes/Mailboxes.zig");
 /// Benchmarking infrastructure for performance measurement
 pub const Benchmark = @import("benchmark/Benchmark.zig");
 
+/// iNES ROM format parser (stateless, separate from cartridge emulation)
+pub const iNES = @import("cartridge/ines/mod.zig");
+
 // ============================================================================
 // Re-export commonly used types for convenience
 // ============================================================================
@@ -68,9 +71,20 @@ pub const ExecutionState = Cpu.ExecutionState;
 /// Addressing modes
 pub const AddressingMode = Cpu.AddressingMode;
 
-/// Cartridge type (from Cartridge module)
-/// Currently uses NROM (Mapper 0) - generic mapper support via Cartridge(MapperType)
+/// Cartridge types (from Cartridge module)
+/// - CartridgeType: NROM cartridge (Mapper 0) - for backward compatibility
+/// - AnyCartridge: Tagged union of all supported mappers (new unified system)
+/// - MapperRegistry: Mapper metadata and dispatch
 pub const CartridgeType = Cartridge.NromCart;
+
+/// Mapper registry and dispatch system
+pub const MapperRegistry = @import("cartridge/mappers/registry.zig");
+
+/// Tagged union of all supported cartridges (unified mapper system)
+pub const AnyCartridge = MapperRegistry.AnyCartridge;
+
+/// Mapper ID enum
+pub const MapperId = MapperRegistry.MapperId;
 
 /// Nametable mirroring mode
 pub const MirroringType = Cartridge.Mirroring;
@@ -89,6 +103,7 @@ test {
     // Import and run tests from core modules
     _ = Cpu;
     _ = Cartridge;
+    _ = MapperRegistry;
     _ = Config;
     _ = Ppu;
     _ = PpuTiming;
@@ -98,4 +113,5 @@ test {
     _ = Snapshot;
     _ = Debugger;
     _ = Mailboxes;
+    _ = iNES;
 }

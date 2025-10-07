@@ -34,16 +34,25 @@ pub const Mapper0 = struct {
     // No state needed for Mapper 0
     // Future mappers (MMC1, MMC3) would have state fields here
 
-    /// CPU read from PRG ROM space ($8000-$FFFF)
+    /// CPU read from cartridge address space ($6000-$FFFF)
     ///
     /// Parameters use duck typing:
     /// - self: Mapper instance (unused for NROM)
-    /// - cart: anytype - must have .prg_rom field
+    /// - cart: anytype - must have .prg_rom and .prg_ram fields
     /// - address: CPU address
     ///
-    /// Returns: Byte from PRG ROM, or 0xFF for unmapped regions
+    /// Returns: Byte from PRG RAM/ROM, or 0xFF for unmapped regions
     pub fn cpuRead(_: *const Mapper0, cart: anytype, address: u16) u8 {
         return switch (address) {
+            // PRG RAM: $6000-$7FFF (8KB if present)
+            0x6000...0x7FFF => {
+                if (cart.prg_ram) |ram| {
+                    const offset = @as(usize, address - 0x6000);
+                    return ram[offset];
+                }
+                return 0xFF; // No PRG RAM - open bus
+            },
+
             // PRG ROM: $8000-$FFFF
             0x8000...0xFFFF => {
                 const prg_size = cart.prg_rom.len;
@@ -61,20 +70,35 @@ pub const Mapper0 = struct {
                 return cart.prg_rom[offset];
             },
 
-            // PRG RAM: $6000-$7FFF (if present)
-            // Note: Most NROM games don't have PRG RAM
-            // Open bus handled by Bus layer
+            // Unmapped regions
             else => 0xFF,
         };
     }
 
-    /// CPU write to cartridge space ($8000-$FFFF)
+    /// CPU write to cartridge space ($6000-$FFFF)
     ///
-    /// NROM has no writable registers - all writes ignored.
-    /// ROM is read-only; no PRG RAM support in basic NROM.
-    pub fn cpuWrite(_: *Mapper0, _: anytype, _: u16, _: u8) void {
-        // Mapper 0 has no writable registers
-        // Writes to $8000-$FFFF are ignored (ROM is read-only)
+    /// - PRG RAM ($6000-$7FFF): Writable if present
+    /// - PRG ROM ($8000-$FFFF): Read-only, writes ignored
+    pub fn cpuWrite(_: *Mapper0, cart: anytype, address: u16, value: u8) void {
+        switch (address) {
+            // PRG RAM: $6000-$7FFF (8KB if present)
+            0x6000...0x7FFF => {
+                if (cart.prg_ram) |ram| {
+                    const offset = @as(usize, address - 0x6000);
+                    ram[offset] = value;
+                }
+                // No PRG RAM - write ignored
+            },
+
+            // PRG ROM: $8000-$FFFF (read-only)
+            0x8000...0xFFFF => {
+                // Mapper 0 has no writable registers
+                // Writes to ROM are ignored
+            },
+
+            // Other addresses - ignored
+            else => {},
+        }
     }
 
     /// PPU read from CHR space ($0000-$1FFF)
@@ -121,6 +145,34 @@ pub const Mapper0 = struct {
         // Mapper 0 has no state to reset
         // All behavior is determined by ROM size
     }
+
+    // ========================================================================
+    // IRQ Interface (NROM doesn't support IRQ - all stubs)
+    // ========================================================================
+
+    /// Poll for IRQ assertion
+    ///
+    /// NROM has no IRQ support - always returns false.
+    /// Called every CPU cycle by EmulationState.tick()
+    pub fn tickIrq(_: *Mapper0) bool {
+        return false; // NROM never asserts IRQ
+    }
+
+    /// Notify of PPU A12 rising edge
+    ///
+    /// NROM doesn't use PPU A12 - this is a no-op.
+    /// MMC3 would decrement its IRQ counter here.
+    pub fn ppuA12Rising(_: *Mapper0) void {
+        // NROM ignores PPU A12 edges
+    }
+
+    /// Acknowledge IRQ (clear pending flag)
+    ///
+    /// NROM has no IRQ to acknowledge - this is a no-op.
+    /// Called when CPU reads interrupt vector ($FFFE).
+    pub fn acknowledgeIrq(_: *Mapper0) void {
+        // NROM has no IRQ state to clear
+    }
 };
 
 // ============================================================================
@@ -133,6 +185,7 @@ const testing = std.testing;
 const TestCart = struct {
     prg_rom: []const u8,
     chr_data: []u8,
+    prg_ram: ?[]u8 = null,
     header: struct {
         chr_rom_size: u8,
     },
@@ -297,6 +350,7 @@ test "Mapper0: duck typing - no Cartridge import needed" {
     const CustomCart = struct {
         prg_rom: []const u8,
         chr_data: []u8,
+        prg_ram: ?[]u8 = null,
         header: struct { chr_rom_size: u8 },
     };
 
@@ -306,6 +360,7 @@ test "Mapper0: duck typing - no Cartridge import needed" {
     const cart = CustomCart{
         .prg_rom = &prg_rom,
         .chr_data = &chr_data,
+        .prg_ram = null,
         .header = .{ .chr_rom_size = 1 },
     };
 

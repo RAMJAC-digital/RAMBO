@@ -475,6 +475,34 @@ pub fn build(b: *std.Build) void {
 
     const run_cartridge_tests = b.addRunArtifact(cartridge_tests);
 
+    // Cartridge PRG RAM tests
+    const prg_ram_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/cartridge/prg_ram_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+
+    const run_prg_ram_tests = b.addRunArtifact(prg_ram_tests);
+
+    // AccuracyCoin PRG RAM integration tests
+    const accuracycoin_prg_ram_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/accuracycoin_prg_ram_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+
+    const run_accuracycoin_prg_ram_tests = b.addRunArtifact(accuracycoin_prg_ram_tests);
+
     // PPU CHR integration tests
     const chr_integration_tests = b.addTest(.{
         .root_module = b.createModule(.{
@@ -713,6 +741,23 @@ pub fn build(b: *std.Build) void {
 
     const run_benchmark_release_tests = b.addRunArtifact(benchmark_release_tests);
 
+    // iNES ROM parser tests
+    const ines_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/ines/ines_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "ines", .module = b.addModule("ines", .{
+                    .root_source_file = b.path("src/cartridge/ines/mod.zig"),
+                    .target = target,
+                }) },
+            },
+        }),
+    });
+
+    const run_ines_tests = b.addRunArtifact(ines_tests);
+
     // ========================================================================
     // Test Step Configuration
     // ========================================================================
@@ -740,6 +785,8 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_rom_test_runner_tests.step);
     test_step.dependOn(&run_accuracycoin_execution_tests.step);
     test_step.dependOn(&run_cartridge_tests.step);
+    test_step.dependOn(&run_prg_ram_tests.step);
+    test_step.dependOn(&run_accuracycoin_prg_ram_tests.step);
     test_step.dependOn(&run_chr_integration_tests.step);
     test_step.dependOn(&run_sprite_evaluation_tests.step);
     test_step.dependOn(&run_sprite_rendering_tests.step);
@@ -756,6 +803,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_apu_open_bus_tests.step);
     test_step.dependOn(&run_dpcm_dma_tests.step);
     test_step.dependOn(&run_benchmark_tests.step);
+    test_step.dependOn(&run_ines_tests.step);
 
     // Separate step for just unit tests
     const unit_test_step = b.step("test-unit", "Run unit tests only");
@@ -768,6 +816,7 @@ pub fn build(b: *std.Build) void {
     unit_test_step.dependOn(&run_apu_sweep_tests.step);
     unit_test_step.dependOn(&run_apu_frame_irq_tests.step);
     unit_test_step.dependOn(&run_apu_open_bus_tests.step);
+    unit_test_step.dependOn(&run_ines_tests.step);
 
     // Separate step for just integration tests
     const integration_test_step = b.step("test-integration", "Run integration tests only");
@@ -780,6 +829,8 @@ pub fn build(b: *std.Build) void {
     integration_test_step.dependOn(&run_rom_test_runner_tests.step);
     integration_test_step.dependOn(&run_accuracycoin_execution_tests.step);
     integration_test_step.dependOn(&run_cartridge_tests.step);
+    integration_test_step.dependOn(&run_prg_ram_tests.step);
+    integration_test_step.dependOn(&run_accuracycoin_prg_ram_tests.step);
     integration_test_step.dependOn(&run_chr_integration_tests.step);
     integration_test_step.dependOn(&run_sprite_evaluation_tests.step);
     integration_test_step.dependOn(&run_sprite_rendering_tests.step);

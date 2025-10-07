@@ -115,7 +115,7 @@ test "Snapshot Integration: Full round-trip without cartridge" {
         testing.allocator,
         snapshot,
         &config,
-        @as(?*Cartridge.NromCart, null),
+        @as(?RAMBO.AnyCartridge, null),
     );
 
     // Verify clock state
@@ -159,12 +159,12 @@ test "Snapshot Integration: Full round-trip with cartridge (reference mode)" {
     const rom_data = try createTestRom(testing.allocator);
     defer testing.allocator.free(rom_data);
 
-    var cartridge = try Cartridge.NromCart.loadFromData(testing.allocator, rom_data);
-    defer cartridge.deinit();
+    var nrom_cartridge = try Cartridge.NromCart.loadFromData(testing.allocator, rom_data);
+    defer nrom_cartridge.deinit();
 
-    // Create state with cartridge
+    // Create state with cartridge (wrap in AnyCartridge)
     var state = createTestState(&config);
-    state.cart = cartridge;
+    state.cart = RAMBO.AnyCartridge{ .nrom = nrom_cartridge };
 
     // Save snapshot (reference mode)
     const snapshot = try Snapshot.saveBinary(
@@ -191,7 +191,7 @@ test "Snapshot Integration: Full round-trip with cartridge (reference mode)" {
         testing.allocator,
         snapshot,
         &config,
-        &cartridge,
+        state.cart,
     );
 
     // Verify restoration
@@ -240,7 +240,7 @@ test "Snapshot Integration: Snapshot with framebuffer" {
         testing.allocator,
         snapshot,
         &config,
-        @as(?*Cartridge.NromCart, null),
+        @as(?RAMBO.AnyCartridge, null),
     );
 
     try testing.expectEqual(state.cpu.a, restored.cpu.a);
@@ -273,7 +273,7 @@ test "Snapshot Integration: Config mismatch detection" {
         testing.allocator,
         snapshot,
         &config2,
-        @as(?*Cartridge.NromCart, null),
+        @as(?RAMBO.AnyCartridge, null),
     );
     try testing.expectError(error.ConfigMismatch, result);
 }
@@ -299,7 +299,7 @@ test "Snapshot Integration: Multiple save/load cycles" {
         testing.allocator,
         snapshot1,
         &config,
-        @as(?*Cartridge.NromCart, null),
+        @as(?RAMBO.AnyCartridge, null),
     );
 
     // Modify restored state
@@ -322,7 +322,7 @@ test "Snapshot Integration: Multiple save/load cycles" {
         testing.allocator,
         snapshot2,
         &config,
-        @as(?*Cartridge.NromCart, null),
+        @as(?RAMBO.AnyCartridge, null),
     );
 
     // Verify modifications persisted

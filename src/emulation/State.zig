@@ -23,7 +23,8 @@ const ApuModule = @import("../apu/Apu.zig");
 const ApuState = ApuModule.State.ApuState;
 const ApuLogic = ApuModule.Logic;
 const CartridgeModule = @import("../cartridge/Cartridge.zig");
-const NromCart = CartridgeModule.NromCart;
+const RegistryModule = @import("../cartridge/mappers/registry.zig");
+const AnyCartridge = RegistryModule.AnyCartridge;
 
 /// Master timing clock - tracks total PPU cycles
 /// PPU cycles are the finest granularity in NES hardware
@@ -278,8 +279,8 @@ pub const EmulationState = struct {
     bus: BusState = .{},
 
     /// Cartridge (direct ownership)
-    /// Currently only supports NROM (Mapper 0)
-    cart: ?NromCart = null,
+    /// Supports all mappers via tagged union dispatch
+    cart: ?AnyCartridge = null,
 
     /// DMA state machine
     dma: DmaState = .{},
@@ -332,10 +333,11 @@ pub const EmulationState = struct {
     /// Also updates PPU mirroring based on cartridge
     ///
     /// Example:
-    ///   var cart = try Cartridge.load(allocator, "game.nes");
-    ///   state.loadCartridge(cart);  // state now owns cart
-    ///   // cart is now invalid - do not use or deinit
-    pub fn loadCartridge(self: *EmulationState, cart: NromCart) void {
+    ///   var nrom_cart = try NromCart.load(allocator, "game.nes");
+    ///   var any_cart = AnyCartridge{ .nrom = nrom_cart };
+    ///   state.loadCartridge(any_cart);  // state now owns cart
+    ///   // any_cart is now invalid - do not use or deinit
+    pub fn loadCartridge(self: *EmulationState, cart: AnyCartridge) void {
         // Clean up existing cartridge if present
         if (self.cart) |*existing| {
             existing.deinit();
@@ -343,7 +345,7 @@ pub const EmulationState = struct {
 
         // Take ownership of new cartridge
         self.cart = cart;
-        self.ppu.mirroring = cart.mirroring;
+        self.ppu.mirroring = cart.getMirroring();
     }
 
     /// Unload current cartridge (if any)
@@ -434,7 +436,7 @@ pub const EmulationState = struct {
     }
 
     /// Helper to obtain pointer to owned cartridge (if any)
-    fn cartPtr(self: *EmulationState) ?*NromCart {
+    fn cartPtr(self: *EmulationState) ?*AnyCartridge {
         if (self.cart) |*cart_ref| {
             return cart_ref;
         }
@@ -656,6 +658,14 @@ pub const EmulationState = struct {
                 self.tickCpu();
                 // TODO: Track last read address for DMC corruption detection
                 // This requires CPU state tracking during reads
+            }
+
+            // Poll mapper for IRQ assertion (every CPU cycle)
+            // Mappers like MMC3 can assert IRQ based on PPU scanline counter
+            if (self.cart) |*cart| {
+                if (cart.tickIrq()) {
+                    self.cpu.irq_line = true;
+                }
             }
         }
 
@@ -1463,7 +1473,25 @@ pub const EmulationState = struct {
     /// Tick PPU state machine (called every PPU cycle)
     fn tickPpu(self: *EmulationState) void {
         const cart_ptr = self.cartPtr();
+
+        // Sample A12 state before PPU tick (for MMC3 IRQ edge detection)
+        const old_a12 = self.ppu_timing.a12_state;
+
         const flags = PpuRuntime.tick(&self.ppu, &self.ppu_timing, cart_ptr, null);
+
+        // Update A12 state after PPU tick
+        // A12 = bit 12 of PPU address register (v)
+        const new_a12 = (self.ppu.internal.v & 0x1000) != 0;
+        self.ppu_timing.a12_state = new_a12;
+
+        // Detect A12 rising edge (0→1 transition) and notify mapper
+        // MMC3 uses this to decrement its IRQ scanline counter
+        if (!old_a12 and new_a12) {
+            if (self.cart) |*cart| {
+                cart.ppuA12Rising();
+            }
+        }
+
         self.rendering_enabled = flags.rendering_enabled;
         if (flags.frame_complete) {
             self.frame_complete = true;

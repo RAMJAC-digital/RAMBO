@@ -43,7 +43,7 @@ test "PPU VRAM: CHR ROM read through cartridge" {
     // Create harness and load cartridge (takes ownership)
     var harness = try Harness.init();
     defer harness.deinit();
-    harness.loadCartridge(cart);
+    harness.loadNromCartridge(cart);
 
     // Test CHR ROM reads
     try testing.expectEqual(@as(u8, 0x42), harness.ppuReadVram(0x0000));
@@ -76,7 +76,7 @@ test "PPU VRAM: CHR RAM write and read" {
     // Create harness and load cartridge (takes ownership)
     var harness = try Harness.init();
     defer harness.deinit();
-    harness.loadCartridge(cart);
+    harness.loadNromCartridge(cart);
 
     // CHR RAM should be initialized to zero
     try testing.expectEqual(@as(u8, 0x00), harness.ppuReadVram(0x0000));
@@ -120,7 +120,7 @@ test "PPU VRAM: Mirroring from cartridge header" {
     // Create harness and load cartridge (takes ownership)
     var harness = try Harness.init();
     defer harness.deinit();
-    harness.loadCartridge(cart);
+    harness.loadNromCartridge(cart);
 
     // Test vertical mirroring behavior
     // NT0 ($2000) and NT2 ($2800) should map to same VRAM
@@ -161,7 +161,7 @@ test "PPU VRAM: PPUDATA CHR access with buffering" {
     // Create harness and load cartridge (takes ownership)
     var harness = try Harness.init();
     defer harness.deinit();
-    harness.loadCartridge(cart);
+    harness.loadNromCartridge(cart);
 
     // Set PPUADDR to CHR region ($0000)
     harness.ppuWriteRegister(0x2006, 0x00); // High byte
@@ -228,7 +228,7 @@ test "PPU VRAM: CHR ROM writes are ignored" {
     // Create harness and load cartridge (takes ownership)
     var harness = try Harness.init();
     defer harness.deinit();
-    harness.loadCartridge(cart);
+    harness.loadNromCartridge(cart);
 
     // Verify initial value
     try testing.expectEqual(@as(u8, 0x42), harness.ppuReadVram(0x0000));

@@ -20,7 +20,8 @@ const RAMBO = @import("RAMBO");
 
 const EmulationState = RAMBO.EmulationState.EmulationState;
 const Config = RAMBO.Config;
-const Cartridge = RAMBO.CartridgeType;
+const NromCart = RAMBO.CartridgeType;
+const AnyCartridge = RAMBO.AnyCartridge;
 
 // ============================================================================
 // ROM Test Runner
@@ -84,8 +85,11 @@ pub const RomTestRunner = struct {
 
     /// Initialize ROM test runner with a loaded ROM file
     pub fn init(allocator: std.mem.Allocator, rom_path: []const u8, run_config: RunConfig) !RomTestRunner {
-        // Load ROM
-        const cart = try Cartridge.load(allocator, rom_path);
+        // Load ROM (currently only NROM/Mapper 0 supported)
+        const nrom_cart = try NromCart.load(allocator, rom_path);
+
+        // Wrap in AnyCartridge union
+        const cart = AnyCartridge{ .nrom = nrom_cart };
 
         // Create config
         const cfg = try allocator.create(Config.Config);
