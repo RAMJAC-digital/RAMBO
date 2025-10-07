@@ -395,7 +395,7 @@ test "Debugger: capture and restore history" {
     state.cpu.a = 0x99;
 
     // Restore from history
-    const restored = try debugger.restoreFromHistory(0, @as(?*RAMBO.Cartridge.NromCart, null));
+    const restored = try debugger.restoreFromHistory(0, null);
     try testing.expectEqual(@as(u16, 0x8000), restored.cpu.pc);
     try testing.expectEqual(@as(u8, 0x42), restored.cpu.a);
 }

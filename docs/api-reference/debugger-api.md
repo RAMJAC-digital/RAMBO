@@ -345,7 +345,7 @@ pub fn captureHistory(
 pub fn restoreFromHistory(
     self: *Debugger,
     index: usize,
-    cartridge: anytype,
+    cartridge: ?AnyCartridge,
 ) !EmulationState
 
 pub fn clearHistory(self: *Debugger) void

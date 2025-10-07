@@ -11,6 +11,7 @@ const state_ser = @import("state.zig");
 const Config = @import("../config/Config.zig");
 const EmulationState = @import("../emulation/State.zig").EmulationState;
 const Cartridge = @import("../cartridge/Cartridge.zig");
+const AnyCartridge = @import("../cartridge/mappers/registry.zig").AnyCartridge;
 
 /// Snapshot metadata (extracted from header without full load)
 pub const SnapshotMetadata = struct {
@@ -156,7 +157,7 @@ pub fn saveBinary(
 /// - allocator: Memory allocator for any dynamic allocations during load
 /// - data: Complete snapshot buffer
 /// - config: Hardware configuration (must match snapshot config values)
-/// - cartridge: Optional cartridge pointer for reference mode restore
+/// - cartridge: Optional AnyCartridge for reference mode restore
 ///
 /// Returns: Fully reconstructed EmulationState with all pointers connected
 ///
@@ -165,7 +166,7 @@ pub fn loadBinary(
     allocator: std.mem.Allocator,
     data: []const u8,
     config: *const Config.Config,
-    cartridge: anytype, // ?*NromCart or similar
+    cartridge: ?AnyCartridge,
 ) !EmulationState {
     if (data.len < 72) return error.InvalidSnapshot;
 
@@ -259,22 +260,8 @@ pub fn loadBinary(
     };
     emu_state.clock.ppu_cycles = ppu_cycles;
 
-    // Connect cartridge pointer (handle both optional and non-optional pointers)
-    const CartType = @TypeOf(cartridge);
-    const type_info = @typeInfo(CartType);
-
-    switch (type_info) {
-        .optional => {
-            // Optional pointer - unwrap and dereference if present
-            if (cartridge) |cart| {
-                emu_state.cart = cart.*;
-            }
-        },
-        else => {
-            // Non-optional pointer - dereference and assign
-            emu_state.cart = cartridge.*;
-        },
-    }
+    // Connect cartridge (cartridge is already wrapped in AnyCartridge union)
+    emu_state.cart = cartridge;
 
     // No need to wire up internal pointers - EmulationState owns everything directly
 
@@ -346,7 +333,7 @@ fn createCartridgeSnapshot(
         .reference => blk: {
             // For reference mode, we need ROM path (not available in current cart structure)
             // Use hash of PRG ROM as identifier
-            const rom_hash = cartridge_snap.calculateRomHash(cart.prg_rom);
+            const rom_hash = cartridge_snap.calculateRomHash(cart.getPrgRom());
 
             // Allocate path string (empty for now - would need to track ROM path in cartridge)
             const rom_path = try allocator.dupe(u8, "");
@@ -366,10 +353,10 @@ fn createCartridgeSnapshot(
         },
         .embed => blk: {
             // Allocate and copy ROM data
-            const prg_rom = try allocator.dupe(u8, cart.prg_rom);
+            const prg_rom = try allocator.dupe(u8, cart.getPrgRom());
             errdefer allocator.free(prg_rom);
 
-            const chr_data = try allocator.dupe(u8, cart.chr_data);
+            const chr_data = try allocator.dupe(u8, cart.getChrData());
             errdefer allocator.free(chr_data);
 
             const mapper_state = try allocator.dupe(u8, &[_]u8{});
@@ -377,10 +364,10 @@ fn createCartridgeSnapshot(
 
             break :blk cartridge_snap.CartridgeSnapshot{
                 .embed = .{
-                    .header = cart.header,
+                    .header = cart.getHeader(),
                     .prg_rom = prg_rom,
                     .chr_data = chr_data,
-                    .mirroring = cart.mirroring,
+                    .mirroring = cart.getMirroring(),
                     .mapper_state = mapper_state,
                 },
             };
@@ -449,7 +436,7 @@ test "Snapshot: round-trip without cartridge" {
         testing.allocator,
         snapshot,
         &config,
-        @as(?*Cartridge.NromCart, null),
+        null, // No cartridge loaded
     );
 
     // Verify state matches

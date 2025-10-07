@@ -15,6 +15,7 @@ const std = @import("std");
 const Snapshot = @import("../snapshot/Snapshot.zig");
 const EmulationState = @import("../emulation/State.zig").EmulationState;
 const Config = @import("../config/Config.zig").Config;
+const AnyCartridge = @import("../cartridge/mappers/registry.zig").AnyCartridge;
 
 /// User-defined callback interface
 /// All callback functions are OPTIONAL - implement only what you need
@@ -681,7 +682,7 @@ pub const Debugger = struct {
     pub fn restoreFromHistory(
         self: *Debugger,
         index: usize,
-        cartridge: anytype,
+        cartridge: ?AnyCartridge,
     ) !EmulationState {
         if (index >= self.history.items.len) return error.InvalidHistoryIndex;
 

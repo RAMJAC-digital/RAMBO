@@ -159,7 +159,7 @@ pub fn loadBinary(
     allocator: std.mem.Allocator,
     data: []const u8,
     config: *const Config.Config,
-    cartridge: anytype, // ?*NromCart or *NromCart
+    cartridge: ?AnyCartridge,
 ) !EmulationState
 ```
 
@@ -360,7 +360,7 @@ const SaveStateManager = struct {
         self: *SaveStateManager,
         slot: usize,
         config: *const Config.Config,
-        cartridge: anytype,
+        cartridge: ?AnyCartridge,
     ) !EmulationState {
         if (slot >= self.slots.len) return error.InvalidSlot;
         const data = self.slots[slot] orelse return error.EmptySlot;
@@ -402,7 +402,7 @@ pub const Debugger = struct {
         self: *Debugger,
         index: usize,
         config: *const Config.Config,
-        cartridge: anytype,
+        cartridge: ?AnyCartridge,
     ) !EmulationState {
         if (index >= self.snapshots.items.len) return error.InvalidIndex;
 
