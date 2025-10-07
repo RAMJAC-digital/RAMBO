@@ -28,18 +28,10 @@ pub fn build(b: *std.Build) void {
     // to our consumers. We must give it a name because a Zig package can expose
     // multiple modules and consumers will need to be able to specify which
     // module they want to access.
-    const mod = b.addModule("RAMBO", .{
-        // The root source file is the "entry point" of this module. Users of
-        // this module will only be able to access public declarations contained
-        // in this file, which means that if you have declarations that you
-        // intend to expose to consumers that were defined in other files part
-        // of this module, you will have to make sure to re-export them from
-        // the root file.
-        .root_source_file = b.path("src/root.zig"),
-        // Later on we'll use this module as the root module of a test executable
-        // which requires us to specify a target.
-        .target = target,
-    });
+    // Build options MUST be created before modules that depend on them
+    const build_options = b.addOptions();
+    build_options.addOption(bool, "with_wayland", true); // Always enabled on Linux
+    const build_options_mod = build_options.createModule();
 
     // Here we define an executable. An executable needs to have a root module
     // which needs to expose a `main` function. While we could add a main function
@@ -114,6 +106,16 @@ pub fn build(b: *std.Build) void {
         .root_source_file = wayland_zig,
     });
 
+    // Create RAMBO module (after dependencies are defined)
+    const mod = b.addModule("RAMBO", .{
+        .root_source_file = b.path("src/root.zig"),
+        .target = target,
+        .imports = &.{
+            .{ .name = "build_options", .module = build_options_mod },
+            .{ .name = "wayland_client", .module = wayland_client_mod },
+        },
+    });
+
     const exe = b.addExecutable(.{
         .name = "RAMBO",
         .root_module = b.createModule(.{
@@ -127,6 +129,9 @@ pub fn build(b: *std.Build) void {
             // definition if desireable (e.g. firmware for embedded devices).
             .target = target,
             .optimize = optimize,
+            // Link libc and Wayland
+            .link_libc = true,
+            .link_libcpp = false,
             // List of modules available for import in source files part of the
             // root module.
             .imports = &.{
@@ -140,9 +145,14 @@ pub fn build(b: *std.Build) void {
                 .{ .name = "xev", .module = xev_dep.module("xev") },
                 // Wayland client bindings (generated from protocol XMLs)
                 .{ .name = "wayland_client", .module = wayland_client_mod },
+                // Build options (feature flags)
+                .{ .name = "build_options", .module = build_options_mod },
             },
         }),
     });
+
+    // Link Wayland client library
+    exe.linkSystemLibrary("wayland-client");
 
     // This declares intent for the executable to be installed into the
     // install prefix when running `zig build` (i.e. when executing the default
@@ -758,6 +768,21 @@ pub fn build(b: *std.Build) void {
 
     const run_ines_tests = b.addRunArtifact(ines_tests);
 
+    // Threading system tests
+    const threading_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/threads/threading_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+                .{ .name = "xev", .module = xev_dep.module("xev") },
+            },
+        }),
+    });
+
+    const run_threading_tests = b.addRunArtifact(threading_tests);
+
     // ========================================================================
     // Test Step Configuration
     // ========================================================================
@@ -804,6 +829,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_dpcm_dma_tests.step);
     test_step.dependOn(&run_benchmark_tests.step);
     test_step.dependOn(&run_ines_tests.step);
+    test_step.dependOn(&run_threading_tests.step);
 
     // Separate step for just unit tests
     const unit_test_step = b.step("test-unit", "Run unit tests only");
@@ -839,6 +865,7 @@ pub fn build(b: *std.Build) void {
     integration_test_step.dependOn(&run_debugger_integration_tests.step);
     integration_test_step.dependOn(&run_dpcm_dma_tests.step);
     integration_test_step.dependOn(&run_benchmark_tests.step);
+    integration_test_step.dependOn(&run_threading_tests.step);
 
     const benchmark_release_step = b.step("bench-release", "Run release-optimized benchmark suite");
     benchmark_release_step.dependOn(&run_benchmark_release_tests.step);
