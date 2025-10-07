@@ -1941,7 +1941,7 @@ test "EmulationState: VBlank timing at scanline 241, dot 1" {
     state.tickPpu();
     try testing.expectEqual(@as(u16, 241), state.ppu_timing.scanline);
     try testing.expectEqual(@as(u16, 1), state.ppu_timing.dot);
-    try testing.expect(state.frame_complete); // VBlank flag set
+    try testing.expect(state.ppu.status.vblank); // VBlank flag set at 241.1 (NOT frame_complete)
 }
 
 test "EmulationState: odd frame skip when rendering enabled" {

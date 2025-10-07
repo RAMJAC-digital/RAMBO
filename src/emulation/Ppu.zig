@@ -149,7 +149,7 @@ pub fn tick(
         if (state.ctrl.nmi_enable) {
             state.nmi_occurred = true;
         }
-        flags.frame_complete = true;
+        // NOTE: Do NOT set frame_complete here! Frame continues through VBlank.
     }
 
     // === Pre-render clearing ===
@@ -158,6 +158,12 @@ pub fn tick(
         state.status.sprite_0_hit = false;
         state.status.sprite_overflow = false;
         state.nmi_occurred = false;
+    }
+
+    // === Frame Complete ===
+    // Frame ends at the last dot of scanline 261 (just before wrapping to scanline 0)
+    if (scanline == 261 and dot == 340) {
+        flags.frame_complete = true;
     }
 
     flags.rendering_enabled = rendering_enabled;
