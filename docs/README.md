@@ -22,7 +22,7 @@ _Last updated: 2025-10-06 — Test suite: **560/561** passing — Mapper System 
 | Topic | Purpose | Key Files |
 |-------|---------|-----------|
 | Getting Started | Build, test, and contributor onboarding | [`README.md`](../README.md), [`AGENTS.md`](../AGENTS.md) |
-| ROM Toolchain | Assemble AccuracyCoin / future test ROMs | [`compiler/README.md`](../compiler/README.md), [`compiler/docs/microsoft-basic-port-plan.md`](../compiler/docs/microsoft-basic-port-plan.md) |
+| ROM Toolchain | Assemble AccuracyCoin / future test ROMs | [`compiler/README.md`](../compiler/README.md), [`compiler/docs/microsoft-basic-port-plan.md`](../compiler/docs/microsoft-basic-port-plan.md), [`compiler/docs/macro-expansion-design.md`](../compiler/docs/macro-expansion-design.md) |
 | Architecture | Deep dives into core subsystems | [`architecture/`](architecture/) — sprites, threading model, video plan |
 | API Guides | Public-facing modules | [`api-reference/debugger-api.md`](api-reference/debugger-api.md), [`api-reference/snapshot-api.md`](api-reference/snapshot-api.md) |
 | Implementation Status | Task tracking and completion | [`code-review/STATUS.md`](code-review/STATUS.md), [`implementation/completed/`](implementation/completed/) |

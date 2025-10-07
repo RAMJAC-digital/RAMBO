@@ -1,6 +1,11 @@
 # Async & I/O Status - 2025-10-05
 
-**Status:** ✅ **Good Foundation**
+**Status:** ✅ **Good Foundation** (Phase 6 Implementation)
+
+> **📘 Phase 8 Architecture Update:**
+> This document reviews the Phase 6 implementation. For the authoritative Phase 8 plan:
+> - **[`../COMPLETE-ARCHITECTURE-AND-PLAN.md`](../COMPLETE-ARCHITECTURE-AND-PLAN.md)** - Full 3-thread architecture
+> - **[`../MAILBOX-ARCHITECTURE.md`](../MAILBOX-ARCHITECTURE.md)** - All 8 mailboxes (includes XdgWindowEventMailbox and XdgInputEventMailbox)
 
 ## 1. Summary
 
@@ -16,7 +21,7 @@ The `main.zig` file demonstrates a correct, timer-driven emulation loop using `l
 -   **Issue:** The current `libxev` integration is a proof-of-concept. A full implementation requires a UI/render thread and proper event handling.
 -   **Action:** As part of the video subsystem implementation (the next major project phase after the CPU test restoration), the following need to be implemented:
     1.  **Render Thread:** A dedicated thread for rendering the frames from the `FrameMailbox` to the screen (e.g., using Wayland and Vulkan as planned).
-    2.  **UI Event Handling:** The main thread should process events from the `WaylandEventMailbox` and dispatch them appropriately (e.g., handling keyboard input for controllers, window close events).
+    2.  **UI Event Handling:** The main thread should process events from window/input mailboxes and dispatch them appropriately (e.g., handling keyboard input for controllers, window close events). **Phase 8 Note:** `WaylandEventMailbox` is being split into `XdgWindowEventMailbox` and `XdgInputEventMailbox` - see MAILBOX-ARCHITECTURE.md.
     3.  **File I/O:** Use `libxev`'s async file I/O for loading ROMs and save states to avoid blocking the main thread.
 -   **Rationale:** This is the core of the video and I/O subsystem and is the next major step for the project **after** the current CPU correctness issues are fully resolved.
 

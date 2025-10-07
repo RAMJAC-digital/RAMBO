@@ -1,14 +1,24 @@
-# Thread Architecture
+# Thread Architecture - Phase 6 Implementation
 
-**Status:** ✅ Complete (Phase 6)
+**Status:** ✅ Phase 6 Complete (Current 2-Thread Implementation)
 **Implementation:** `src/main.zig`, `src/mailboxes/`
 **Pattern:** 2-thread model with mailbox communication
 
 ---
 
-## Overview
+> **⚠️ PHASE 6 DOCUMENTATION - CURRENT IMPLEMENTATION ONLY**
+>
+> This document describes the **Phase 6 (current) 2-thread implementation**.
+>
+> For the **Phase 8 (target) 3-thread architecture** (Main + Emulation + Render), see:
+> - **[`../COMPLETE-ARCHITECTURE-AND-PLAN.md`](../COMPLETE-ARCHITECTURE-AND-PLAN.md)** ← Authoritative Phase 8 plan
+> - **[`../MAILBOX-ARCHITECTURE.md`](../MAILBOX-ARCHITECTURE.md)** ← Complete mailbox specifications
 
-RAMBO uses a **2-thread architecture** with **mailbox-based communication** for clean separation of concerns:
+---
+
+## Overview (Phase 6 - Current Implementation)
+
+RAMBO's **Phase 6 implementation** uses a **2-thread architecture** with **mailbox-based communication**:
 
 1. **Main Thread** - Coordinator only (minimal work)
 2. **Emulation Thread** - RT-safe emulation with timer-driven pacing
@@ -17,7 +27,7 @@ This design ensures:
 - ✅ RT-safe emulation (zero heap allocations in hot path)
 - ✅ Deterministic execution (no race conditions)
 - ✅ Clean thread coordination (no shared mutable state)
-- ✅ Future Wayland thread integration (scaffolding ready)
+- ✅ Foundation for Phase 8 (3-thread Wayland integration)
 
 ---
 
@@ -354,37 +364,20 @@ if (!ctx.running.load(.acquire)) {
 
 ### Phase 8: Wayland Video Thread (Planned)
 
-**3-Thread Model:**
-1. Main Thread - Coordinator
-2. Emulation Thread - RT-safe emulation
-3. Wayland Thread - Window and rendering
+> **📘 For complete Phase 8 architecture, see:**
+> - **[`../COMPLETE-ARCHITECTURE-AND-PLAN.md`](../COMPLETE-ARCHITECTURE-AND-PLAN.md)** - Full 3-thread architecture with library primitives
+> - **[`../MAILBOX-ARCHITECTURE.md`](../MAILBOX-ARCHITECTURE.md)** - All 8 mailboxes with synchronization specs
 
-**Wayland Thread Responsibilities:**
-- Wayland window management (XDG shell)
-- Vulkan rendering backend
-- Input event handling
-- Post events to WaylandEventMailbox
-- Consume frames from FrameMailbox
+**Planned 3-Thread Model:**
+1. **Main Thread** - Coordinator (NO libxev loop)
+2. **Emulation Thread** - RT-safe emulation (own xev.Loop + xev.Timer)
+3. **Render Thread** - Wayland + Vulkan (own xev.Loop monitoring Wayland fd)
 
-**Integration Pattern:**
-```zig
-// Main spawns Wayland thread
-const wayland_thread = try std.Thread.spawn(.{}, waylandThreadFn, .{
-    &mailboxes, &running
-});
-
-// Wayland thread loop
-fn waylandThreadFn(mailboxes: *Mailboxes, running: *std.atomic.Value(bool)) void {
-    // 1. Create Wayland window
-    // 2. Initialize Vulkan renderer
-    // 3. Event loop:
-    while (running.load(.acquire)) {
-        // - Poll Wayland events → WaylandEventMailbox
-        // - Read frame from FrameMailbox → Vulkan texture
-        // - Present to screen (vsync)
-    }
-}
-```
+**Key Architectural Changes from Phase 6:**
+- Main thread simplifies to pure coordination (removes libxev loop)
+- Render thread gets own libxev.Loop for Wayland fd monitoring
+- 8 explicit mailboxes replace 3 (see MAILBOX-ARCHITECTURE.md)
+- All using `std.Thread.Mutex` + `std.atomic.Value` (NOT libxev primitives)
 
 ---
 
