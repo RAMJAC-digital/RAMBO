@@ -6,7 +6,7 @@
 const std = @import("std");
 const StateModule = @import("State.zig");
 const PpuState = StateModule.PpuState;
-const NromCart = @import("../cartridge/Cartridge.zig").NromCart;
+const AnyCartridge = @import("../cartridge/mappers/registry.zig").AnyCartridge;
 const PpuCtrl = StateModule.PpuCtrl;
 const PpuMask = StateModule.PpuMask;
 const PpuStatus = StateModule.PpuStatus;
@@ -98,7 +98,7 @@ fn mirrorPaletteAddress(address: u8) u8 {
 
 /// Read from PPU VRAM address space ($0000-$3FFF)
 /// Handles CHR ROM/RAM, nametables, and palette RAM with proper mirroring
-pub fn readVram(state: *PpuState, cart: ?*NromCart, address: u16) u8 {
+pub fn readVram(state: *PpuState, cart: ?*AnyCartridge, address: u16) u8 {
     const addr = address & 0x3FFF; // Mirror at $4000
 
     return switch (addr) {
@@ -135,7 +135,7 @@ pub fn readVram(state: *PpuState, cart: ?*NromCart, address: u16) u8 {
         // Palette RAM mirrors ($3F20-$3FFF)
         // Mirrors $3F00-$3F1F throughout $3F20-$3FFF
         0x3F20...0x3FFF => blk: {
-            break :blk readVram(state, cart, 0x3F00 | (addr & 0x1F))|readVram(state, cart, 0x3F00 | (addr & 0x1F));
+            break :blk readVram(state, cart, 0x3F00 | (addr & 0x1F));
         },
 
         else => unreachable, // addr is masked to $0000-$3FFF
@@ -144,7 +144,7 @@ pub fn readVram(state: *PpuState, cart: ?*NromCart, address: u16) u8 {
 
 /// Write to PPU VRAM address space ($0000-$3FFF)
 /// Handles CHR RAM, nametables, and palette RAM (CHR ROM is read-only)
-pub fn writeVram(state: *PpuState, cart: ?*NromCart, address: u16, value: u8) void {
+pub fn writeVram(state: *PpuState, cart: ?*AnyCartridge, address: u16, value: u8) void {
     const addr = address & 0x3FFF; // Mirror at $4000
 
     switch (addr) {
@@ -182,7 +182,7 @@ pub fn writeVram(state: *PpuState, cart: ?*NromCart, address: u16, value: u8) vo
         else => unreachable, // addr is masked to $0000-$3FFF
     }
 }
-    pub fn readRegister(state: *PpuState, cart: ?*NromCart, address: u16) u8 {
+    pub fn readRegister(state: *PpuState, cart: ?*AnyCartridge, address: u16) u8 {
         // Registers are mirrored every 8 bytes through $3FFF
         const reg = address & 0x0007;
 
@@ -265,7 +265,7 @@ pub fn writeVram(state: *PpuState, cart: ?*NromCart, address: u16, value: u8) vo
 
     /// Write to PPU register (via CPU memory bus)
     /// Handles register mirroring and open bus updates
-    pub fn writeRegister(state: *PpuState, cart: ?*NromCart, address: u16, value: u8) void {
+    pub fn writeRegister(state: *PpuState, cart: ?*AnyCartridge, address: u16, value: u8) void {
         // Registers are mirrored every 8 bytes through $3FFF
         const reg = address & 0x0007;
 
@@ -440,7 +440,7 @@ pub fn writeVram(state: *PpuState, cart: ?*NromCart, address: u16, value: u8) vo
 
     /// Fetch background tile data for current cycle
     /// Implements 4-cycle fetch pattern: nametable → attribute → pattern low → pattern high
-    pub fn fetchBackgroundTile(state: *PpuState, cart: ?*NromCart, dot: u16) void {
+    pub fn fetchBackgroundTile(state: *PpuState, cart: ?*AnyCartridge, dot: u16) void {
         // Tile fetching occurs in 8-cycle chunks
         // Each chunk fetches: NT byte (2 cycles), AT byte (2 cycles),
         // pattern low (2 cycles), pattern high (2 cycles)
@@ -562,7 +562,7 @@ pub fn writeVram(state: *PpuState, cart: ?*NromCart, address: u16, value: u8) vo
 
     /// Fetch sprite pattern data for visible scanline
     /// Called during cycles 257-320 (8 sprites × 8 cycles each)
-    pub fn fetchSprites(state: *PpuState, cart: ?*NromCart, scanline: u16, dot: u16) void {
+    pub fn fetchSprites(state: *PpuState, cart: ?*AnyCartridge, scanline: u16, dot: u16) void {
         // Reset sprite state at start of fetch
         if (dot == 257) {
             state.sprite_state.sprite_count = 0;
