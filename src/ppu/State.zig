@@ -320,6 +320,12 @@ pub const PpuState = struct {
     /// Cleared when NMI is serviced
     nmi_occurred: bool = false,
 
+    /// PPU warm-up complete flag
+    /// The PPU ignores writes to $2000/$2001/$2005/$2006 for the first ~29,658 CPU cycles
+    /// after power-on. This flag is set by EmulationState after the warm-up period.
+    /// Reference: nesdev.org/wiki/PPU_power_up_state
+    warmup_complete: bool = false,
+
     /// Background rendering state (shift registers and latches)
     bg_state: BackgroundState = .{},
 

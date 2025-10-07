@@ -20,12 +20,15 @@ pub fn init() PpuState {
 
 /// Reset PPU (RESET button pressed)
 /// Some registers are not affected by RESET
+/// Note: RESET does NOT trigger the warm-up period (only power-on does)
 pub fn reset(state: *PpuState) void {
     state.ctrl = .{};
     state.mask = .{};
     // Status VBlank bit is random at reset
     state.internal.resetToggle();
     state.nmi_occurred = false;
+    // RESET skips the warm-up period (PPU already initialized)
+    state.warmup_complete = true;
 }
 
 /// Mirror nametable address based on mirroring mode
@@ -275,6 +278,9 @@ pub fn writeVram(state: *PpuState, cart: ?*AnyCartridge, address: u16, value: u8
         switch (reg) {
             0x0000 => {
                 // $2000 PPUCTRL
+                // Ignored during warm-up period (first ~29,658 CPU cycles)
+                if (!state.warmup_complete) return;
+
                 state.ctrl = PpuCtrl.fromByte(value);
 
                 // Update t register bits 10-11 (nametable select)
@@ -283,6 +289,9 @@ pub fn writeVram(state: *PpuState, cart: ?*AnyCartridge, address: u16, value: u8
             },
             0x0001 => {
                 // $2001 PPUMASK
+                // Ignored during warm-up period (first ~29,658 CPU cycles)
+                if (!state.warmup_complete) return;
+
                 state.mask = PpuMask.fromByte(value);
             },
             0x0002 => {
@@ -299,6 +308,9 @@ pub fn writeVram(state: *PpuState, cart: ?*AnyCartridge, address: u16, value: u8
             },
             0x0005 => {
                 // $2005 PPUSCROLL
+                // Ignored during warm-up period (first ~29,658 CPU cycles)
+                if (!state.warmup_complete) return;
+
                 if (!state.internal.w) {
                     // First write: X scroll
                     state.internal.t = (state.internal.t & 0xFFE0) |
@@ -316,6 +328,9 @@ pub fn writeVram(state: *PpuState, cart: ?*AnyCartridge, address: u16, value: u8
             },
             0x0006 => {
                 // $2006 PPUADDR
+                // Ignored during warm-up period (first ~29,658 CPU cycles)
+                if (!state.warmup_complete) return;
+
                 if (!state.internal.w) {
                     // First write: High byte
                     state.internal.t = (state.internal.t & 0x80FF) |

@@ -1047,6 +1047,13 @@ pub const EmulationState = struct {
     pub fn tickCpu(self: *EmulationState) void {
         self.cpu.cycle_count += 1;
 
+        // Check if PPU warm-up period has completed (29,658 CPU cycles)
+        // During warm-up, PPU ignores writes to $2000/$2001/$2005/$2006
+        // Reference: nesdev.org/wiki/PPU_power_up_state
+        if (!self.ppu.warmup_complete and self.cpu.cycle_count >= 29658) {
+            self.ppu.warmup_complete = true;
+        }
+
         // If CPU is halted (JAM/KIL), do nothing until RESET
         if (self.cpu.halted) {
             return;
