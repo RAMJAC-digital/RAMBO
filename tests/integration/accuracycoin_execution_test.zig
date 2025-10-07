@@ -171,3 +171,134 @@ test "AccuracyCoin: Sample test results at intervals" {
     std.debug.print("\nNote: This is an informational test - failures expected during Phase 1\n", .{});
     return error.SkipZigTest; // Always skip to avoid CI failures
 }
+
+// ============================================================================
+// ROM Rendering Diagnosis Tests
+// ============================================================================
+// Compare PPU initialization between working ROMs (AccuracyCoin, Bomberman)
+// and non-working ROMs (Mario, BurgerTime)
+
+test "ROM Diagnosis: Compare PPU initialization sequences" {
+    const roms = [_]struct {
+        path: []const u8,
+        name: []const u8,
+        expected_working: bool,
+    }{
+        .{ .path = "tests/data/AccuracyCoin.nes", .name = "AccuracyCoin", .expected_working = true },
+        .{ .path = "tests/data/Bomberman/Bomberman (USA).nes", .name = "Bomberman", .expected_working = true },
+        .{ .path = "tests/data/Mario/Super Mario Bros. (World).nes", .name = "Mario Bros", .expected_working = false },
+        .{ .path = "tests/data/BurgerTime (USA).nes", .name = "BurgerTime", .expected_working = false },
+    };
+
+    std.debug.print("\n=== ROM PPU Initialization Diagnosis ===\n", .{});
+
+    for (roms) |rom_info| {
+        var runner = RomTestRunner.RomTestRunner.init(
+            testing.allocator,
+            rom_info.path,
+            .{ .max_frames = 300, .verbose = false }, // 5 seconds
+        ) catch |err| {
+            if (err == error.FileNotFound) {
+                std.debug.print("{s}: SKIPPED (not found)\n", .{rom_info.name});
+                continue;
+            }
+            return err;
+        };
+        defer runner.deinit();
+
+        std.debug.print("\n{s} ({s}):\n", .{
+            rom_info.name,
+            if (rom_info.expected_working) "WORKING" else "BROKEN",
+        });
+
+        // Sample PPU state at key frames
+        const sample_frames = [_]usize{ 1, 5, 10, 30, 60, 120, 180, 240, 300 };
+
+        var last_frame: u64 = 0;
+        var rendering_enabled_frame: ?u64 = null;
+
+        for (sample_frames) |target_frame| {
+            // Run until target frame
+            while (runner.state.clock.frame() < target_frame) {
+                _ = try runner.runFrame();
+            }
+
+            const frame = runner.state.clock.frame();
+            const ppu = &runner.state.ppu;
+
+            // Check if rendering just became enabled
+            if (rendering_enabled_frame == null and runner.state.rendering_enabled) {
+                rendering_enabled_frame = frame;
+            }
+
+            if (frame != last_frame) {
+                const ctrl: u8 = @bitCast(ppu.ctrl);
+                const mask: u8 = @bitCast(ppu.mask);
+                const status: u8 = @bitCast(ppu.status);
+
+                std.debug.print("  Frame {:>3}: CTRL=${X:0>2} MASK=${X:0>2} STATUS=${X:0>2} rendering={}\n", .{
+                    frame,
+                    ctrl,
+                    mask,
+                    status,
+                    runner.state.rendering_enabled,
+                });
+
+                last_frame = frame;
+            }
+        }
+
+        if (rendering_enabled_frame) |frame| {
+            std.debug.print("  ✓ Rendering enabled at frame {}\n", .{frame});
+        } else {
+            std.debug.print("  ⚠ Rendering NEVER enabled in 300 frames!\n", .{});
+        }
+    }
+
+    std.debug.print("\n", .{});
+}
+
+test "ROM Diagnosis: Check for frame_complete signal" {
+    const accuracycoin_path = "tests/data/AccuracyCoin.nes";
+
+    var runner = RomTestRunner.RomTestRunner.init(
+        testing.allocator,
+        accuracycoin_path,
+        .{ .max_frames = 10, .verbose = false },
+    ) catch |err| {
+        if (err == error.FileNotFound) return error.SkipZigTest;
+        return err;
+    };
+    defer runner.deinit();
+
+    std.debug.print("\n=== Frame Completion Test (AccuracyCoin) ===\n", .{});
+
+    var frame_count: usize = 0;
+    var frame_complete_count: usize = 0;
+
+    while (frame_count < 10) {
+        const start_frame = runner.state.clock.frame();
+
+        // Run one frame
+        _ = try runner.runFrame();
+
+        // Check if frame_complete was set
+        if (runner.state.frame_complete) {
+            frame_complete_count += 1;
+            std.debug.print("Frame {}: frame_complete = TRUE\n", .{start_frame + 1});
+
+            // Reset flag (emulator would do this)
+            runner.state.frame_complete = false;
+        }
+
+        frame_count += 1;
+    }
+
+    std.debug.print("Total frames: {}, frame_complete signals: {}\n", .{
+        frame_count,
+        frame_complete_count,
+    });
+
+    // frame_complete should fire every frame during VBlank
+    try testing.expect(frame_complete_count > 0);
+}

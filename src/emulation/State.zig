@@ -900,9 +900,19 @@ pub const EmulationState = struct {
     fn rmwRead(self: *EmulationState) bool {
         const addr = switch (self.cpu.address_mode) {
             .zero_page => @as(u16, self.cpu.operand_low),
-            .zero_page_x, .absolute_x => self.cpu.effective_address,
+            .zero_page_x => self.cpu.effective_address,
             .absolute => (@as(u16, self.cpu.operand_high) << 8) | @as(u16, self.cpu.operand_low),
-            else => unreachable,
+            .absolute_x => self.cpu.effective_address,
+            .absolute_y => self.cpu.effective_address,
+            .indexed_indirect => self.cpu.effective_address, // (ind,X)
+            .indirect_indexed => self.cpu.effective_address, // (ind),Y
+            else => {
+                std.debug.print("ERROR: RMW with unsupported addressing mode!\n", .{});
+                std.debug.print("  Opcode: ${X:0>2}\n", .{self.cpu.opcode});
+                std.debug.print("  Address mode: {}\n", .{self.cpu.address_mode});
+                std.debug.print("  PC: ${X:0>4}\n", .{self.cpu.pc});
+                unreachable;
+            },
         };
 
         self.cpu.effective_address = addr;
