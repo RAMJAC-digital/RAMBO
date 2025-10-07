@@ -40,13 +40,13 @@ test "NOP implied - 2 cycles" {
     const initial_p = state.cpu.p;
 
     // Cycle 1: Fetch opcode
-    state.tickCpu();
+    state.tickCpuWithClock();
     try testing.expectEqual(@as(u16, 0x0001), state.cpu.pc);
-    try testing.expectEqual(@as(u64, 1), state.cpu.cycle_count);
+    try testing.expectEqual(@as(u64, 1), state.clock.cpuCycles());
 
     // Cycle 2: Execute NOP (does nothing)
-    state.tickCpu();
-    try testing.expectEqual(@as(u64, 2), state.cpu.cycle_count);
+    state.tickCpuWithClock();
+    try testing.expectEqual(@as(u64, 2), state.clock.cpuCycles());
 
     // Verify no registers changed
     try testing.expectEqual(initial_a, state.cpu.a);
@@ -64,13 +64,13 @@ test "NOP immediate (unofficial) - 2 cycles" {
     state.cpu.pc = 0x0000;
 
     // Cycle 1: Fetch opcode
-    state.tickCpu();
+    state.tickCpuWithClock();
 
     // Cycle 2: Execute (fetch operand and discard)
-    state.tickCpu();
+    state.tickCpuWithClock();
 
     try testing.expectEqual(@as(u16, 0x0002), state.cpu.pc); // PC advanced past operand
-    try testing.expectEqual(@as(u64, 2), state.cpu.cycle_count);
+    try testing.expectEqual(@as(u64, 2), state.clock.cpuCycles());
 }
 
 // ============================================================================
@@ -86,10 +86,10 @@ test "LDA immediate - 2 cycles" {
     state.cpu.pc = 0x0000;
 
     // Cycle 1: Fetch opcode
-    state.tickCpu();
+    state.tickCpuWithClock();
 
     // Cycle 2: Execute (fetch operand and load)
-    state.tickCpu();
+    state.tickCpuWithClock();
 
     try testing.expectEqual(@as(u8, 0x42), state.cpu.a);
     try testing.expect(!state.cpu.p.zero);
@@ -105,8 +105,8 @@ test "LDA immediate - zero flag" {
     state.cpu.pc = 0x0000;
 
     // Execute instruction (2 cycles)
-    _ = state.tickCpu(); // Fetch
-    state.tickCpu(); // Execute
+    _ = state.tickCpuWithClock(); // Fetch
+    state.tickCpuWithClock(); // Execute
     try testing.expectEqual(@as(u8, 0x00), state.cpu.a);
     try testing.expect(state.cpu.p.zero);
     try testing.expect(!state.cpu.p.negative);
@@ -121,8 +121,8 @@ test "LDA immediate - negative flag" {
     state.cpu.pc = 0x0000;
 
     // Execute instruction (2 cycles)
-    _ = state.tickCpu();
-    state.tickCpu();
+    _ = state.tickCpuWithClock();
+    state.tickCpuWithClock();
     try testing.expectEqual(@as(u8, 0x80), state.cpu.a);
     try testing.expect(!state.cpu.p.zero);
     try testing.expect(state.cpu.p.negative);
@@ -138,16 +138,16 @@ test "LDA zero page - 3 cycles" {
     state.cpu.pc = 0x0000;
 
     // Cycle 1: Fetch opcode
-    state.tickCpu();
-    try testing.expectEqual(@as(u64, 1), state.cpu.cycle_count);
+    state.tickCpuWithClock();
+    try testing.expectEqual(@as(u64, 1), state.clock.cpuCycles());
 
     // Cycle 2: Fetch ZP address
-    state.tickCpu();
-    try testing.expectEqual(@as(u64, 2), state.cpu.cycle_count);
+    state.tickCpuWithClock();
+    try testing.expectEqual(@as(u64, 2), state.clock.cpuCycles());
 
     // Cycle 3: Execute (read from ZP)
-    state.tickCpu();
-    try testing.expectEqual(@as(u64, 3), state.cpu.cycle_count);
+    state.tickCpuWithClock();
+    try testing.expectEqual(@as(u64, 3), state.clock.cpuCycles());
     try testing.expectEqual(@as(u8, 0x55), state.cpu.a);
 }
 
@@ -163,11 +163,11 @@ test "LDA zero page,X - 4 cycles" {
 
     // Execute all 4 cycles
     for (0..4) |_| {
-        state.tickCpu();
+        state.tickCpuWithClock();
     }
 
     try testing.expectEqual(@as(u8, 0x66), state.cpu.a);
-    try testing.expectEqual(@as(u64, 4), state.cpu.cycle_count);
+    try testing.expectEqual(@as(u64, 4), state.clock.cpuCycles());
 }
 
 test "LDA zero page,X - wrapping" {
@@ -181,7 +181,7 @@ test "LDA zero page,X - wrapping" {
     state.cpu.x = 0x05;
 
     for (0..4) |_| {
-        _ = state.tickCpu();
+        _ = state.tickCpuWithClock();
     }
 
     try testing.expectEqual(@as(u8, 0x77), state.cpu.a);
@@ -199,11 +199,11 @@ test "LDA absolute - 4 cycles" {
     state.cpu.pc = 0x0000;
 
     for (0..4) |_| {
-        _ = state.tickCpu();
+        _ = state.tickCpuWithClock();
     }
 
     try testing.expectEqual(@as(u8, 0x88), state.cpu.a);
-    try testing.expectEqual(@as(u64, 4), state.cpu.cycle_count);
+    try testing.expectEqual(@as(u64, 4), state.clock.cpuCycles());
 }
 
 test "LDA absolute,X - no page crossing" {
@@ -219,12 +219,12 @@ test "LDA absolute,X - no page crossing" {
 
     // Hardware: 4 cycles (we will match this after fix)
     for (0..4) |_| {
-        state.tickCpu();
+        state.tickCpuWithClock();
     }
 
     try testing.expectEqual(@as(u8, 0x99), state.cpu.a);
     try testing.expect(!state.cpu.page_crossed);
-    try testing.expectEqual(@as(u64, 4), state.cpu.cycle_count);
+    try testing.expectEqual(@as(u64, 4), state.clock.cpuCycles());
 }
 
 test "LDA absolute,X - page crossing (5 cycles)" {
@@ -240,12 +240,12 @@ test "LDA absolute,X - page crossing (5 cycles)" {
 
     // Hardware: 5 cycles (we will match this after fix)
     for (0..5) |_| {
-        state.tickCpu();
+        state.tickCpuWithClock();
     }
 
     try testing.expectEqual(@as(u8, 0xAA), state.cpu.a);
     try testing.expect(state.cpu.page_crossed);
-    try testing.expectEqual(@as(u64, 5), state.cpu.cycle_count);
+    try testing.expectEqual(@as(u64, 5), state.clock.cpuCycles());
 }
 
 // ============================================================================
@@ -262,11 +262,11 @@ test "STA zero page - 3 cycles" {
     state.cpu.a = 0x42;
 
     for (0..3) |_| {
-        _ = state.tickCpu();
+        _ = state.tickCpuWithClock();
     }
 
     try testing.expectEqual(@as(u8, 0x42), state.bus.ram[0x20]);
-    try testing.expectEqual(@as(u64, 3), state.cpu.cycle_count);
+    try testing.expectEqual(@as(u64, 3), state.clock.cpuCycles());
 }
 
 test "STA absolute,X - always 5+ cycles (write instruction)" {
@@ -282,11 +282,11 @@ test "STA absolute,X - always 5+ cycles (write instruction)" {
 
     // Hardware: 5 cycles (write always has dummy read, then write)
     for (0..5) |_| {
-        state.tickCpu();
+        state.tickCpuWithClock();
     }
 
     try testing.expectEqual(@as(u8, 0x77), state.bus.ram[0x205]);
-    try testing.expectEqual(@as(u64, 5), state.cpu.cycle_count);
+    try testing.expectEqual(@as(u64, 5), state.clock.cpuCycles());
 }
 
 // ============================================================================
@@ -311,12 +311,12 @@ test "NOP: 1-byte implied variants - 2 cycles" {
         const initial_p = state.cpu.p.toByte();
 
         // Cycle 1: Fetch opcode
-        state.tickCpu();
+        state.tickCpuWithClock();
         try testing.expectEqual(@as(u16, 0x0001), state.cpu.pc);
 
         // Cycle 2: Execute NOP (does nothing)
-        state.tickCpu();
-        try testing.expectEqual(@as(u64, 2), state.cpu.cycle_count);
+        state.tickCpuWithClock();
+        try testing.expectEqual(@as(u64, 2), state.clock.cpuCycles());
 
         // Verify no registers changed
         try testing.expectEqual(initial_a, state.cpu.a);
@@ -348,12 +348,12 @@ test "NOP: 2-byte zero page variants - 3 cycles" {
 
         // Execute through all cycles
         for (0..3) |_| {
-            _ = state.tickCpu();
+            _ = state.tickCpuWithClock();
         }
 
         // PC should advance by 2 (opcode + operand)
         try testing.expectEqual(@as(u16, 0x0002), state.cpu.pc);
-        try testing.expectEqual(@as(u64, 3), state.cpu.cycle_count);
+        try testing.expectEqual(@as(u64, 3), state.clock.cpuCycles());
 
         // Verify no registers changed
         try testing.expectEqual(initial_a, state.cpu.a);
@@ -385,12 +385,12 @@ test "NOP: 2-byte zero page,X variants - 4 cycles" {
 
         // Execute through all cycles
         for (0..4) |_| {
-            _ = state.tickCpu();
+            _ = state.tickCpuWithClock();
         }
 
         // PC should advance by 2 (opcode + operand)
         try testing.expectEqual(@as(u16, 0x0002), state.cpu.pc);
-        try testing.expectEqual(@as(u64, 4), state.cpu.cycle_count);
+        try testing.expectEqual(@as(u64, 4), state.clock.cpuCycles());
 
         // Verify no registers changed (including X)
         try testing.expectEqual(initial_a, state.cpu.a);
@@ -411,11 +411,11 @@ test "NOP: 2-byte zero page,X with wrapping" {
     state.bus.ram[0x0F] = 0xAA; // Value at wrapped address
 
     for (0..4) |_| {
-        _ = state.tickCpu();
+        _ = state.tickCpuWithClock();
     }
 
     try testing.expectEqual(@as(u16, 0x0002), state.cpu.pc);
-    try testing.expectEqual(@as(u64, 4), state.cpu.cycle_count);
+    try testing.expectEqual(@as(u64, 4), state.clock.cpuCycles());
 }
 
 test "NOP: 3-byte absolute - 4 cycles" {
@@ -433,12 +433,12 @@ test "NOP: 3-byte absolute - 4 cycles" {
 
     // Execute through all cycles
     for (0..4) |_| {
-        _ = state.tickCpu();
+        _ = state.tickCpuWithClock();
     }
 
     // PC should advance by 3 (opcode + 2 operand bytes)
     try testing.expectEqual(@as(u16, 0x0003), state.cpu.pc);
-    try testing.expectEqual(@as(u64, 4), state.cpu.cycle_count);
+    try testing.expectEqual(@as(u64, 4), state.clock.cpuCycles());
 
     // Verify no registers changed
     try testing.expectEqual(initial_a, state.cpu.a);
@@ -465,11 +465,11 @@ test "NOP: 3-byte absolute,X variants without page crossing - 4 cycles" {
 
         // Execute through all cycles (no page cross = 4 cycles)
         for (0..4) |_| {
-            _ = state.tickCpu();
+            _ = state.tickCpuWithClock();
         }
 
         try testing.expectEqual(@as(u16, 0x0003), state.cpu.pc);
-        try testing.expectEqual(@as(u64, 4), state.cpu.cycle_count);
+        try testing.expectEqual(@as(u64, 4), state.clock.cpuCycles());
         try testing.expectEqual(initial_p, state.cpu.p.toByte());
     }
 }
@@ -494,11 +494,11 @@ test "NOP: 3-byte absolute,X with page crossing - 5 cycles" {
 
         // Execute through all cycles (page cross = 5 cycles)
         for (0..5) |_| {
-            _ = state.tickCpu();
+            _ = state.tickCpuWithClock();
         }
 
         try testing.expectEqual(@as(u16, 0x0003), state.cpu.pc);
-        try testing.expectEqual(@as(u64, 5), state.cpu.cycle_count);
+        try testing.expectEqual(@as(u64, 5), state.clock.cpuCycles());
         try testing.expectEqual(initial_p, state.cpu.p.toByte());
     }
 }
@@ -514,7 +514,7 @@ test "NOP variants: memory reads actually occur" {
 
     // Execute
     for (0..3) |_| {
-        _ = state.tickCpu();
+        _ = state.tickCpuWithClock();
     }
 
     // The read should have updated open bus
@@ -690,8 +690,8 @@ test "Instructions update open bus correctly" {
     state.bus.ram[1] = 0x42;
     state.cpu.pc = 0x0000;
 
-    _ = state.tickCpu(); // Fetch opcode
-    _ = state.tickCpu(); // Execute (fetch operand) - should update bus
+    _ = state.tickCpuWithClock(); // Fetch opcode
+    _ = state.tickCpuWithClock(); // Execute (fetch operand) - should update bus
 
     // Open bus should have the operand value
     try testing.expectEqual(@as(u8, 0x42), state.bus.open_bus);

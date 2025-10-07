@@ -63,7 +63,7 @@ fn createTestState(config: *const Config) EmulationState {
     state.cpu.pc = 0x8000;
     state.cpu.p.zero = true;
     state.cpu.p.negative = true;
-    state.cpu.cycle_count = 987654;
+    // CPU cycle count removed - derived from ppu_cycles (set below)
 
     state.ppu.ctrl = .{ .nmi_enable = true, .sprite_size = true };
     state.ppu.mask = .{ .show_bg = true, .show_sprites = true };
@@ -127,7 +127,7 @@ test "Snapshot Integration: Full round-trip without cartridge" {
     try testing.expectEqual(state.cpu.pc, restored.cpu.pc);
     try testing.expectEqual(state.cpu.p.zero, restored.cpu.p.zero);
     try testing.expectEqual(state.cpu.p.negative, restored.cpu.p.negative);
-    try testing.expectEqual(state.cpu.cycle_count, restored.cpu.cycle_count);
+    try testing.expectEqual(state.clock.cpuCycles(), restored.clock.cpuCycles());
 
     // Verify PPU state
     try testing.expectEqual(state.ppu.ctrl.nmi_enable, restored.ppu.ctrl.nmi_enable);

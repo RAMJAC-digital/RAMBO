@@ -219,7 +219,7 @@ test "OAM DMA: CPU is stalled during transfer" {
 
     // Set CPU to known state
     const cpu_pc_before = state.cpu.pc;
-    const cpu_cycle_before = state.cpu.cycle_count;
+    const cpu_cycle_before = state.clock.cpuCycles();
 
     // Trigger DMA
     state.busWrite(0x4014, 0x05);
@@ -235,7 +235,7 @@ test "OAM DMA: CPU is stalled during transfer" {
 
     // CPU cycle count should have increased (time passed)
     // but no instructions were executed
-    try testing.expect(state.cpu.cycle_count > cpu_cycle_before);
+    try testing.expect(state.clock.cpuCycles() > cpu_cycle_before);
 }
 
 test "OAM DMA: PPU continues running during transfer" {

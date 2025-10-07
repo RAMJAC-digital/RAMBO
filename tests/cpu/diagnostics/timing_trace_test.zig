@@ -41,23 +41,23 @@ test "LDA absolute,X - no page cross - cycle trace (CURRENT BEHAVIOR)" {
     try testing.expectEqual(@as(u8, 0), state.cpu.a);
 
     // ===== Cycle 1: Fetch Opcode =====
-    state.tickCpu();
-    try testing.expectEqual(@as(u64, 1), state.cpu.cycle_count);
+    state.tickCpuWithClock();
+    try testing.expectEqual(@as(u64, 1), state.clock.cpuCycles());
     try testing.expectEqual(@as(u16, 0x0001), state.cpu.pc);
     try testing.expectEqual(@as(u8, 0xBD), state.cpu.opcode);
     try testing.expectEqual(CpuState.fetch_operand_low, state.cpu.state);
 
     // ===== Cycle 2: Fetch Low Byte =====
-    state.tickCpu();
-    try testing.expectEqual(@as(u64, 2), state.cpu.cycle_count);
+    state.tickCpuWithClock();
+    try testing.expectEqual(@as(u64, 2), state.clock.cpuCycles());
     try testing.expectEqual(@as(u16, 0x0002), state.cpu.pc);
     try testing.expectEqual(@as(u8, 0x30), state.cpu.operand_low);
     try testing.expectEqual(CpuState.fetch_operand_low, state.cpu.state);
     try testing.expectEqual(@as(u8, 0), state.cpu.instruction_cycle);
 
     // ===== Cycle 3: Fetch High Byte =====
-    state.tickCpu();
-    try testing.expectEqual(@as(u64, 3), state.cpu.cycle_count);
+    state.tickCpuWithClock();
+    try testing.expectEqual(@as(u64, 3), state.clock.cpuCycles());
     try testing.expectEqual(@as(u16, 0x0003), state.cpu.pc);
     try testing.expectEqual(@as(u8, 0x01), state.cpu.operand_high);
     try testing.expectEqual(@as(u8, 1), state.cpu.instruction_cycle);
@@ -65,8 +65,8 @@ test "LDA absolute,X - no page cross - cycle trace (CURRENT BEHAVIOR)" {
     // ===== Cycle 4: calcAbsoluteX - Dummy Read =====
     // Hardware: This would be the FINAL read + execute
     // Our impl: Just does dummy read, stores in temp_value
-    state.tickCpu();
-    try testing.expectEqual(@as(u64, 4), state.cpu.cycle_count);
+    state.tickCpuWithClock();
+    try testing.expectEqual(@as(u64, 4), state.clock.cpuCycles());
     try testing.expectEqual(@as(u16, 0x0135), state.cpu.effective_address);
     try testing.expect(!state.cpu.page_crossed); // No page cross
     try testing.expectEqual(@as(u8, 0x99), state.cpu.temp_value); // Value cached
@@ -75,8 +75,8 @@ test "LDA absolute,X - no page cross - cycle trace (CURRENT BEHAVIOR)" {
 
     // ===== Cycle 5: Execute (DEVIATION - Should not exist!) =====
     // This is the +1 cycle deviation
-    state.tickCpu();
-    try testing.expectEqual(@as(u64, 5), state.cpu.cycle_count);
+    state.tickCpuWithClock();
+    try testing.expectEqual(@as(u64, 5), state.clock.cpuCycles());
     try testing.expectEqual(@as(u8, 0x99), state.cpu.a); // NOW executed
     try testing.expectEqual(CpuState.fetch_opcode, state.cpu.state);
 
@@ -96,9 +96,9 @@ test "LDA absolute,X - no page cross - EXPECTED HARDWARE BEHAVIOR" {
     // TODO: Uncomment and verify after fix is implemented
     // var state = createTestState();
     // ... same setup ...
-    // for (0..4) |_| state.tickCpu();
+    // for (0..4) |_| state.tickCpuWithClock();
     // try testing.expectEqual(@as(u8, 0x99), state.cpu.a);
-    // try testing.expectEqual(@as(u64, 4), state.cpu.cycle_count);
+    // try testing.expectEqual(@as(u64, 4), state.clock.cpuCycles());
 }
 
 // ============================================================================
@@ -117,23 +117,23 @@ test "LDA absolute,X - page cross - cycle trace (CURRENT BEHAVIOR)" {
     state.cpu.x = 0x05;
 
     // ===== Cycle 1: Fetch Opcode =====
-    state.tickCpu();
-    try testing.expectEqual(@as(u64, 1), state.cpu.cycle_count);
+    state.tickCpuWithClock();
+    try testing.expectEqual(@as(u64, 1), state.clock.cpuCycles());
 
     // ===== Cycle 2: Fetch Low Byte =====
-    state.tickCpu();
-    try testing.expectEqual(@as(u64, 2), state.cpu.cycle_count);
+    state.tickCpuWithClock();
+    try testing.expectEqual(@as(u64, 2), state.clock.cpuCycles());
     try testing.expectEqual(@as(u8, 0xFF), state.cpu.operand_low);
 
     // ===== Cycle 3: Fetch High Byte =====
-    state.tickCpu();
-    try testing.expectEqual(@as(u64, 3), state.cpu.cycle_count);
+    state.tickCpuWithClock();
+    try testing.expectEqual(@as(u64, 3), state.clock.cpuCycles());
     try testing.expectEqual(@as(u8, 0x01), state.cpu.operand_high);
 
     // ===== Cycle 4: calcAbsoluteX - Dummy Read at Wrong Address =====
     // Address should be $0104 (not $0204 - high byte not fixed yet)
-    state.tickCpu();
-    try testing.expectEqual(@as(u64, 4), state.cpu.cycle_count);
+    state.tickCpuWithClock();
+    try testing.expectEqual(@as(u64, 4), state.clock.cpuCycles());
     try testing.expectEqual(@as(u16, 0x0204), state.cpu.effective_address);
     try testing.expect(state.cpu.page_crossed); // Page crossed!
     try testing.expectEqual(@as(u8, 0), state.cpu.a); // Not executed yet
@@ -141,13 +141,13 @@ test "LDA absolute,X - page cross - cycle trace (CURRENT BEHAVIOR)" {
     // ===== Cycle 5: fixHighByte - Dummy Read at Correct Address =====
     // Hardware: This would be FINAL read + execute
     // Our impl: Does dummy read, discards value
-    state.tickCpu();
-    try testing.expectEqual(@as(u64, 5), state.cpu.cycle_count);
+    state.tickCpuWithClock();
+    try testing.expectEqual(@as(u64, 5), state.clock.cpuCycles());
     try testing.expectEqual(@as(u8, 0), state.cpu.a); // STILL not executed
 
     // ===== Cycle 6: Execute (DEVIATION - Should not exist!) =====
-    state.tickCpu();
-    try testing.expectEqual(@as(u64, 6), state.cpu.cycle_count);
+    state.tickCpuWithClock();
+    try testing.expectEqual(@as(u64, 6), state.clock.cpuCycles());
     try testing.expectEqual(@as(u8, 0xAA), state.cpu.a); // NOW executed
 
     // **DEVIATION:** 6 cycles instead of 5
@@ -172,13 +172,13 @@ test "LDA immediate - cycle trace (CORRECT)" {
     state.cpu.pc = 0x0000;
 
     // Cycle 1: Fetch opcode
-    state.tickCpu();
-    try testing.expectEqual(@as(u64, 1), state.cpu.cycle_count);
+    state.tickCpuWithClock();
+    try testing.expectEqual(@as(u64, 1), state.clock.cpuCycles());
     try testing.expectEqual(CpuState.execute, state.cpu.state);
 
     // Cycle 2: Read operand + Execute (SAME CYCLE)
-    state.tickCpu();
-    try testing.expectEqual(@as(u64, 2), state.cpu.cycle_count);
+    state.tickCpuWithClock();
+    try testing.expectEqual(@as(u64, 2), state.clock.cpuCycles());
     try testing.expectEqual(@as(u8, 0x42), state.cpu.a);
     try testing.expectEqual(CpuState.fetch_opcode, state.cpu.state);
 
@@ -201,7 +201,7 @@ test "ASL absolute,X - cycle trace (CORRECT - RMW)" {
     state.cpu.x = 0x05;
 
     for (0..7) |i| {
-        state.tickCpu();
+        state.tickCpuWithClock();
         std.debug.print("ASL Cycle {}: state={s}, ic={}, result=0x{X:0>2}\n", .{
             i + 1,
             @tagName(state.cpu.state),
@@ -211,7 +211,7 @@ test "ASL absolute,X - cycle trace (CORRECT - RMW)" {
     }
 
     try testing.expectEqual(@as(u8, 0x02), state.bus.ram[0x205]);
-    try testing.expectEqual(@as(u64, 7), state.cpu.cycle_count);
+    try testing.expectEqual(@as(u64, 7), state.clock.cpuCycles());
 
     // **CORRECT:** 7 cycles for RMW
     // RMW needs separate cycles for: read, dummy write, real write

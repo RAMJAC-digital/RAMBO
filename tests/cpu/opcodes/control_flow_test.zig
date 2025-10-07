@@ -40,7 +40,7 @@ test "JSR: jumps to target address" {
     state.bus.ram[2] = 0x01; // High byte ($0100)
 
     // Execute 6 cycles
-    for (0..6) |_| _ = state.tickCpu();
+    for (0..6) |_| _ = state.tickCpuWithClock();
 
     try testing.expectEqual(@as(u16, 0x0100), state.cpu.pc);
 }
@@ -55,7 +55,7 @@ test "JSR: pushes return address to stack" {
     state.bus.ram[1] = 0x00;
     state.bus.ram[2] = 0x01;
 
-    for (0..6) |_| _ = state.tickCpu();
+    for (0..6) |_| _ = state.tickCpuWithClock();
 
     // Return address ($0002) should be on stack
     const stack_low = state.busRead(0x01FE);
@@ -76,11 +76,11 @@ test "JSR: takes 6 cycles" {
     state.bus.ram[1] = 0x00;
     state.bus.ram[2] = 0x01;
 
-    const start_cycles = state.cpu.cycle_count;
+    const start_cycles = state.clock.cpuCycles();
 
-    for (0..6) |_| _ = state.tickCpu();
+    for (0..6) |_| _ = state.tickCpuWithClock();
 
-    try testing.expectEqual(@as(u64, start_cycles + 6), state.cpu.cycle_count);
+    try testing.expectEqual(@as(u64, start_cycles + 6), state.clock.cpuCycles());
 }
 
 // ============================================================================
@@ -98,7 +98,7 @@ test "RTS: returns to correct address" {
     state.cpu.pc = 0x0100;
     state.bus.ram[0x100] = 0x60; // RTS
 
-    for (0..6) |_| _ = state.tickCpu();
+    for (0..6) |_| _ = state.tickCpuWithClock();
 
     try testing.expectEqual(@as(u16, 0x0003), state.cpu.pc); // $0002 + 1
 }
@@ -113,7 +113,7 @@ test "RTS: restores stack pointer" {
     state.cpu.pc = 0x0100;
     state.bus.ram[0x100] = 0x60;
 
-    for (0..6) |_| _ = state.tickCpu();
+    for (0..6) |_| _ = state.tickCpuWithClock();
 
     try testing.expectEqual(@as(u8, 0xFF), state.cpu.sp);
 }
@@ -128,11 +128,11 @@ test "RTS: takes 6 cycles" {
     state.cpu.pc = 0x0100;
     state.bus.ram[0x100] = 0x60;
 
-    const start_cycles = state.cpu.cycle_count;
+    const start_cycles = state.clock.cpuCycles();
 
-    for (0..6) |_| _ = state.tickCpu();
+    for (0..6) |_| _ = state.tickCpuWithClock();
 
-    try testing.expectEqual(@as(u64, start_cycles + 6), state.cpu.cycle_count);
+    try testing.expectEqual(@as(u64, start_cycles + 6), state.clock.cpuCycles());
 }
 
 // ============================================================================
@@ -154,11 +154,11 @@ test "JSR + RTS: complete round trip" {
     state.bus.ram[0x100] = 0x60;
 
     // Execute JSR
-    for (0..6) |_| _ = state.tickCpu();
+    for (0..6) |_| _ = state.tickCpuWithClock();
     try testing.expectEqual(@as(u16, 0x0100), state.cpu.pc);
 
     // Execute RTS
-    for (0..6) |_| _ = state.tickCpu();
+    for (0..6) |_| _ = state.tickCpuWithClock();
     try testing.expectEqual(@as(u16, 0x0003), state.cpu.pc);
     try testing.expectEqual(@as(u8, 0xFF), state.cpu.sp);
 }
@@ -181,7 +181,7 @@ test "RTI: restores status and PC" {
     state.cpu.pc = 0x0100;
     state.bus.ram[0x100] = 0x40; // RTI
 
-    for (0..6) |_| _ = state.tickCpu();
+    for (0..6) |_| _ = state.tickCpuWithClock();
 
     try testing.expect(state.cpu.p.negative);
     try testing.expect(state.cpu.p.overflow);
@@ -203,11 +203,11 @@ test "RTI: takes 6 cycles" {
     state.cpu.pc = 0x0100;
     state.bus.ram[0x100] = 0x40;
 
-    const start_cycles = state.cpu.cycle_count;
+    const start_cycles = state.clock.cpuCycles();
 
-    for (0..6) |_| _ = state.tickCpu();
+    for (0..6) |_| _ = state.tickCpuWithClock();
 
-    try testing.expectEqual(@as(u64, start_cycles + 6), state.cpu.cycle_count);
+    try testing.expectEqual(@as(u64, start_cycles + 6), state.clock.cpuCycles());
 }
 
 // ============================================================================
@@ -230,7 +230,7 @@ test "BRK: pushes PC and status to stack" {
     state.busWrite(0xFFFE, 0x00); // IRQ vector low
     state.busWrite(0xFFFF, 0x03); // IRQ vector high ($0300)
 
-    for (0..7) |_| _ = state.tickCpu();
+    for (0..7) |_| _ = state.tickCpuWithClock();
 
     // Check PC on stack (PC+2 = $0002)
     const pc_high = state.busRead(0x01FF);
@@ -261,11 +261,11 @@ test "BRK: takes 7 cycles" {
     state.busWrite(0xFFFE, 0x00);
     state.busWrite(0xFFFF, 0x03);
 
-    const start_cycles = state.cpu.cycle_count;
+    const start_cycles = state.clock.cpuCycles();
 
-    for (0..7) |_| _ = state.tickCpu();
+    for (0..7) |_| _ = state.tickCpuWithClock();
 
-    try testing.expectEqual(@as(u64, start_cycles + 7), state.cpu.cycle_count);
+    try testing.expectEqual(@as(u64, start_cycles + 7), state.clock.cpuCycles());
 }
 
 // ============================================================================
@@ -290,12 +290,12 @@ test "BRK + RTI: interrupt round trip" {
     state.bus.ram[0x300] = 0x40;
 
     // Execute BRK
-    for (0..7) |_| _ = state.tickCpu();
+    for (0..7) |_| _ = state.tickCpuWithClock();
     try testing.expectEqual(@as(u16, 0x0300), state.cpu.pc);
     try testing.expect(state.cpu.p.interrupt);
 
     // Execute RTI
-    for (0..6) |_| _ = state.tickCpu();
+    for (0..6) |_| _ = state.tickCpuWithClock();
     try testing.expectEqual(@as(u16, 0x0002), state.cpu.pc);
     try testing.expect(state.cpu.p.carry); // Original carry restored
 }

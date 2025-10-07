@@ -143,8 +143,8 @@ pub const CpuState = struct {
     pc: u16 = 0,    // Program counter
     p: StatusFlags = .{}, // Status flags
 
-    // ===== Cycle Tracking =====
-    cycle_count: u64 = 0,           // Total cycles since power-on
+    // ===== Microstep State Machine =====
+    // Note: Total cycle count removed - now derived from MasterClock (ppu_cycles / 3)
     instruction_cycle: u8 = 0,      // Current cycle within instruction
     state: ExecutionState = .fetch_opcode, // Current execution state
 

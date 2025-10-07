@@ -100,8 +100,8 @@ pub fn writeCpuState(writer: anytype, cpu: *const CpuState) !void {
     try writer.writeInt(u16, cpu.pc, .little);
     try writer.writeByte(cpu.p.toByte());
 
-    // Cycle tracking (10 bytes)
-    try writer.writeInt(u64, cpu.cycle_count, .little);
+    // Microstep state (2 bytes)
+    // Note: Total cycle count removed - derived from MasterClock (ppu_cycles / 3)
     try writer.writeByte(cpu.instruction_cycle);
     try writer.writeByte(@intFromEnum(cpu.state));
 
@@ -139,8 +139,8 @@ pub fn readCpuState(reader: anytype) !CpuState {
         .pc = try reader.readInt(u16, .little),
         .p = StatusFlags.fromByte(try reader.readByte()),
 
-        // Cycle tracking
-        .cycle_count = try reader.readInt(u64, .little),
+        // Microstep state
+        // Note: Total cycle count removed - derived from MasterClock
         .instruction_cycle = try reader.readByte(),
         .state = @enumFromInt(try reader.readByte()),
 

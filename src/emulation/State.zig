@@ -996,13 +996,17 @@ pub const EmulationState = struct {
 
     /// Tick CPU state machine (called every 3 PPU cycles)
     /// This contains all CPU side effects - pure functional helpers are in CpuLogic
+    ///
+    /// Note: This does NOT advance the master clock - clock advancement happens in tick().
+    /// For direct testing, use tickCpuWithClock() or manually advance the clock.
     pub fn tickCpu(self: *EmulationState) void {
-        self.cpu.cycle_count += 1;
+        // Clock advancement happens in tick() - not here
+        // This keeps timing management centralized
 
         // Check if PPU warm-up period has completed (29,658 CPU cycles)
         // During warm-up, PPU ignores writes to $2000/$2001/$2005/$2006
         // Reference: nesdev.org/wiki/PPU_power_up_state
-        if (!self.ppu.warmup_complete and self.cpu.cycle_count >= 29658) {
+        if (!self.ppu.warmup_complete and self.clock.cpuCycles() >= 29658) {
             self.ppu.warmup_complete = true;
         }
 
@@ -1491,6 +1495,14 @@ pub const EmulationState = struct {
         }
     }
 
+    /// Test helper: Tick CPU with clock advancement
+    /// Advances master clock by 3 PPU cycles (1 CPU cycle) then ticks CPU
+    /// Use this in CPU-only tests instead of calling tickCpu() directly
+    pub fn tickCpuWithClock(self: *EmulationState) void {
+        self.clock.advance(3); // 1 CPU cycle = 3 PPU cycles
+        self.tickCpu();
+    }
+
     /// Tick PPU state machine (called every PPU cycle)
     /// Timing is derived from MasterClock and passed as read-only parameters
     fn tickPpu(self: *EmulationState) void {
@@ -1576,8 +1588,8 @@ pub const EmulationState = struct {
     /// - PPU continues running normally
     /// - Bus is monopolized by DMA controller
     fn tickDma(self: *EmulationState) void {
-        // Increment CPU cycle counter (time passes even though CPU is stalled)
-        self.cpu.cycle_count += 1;
+        // CPU cycle count removed - time tracked by MasterClock
+        // No increment needed - clock is advanced in tick()
 
         // Increment DMA cycle counter
         const cycle = self.dma.current_cycle;
@@ -1626,8 +1638,8 @@ pub const EmulationState = struct {
     ///
     /// Note: Public for testing purposes
     pub fn tickDmcDma(self: *EmulationState) void {
-        // Increment CPU cycle counter (time passes even though CPU stalled)
-        self.cpu.cycle_count += 1;
+        // CPU cycle count removed - time tracked by MasterClock
+        // No increment needed - clock is advanced in tick()
 
         const cycle = self.dmc_dma.stall_cycles_remaining;
 
@@ -1837,25 +1849,25 @@ test "EmulationState: CPU ticks every 3 PPU cycles" {
     var state = EmulationState.init(&config);
     state.reset();
 
-    const initial_cpu_cycles = state.cpu.cycle_count;
+    const initial_cpu_cycles = state.clock.cpuCycles();
 
     // Tick 2 PPU cycles (CPU should NOT tick)
     state.tick();
     state.tick();
     try testing.expectEqual(@as(u64, 2), state.clock.ppu_cycles);
-    try testing.expectEqual(initial_cpu_cycles, state.cpu.cycle_count);
+    try testing.expectEqual(initial_cpu_cycles, state.clock.cpuCycles());
 
     // Tick 3rd PPU cycle (CPU SHOULD tick)
     state.tick();
     try testing.expectEqual(@as(u64, 3), state.clock.ppu_cycles);
-    try testing.expectEqual(initial_cpu_cycles + 1, state.cpu.cycle_count);
+    try testing.expectEqual(initial_cpu_cycles + 1, state.clock.cpuCycles());
 
     // Tick 3 more PPU cycles (CPU should tick once more)
     state.tick();
     state.tick();
     state.tick();
     try testing.expectEqual(@as(u64, 6), state.clock.ppu_cycles);
-    try testing.expectEqual(initial_cpu_cycles + 2, state.cpu.cycle_count);
+    try testing.expectEqual(initial_cpu_cycles + 2, state.clock.cpuCycles());
 }
 
 test "EmulationState: emulateCpuCycles advances correctly" {

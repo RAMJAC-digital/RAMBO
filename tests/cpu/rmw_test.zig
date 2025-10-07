@@ -25,15 +25,15 @@ test "ASL accumulator - 2 cycles" {
     state.cpu.a = 0x40; // 01000000
 
     // Cycle 1: Fetch opcode
-    state.tickCpu();
+    state.tickCpuWithClock();
 
     // Cycle 2: Execute
-    state.tickCpu();
+    state.tickCpuWithClock();
 
     try testing.expectEqual(@as(u8, 0x80), state.cpu.a); // 10000000
     try testing.expect(!state.cpu.p.carry);
     try testing.expect(state.cpu.p.negative);
-    try testing.expectEqual(@as(u64, 2), state.cpu.cycle_count);
+    try testing.expectEqual(@as(u64, 2), state.clock.cpuCycles());
 }
 
 test "ASL zero page - 5 cycles with dummy write" {
@@ -46,12 +46,12 @@ test "ASL zero page - 5 cycles with dummy write" {
 
     // Execute all 5 cycles
     for (0..5) |_| {
-        state.tickCpu();
+        state.tickCpuWithClock();
     }
 
     // Verify final result
     try testing.expectEqual(@as(u8, 0x84), state.bus.ram[0x10]); // Final value (shifted)
-    try testing.expectEqual(@as(u64, 5), state.cpu.cycle_count); // Correct cycle count
+    try testing.expectEqual(@as(u64, 5), state.clock.cpuCycles()); // Correct cycle count
 
     // Note: The dummy write (cycle 4) writes 0x42 back to 0x10, which doesn't change
     // the value but IS visible to memory-mapped I/O. Testing this requires
@@ -69,11 +69,11 @@ test "ASL absolute,X - 7 cycles" {
     state.cpu.x = 0x05;
 
     for (0..7) |_| {
-        state.tickCpu();
+        state.tickCpuWithClock();
     }
 
     try testing.expectEqual(@as(u8, 0x02), state.bus.ram[0x205]);
-    try testing.expectEqual(@as(u64, 7), state.cpu.cycle_count);
+    try testing.expectEqual(@as(u64, 7), state.clock.cpuCycles());
 }
 
 // ============================================================================
@@ -87,8 +87,8 @@ test "LSR accumulator - carry flag" {
     state.cpu.pc = 0x0000;
     state.cpu.a = 0x03; // 00000011
 
-    _ = state.tickCpu(); // Fetch
-    _ = state.tickCpu(); // Execute
+    _ = state.tickCpuWithClock(); // Fetch
+    _ = state.tickCpuWithClock(); // Execute
 
     try testing.expectEqual(@as(u8, 0x01), state.cpu.a); // 00000001
     try testing.expect(state.cpu.p.carry); // Bit 0 -> carry
@@ -105,11 +105,11 @@ test "LSR zero page,X - 6 cycles with dummy write" {
     state.cpu.x = 0x02;
 
     for (0..6) |_| {
-        _ = state.tickCpu();
+        _ = state.tickCpuWithClock();
     }
 
     try testing.expectEqual(@as(u8, 0x40), state.bus.ram[0x12]);
-    try testing.expectEqual(@as(u64, 6), state.cpu.cycle_count);
+    try testing.expectEqual(@as(u64, 6), state.clock.cpuCycles());
 }
 
 // ============================================================================
@@ -124,8 +124,8 @@ test "ROL with carry rotation" {
     state.cpu.a = 0x80; // 10000000
     state.cpu.p.carry = true;
 
-    _ = state.tickCpu(); // Fetch
-    _ = state.tickCpu(); // Execute
+    _ = state.tickCpuWithClock(); // Fetch
+    _ = state.tickCpuWithClock(); // Execute
 
     try testing.expectEqual(@as(u8, 0x01), state.cpu.a); // 00000001 (old carry rotated in)
     try testing.expect(state.cpu.p.carry); // Bit 7 rotated out
@@ -142,7 +142,7 @@ test "ROL absolute - 6 cycles" {
     state.cpu.p.carry = false;
 
     for (0..6) |_| {
-        _ = state.tickCpu();
+        _ = state.tickCpuWithClock();
     }
 
     try testing.expectEqual(@as(u8, 0xFE), state.bus.ram[0x120]); // 11111110
@@ -161,8 +161,8 @@ test "ROR with carry rotation" {
     state.cpu.a = 0x01; // 00000001
     state.cpu.p.carry = true;
 
-    _ = state.tickCpu(); // Fetch
-    _ = state.tickCpu(); // Execute
+    _ = state.tickCpuWithClock(); // Fetch
+    _ = state.tickCpuWithClock(); // Execute
 
     try testing.expectEqual(@as(u8, 0x80), state.cpu.a); // 10000000 (old carry rotated in)
     try testing.expect(state.cpu.p.carry); // Bit 0 rotated out
@@ -181,11 +181,11 @@ test "INC zero page - 5 cycles with dummy write" {
     state.cpu.pc = 0x0000;
 
     for (0..5) |_| {
-        _ = state.tickCpu();
+        _ = state.tickCpuWithClock();
     }
 
     try testing.expectEqual(@as(u8, 0x42), state.bus.ram[0x10]);
-    try testing.expectEqual(@as(u64, 5), state.cpu.cycle_count);
+    try testing.expectEqual(@as(u64, 5), state.clock.cpuCycles());
 }
 
 test "INC wraps to zero" {
@@ -197,7 +197,7 @@ test "INC wraps to zero" {
     state.cpu.pc = 0x0000;
 
     for (0..5) |_| {
-        _ = state.tickCpu();
+        _ = state.tickCpuWithClock();
     }
 
     try testing.expectEqual(@as(u8, 0x00), state.bus.ram[0x10]);
@@ -215,12 +215,12 @@ test "INC absolute,X - 7 cycles" {
     state.cpu.x = 0x10;
 
     for (0..7) |_| {
-        _ = state.tickCpu();
+        _ = state.tickCpuWithClock();
     }
 
     try testing.expectEqual(@as(u8, 0x80), state.bus.ram[0x210]);
     try testing.expect(state.cpu.p.negative);
-    try testing.expectEqual(@as(u64, 7), state.cpu.cycle_count);
+    try testing.expectEqual(@as(u64, 7), state.clock.cpuCycles());
 }
 
 // ============================================================================
@@ -236,7 +236,7 @@ test "DEC zero page - 5 cycles" {
     state.cpu.pc = 0x0000;
 
     for (0..5) |_| {
-        _ = state.tickCpu();
+        _ = state.tickCpuWithClock();
     }
 
     try testing.expectEqual(@as(u8, 0x41), state.bus.ram[0x10]);
@@ -251,7 +251,7 @@ test "DEC wraps to FF" {
     state.cpu.pc = 0x0000;
 
     for (0..5) |_| {
-        _ = state.tickCpu();
+        _ = state.tickCpuWithClock();
     }
 
     try testing.expectEqual(@as(u8, 0xFF), state.bus.ram[0x10]);
@@ -269,10 +269,10 @@ test "INX - 2 cycles" {
     state.cpu.pc = 0x0000;
     state.cpu.x = 0x10;
 
-    _ = state.tickCpu(); // Fetch
-    state.tickCpu(); // Execute
+    _ = state.tickCpuWithClock(); // Fetch
+    state.tickCpuWithClock(); // Execute
     try testing.expectEqual(@as(u8, 0x11), state.cpu.x);
-    try testing.expectEqual(@as(u64, 2), state.cpu.cycle_count);
+    try testing.expectEqual(@as(u64, 2), state.clock.cpuCycles());
 }
 
 test "INY - zero flag" {
@@ -282,8 +282,8 @@ test "INY - zero flag" {
     state.cpu.pc = 0x0000;
     state.cpu.y = 0xFF;
 
-    _ = state.tickCpu();
-    _ = state.tickCpu();
+    _ = state.tickCpuWithClock();
+    _ = state.tickCpuWithClock();
 
     try testing.expectEqual(@as(u8, 0x00), state.cpu.y);
     try testing.expect(state.cpu.p.zero);
@@ -296,8 +296,8 @@ test "DEX - negative flag" {
     state.cpu.pc = 0x0000;
     state.cpu.x = 0x01;
 
-    _ = state.tickCpu();
-    _ = state.tickCpu();
+    _ = state.tickCpuWithClock();
+    _ = state.tickCpuWithClock();
 
     try testing.expectEqual(@as(u8, 0x00), state.cpu.x);
     try testing.expect(state.cpu.p.zero);
@@ -310,10 +310,10 @@ test "DEY - 2 cycles" {
     state.cpu.pc = 0x0000;
     state.cpu.y = 0x80;
 
-    _ = state.tickCpu();
-    state.tickCpu();
+    _ = state.tickCpuWithClock();
+    state.tickCpuWithClock();
     try testing.expectEqual(@as(u8, 0x7F), state.cpu.y);
-    try testing.expectEqual(@as(u64, 2), state.cpu.cycle_count);
+    try testing.expectEqual(@as(u64, 2), state.clock.cpuCycles());
 }
 
 // ============================================================================
@@ -330,12 +330,12 @@ test "RMW dummy write occurs at correct cycle" {
     state.cpu.pc = 0x0000;
 
     for (0..5) |_| {
-        _ = state.tickCpu();
+        _ = state.tickCpuWithClock();
     }
 
     // Verify final result
     try testing.expectEqual(@as(u8, 0x11), state.bus.ram[0x50]); // Final value
-    try testing.expectEqual(@as(u64, 5), state.cpu.cycle_count);
+    try testing.expectEqual(@as(u64, 5), state.clock.cpuCycles());
 
     // Note: Cycle 4 performs dummy write (writes 0x10 back to 0x50)
     // Cycle 5 performs actual write (writes 0x11 to 0x50)

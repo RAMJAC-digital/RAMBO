@@ -167,9 +167,9 @@ pub const RomTestRunner = struct {
         var cycles_executed: usize = 0;
         while (cycles_executed < cycles_per_frame) {
             // Execute one CPU instruction
-            const cycles_before = self.state.cpu.cycle_count;
+            const cycles_before = self.state.clock.cpuCycles();
             self.state.tick();
-            const cycles_after = self.state.cpu.cycle_count;
+            const cycles_after = self.state.clock.cpuCycles();
 
             // Count cycles executed (handle overflow)
             const delta = if (cycles_after >= cycles_before)
