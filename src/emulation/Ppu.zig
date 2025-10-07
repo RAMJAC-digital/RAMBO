@@ -164,6 +164,12 @@ pub fn tick(
     // Frame ends at the last dot of scanline 261 (just before wrapping to scanline 0)
     if (scanline == 261 and dot == 340) {
         flags.frame_complete = true;
+
+        // Diagnostic: Log first 60 frames to understand initialization
+        if (timing.frame < 60) {
+            std.debug.print("[Frame {}] PPUCTRL=0x{x:0>2}, PPUMASK=0x{x:0>2}, rendering={}\n",
+                .{timing.frame, state.ctrl.toByte(), state.mask.toByte(), rendering_enabled});
+        }
     }
 
     flags.rendering_enabled = rendering_enabled;
