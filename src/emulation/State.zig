@@ -305,6 +305,10 @@ pub const EmulationState = struct {
     /// Used to determine if odd frame skip should occur
     rendering_enabled: bool = false,
 
+    /// Optional framebuffer for PPU pixel output (256×240 RGBA)
+    /// Set by emulation thread before each frame
+    framebuffer: ?[]u32 = null,
+
     /// Initialize emulation state from configuration
     /// Cartridge can be loaded later with loadCartridge()
     pub fn init(config: *const Config.Config) EmulationState {
@@ -417,6 +421,12 @@ pub const EmulationState = struct {
                 if (self.bus.test_ram) |test_ram| {
                     if (address >= 0x8000) {
                         break :blk test_ram[address - 0x8000];
+                    } else if (address >= 0x6000 and address < 0x8000) {
+                        // PRG RAM region - read from test_ram offset
+                        const prg_ram_offset = (address - 0x6000);
+                        if (test_ram.len > 16384 + prg_ram_offset) {
+                            break :blk test_ram[16384 + prg_ram_offset];
+                        }
                     }
                 }
                 // No cartridge or test RAM - open bus
@@ -501,9 +511,16 @@ pub const EmulationState = struct {
                 if (self.cart) |*cart| {
                     cart.cpuWrite(address, value);
                 } else if (self.bus.test_ram) |test_ram| {
-                    // Allow test RAM writes
+                    // Allow test RAM writes to PRG ROM ($8000+) and PRG RAM ($6000-$7FFF)
                     if (address >= 0x8000) {
                         test_ram[address - 0x8000] = value;
+                    } else if (address >= 0x6000 and address < 0x8000) {
+                        // PRG RAM region - write to test_ram offset
+                        // Map $6000-$7FFF to end of test_ram (after PRG ROM)
+                        const prg_ram_offset = (address - 0x6000);
+                        if (test_ram.len > 16384 + prg_ram_offset) {
+                            test_ram[16384 + prg_ram_offset] = value;
+                        }
                     }
                 }
                 // No cartridge or test RAM - write ignored
@@ -947,10 +964,34 @@ pub const EmulationState = struct {
         return false;
     }
 
-    // Fetch branch offset
+    // Fetch branch offset and check condition
     fn branchFetchOffset(self: *EmulationState) bool {
         self.cpu.operand_low = self.busRead(self.cpu.pc);
         self.cpu.pc +%= 1;
+
+        // Check branch condition based on opcode
+        // If condition false, branch not taken → complete immediately (2 cycles total)
+        // If condition true, branch taken → continue to branchAddOffset (3-4 cycles)
+        const should_branch = switch (self.cpu.opcode) {
+            0x10 => !self.cpu.p.negative,  // BPL - Branch if Plus (N=0)
+            0x30 => self.cpu.p.negative,   // BMI - Branch if Minus (N=1)
+            0x50 => !self.cpu.p.overflow,  // BVC - Branch if Overflow Clear (V=0)
+            0x70 => self.cpu.p.overflow,   // BVS - Branch if Overflow Set (V=1)
+            0x90 => !self.cpu.p.carry,     // BCC - Branch if Carry Clear (C=0)
+            0xB0 => self.cpu.p.carry,      // BCS - Branch if Carry Set (C=1)
+            0xD0 => !self.cpu.p.zero,      // BNE - Branch if Not Equal (Z=0)
+            0xF0 => self.cpu.p.zero,       // BEQ - Branch if Equal (Z=1)
+            else => unreachable,
+        };
+
+        if (!should_branch) {
+            // Branch not taken - complete immediately (2 cycles total)
+            // PC already advanced past offset byte, pointing to next instruction
+            return true;
+        }
+
+        // Branch taken - continue to branchAddOffset (3-4 cycles total)
+        // std.debug.print("[DEBUG] Branch TAKEN (opcode=0x{x:0>2}): PC=0x{x:0>4}, offset=0x{x:0>2}\n", .{ self.cpu.opcode, self.cpu.pc, self.cpu.operand_low });
         return false;
     }
 
@@ -1414,6 +1455,21 @@ pub const EmulationState = struct {
                 .zero_page_x, .zero_page_y => self.busRead(self.cpu.effective_address),
                 .absolute => blk: {
                     const addr = (@as(u16, self.cpu.operand_high) << 8) | self.cpu.operand_low;
+
+                    // Check if this is a write-only instruction (STA, STX, STY)
+                    // Real 6502 hardware doesn't read before writing for these instructions
+                    const is_write_only = switch (self.cpu.opcode) {
+                        0x8D, // STA absolute
+                        0x8E, // STX absolute
+                        0x8C, // STY absolute
+                        => true,
+                        else => false,
+                    };
+
+                    if (is_write_only) {
+                        break :blk 0; // Operand not used for write-only instructions
+                    }
+
                     break :blk self.busRead(addr);
                 },
                 // Indexed modes: Always use temp_value (already read in addressing state)
@@ -1430,9 +1486,15 @@ pub const EmulationState = struct {
                 self.cpu.pc +%= 1;
             }
 
-            // Zero page modes: Set effective_address from operand_low
-            if (self.cpu.address_mode == .zero_page) {
-                self.cpu.effective_address = @as(u16, self.cpu.operand_low);
+            // Set effective_address for modes that need it
+            switch (self.cpu.address_mode) {
+                .zero_page => {
+                    self.cpu.effective_address = @as(u16, self.cpu.operand_low);
+                },
+                .absolute => {
+                    self.cpu.effective_address = (@as(u16, self.cpu.operand_high) << 8) | @as(u16, self.cpu.operand_low);
+                },
+                else => {},
             }
 
             // Convert to core CPU state (6502 registers + effective address)
@@ -1477,7 +1539,7 @@ pub const EmulationState = struct {
         // Sample A12 state before PPU tick (for MMC3 IRQ edge detection)
         const old_a12 = self.ppu_timing.a12_state;
 
-        const flags = PpuRuntime.tick(&self.ppu, &self.ppu_timing, cart_ptr, null);
+        const flags = PpuRuntime.tick(&self.ppu, &self.ppu_timing, cart_ptr, self.framebuffer);
 
         // Update A12 state after PPU tick
         // A12 = bit 12 of PPU address register (v)

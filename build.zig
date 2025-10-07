@@ -106,6 +106,30 @@ pub fn build(b: *std.Build) void {
         .root_source_file = wayland_zig,
     });
 
+    // ========================================================================
+    // Shader Compilation (Vulkan SPIR-V)
+    // ========================================================================
+
+    // Compile vertex shader
+    const compile_vert = b.addSystemCommand(&.{
+        "glslc",
+        "-o",
+    });
+    const vert_spv = compile_vert.addOutputFileArg("texture.vert.spv");
+    compile_vert.addFileArg(b.path("src/video/shaders/texture.vert"));
+
+    // Compile fragment shader
+    const compile_frag = b.addSystemCommand(&.{
+        "glslc",
+        "-o",
+    });
+    const frag_spv = compile_frag.addOutputFileArg("texture.frag.spv");
+    compile_frag.addFileArg(b.path("src/video/shaders/texture.frag"));
+
+    // Install shaders to output directory
+    const install_vert = b.addInstallFile(vert_spv, "shaders/texture.vert.spv");
+    const install_frag = b.addInstallFile(frag_spv, "shaders/texture.frag.spv");
+
     // Create RAMBO module (after dependencies are defined)
     const mod = b.addModule("RAMBO", .{
         .root_source_file = b.path("src/root.zig"),
@@ -154,11 +178,18 @@ pub fn build(b: *std.Build) void {
     // Link Wayland client library
     exe.linkSystemLibrary("wayland-client");
 
+    // Link Vulkan library
+    exe.linkSystemLibrary("vulkan");
+
     // This declares intent for the executable to be installed into the
     // install prefix when running `zig build` (i.e. when executing the default
     // step). By default the install prefix is `zig-out/` but can be overridden
     // by passing `--prefix` or `-p`.
     b.installArtifact(exe);
+
+    // Install shaders as part of default build
+    b.getInstallStep().dependOn(&install_vert.step);
+    b.getInstallStep().dependOn(&install_frag.step);
 
     // This creates a top level step. Top level steps have a name and can be
     // invoked by name when running `zig build` (e.g. `zig build run`).
@@ -442,6 +473,48 @@ pub fn build(b: *std.Build) void {
     });
 
     const run_controller_tests = b.addRunArtifact(controller_tests);
+
+    // VBlank wait loop integration tests (CPU-PPU timing)
+    const vblank_wait_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/vblank_wait_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+
+    const run_vblank_wait_tests = b.addRunArtifact(vblank_wait_tests);
+
+    // BIT $2002 instruction tests (isolated)
+    const bit_ppustatus_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/bit_ppustatus_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+
+    const run_bit_ppustatus_tests = b.addRunArtifact(bit_ppustatus_tests);
+
+    // PPU register absolute addressing tests
+    const ppu_register_absolute_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/ppu_register_absolute_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+
+    const run_ppu_register_absolute_tests = b.addRunArtifact(ppu_register_absolute_tests);
 
     // ROM test runner framework
     const rom_test_runner_tests = b.addTest(.{
@@ -774,14 +847,51 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("tests/threads/threading_test.zig"),
             .target = target,
             .optimize = optimize,
+            .link_libc = true,  // Required for c_allocator in Wayland code
             .imports = &.{
                 .{ .name = "RAMBO", .module = mod },
                 .{ .name = "xev", .module = xev_dep.module("xev") },
+                .{ .name = "build_options", .module = build_options_mod },
+                .{ .name = "wayland_client", .module = wayland_client_mod },
+            },
+        }),
+    });
+    threading_tests.linkSystemLibrary("wayland-client");
+    threading_tests.linkSystemLibrary("vulkan");
+
+    const run_threading_tests = b.addRunArtifact(threading_tests);
+
+    // ========================================================================
+    // Input System Tests
+    // ========================================================================
+
+    // ButtonState unit tests
+    const button_state_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/input/button_state_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
             },
         }),
     });
 
-    const run_threading_tests = b.addRunArtifact(threading_tests);
+    const run_button_state_tests = b.addRunArtifact(button_state_tests);
+
+    // KeyboardMapper unit tests
+    const keyboard_mapper_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/input/keyboard_mapper_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+
+    const run_keyboard_mapper_tests = b.addRunArtifact(keyboard_mapper_tests);
 
     // ========================================================================
     // Test Step Configuration
@@ -807,6 +917,9 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_cpu_ppu_integration_tests.step);
     test_step.dependOn(&run_oam_dma_tests.step);
     test_step.dependOn(&run_controller_tests.step);
+    test_step.dependOn(&run_vblank_wait_tests.step);
+    test_step.dependOn(&run_bit_ppustatus_tests.step);
+    test_step.dependOn(&run_ppu_register_absolute_tests.step);
     test_step.dependOn(&run_rom_test_runner_tests.step);
     test_step.dependOn(&run_accuracycoin_execution_tests.step);
     test_step.dependOn(&run_cartridge_tests.step);
@@ -830,6 +943,8 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_benchmark_tests.step);
     test_step.dependOn(&run_ines_tests.step);
     test_step.dependOn(&run_threading_tests.step);
+    test_step.dependOn(&run_button_state_tests.step);
+    test_step.dependOn(&run_keyboard_mapper_tests.step);
 
     // Separate step for just unit tests
     const unit_test_step = b.step("test-unit", "Run unit tests only");
@@ -843,6 +958,8 @@ pub fn build(b: *std.Build) void {
     unit_test_step.dependOn(&run_apu_frame_irq_tests.step);
     unit_test_step.dependOn(&run_apu_open_bus_tests.step);
     unit_test_step.dependOn(&run_ines_tests.step);
+    unit_test_step.dependOn(&run_button_state_tests.step);
+    unit_test_step.dependOn(&run_keyboard_mapper_tests.step);
 
     // Separate step for just integration tests
     const integration_test_step = b.step("test-integration", "Run integration tests only");
@@ -852,6 +969,7 @@ pub fn build(b: *std.Build) void {
     integration_test_step.dependOn(&run_cpu_ppu_integration_tests.step);
     integration_test_step.dependOn(&run_oam_dma_tests.step);
     integration_test_step.dependOn(&run_controller_tests.step);
+    integration_test_step.dependOn(&run_vblank_wait_tests.step);
     integration_test_step.dependOn(&run_rom_test_runner_tests.step);
     integration_test_step.dependOn(&run_accuracycoin_execution_tests.step);
     integration_test_step.dependOn(&run_cartridge_tests.step);

@@ -2,6 +2,8 @@ const std = @import("std");
 const testing = std.testing;
 const RAMBO = @import("RAMBO");
 const CartType = RAMBO.Cartridge.NromCart; // Type alias for Mapper 0 cartridge
+const EmulationState = RAMBO.EmulationState.EmulationState;
+const Config = RAMBO.Config;
 
 // ============================================================================
 // PRG RAM Tests for Mapper 0 (NROM)
@@ -270,4 +272,210 @@ test "PRG RAM: Properly freed on deinit" {
         try testing.expect(cart.prg_ram != null);
         cart.deinit();
     }
+}
+
+// ============================================================================
+// Integration Tests: EmulationState + Cartridge
+// ============================================================================
+
+test "Integration: STA instruction writes to PRG RAM" {
+    // Create ROM with STA $6000 instruction
+    var rom_data = [_]u8{0} ** (16 + 16384 + 8192);
+
+    // iNES header
+    rom_data[0] = 'N';
+    rom_data[1] = 'E';
+    rom_data[2] = 'S';
+    rom_data[3] = 0x1A;
+    rom_data[4] = 1;
+    rom_data[5] = 1;
+    rom_data[6] = 0;
+    rom_data[7] = 0;
+
+    // Code at $8000: LDA #$42, STA $6000
+    rom_data[16 + 0] = 0xA9; // LDA immediate
+    rom_data[16 + 1] = 0x42; // Value
+    rom_data[16 + 2] = 0x8D; // STA absolute
+    rom_data[16 + 3] = 0x00; // Low byte of $6000
+    rom_data[16 + 4] = 0x60; // High byte of $6000
+
+    // Reset vector points to $8000
+    rom_data[16 + 0x3FFC] = 0x00;
+    rom_data[16 + 0x3FFD] = 0x80;
+
+    // Load cartridge
+    const cart = try CartType.loadFromData(testing.allocator, &rom_data);
+    const any_cart = RAMBO.AnyCartridge{ .nrom = cart };
+
+    // Initialize emulation
+    var config = Config.Config.init(testing.allocator);
+    defer config.deinit();
+
+    var state = EmulationState.init(&config);
+    defer state.deinit();
+
+    state.loadCartridge(any_cart);
+    state.reset();
+
+    // Execute LDA #$42 (2 CPU cycles = 6 PPU cycles)
+    var cycles: usize = 0;
+    while (cycles < 6) : (cycles += 1) {
+        state.tick();
+    }
+
+    // Verify A register loaded
+    try testing.expectEqual(@as(u8, 0x42), state.cpu.a);
+
+    // Execute STA $6000 (4 CPU cycles = 12 PPU cycles)
+    cycles = 0;
+    while (cycles < 12) : (cycles += 1) {
+        state.tick();
+    }
+
+    // Verify PRG RAM was written
+    const value = state.busRead(0x6000);
+    try testing.expectEqual(@as(u8, 0x42), value);
+}
+
+test "Integration: LDA instruction reads from PRG RAM" {
+    // Create ROM with LDA $6000 instruction
+    var rom_data = [_]u8{0} ** (16 + 16384 + 8192);
+
+    // iNES header
+    rom_data[0] = 'N';
+    rom_data[1] = 'E';
+    rom_data[2] = 'S';
+    rom_data[3] = 0x1A;
+    rom_data[4] = 1;
+    rom_data[5] = 1;
+    rom_data[6] = 0;
+    rom_data[7] = 0;
+
+    // Code at $8000: LDA $6000
+    rom_data[16 + 0] = 0xAD; // LDA absolute
+    rom_data[16 + 1] = 0x00; // Low byte of $6000
+    rom_data[16 + 2] = 0x60; // High byte of $6000
+
+    // Reset vector
+    rom_data[16 + 0x3FFC] = 0x00;
+    rom_data[16 + 0x3FFD] = 0x80;
+
+    // Load cartridge
+    var cart = try CartType.loadFromData(testing.allocator, &rom_data);
+
+    // Pre-populate PRG RAM
+    cart.prg_ram.?[0] = 0x99;
+
+    const any_cart = RAMBO.AnyCartridge{ .nrom = cart };
+
+    // Initialize emulation
+    var config = Config.Config.init(testing.allocator);
+    defer config.deinit();
+
+    var state = EmulationState.init(&config);
+    defer state.deinit();
+
+    state.loadCartridge(any_cart);
+    state.reset();
+
+    // Execute LDA $6000 (4 CPU cycles = 12 PPU cycles)
+    var cycles: usize = 0;
+    while (cycles < 12) : (cycles += 1) {
+        state.tick();
+    }
+
+    // Verify A register loaded from PRG RAM
+    try testing.expectEqual(@as(u8, 0x99), state.cpu.a);
+}
+
+test "Integration: AccuracyCoin test result storage simulation" {
+    // Simulate AccuracyCoin writing test results to $6000-$6003
+    var rom_data = [_]u8{0} ** (16 + 16384 + 8192);
+
+    // iNES header
+    rom_data[0] = 'N';
+    rom_data[1] = 'E';
+    rom_data[2] = 'S';
+    rom_data[3] = 0x1A;
+    rom_data[4] = 1;
+    rom_data[5] = 1;
+    rom_data[6] = 0;
+    rom_data[7] = 0;
+
+    // Code to write test results (all passed = $00)
+    var code_offset: usize = 16;
+
+    // LDA #$00
+    rom_data[code_offset] = 0xA9;
+    code_offset += 1;
+    rom_data[code_offset] = 0x00;
+    code_offset += 1;
+
+    // STA $6000
+    rom_data[code_offset] = 0x8D;
+    code_offset += 1;
+    rom_data[code_offset] = 0x00;
+    code_offset += 1;
+    rom_data[code_offset] = 0x60;
+    code_offset += 1;
+
+    // STA $6001
+    rom_data[code_offset] = 0x8D;
+    code_offset += 1;
+    rom_data[code_offset] = 0x01;
+    code_offset += 1;
+    rom_data[code_offset] = 0x60;
+    code_offset += 1;
+
+    // STA $6002
+    rom_data[code_offset] = 0x8D;
+    code_offset += 1;
+    rom_data[code_offset] = 0x02;
+    code_offset += 1;
+    rom_data[code_offset] = 0x60;
+    code_offset += 1;
+
+    // STA $6003
+    rom_data[code_offset] = 0x8D;
+    code_offset += 1;
+    rom_data[code_offset] = 0x03;
+    code_offset += 1;
+    rom_data[code_offset] = 0x60;
+    code_offset += 1;
+
+    // Reset vector
+    rom_data[16 + 0x3FFC] = 0x00;
+    rom_data[16 + 0x3FFD] = 0x80;
+
+    // Load cartridge
+    const cart = try CartType.loadFromData(testing.allocator, &rom_data);
+    const any_cart = RAMBO.AnyCartridge{ .nrom = cart };
+
+    // Initialize emulation
+    var config = Config.Config.init(testing.allocator);
+    defer config.deinit();
+
+    var state = EmulationState.init(&config);
+    defer state.deinit();
+
+    state.loadCartridge(any_cart);
+    state.reset();
+
+    // Execute LDA #$00 (6 PPU cycles)
+    var cycles: usize = 0;
+    while (cycles < 6) : (cycles += 1) {
+        state.tick();
+    }
+
+    // Execute 4x STA (4 x 12 = 48 PPU cycles)
+    cycles = 0;
+    while (cycles < 48) : (cycles += 1) {
+        state.tick();
+    }
+
+    // Verify test results written (all $00 = all tests passed)
+    try testing.expectEqual(@as(u8, 0x00), state.busRead(0x6000));
+    try testing.expectEqual(@as(u8, 0x00), state.busRead(0x6001));
+    try testing.expectEqual(@as(u8, 0x00), state.busRead(0x6002));
+    try testing.expectEqual(@as(u8, 0x00), state.busRead(0x6003));
 }
