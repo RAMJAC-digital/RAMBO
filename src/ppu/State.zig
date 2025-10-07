@@ -326,6 +326,9 @@ pub const PpuState = struct {
     /// Reference: nesdev.org/wiki/PPU_power_up_state
     warmup_complete: bool = false,
 
+    /// Debug flag: Track when rendering first enables (for logging)
+    rendering_was_enabled: bool = false,
+
     /// Background rendering state (shift registers and latches)
     bg_state: BackgroundState = .{},
 

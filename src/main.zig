@@ -1,6 +1,8 @@
 const std = @import("std");
 const RAMBO = @import("RAMBO");
 const xev = @import("xev");
+const EmulationThread = RAMBO.EmulationThread;
+const RenderThread = RAMBO.RenderThread;
 
 /// Main thread: Coordinator only (minimal work)
 /// - Initialize resources
@@ -12,8 +14,11 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    std.debug.print("RAMBO NES Emulator - Phase 1: Thread Architecture Demo\n", .{});
-    std.debug.print("========================================================\n\n", .{});
+    std.debug.print("RAMBO NES Emulator - Multi-Threaded Architecture\n", .{});
+    std.debug.print("================================================\n", .{});
+    std.debug.print("Main Thread:      Coordinator (TID: {d})\n", .{std.Thread.getCurrentId()});
+    std.debug.print("Emulation Thread: Timer-driven execution (spawning...)\n", .{});
+    std.debug.print("Render Thread:    Wayland + Vulkan (stub)\n\n", .{});
 
     // ========================================================================
     // 1. Initialize Mailboxes (dependency injection container)
@@ -36,6 +41,30 @@ pub fn main() !void {
     // Initialize emulation state (bus is now flattened into EmulationState)
     var emu_state = RAMBO.EmulationState.EmulationState.init(&config);
 
+    // Load ROM if provided on command line
+    var args_iter = try std.process.argsWithAllocator(allocator);
+    defer args_iter.deinit();
+    _ = args_iter.skip(); // Skip program name
+    if (args_iter.next()) |rom_path| {
+        std.debug.print("[Main] Loading ROM: {s}\n", .{rom_path});
+
+        // Simple ROM loading (NROM/Mapper 0 only for now)
+        const file = try std.fs.cwd().openFile(rom_path, .{});
+        defer file.close();
+        const rom_data = try file.readToEndAlloc(allocator, 1024 * 1024);
+        defer allocator.free(rom_data);
+
+        const nrom_cart = try RAMBO.CartridgeType.loadFromData(allocator, rom_data);
+        const any_cart = RAMBO.AnyCartridge{ .nrom = nrom_cart };
+        emu_state.loadCartridge(any_cart);
+
+        // Reset CPU to load reset vector and initialize state
+        emu_state.reset();
+
+        std.debug.print("[Main] ROM loaded successfully\n", .{});
+        std.debug.print("[Main] Reset vector loaded: PC=0x{x:0>4}\n", .{emu_state.cpu.pc});
+    }
+
     // ========================================================================
     // 3. Initialize libxev Loop (Main Thread Coordinator)
     // ========================================================================
@@ -48,33 +77,59 @@ pub fn main() !void {
     // 4. Spawn Threads
     // ========================================================================
 
+    std.debug.print("[Main] Spawning threads...\n", .{});
+
     // Shared running flag (atomic for thread-safe coordination)
     var running = std.atomic.Value(bool).init(true);
 
-    // TODO: Spawn Wayland thread (Phase 1.1)
-    // const wayland_thread = try std.Thread.spawn(.{}, waylandThreadFn, .{ &mailboxes, &running });
+    // Spawn emulation thread (timer-driven, RT-safe)
+    const emulation_thread = try EmulationThread.spawn(&emu_state, &mailboxes, &running);
 
-    std.debug.print("[Main] Spawning emulation thread...\n", .{});
-    const emulation_thread = try std.Thread.spawn(.{}, emulationThreadFn, .{ &emu_state, &mailboxes, &running });
+    // Spawn render thread (Wayland + Vulkan stub)
+    const render_thread = try RenderThread.spawn(&mailboxes, &running, .{});
 
     // ========================================================================
     // 5. Main Coordination Loop
     // ========================================================================
 
-    std.debug.print("[Main] Entering coordination loop...\n", .{});
-    std.debug.print("[Main] Running timer-driven emulation for 10 seconds...\n", .{});
-    std.debug.print("[Main] Watch for FPS reports from emulation thread\n\n", .{});
+    // Initialize keyboard mapper (converts Wayland keycodes to NES buttons)
+    var keyboard_mapper = RAMBO.KeyboardMapper{};
 
-    // Run for 10 seconds to see accurate FPS reporting
+    // Run for 60 seconds to check for delayed initialization
     const start_time = std.time.nanoTimestamp();
-    const duration_ns: i128 = 10_000_000_000; // 10 seconds
+    const duration_ns: i128 = 60_000_000_000; // 60 seconds
 
     while (std.time.nanoTimestamp() - start_time < duration_ns and running.load(.acquire)) {
-        // Process mailbox events
-        const config_update = mailboxes.config.pollUpdate();
-        if (config_update) |update| {
-            std.debug.print("[Main] Received config update: {any}\n", .{update});
+        // Process window events (from render thread)
+        var window_events: [16]RAMBO.Mailboxes.XdgWindowEvent = undefined;
+        const window_count = mailboxes.xdg_window_event.drainEvents(&window_events);
+        _ = window_count; // Discard for now
+
+        // Process input events (from render thread)
+        var input_events: [32]RAMBO.Mailboxes.XdgInputEvent = undefined;
+        const input_count = mailboxes.xdg_input_event.drainEvents(&input_events);
+
+        // Process keyboard events through KeyboardMapper
+        for (input_events[0..input_count]) |event| {
+            switch (event) {
+                .key_press => |key| {
+                    keyboard_mapper.keyPress(key.keycode);
+                },
+                .key_release => |key| {
+                    keyboard_mapper.keyRelease(key.keycode);
+                },
+                else => {}, // Ignore mouse events for now
+            }
         }
+
+        // Post button state EVERY frame (not just when events occur)
+        // This ensures emulation always has current state, including button holds
+        const button_state = keyboard_mapper.getState();
+        mailboxes.controller_input.postController1(button_state);
+
+        // Process config updates (legacy)
+        const config_update = mailboxes.config.pollUpdate();
+        _ = config_update; // Discard for now
 
         // Run libxev loop (no_wait for polling)
         try loop.run(.no_wait);
@@ -88,10 +143,10 @@ pub fn main() !void {
     const avg_fps = @as(f64, @floatFromInt(total_frames)) / elapsed_sec;
 
     std.debug.print("\n[Main] === Emulation Statistics ===\n", .{});
-    std.debug.print("[Main] Duration: {d:.2}s\n", .{elapsed_sec});
+    std.debug.print("[Main] Duration:     {d:.2}s\n", .{elapsed_sec});
     std.debug.print("[Main] Total frames: {d}\n", .{total_frames});
-    std.debug.print("[Main] Average FPS: {d:.2}\n", .{avg_fps});
-    std.debug.print("[Main] Target FPS: 60.10 (NTSC)\n", .{});
+    std.debug.print("[Main] Average FPS:  {d:.2}\n", .{avg_fps});
+    std.debug.print("[Main] Target FPS:   60.10 (NTSC)\n", .{});
 
     // ========================================================================
     // 6. Shutdown
@@ -100,133 +155,12 @@ pub fn main() !void {
     std.debug.print("\n[Main] Shutting down...\n", .{});
     running.store(false, .release);
 
-    std.debug.print("[Main] Waiting for emulation thread...\n", .{});
+    std.debug.print("[Main] Waiting for threads to stop...\n", .{});
     emulation_thread.join();
+    render_thread.join();
 
-    // TODO: Join Wayland thread when implemented
-
-    std.debug.print("[Main] Cleanup complete. Goodbye!\n", .{});
-}
-
-/// Context for emulation timer callback
-const EmulationContext = struct {
-    state: *RAMBO.EmulationState.EmulationState,
-    mailboxes: *RAMBO.Mailboxes.Mailboxes,
-    running: *std.atomic.Value(bool),
-    frame_count: u64 = 0,
-    total_cycles: u64 = 0,
-    last_report_time: i128 = 0,
-};
-
-/// Timer callback for frame-based emulation
-/// Fires every ~16.6ms (60 Hz NTSC) to emulate one frame
-fn emulationTimerCallback(
-    userdata: ?*EmulationContext,
-    loop: *xev.Loop,
-    completion: *xev.Completion,
-    result: xev.Timer.RunError!void,
-) xev.CallbackAction {
-    _ = result catch |err| {
-        std.debug.print("[Emulation] Timer error: {}\n", .{err});
-        return .disarm;
-    };
-
-    const ctx = userdata orelse return .disarm;
-
-    // Check if we should stop (only print once)
-    if (!ctx.running.load(.acquire)) {
-        if (ctx.frame_count > 0 or ctx.total_cycles > 0) {
-            std.debug.print("[Emulation] Shutdown signal received\n", .{});
-            ctx.frame_count = 0;
-            ctx.total_cycles = 0;
-        }
-        return .disarm;
-    }
-
-    // Check for config updates
-    if (ctx.mailboxes.config.pollUpdate()) |update| {
-        std.debug.print("[Emulation] Config update: {any}\n", .{update});
-        // TODO: Apply config (speed change, pause, reset, etc.)
-    }
-
-    // Emulate one frame (cycle-accurate)
-    const cycles = ctx.state.emulateFrame();
-    ctx.total_cycles += cycles;
-    ctx.frame_count += 1;
-
-    // Post completed frame
-    ctx.mailboxes.frame.swapBuffers();
-
-    // Progress reporting (every second)
-    const now = std.time.nanoTimestamp();
-    if (ctx.last_report_time == 0) {
-        ctx.last_report_time = now;
-    } else if (now - ctx.last_report_time >= 1_000_000_000) {
-        const elapsed_sec = @as(f64, @floatFromInt(now - ctx.last_report_time)) / 1_000_000_000.0;
-        const fps = @as(f64, @floatFromInt(ctx.frame_count)) / elapsed_sec;
-        std.debug.print("[Emulation] FPS: {d:.2} | Total frames: {d} | Total cycles: {d}\n", .{ fps, ctx.frame_count, ctx.total_cycles });
-        ctx.frame_count = 0;
-        ctx.last_report_time = now;
-    }
-
-    // Rearm timer for next frame
-    // NTSC: 60.0988 Hz = 16,639,267 ns per frame
-    const frame_duration_ns: u64 = 16_639_267;
-    const frame_duration_ms: u64 = frame_duration_ns / 1_000_000;
-
-    var timer = xev.Timer{};
-    timer.run(loop, completion, frame_duration_ms, EmulationContext, ctx, emulationTimerCallback);
-
-    return .rearm;
-}
-
-/// Emulation Thread: Runs emulation with libxev timer for pacing
-/// - Own libxev loop for timer-driven ticking
-/// - Frame-based timer (60 Hz NTSC)
-/// - Posts completed frames to mailbox
-fn emulationThreadFn(
-    state: *RAMBO.EmulationState.EmulationState,
-    mailboxes: *RAMBO.Mailboxes.Mailboxes,
-    running: *std.atomic.Value(bool),
-) void {
-    std.debug.print("[Emulation] Thread started\n", .{});
-
-    // Create event loop for this thread
-    var loop = xev.Loop.init(.{}) catch |err| {
-        std.debug.print("[Emulation] Failed to init loop: {}\n", .{err});
-        return;
-    };
-    defer loop.deinit();
-
-    // Create timer
-    var timer = xev.Timer.init() catch |err| {
-        std.debug.print("[Emulation] Failed to init timer: {}\n", .{err});
-        return;
-    };
-    defer timer.deinit();
-
-    // Setup context
-    var ctx = EmulationContext{
-        .state = state,
-        .mailboxes = mailboxes,
-        .running = running,
-    };
-
-    // Start timer (NTSC frame rate: ~16.6ms)
-    const frame_duration_ns: u64 = 16_639_267;
-    const frame_duration_ms: u64 = frame_duration_ns / 1_000_000;
-
-    std.debug.print("[Emulation] Starting timer-driven emulation at {d}ms per frame\n", .{frame_duration_ms});
-
-    var completion: xev.Completion = undefined;
-    timer.run(&loop, &completion, frame_duration_ms, EmulationContext, &ctx, emulationTimerCallback);
-
-    // Run event loop until timer disarms
-    loop.run(.until_done) catch |err| {
-        std.debug.print("[Emulation] Loop error: {}\n", .{err});
-    };
-
-    std.debug.print("[Emulation] Thread stopping (total cycles: {d})\n", .{ctx.total_cycles});
+    std.debug.print("[Main] All threads stopped. Cleanup complete.\n", .{});
+    std.debug.print("[Main] Goodbye!\n", .{});
 }
 
 test "simple test" {

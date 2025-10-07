@@ -120,7 +120,7 @@ pub fn init(
     log.debug("Connecting to Wayland display: {?s}", .{display_name});
 
     const display = wl.Display.connect(null) catch |err| {
-        log.err("Failed to connect to Wayland display (WAYLAND_DISPLAY={?s}): {}", .{display_name, err});
+        log.debug("Failed to connect to Wayland display (WAYLAND_DISPLAY={?s}): {}", .{display_name, err});
         return error.WaylandConnectFailed;
     };
     state.display = display;

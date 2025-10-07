@@ -1,6 +1,6 @@
 # RAMBO Documentation Hub
 
-_Last updated: 2025-10-06 — Test suite: **560/561** passing — Mapper System Foundation COMPLETE ✅_
+_Last updated: 2025-10-07 — Test suite: **887/889** passing — Input System Phase 2 COMPLETE ✅_
 
 ---
 
@@ -38,6 +38,7 @@ _Last updated: 2025-10-06 — Test suite: **560/561** passing — Mapper System 
 
 Quick links to component documentation:
 - **Architecture:** [`architecture/ppu-sprites.md`](architecture/ppu-sprites.md), [`architecture/threading.md`](architecture/threading.md), [`architecture/video-system.md`](architecture/video-system.md)
+- **Input System:** [`implementation/INPUT-SYSTEM-DESIGN.md`](implementation/INPUT-SYSTEM-DESIGN.md), [`implementation/INPUT-SYSTEM-TEST-COVERAGE.md`](implementation/INPUT-SYSTEM-TEST-COVERAGE.md)
 - **API Guides:** [`api-reference/debugger-api.md`](api-reference/debugger-api.md), [`api-reference/snapshot-api.md`](api-reference/snapshot-api.md)
 - **Code Reviews:** [`code-review/CPU.md`](code-review/CPU.md), [`code-review/PPU.md`](code-review/PPU.md), [`code-review/TESTING.md`](code-review/TESTING.md)
 
@@ -53,15 +54,21 @@ Quick links to component documentation:
 
 ---
 
-## Recent Documentation Changes (2025-10-06)
+## Recent Documentation Changes (2025-10-07)
 
-**Mapper System Foundation Complete:**
-- ✅ **AnyCartridge Tagged Union** - Zero-cost polymorphism with inline dispatch (370 lines)
-- ✅ **Duck-Typed Mapper Interface** - Compile-time verification, no VTables
-- ✅ **IRQ Infrastructure** - A12 edge detection, IRQ polling every CPU cycle
-- ✅ **45 New Tests** - Mapper registry tests (dispatch, IRQ interface, comptime validation)
+**Input System Phase 2 Complete (ButtonState + KeyboardMapper):**
+- ✅ **ButtonState Implementation** - NES controller state (8 buttons packed into 1 byte, 21 tests passing)
+- ✅ **KeyboardMapper Implementation** - Wayland keyboard events → NES buttons (24 tests passing)
+- ✅ **45 Unit Tests PASSING** - Full API coverage for both components
+- ✅ **Test Scaffolds Ready** - 22 integration tests for main thread wiring
+- ✅ **Comprehensive Documentation** - Design doc (505 lines) + test coverage report (391 lines)
+- ✅ **CLAUDE.md Updated** - Input System section updated (lines 437-496)
+- ✅ 887/889 tests passing (99.8%, +25 tests from Phase 1)
+
+**Recent Changes (2025-10-06):**
+- ✅ **Mapper System Foundation** - AnyCartridge union, IRQ infrastructure
 - ✅ **AccuracyCoin PASSING** - Full CPU/PPU validation ($00 $00 $00 $00 status)
-- ✅ 560/561 tests passing (99.8%, 1 snapshot test non-blocking)
+- ✅ 560/561 tests → 862/864 tests (mapper + input system)
 
 **Documentation Cleanup:**
 - Archived outdated APU planning docs to `archive/apu-planning/`

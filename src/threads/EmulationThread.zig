@@ -28,8 +28,11 @@ pub const EmulationContext = struct {
     /// Atomic running flag (shared with main thread)
     running: *std.atomic.Value(bool),
 
-    /// Frame counter for FPS reporting
+    /// Frame counter for FPS reporting (resets every second)
     frame_count: u64 = 0,
+
+    /// Total frames executed (never resets)
+    total_frames: u64 = 0,
 
     /// Total cycles executed (for diagnostics)
     total_cycles: u64 = 0,
@@ -72,7 +75,7 @@ fn timerCallback(
     if (!ctx.running.load(.acquire)) {
         if (!ctx.shutdown_printed) {
             std.debug.print("[Emulation] Shutdown signal received (frames: {d}, cycles: {d})\n", .{
-                ctx.frame_count,
+                ctx.total_frames,
                 ctx.total_cycles,
             });
             ctx.shutdown_printed = true;
@@ -85,22 +88,60 @@ fn timerCallback(
         handleCommand(ctx, command);
     }
 
-    // TODO: Poll controller input mailbox and update state
+    // Poll controller input mailbox and update controller state
+    const input = ctx.mailboxes.controller_input.getInput();
+    ctx.state.controller.updateButtons(input.controller1.toByte(), input.controller2.toByte());
 
     // TODO: Poll speed control mailbox for speed changes
+
+    // Get write buffer for PPU frame output
+    const write_buffer = ctx.mailboxes.frame.getWriteBuffer();
+    ctx.state.framebuffer = write_buffer;
 
     // Emulate one frame (cycle-accurate execution)
     const cycles = ctx.state.emulateFrame();
     ctx.total_cycles += cycles;
     ctx.frame_count += 1;
+    ctx.total_frames += 1;
+
+    // DEBUG: Check if PPU wrote any pixels (sample a few positions)
+    if (ctx.total_frames == 10) {
+        const pixel_after = write_buffer[0];
+        const pixel_mid = write_buffer[30000]; // Middle of screen
+        const pixel_end = write_buffer[61439]; // Last pixel
+        std.debug.print("[Emu] Frame 10 diagnostics:\n", .{});
+        std.debug.print("  Pixel[0]:     0x{x:0>8}\n", .{pixel_after});
+        std.debug.print("  Pixel[30000]: 0x{x:0>8}\n", .{pixel_mid});
+        std.debug.print("  Pixel[61439]: 0x{x:0>8}\n", .{pixel_end});
+        std.debug.print("  PPUMASK: 0x{x:0>2} (rendering={})\n", .{
+            ctx.state.ppu.mask.toByte(),
+            ctx.state.ppu.mask.renderingEnabled(),
+        });
+        std.debug.print("  PPUCTRL: 0x{x:0>2}\n", .{ctx.state.ppu.ctrl.toByte()});
+        std.debug.print("  Palette[0]: 0x{x:0>2}\n", .{ctx.state.ppu.palette_ram[0]});
+        std.debug.print("  Palette[1]: 0x{x:0>2}\n", .{ctx.state.ppu.palette_ram[1]});
+    }
 
     // Post completed frame to render thread
     ctx.mailboxes.frame.swapBuffers();
+
+    // Clear framebuffer reference
+    ctx.state.framebuffer = null;
 
     // TODO: Post emulation status updates (if state changed)
 
     // FPS reporting (periodic diagnostics)
     reportProgress(ctx);
+
+    // DEBUG: Log periodic status to check CPU progression
+    if (ctx.total_frames == 60 or ctx.total_frames == 300 or ctx.total_frames == 600 or ctx.total_frames == 1800) {
+        const mask = ctx.state.ppu.mask.toByte();
+        const ctrl = ctx.state.ppu.ctrl.toByte();
+        const pc = ctx.state.cpu.pc;
+        std.debug.print("[Emu] Frame {d}: PC=0x{x:0>4} | PPUCTRL=0x{x:0>2} PPUMASK=0x{x:0>2}\n", .{
+            ctx.total_frames, pc, ctrl, mask,
+        });
+    }
 
     // Rearm timer for next frame
     const frame_duration_ms: u64 = 16_639_267 / 1_000_000; // ~16.6ms
@@ -118,6 +159,7 @@ fn handleCommand(ctx: *EmulationContext, command: EmulationCommand) void {
             // Reset state to power-on defaults
             ctx.state.reset();
             ctx.frame_count = 0;
+            ctx.total_frames = 0;
             ctx.total_cycles = 0;
         },
         .reset => {

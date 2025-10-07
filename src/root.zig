@@ -55,6 +55,22 @@ pub const Benchmark = @import("benchmark/Benchmark.zig");
 /// iNES ROM format parser (stateless, separate from cartridge emulation)
 pub const iNES = @import("cartridge/ines/mod.zig");
 
+/// NES controller button state (8 buttons packed into 1 byte)
+pub const ButtonState = @import("input/ButtonState.zig").ButtonState;
+
+/// Keyboard mapper (Wayland events → NES buttons)
+pub const KeyboardMapper = @import("input/KeyboardMapper.zig").KeyboardMapper;
+
+// ============================================================================
+// Threading System
+// ============================================================================
+
+/// Emulation thread (timer-driven, RT-safe)
+pub const EmulationThread = @import("threads/EmulationThread.zig");
+
+/// Render thread (Wayland + Vulkan stub)
+pub const RenderThread = @import("threads/RenderThread.zig");
+
 // ============================================================================
 // Re-export commonly used types for convenience
 // ============================================================================

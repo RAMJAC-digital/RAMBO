@@ -16,7 +16,7 @@ class MacroDefinition:
 
 
 def _iter_macros(source: str) -> Iterator[MacroDefinition]:
-    pattern = re.compile(r"DEFINE\s+([^,\s]+)(?:\s*\(([^)]*)\))?\s*,?<", re.MULTILINE)
+    pattern = re.compile(r"DEFINE\s+([^\s(,]+)(?:\s*\(([^)]*)\))?\s*,?\s*<", re.MULTILINE)
     for match in pattern.finditer(source):
         name = match.group(1)
         params_raw = match.group(2)
@@ -24,26 +24,18 @@ def _iter_macros(source: str) -> Iterator[MacroDefinition]:
         if params_raw:
             params_list = [p.strip() for p in params_raw.split(',') if p.strip()]
 
-        body_start = source.find('<', match.end())
-        if body_start == -1:
-            continue
-        idx = body_start + 1
+        idx = match.end()
         depth = 1
-        body_chars: List[str] = []
         while idx < len(source) and depth > 0:
             ch = source[idx]
             if ch == '<':
                 depth += 1
-                body_chars.append(ch)
             elif ch == '>':
                 depth -= 1
-                if depth > 0:
-                    body_chars.append(ch)
-            else:
-                body_chars.append(ch)
             idx += 1
-        body = ''.join(body_chars).rstrip('\n')
-        yield MacroDefinition(name=name, parameters=params_list, body=body)
+
+        body = source[match.end(): idx - 1 if depth == 0 else idx]
+        yield MacroDefinition(name=name, parameters=params_list, body=body.strip('\n'))
 
 
 def analyse_macros(path: Path) -> list[MacroDefinition]:
@@ -51,7 +43,8 @@ def analyse_macros(path: Path) -> list[MacroDefinition]:
     macros = list(_iter_macros(source))
     for macro in macros:
         usage_pattern = re.compile(rf"\b{re.escape(macro.name)}\b")
-        macro.usages = len(usage_pattern.findall(source)) - 1  # subtract definition occurrence
+        count = len(usage_pattern.findall(source))
+        macro.usages = max(count - 1, 0)  # subtract definition occurrence
     return macros
 
 

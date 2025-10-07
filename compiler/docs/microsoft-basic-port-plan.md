@@ -32,7 +32,7 @@ To produce a NES-compatible ROM we must eliminate dialect-specific constructs, s
 2. **Conditional tree:** Identify required symbol values for NES target (`REALIO`, `ROMSW`, etc.) and freeze non-relevant branches.
 3. **Pseudo-op catalogue:** List unsupported directives (`PAGE`, `SUBTTL`, `PRINTX`, `COMMENT`, `XWD`, `TITLE`, `IRPC`, `IRPS`, `IF1`/`IF2`).
 
-Deliverable: machine-readable manifest describing macros, directives, and conditional symbols (generated via Python script in `compiler/scripts/`).
+Deliverable: machine-readable manifest describing macros, directives, and conditional symbols. Macro manifest now produced by `uv run compiler analyze-basic` → `compiler/docs/microsoft-basic-macro-manifest.json`.
 
 ### Stage B — Preprocessor Implementation (Python)
 
@@ -60,7 +60,7 @@ Goal: transform `m6502.asm` into plain `nesasm`-compatible assembly `m6502.nesas
 
 ### Stage C — NES Integration Layer
 
-1. **Header & vectors:** Prepend `.inesprg`, `.ineschr`, `.inesmap`, `.inesmir` directives and place reset/NMI/IRQ vectors at `$FFFA-$FFFF`.
+1. **Header & vectors:** Prepend `.inesprg`, `.ineschr`, `.inesmap`, `.inesmir` directives and place reset/NMI/IRQ vectors at `$FFFA-$FFFF`. *(Implemented: reset stub performs minimal PPU init and jumps into the BASIC entry point.)*
 2. **Memory mapping:**
    - Set `.org $8000` for PRG.
    - Ensure zero-page definitions (`ZP`, `STK`, etc.) remain below `$0100`.
@@ -75,17 +75,18 @@ Goal: transform `m6502.asm` into plain `nesasm`-compatible assembly `m6502.nesas
 
 ## 4. Task Breakdown
 
-| Milestone | Deliverable | Notes |
-| --- | --- | --- |
-| A1 | Macro manifest (`compiler/scripts/dump_basic_macros.py`) | Validate counts & definitions |
-| A2 | Conditional symbol map (`compiler/docs/basic-configurations.md`) | Choose NES-specific values |
-| B1 | Preprocessor MVP (`compiler/src/compiler/basic_preprocessor.py`) | Parse/expand macros, strip directives |
-| B2 | Expression normaliser | Convert octal/bit ops to hex |
-| B3 | Conditional evaluator | Python evaluation of `IF*` tree |
-| C1 | NES header shim (`compiler/templates/basic_header.asm`) | Include `.ines*` + vector table |
-| C2 | I/O stub design doc | Plan for text output/input |
-| C3 | End-to-end build command (`compiler build-basic`) | Produces `compiler/dist/basic/basic.nes` |
-| C4 | Emulator smoke test | Boot ROM inside RAMBO, snapshot results |
+| Milestone | Deliverable | Status | Notes |
+| --- | --- | --- | --- |
+| A1 | Macro manifest (`compiler/docs/microsoft-basic-macro-manifest.json`) | ✅ Complete | Generated via `uv run compiler analyze-basic` |
+| A2 | Conditional symbol map (`compiler/docs/basic-configurations.md`) | ✅ Complete | NES defaults captured in configuration matrix |
+| B1 | Preprocessor MVP (`compiler/src/compiler/basic_preprocessor.py`) | ✅ Complete | Macro expansion, `REPEAT`, `ADR`, `DT`/`IRPC`, and `IF*` evaluation implemented with `--verify` guard |
+| B1.1 | Macro expander design doc | ✅ Complete | Documented in `docs/macro-expansion-design.md` |
+| B2 | Expression normaliser | ⏳ Pending | Convert octal/bit ops to hex |
+| B3 | Conditional evaluator | ⏳ Pending | Python evaluation of `IF*` tree |
+| C1 | NES header shim (`compiler/templates/basic_header.asm`) | ⏳ Pending | Include `.ines*` + vector table |
+| C2 | I/O stub design doc | ⏳ Pending | Plan for text output/input |
+| C3 | End-to-end build command (`compiler build-basic`) | ⏳ Pending | Produces `compiler/dist/basic/basic.nes` |
+| C4 | Emulator smoke test | ⏳ Pending | Boot ROM inside RAMBO, snapshot results |
 
 ## 5. Open Questions
 
@@ -96,9 +97,9 @@ Goal: transform `m6502.asm` into plain `nesasm`-compatible assembly `m6502.nesas
 
 ## 6. Next Steps
 
-1. Implement Milestones A1–A2 to gain full visibility into macro/conditional space.
-2. Prototype the Python preprocessor (B1) and validate by re-emitting the original assembly for a known target (e.g., ROM-only Apple configuration) before layering NES specifics.
-3. Lock in NES memory map decisions (C1) and start designing the PPU text renderer (C2) in parallel.
-4. Wire the `compiler build-basic` command to call the preprocessor + nesasm once the translation path is reliable.
+1. **Complete** – Macro manifest (A1) generated; keep current via `uv run compiler analyze-basic`.
+2. Lock in NES memory map decisions (C1) and start designing the PPU text renderer (C2) in parallel.
+3. Wire the `compiler build-basic` command to call the preprocessor + nesasm once the translation path is reliable.
+4. Expand testing harness to boot the generated ROM inside RAMBO and capture smoke-test output (C4).
 
 All updates should be tracked in this document as milestones complete.

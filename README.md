@@ -167,6 +167,8 @@ zig build test-trace          # Cycle-by-cycle traces
 - Run `uv run compiler toolchain` once per machine to fetch and patch `nesasm`, then `uv run compiler build-accuracycoin` to regenerate the AccuracyCoin ROM used by integration tests.
 - Builds are byte-for-byte verified against `AccuracyCoin/AccuracyCoin.nes` by default so the emulator always exercises the canonical test image.
 - The Microsoft BASIC port effort is tracked in `compiler/docs/microsoft-basic-port-plan.md`; once the macro translation layer lands the `build-basic` command will emit a NES-compatible ROM.
+- Use `uv run compiler analyze-basic` to refresh the Microsoft BASIC macro manifest (`compiler/docs/microsoft-basic-macro-manifest.json`).
+- `uv run compiler preprocess-basic` runs the in-progress MACRO-11 → nesasm converter (`--verify` enforces a macro/conditional-free output), expanding macros and evaluated conditionals into `compiler/dist/basic/m6502.preprocessed.asm` as groundwork for the final ROM build.
 - Additional mapper/memory reference notes for future ROM work live in `compiler/README.md`.
 
 ---

@@ -165,38 +165,11 @@ pub fn tick(
     if (scanline == 261 and dot == 340) {
         flags.frame_complete = true;
 
-        // Diagnostic: Log first 60 frames to understand initialization
-        if (timing.frame < 60) {
-            // Basic PPU state
-            std.debug.print("[Frame {d:3}] PPUCTRL=0x{x:0>2}, PPUMASK=0x{x:0>2}, rendering={}\n",
-                .{timing.frame, state.ctrl.toByte(), state.mask.toByte(), rendering_enabled});
-
-            // Every 10 frames, log more detail
-            if (timing.frame % 10 == 0) {
-                // Check if framebuffer exists
-                const has_fb = framebuffer != null;
-
-                // Check if CHR data exists
-                var chr_has_data = false;
-                if (cart) |c| {
-                    // Sample a few CHR bytes
-                    const chr_0 = c.ppuRead(0x0000);
-                    const chr_100 = c.ppuRead(0x0100);
-                    const chr_1000 = c.ppuRead(0x1000);
-                    chr_has_data = (chr_0 != 0 or chr_100 != 0 or chr_1000 != 0);
-                }
-
-                // Check if nametables have data
-                const nt_has_data = (state.vram[0] != 0 or state.vram[100] != 0 or state.vram[500] != 0);
-
-                // Check if palette has data
-                const pal_has_data = (state.palette_ram[0] != 0 or state.palette_ram[1] != 0);
-
-                std.debug.print("  [Detail] framebuffer={}, CHR={}, nametables={}, palette={}\n",
-                    .{has_fb, chr_has_data, nt_has_data, pal_has_data});
-                std.debug.print("  [Scroll] v=0x{x:0>4}, t=0x{x:0>4}, x={}\n",
-                    .{state.internal.v, state.internal.t, state.internal.x});
-            }
+        // Log when rendering enables (for debugging)
+        if (timing.frame < 300 and rendering_enabled and !state.rendering_was_enabled) {
+            std.debug.print("[Frame {}] Rendering ENABLED! PPUMASK=0x{x:0>2}, PPUCTRL=0x{x:0>2}\n",
+                .{timing.frame, state.mask.toByte(), state.ctrl.toByte()});
+            state.rendering_was_enabled = true;
         }
     }
 

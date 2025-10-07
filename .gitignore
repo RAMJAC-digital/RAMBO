@@ -35,6 +35,8 @@ AccuracyCoin/
 
 # External BASIC interpreter project (separate git repo)
 BASIC-M6502/
+ 
+compiler/**
 
 # Temporary files
 tmp/
@@ -45,6 +47,7 @@ temp/
 compiler/.venv/
 compiler/.toolchain/
 compiler/dist/
+**/__pycache__/
 compiler/**/__pycache__/
 *.pyc
 

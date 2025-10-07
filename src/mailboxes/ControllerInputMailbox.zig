@@ -15,27 +15,8 @@
 
 const std = @import("std");
 
-/// Button state for a single NES controller (8 buttons)
-pub const ButtonState = packed struct {
-    a: bool = false,
-    b: bool = false,
-    select: bool = false,
-    start: bool = false,
-    up: bool = false,
-    down: bool = false,
-    left: bool = false,
-    right: bool = false,
-
-    /// Convert to u8 for serial shift register
-    pub fn toU8(self: ButtonState) u8 {
-        return @bitCast(self);
-    }
-
-    /// Create from u8
-    pub fn fromU8(value: u8) ButtonState {
-        return @bitCast(value);
-    }
-};
+/// Button state imported from unified input system
+pub const ButtonState = @import("../input/ButtonState.zig").ButtonState;
 
 /// Controller input state (2 controllers)
 pub const ControllerInput = struct {
@@ -171,19 +152,19 @@ test "ControllerInputMailbox: both controllers" {
     try std.testing.expect(input.controller2.b == true);
 }
 
-test "ButtonState: toU8 conversion" {
+test "ButtonState: toByte conversion" {
     // Button order: A, B, Select, Start, Up, Down, Left, Right
     const buttons = ButtonState{
         .a = true, // bit 0
         .start = true, // bit 3
     };
 
-    const value = buttons.toU8();
+    const value = buttons.toByte();
     try std.testing.expectEqual(@as(u8, 0b00001001), value); // A (bit 0) + Start (bit 3)
 }
 
-test "ButtonState: fromU8 conversion" {
-    const buttons = ButtonState.fromU8(0b10000001); // A + Right
+test "ButtonState: fromByte conversion" {
+    const buttons = ButtonState.fromByte(0b10000001); // A + Right
     try std.testing.expect(buttons.a == true);
     try std.testing.expect(buttons.right == true);
     try std.testing.expect(buttons.b == false);

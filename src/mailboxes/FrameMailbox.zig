@@ -33,6 +33,9 @@ pub const FrameMailbox = struct {
     /// Frame counter
     frame_count: u64 = 0,
 
+    /// Atomic flag indicating new frame is available (lock-free check)
+    has_new_frame: std.atomic.Value(bool) = .{ .raw = false },
+
     /// Initialize mailbox with two framebuffers
     pub fn init(allocator: std.mem.Allocator) !FrameMailbox {
         const write_buffer = try allocator.create(FrameBuffer);
@@ -75,6 +78,17 @@ pub const FrameMailbox = struct {
         self.read_buffer = tmp;
 
         self.frame_count += 1;
+        self.has_new_frame.store(true, .release);
+    }
+
+    /// Check if new frame is available (lock-free, non-blocking)
+    pub fn hasNewFrame(self: *const FrameMailbox) bool {
+        return self.has_new_frame.load(.acquire);
+    }
+
+    /// Consume new frame flag (called by render thread after reading frame)
+    pub fn consumeFrameFlag(self: *FrameMailbox) void {
+        self.has_new_frame.store(false, .release);
     }
 
     /// Get read buffer for render thread
@@ -127,4 +141,46 @@ test "FrameMailbox: initialization clears buffers" {
     const write_buf = mailbox.getWriteBuffer();
     try std.testing.expectEqual(@as(u32, 0x00000000), write_buf[0]);
     try std.testing.expectEqual(@as(u32, 0x00000000), write_buf[FRAME_PIXELS - 1]);
+}
+
+test "FrameMailbox: hasNewFrame flag" {
+    const allocator = std.testing.allocator;
+
+    var mailbox = try FrameMailbox.init(allocator);
+    defer mailbox.deinit();
+
+    // Should start with no new frame
+    try std.testing.expect(!mailbox.hasNewFrame());
+
+    // Write and swap buffers
+    const write_buf = mailbox.getWriteBuffer();
+    write_buf[0] = 0x00FF0000; // Red pixel
+    mailbox.swapBuffers();
+
+    // Should have new frame flag set
+    try std.testing.expect(mailbox.hasNewFrame());
+
+    // Consume flag
+    mailbox.consumeFrameFlag();
+    try std.testing.expect(!mailbox.hasNewFrame());
+}
+
+test "FrameMailbox: multiple frame updates" {
+    const allocator = std.testing.allocator;
+
+    var mailbox = try FrameMailbox.init(allocator);
+    defer mailbox.deinit();
+
+    // Frame 1
+    mailbox.swapBuffers();
+    try std.testing.expect(mailbox.hasNewFrame());
+    mailbox.consumeFrameFlag();
+
+    // Frame 2
+    mailbox.swapBuffers();
+    try std.testing.expect(mailbox.hasNewFrame());
+    mailbox.consumeFrameFlag();
+
+    // Should have counted 2 frames
+    try std.testing.expectEqual(@as(u64, 2), mailbox.getFrameCount());
 }

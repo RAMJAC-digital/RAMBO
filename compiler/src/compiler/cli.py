@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import shutil
 import subprocess
 import tempfile
@@ -13,6 +14,7 @@ from rich.panel import Panel
 
 from .toolchain import ToolchainManager
 from .basic_analysis import analyse_macros, write_manifest
+from .basic_preprocessor import BasicPreprocessor
 
 console = Console()
 
@@ -178,6 +180,75 @@ def analyze_basic(
             title="Analysis Complete",
         )
     )
+
+
+import re
+
+
+def _verify_preprocessed(path: Path) -> None:
+    failures: list[str] = []
+    for lineno, raw in enumerate(path.read_text().splitlines(), start=1):
+        stripped = raw.lstrip()
+        if not stripped or stripped.startswith(';'):
+            continue
+        upper = stripped.upper()
+        if upper.startswith('DEFINE '):
+            failures.append(f"Line {lineno}: DEFINE still present")
+        if re.match(r"IF(N|E|DEF)\b", upper):
+            failures.append(f"Line {lineno}: IF* conditional detected")
+        if '<<' in stripped:
+            failures.append(f"Line {lineno}: unresolved << pattern")
+        if '<' in stripped and '>' in stripped:
+            failures.append(f"Line {lineno}: unmatched angle parameter")
+
+    if failures:
+        console.print(
+            Panel.fit(
+                "\n".join(failures),
+                title="Verification Failed",
+                style="red",
+            )
+        )
+        raise typer.Exit(code=4)
+
+
+@app.command("preprocess-basic")
+def preprocess_basic(
+    source: Path = typer.Option(Path("BASIC-M6502/m6502.asm"), help="Source assembly to preprocess."),
+    output: Path = typer.Option(
+        Path("dist/basic/m6502.preprocessed.asm"),
+        help="Destination path for preprocessed assembly (within compiler directory).",
+    ),
+    verify: bool = typer.Option(False, help="Fail if legacy macros/conditionals remain in output."),
+):
+    """Run the WIP BASIC preprocessor and emit intermediate assembly."""
+    root = repo_root()
+    source_path = (root / source).resolve()
+    if not source_path.exists():
+        console.print(Panel.fit(f"Source file not found: {source_path}", title="Error", style="red"))
+        raise typer.Exit(code=1)
+
+    output_path = (root / "compiler" / output).resolve()
+    preprocessor = BasicPreprocessor(source_path, output_path)
+    result = preprocessor.run()
+
+    if verify:
+        _verify_preprocessed(result.output_path)
+        console.print(
+            Panel.fit(
+                f"Output verified: {result.output_path}",
+                title="Verification Passed",
+                style="green",
+            )
+        )
+    else:
+        console.print(
+            Panel.fit(
+                f"Preprocessor complete → [green]{result.output_path}[/]\n"
+                f"Macros expanded: {len(result.macros)}",
+                title="Expansion Pass",
+            )
+        )
 
 
 __all__ = ["app"]
