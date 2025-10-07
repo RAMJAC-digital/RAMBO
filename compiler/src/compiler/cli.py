@@ -12,6 +12,7 @@ from rich.console import Console
 from rich.panel import Panel
 
 from .toolchain import ToolchainManager
+from .basic_analysis import analyse_macros, write_manifest
 
 console = Console()
 
@@ -150,6 +151,33 @@ def build_basic(
         )
     )
     raise typer.Exit(code=2)
+
+
+@app.command("analyze-basic")
+def analyze_basic(
+    source: Path = typer.Option(Path("BASIC-M6502/m6502.asm"), help="Path to original BASIC source."),
+    output: Path = typer.Option(
+        Path("docs/microsoft-basic-macro-manifest.json"),
+        help="Destination JSON manifest path (within compiler directory).",
+    ),
+):
+    """Generate macro manifest for the Microsoft BASIC source."""
+    root = repo_root()
+    source_path = (root / source).resolve()
+    if not source_path.exists():
+        console.print(Panel.fit(f"Source file not found: {source_path}", title="Error", style="red"))
+        raise typer.Exit(code=1)
+
+    macros = analyse_macros(source_path)
+    output_path = (root / "compiler" / output).resolve()
+    write_manifest(macros, output_path)
+
+    console.print(
+        Panel.fit(
+            f"Captured {len(macros)} macros → [green]{output_path}[/]",
+            title="Analysis Complete",
+        )
+    )
 
 
 __all__ = ["app"]
