@@ -50,12 +50,14 @@ pub const Harness = struct {
     }
 
     pub fn setPpuTiming(self: *Harness, scanline: u16, dot: u16) void {
-        self.state.ppu_timing.scanline = scanline;
-        self.state.ppu_timing.dot = dot;
+        self.state.clock.ppu_cycles = (@as(u64, scanline) * 341) + dot;
     }
 
     pub fn tickPpu(self: *Harness) void {
-        _ = PpuRuntime.tick(&self.state.ppu, &self.state.ppu_timing, self.cartPtr(), null);
+        const scanline = self.state.clock.scanline();
+        const dot = self.state.clock.dot();
+        _ = PpuRuntime.tick(&self.state.ppu, scanline, dot, self.cartPtr(), null);
+        self.state.clock.advance(1);
     }
 
     pub fn tickPpuCycles(self: *Harness, cycles: usize) void {
@@ -63,7 +65,10 @@ pub const Harness = struct {
     }
 
     pub fn tickPpuWithFramebuffer(self: *Harness, framebuffer: []u32) void {
-        _ = PpuRuntime.tick(&self.state.ppu, &self.state.ppu_timing, self.cartPtr(), framebuffer);
+        const scanline = self.state.clock.scanline();
+        const dot = self.state.clock.dot();
+        _ = PpuRuntime.tick(&self.state.ppu, scanline, dot, self.cartPtr(), framebuffer);
+        self.state.clock.advance(1);
     }
 
     pub fn ppuReadRegister(self: *Harness, address: u16) u8 {
@@ -84,7 +89,8 @@ pub const Harness = struct {
 
     pub fn resetPpu(self: *Harness) void {
         PpuLogic.reset(&self.state.ppu);
-        self.state.ppu_timing = .{};
+        self.state.clock.reset();
+        self.state.ppu_a12_state = false;
     }
 
     pub fn loadCartridge(self: *Harness, cart: AnyCartridge) void {

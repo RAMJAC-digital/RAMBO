@@ -29,8 +29,7 @@ fn createTestState(config: *const Config) EmulationState {
     state.cpu.pc = 0x8000;
     state.cpu.sp = 0xFD;
     state.cpu.a = 0x42;
-    state.ppu_timing.scanline = 100;
-    state.ppu_timing.frame = 10;
+    state.clock.ppu_cycles = (10 * 89342) + (100 * 341); // Frame 10, scanline 100
 
     return state;
 }
@@ -334,7 +333,7 @@ test "Debugger: step scanline" {
     defer debugger.deinit();
 
     var state = createTestState(&config);
-    state.ppu_timing.scanline = 100;
+    state.clock.ppu_cycles = 100 * 341; // Scanline 100
 
     debugger.stepScanline(&state);
     try testing.expectEqual(DebugMode.step_scanline, debugger.mode);
@@ -344,7 +343,7 @@ test "Debugger: step scanline" {
     try testing.expect(!try debugger.shouldBreak(&state));
 
     // Should break on target scanline
-    state.ppu_timing.scanline = 101;
+    state.clock.ppu_cycles = 101 * 341; // Scanline 101
     try testing.expect(try debugger.shouldBreak(&state));
 }
 
@@ -356,7 +355,7 @@ test "Debugger: step frame" {
     defer debugger.deinit();
 
     var state = createTestState(&config);
-    state.ppu_timing.frame = 10;
+    state.clock.ppu_cycles = 10 * 89342; // Frame 10
 
     debugger.stepFrame(&state);
     try testing.expectEqual(DebugMode.step_frame, debugger.mode);
@@ -366,7 +365,7 @@ test "Debugger: step frame" {
     try testing.expect(!try debugger.shouldBreak(&state));
 
     // Should break on target frame
-    state.ppu_timing.frame = 11;
+    state.clock.ppu_cycles = 11 * 89342; // Frame 11
     try testing.expect(try debugger.shouldBreak(&state));
 }
 
@@ -765,7 +764,7 @@ test "State Manipulation: set PPU scanline" {
 
     // Set scanline
     debugger.setPpuScanline(&state, 200);
-    try testing.expectEqual(@as(u16, 200), state.ppu_timing.scanline);
+    try testing.expectEqual(@as(u16, 200), state.clock.scanline());
 
     // Verify modification logged
     const mods = debugger.getModifications();
@@ -784,7 +783,7 @@ test "State Manipulation: set PPU frame counter" {
 
     // Set frame counter
     debugger.setPpuFrame(&state, 1000);
-    try testing.expectEqual(@as(u64, 1000), state.ppu_timing.frame);
+    try testing.expectEqual(@as(u64, 1000), state.clock.frame());
 
     // Verify modification logged
     const mods = debugger.getModifications();
@@ -1299,7 +1298,7 @@ test "Isolation: Runtime execution doesn't corrupt debugger state" {
     state.cpu.a = 0x99; // Direct write (NOT via debugger)
     state.cpu.pc = 0x8050;
     state.busWrite(0x0200, 0xFF);
-    state.ppu_timing.scanline = 200;
+    state.clock.ppu_cycles = 200 * 341; // Scanline 200
 
     // ✅ Verify debugger state UNCHANGED
     const breakpoints = debugger.breakpoints.items;
@@ -1378,7 +1377,7 @@ test "Isolation: Modification history isolation from runtime" {
     state.cpu.pc = 0x9000;
     state.cpu.sp = 0x00;
     state.busWrite(0x0300, 0xFF);
-    state.ppu_timing.frame += 1;
+    state.clock.ppu_cycles += 89342; // Advance one frame
 
     // ✅ Modification history UNCHANGED (runtime ops don't auto-log)
     try testing.expectEqual(mod_count, debugger.getModifications().len);

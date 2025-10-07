@@ -1,4 +1,8 @@
 //! Emulator-facing PPU runtime helpers
+//!
+//! TIMING MIGRATION: This module has been refactored to remove timing mutation.
+//! Timing is now externally controlled by MasterClock in EmulationState.
+//! PPU tick is now a pure function that receives timing as read-only parameters.
 
 const std = @import("std");
 const Config = @import("../config/Config.zig");
@@ -10,34 +14,30 @@ const AnyCartridge = RegistryModule.AnyCartridge;
 const PpuState = PpuModule.State.PpuState;
 const PpuLogic = PpuModule.Logic;
 
-/// Timing registers owned by the emulator runtime
-pub const Timing = struct {
-    scanline: u16 = 0,
-    dot: u16 = 0,
-    frame: u64 = 0,
-
-    /// PPU A12 state (for MMC3 IRQ detection)
-    /// Bit 12 of PPU address - transitions during tile fetches
-    /// MMC3 IRQ counter decrements on rising edge (0→1)
-    a12_state: bool = false,
-};
-
 /// Result flags produced by a single PPU tick
 pub const TickFlags = struct {
     frame_complete: bool = false,
     rendering_enabled: bool,
 };
 
-/// Reset timing state to power-on values
-pub fn resetTiming(timing: *Timing) void {
-    timing.* = .{};
-}
-
-/// Advance the PPU by one cycle using emulator-owned timing.
-/// Returns tick flags indicating frame boundary state and rendering mode.
+/// Advance the PPU by one cycle.
+/// Timing is externally controlled - this function receives current scanline/dot
+/// as read-only parameters and performs pure state updates.
+///
+/// Hardware correspondence (nesdev.org):
+/// - PPU runs at 5.369318 MHz (NTSC)
+/// - 341 dots per scanline (0-340)
+/// - 262 scanlines per frame (0-261)
+/// - Scanlines 0-239: Visible (240 scanlines)
+/// - Scanline 240: Post-render
+/// - Scanlines 241-260: VBlank (20 scanlines)
+/// - Scanline 261: Pre-render
+///
+/// Returns tick flags indicating frame boundary and rendering state.
 pub fn tick(
     state: *PpuState,
-    timing: *Timing,
+    scanline: u16,
+    dot: u16,
     cart: ?*AnyCartridge,
     framebuffer: ?[]u32,
 ) TickFlags {
@@ -46,24 +46,7 @@ pub fn tick(
         .rendering_enabled = state.mask.renderingEnabled(),
     };
 
-    // === Timing Advance ===
-    timing.dot += 1;
-    if (timing.dot > 340) {
-        timing.dot = 0;
-        timing.scanline += 1;
-        if (timing.scanline > 261) {
-            timing.scanline = 0;
-            timing.frame += 1;
-        }
-    }
-
-    if (timing.scanline == 0 and timing.dot == 0 and (timing.frame & 1) == 1 and state.mask.renderingEnabled()) {
-        // Skip dot 0 on odd frames when rendering is enabled
-        timing.dot = 1;
-    }
-
-    const scanline = timing.scanline;
-    const dot = timing.dot;
+    // No timing advancement - timing is externally controlled
     const is_visible = scanline < 240;
     const is_prerender = scanline == 261;
     const is_rendering_line = is_visible or is_prerender;
@@ -165,10 +148,8 @@ pub fn tick(
     if (scanline == 261 and dot == 340) {
         flags.frame_complete = true;
 
-        // Log when rendering enables (for debugging)
-        if (timing.frame < 300 and rendering_enabled and !state.rendering_was_enabled) {
-            std.debug.print("[Frame {}] Rendering ENABLED! PPUMASK=0x{x:0>2}, PPUCTRL=0x{x:0>2}\n",
-                .{timing.frame, state.mask.toByte(), state.ctrl.toByte()});
+        // Note: Diagnostic logging moved to EmulationState where frame number is available
+        if (rendering_enabled and !state.rendering_was_enabled) {
             state.rendering_was_enabled = true;
         }
     }

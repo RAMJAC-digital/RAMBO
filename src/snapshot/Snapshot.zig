@@ -107,11 +107,8 @@ pub fn saveBinary(
     try writer.writeAll(state.bus.ram[0..]); // RAM (2048 bytes)
     try writer.writeByte(state.bus.open_bus); // Open bus value (1 byte)
 
-    // Timing information
-    try writer.writeInt(u64, state.clock.ppu_cycles, .little); // Master PPU cycle counter
-    try writer.writeInt(u16, state.ppu_timing.scanline, .little);
-    try writer.writeInt(u16, state.ppu_timing.dot, .little);
-    try writer.writeInt(u64, state.ppu_timing.frame, .little);
+    // Timing information is stored in MasterClock (already written via writeClock)
+    // No redundant timing fields needed - scanline/dot/frame are derived from ppu_cycles
 
     // Write EmulationState flags
     try state_ser.writeEmulationStateFlags(writer, state);
@@ -198,10 +195,8 @@ pub fn loadBinary(
     try reader.readNoEof(&ram); // RAM (2048 bytes)
     const open_bus = try reader.readByte(); // Open bus value (1 byte)
 
-    const ppu_cycles = try reader.readInt(u64, .little);
-    const timing_scanline = try reader.readInt(u16, .little);
-    const timing_dot = try reader.readInt(u16, .little);
-    const timing_frame = try reader.readInt(u64, .little);
+    // Timing information is stored in MasterClock (already read via readClock)
+    // No redundant timing fields to read - scanline/dot/frame are derived from ppu_cycles
 
     const flags = try state_ser.readEmulationStateFlags(reader);
 
@@ -252,13 +247,8 @@ pub fn loadBinary(
         .frame_complete = flags.frame_complete,
         .odd_frame = flags.odd_frame,
         .rendering_enabled = flags.rendering_enabled,
-        .ppu_timing = .{
-            .scanline = timing_scanline,
-            .dot = timing_dot,
-            .frame = timing_frame,
-        },
+        .ppu_a12_state = false, // Will be recalculated on next tick
     };
-    emu_state.clock.ppu_cycles = ppu_cycles;
 
     // Connect cartridge (cartridge is already wrapped in AnyCartridge union)
     emu_state.cart = cartridge;

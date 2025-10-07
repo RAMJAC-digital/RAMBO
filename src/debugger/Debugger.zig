@@ -359,7 +359,7 @@ pub const Debugger = struct {
     pub fn stepScanline(self: *Debugger, state: *const EmulationState) void {
         self.mode = .step_scanline;
         self.step_state = .{
-            .target_scanline = (state.ppu_timing.scanline + 1) % 262,
+            .target_scanline = (state.clock.scanline() + 1) % 262,
         };
     }
 
@@ -367,7 +367,7 @@ pub const Debugger = struct {
     pub fn stepFrame(self: *Debugger, state: *const EmulationState) void {
         self.mode = .step_frame;
         self.step_state = .{
-            .target_frame = state.ppu_timing.frame + 1,
+            .target_frame = state.clock.frame() + 1,
         };
     }
 
@@ -481,7 +481,7 @@ pub const Debugger = struct {
             },
             .step_scanline => {
                 if (self.step_state.target_scanline) |target| {
-                    if (state.ppu_timing.scanline == target) {
+                    if (state.clock.scanline() == target) {
                         self.mode = .paused;
                         try self.setBreakReason("Scanline step complete");
                         return true;
@@ -490,7 +490,7 @@ pub const Debugger = struct {
             },
             .step_frame => {
                 if (self.step_state.target_frame) |target| {
-                    if (state.ppu_timing.frame >= target) {
+                    if (state.clock.frame() >= target) {
                         self.mode = .paused;
                         try self.setBreakReason("Frame step complete");
                         return true;
@@ -662,8 +662,8 @@ pub const Debugger = struct {
         const entry = HistoryEntry{
             .snapshot = snapshot,
             .pc = state.cpu.pc,
-            .scanline = state.ppu_timing.scanline,
-            .frame = state.ppu_timing.frame,
+            .scanline = state.clock.scanline(),
+            .frame = state.clock.frame(),
             .timestamp = std.time.timestamp(),
         };
 
@@ -939,13 +939,16 @@ pub const Debugger = struct {
 
     /// Set PPU scanline (for testing)
     pub fn setPpuScanline(self: *Debugger, state: *EmulationState, scanline: u16) void {
-        state.ppu_timing.scanline = scanline;
+        const current_dot = state.clock.dot();
+        state.clock.ppu_cycles = (@as(u64, scanline) * 341) + current_dot;
         self.logModification(.{ .ppu_scanline = scanline });
     }
 
     /// Set PPU frame counter
     pub fn setPpuFrame(self: *Debugger, state: *EmulationState, frame: u64) void {
-        state.ppu_timing.frame = frame;
+        const current_scanline = state.clock.scanline();
+        const current_dot = state.clock.dot();
+        state.clock.ppu_cycles = (frame * 89342) + (@as(u64, current_scanline) * 341) + current_dot;
         self.logModification(.{ .ppu_frame = frame });
     }
 

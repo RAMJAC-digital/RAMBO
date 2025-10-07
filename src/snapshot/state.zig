@@ -205,7 +205,7 @@ pub fn writePpuState(writer: anytype, ppu: *const PpuState) !void {
     try writer.writeAll(&ppu.vram);
     try writer.writeAll(&ppu.palette_ram);
 
-    // Metadata (2 bytes) - timing now stored in EmulationState.ppu_timing
+    // Metadata (2 bytes) - timing now stored in MasterClock
     try writer.writeByte(@intFromEnum(ppu.mirroring));
     try writer.writeByte(@intFromBool(ppu.nmi_occurred));
 }
@@ -249,7 +249,7 @@ pub fn readPpuState(reader: anytype) !PpuState {
     try reader.readNoEof(&ppu.vram);
     try reader.readNoEof(&ppu.palette_ram);
 
-    // Metadata - timing now stored in EmulationState.ppu_timing
+    // Metadata - timing now stored in MasterClock
     ppu.mirroring = @enumFromInt(try reader.readByte());
     ppu.nmi_occurred = try reader.readByte() != 0;
 

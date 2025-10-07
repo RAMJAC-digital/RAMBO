@@ -11,6 +11,7 @@
 
 const std = @import("std");
 const Config = @import("../config/Config.zig");
+pub const MasterClock = @import("MasterClock.zig").MasterClock;
 const CpuModule = @import("../cpu/Cpu.zig");
 const CpuState = CpuModule.State.CpuState;
 const CpuLogic = CpuModule.Logic;
@@ -18,64 +19,12 @@ const PpuModule = @import("../ppu/Ppu.zig");
 const PpuState = PpuModule.State.PpuState;
 const PpuLogic = PpuModule.Logic;
 const PpuRuntime = @import("Ppu.zig");
-const PpuTiming = PpuRuntime.Timing;
 const ApuModule = @import("../apu/Apu.zig");
 const ApuState = ApuModule.State.ApuState;
 const ApuLogic = ApuModule.Logic;
 const CartridgeModule = @import("../cartridge/Cartridge.zig");
 const RegistryModule = @import("../cartridge/mappers/registry.zig");
 const AnyCartridge = RegistryModule.AnyCartridge;
-
-/// Master timing clock - tracks total PPU cycles
-/// PPU cycles are the finest granularity in NES hardware
-/// All other timing is derived from PPU cycles
-pub const MasterClock = struct {
-    /// Total PPU cycles elapsed since power-on
-    /// NTSC: 5.37 MHz (3× CPU frequency of 1.79 MHz)
-    /// PAL: 5.00 MHz (3× CPU frequency of 1.66 MHz)
-    ppu_cycles: u64 = 0,
-
-    /// Derived CPU cycles (PPU ÷ 3)
-    /// CPU runs at 1/3 PPU speed in hardware
-    pub fn cpuCycles(self: MasterClock) u64 {
-        return self.ppu_cycles / 3;
-    }
-
-    /// Current scanline (0-261 NTSC, 0-311 PAL)
-    /// Calculated from PPU cycles and configuration
-    pub fn scanline(self: MasterClock, config: Config.PpuModel) u16 {
-        const cycles_per_scanline: u64 = config.cyclesPerScanline();
-        const scanlines_per_frame: u64 = config.scanlinesPerFrame();
-        const frame_cycles = cycles_per_scanline * scanlines_per_frame;
-        const cycle_in_frame = self.ppu_cycles % frame_cycles;
-        return @intCast(cycle_in_frame / cycles_per_scanline);
-    }
-
-    /// Current dot/cycle within scanline (0-340)
-    /// Each scanline is 341 PPU cycles for both NTSC and PAL
-    pub fn dot(self: MasterClock, config: Config.PpuModel) u16 {
-        const cycles_per_scanline: u64 = config.cyclesPerScanline();
-        return @intCast(self.ppu_cycles % cycles_per_scanline);
-    }
-
-    /// Current frame number
-    /// Increments at the start of VBlank (scanline 241, dot 1 for NTSC)
-    pub fn frame(self: MasterClock, config: Config.PpuModel) u64 {
-        const cycles_per_scanline: u64 = config.cyclesPerScanline();
-        const scanlines_per_frame: u64 = config.scanlinesPerFrame();
-        const frame_cycles = cycles_per_scanline * scanlines_per_frame;
-        return self.ppu_cycles / frame_cycles;
-    }
-
-    /// CPU cycles within current frame
-    pub fn cpuCyclesInFrame(self: MasterClock, config: Config.PpuModel) u32 {
-        const cycles_per_scanline: u64 = config.cyclesPerScanline();
-        const scanlines_per_frame: u64 = config.scanlinesPerFrame();
-        const frame_cycles = cycles_per_scanline * scanlines_per_frame;
-        const ppu_cycles_in_frame = self.ppu_cycles % frame_cycles;
-        return @intCast(ppu_cycles_in_frame / 3);
-    }
-};
 
 /// Memory bus state owned by the emulator runtime
 /// Stores all data required to service CPU/PPU bus accesses.
@@ -272,8 +221,11 @@ pub const EmulationState = struct {
     ppu: PpuState,
     apu: ApuState,
 
-    /// PPU timing owned by emulator runtime
-    ppu_timing: PpuTiming = .{},
+    /// PPU A12 state (for MMC3 IRQ detection)
+    /// Bit 12 of PPU address - transitions during tile fetches
+    /// MMC3 IRQ counter decrements on rising edge (0→1)
+    /// Moved here from old ppu_timing struct (timing now in MasterClock)
+    ppu_a12_state: bool = false,
 
     /// Memory bus state (RAM, open bus, optional test RAM)
     bus: BusState = .{},
@@ -363,11 +315,11 @@ pub const EmulationState = struct {
     /// Reset emulation to power-on state
     /// Loads PC from RESET vector ($FFFC-$FFFD)
     pub fn reset(self: *EmulationState) void {
-        self.clock.ppu_cycles = 0;
+        self.clock.reset();
         self.frame_complete = false;
         self.odd_frame = false;
         self.rendering_enabled = false;
-        self.ppu_timing = .{};
+        self.ppu_a12_state = false;
         self.bus.open_bus = 0;
         self.dma.reset();
         self.dmc_dma.reset();
@@ -633,8 +585,8 @@ pub const EmulationState = struct {
     /// - VBlank timing: Sets at scanline 241, dot 1
     /// - Pre-render scanline: Clears VBlank at scanline -1/261, dot 1
     pub fn tick(self: *EmulationState) void {
-        const current_scanline = self.clock.scanline(self.config.ppu);
-        const current_dot = self.clock.dot(self.config.ppu);
+        const current_scanline = self.clock.scanline();
+        const current_dot = self.clock.dot();
 
         // Hardware quirk: Odd frame skip
         // On odd frames with rendering enabled, skip dot 0 of scanline 0 (pre-render)
@@ -644,16 +596,16 @@ pub const EmulationState = struct {
         {
             // Skip dot 0 of next scanline (scanline 0)
             // Advance clock by 2 instead of 1 to skip the dot
-            self.clock.ppu_cycles += 2;
+            self.clock.advance(2);
             self.odd_frame = false; // Next frame is even
             return; // Skip normal tick processing
         }
 
-        // Advance master clock
-        self.clock.ppu_cycles += 1;
+        // Advance master clock (ONLY place timing advances)
+        self.clock.advance(1);
 
         // Determine which components need to tick this PPU cycle
-        const cpu_tick = (self.clock.ppu_cycles % 3) == 0;
+        const cpu_tick = self.clock.isCpuTick();
         const ppu_tick = true; // PPU ticks every cycle
         const apu_tick = cpu_tick; // APU synchronized with CPU
 
@@ -1540,18 +1492,24 @@ pub const EmulationState = struct {
     }
 
     /// Tick PPU state machine (called every PPU cycle)
+    /// Timing is derived from MasterClock and passed as read-only parameters
     fn tickPpu(self: *EmulationState) void {
         const cart_ptr = self.cartPtr();
 
-        // Sample A12 state before PPU tick (for MMC3 IRQ edge detection)
-        const old_a12 = self.ppu_timing.a12_state;
+        // Derive current scanline/dot from master clock
+        const scanline = self.clock.scanline();
+        const dot = self.clock.dot();
 
-        const flags = PpuRuntime.tick(&self.ppu, &self.ppu_timing, cart_ptr, self.framebuffer);
+        // Sample A12 state before PPU tick (for MMC3 IRQ edge detection)
+        const old_a12 = self.ppu_a12_state;
+
+        // Tick PPU with derived timing (pure function, no timing mutation)
+        const flags = PpuRuntime.tick(&self.ppu, scanline, dot, cart_ptr, self.framebuffer);
 
         // Update A12 state after PPU tick
         // A12 = bit 12 of PPU address register (v)
         const new_a12 = (self.ppu.internal.v & 0x1000) != 0;
-        self.ppu_timing.a12_state = new_a12;
+        self.ppu_a12_state = new_a12;
 
         // Detect A12 rising edge (0→1 transition) and notify mapper
         // MMC3 uses this to decrement its IRQ scanline counter
@@ -1564,8 +1522,16 @@ pub const EmulationState = struct {
         self.rendering_enabled = flags.rendering_enabled;
         if (flags.frame_complete) {
             self.frame_complete = true;
+
+            // Add diagnostic logging here (access to frame number)
+            if (self.clock.frame() < 300 and flags.rendering_enabled and !self.ppu.rendering_was_enabled) {
+                std.debug.print("[Frame {}] Rendering ENABLED! PPUMASK=0x{x:0>2}, PPUCTRL=0x{x:0>2}\n",
+                    .{self.clock.frame(), self.ppu.mask.toByte(), self.ppu.ctrl.toByte()});
+            }
         }
-        self.odd_frame = (self.ppu_timing.frame & 1) == 1;
+
+        // Update odd frame flag from master clock
+        self.odd_frame = self.clock.isOddFrame();
     }
 
     /// Tick APU state machine (called every CPU cycle)
@@ -1783,28 +1749,28 @@ test "MasterClock: scanline calculation NTSC" {
 
     // Scanline 0, dot 0
     clock.ppu_cycles = 0;
-    try testing.expectEqual(@as(u16, 0), clock.scanline(config.ppu));
-    try testing.expectEqual(@as(u16, 0), clock.dot(config.ppu));
+    try testing.expectEqual(@as(u16, 0), clock.scanline());
+    try testing.expectEqual(@as(u16, 0), clock.dot());
 
     // Scanline 0, dot 100
     clock.ppu_cycles = 100;
-    try testing.expectEqual(@as(u16, 0), clock.scanline(config.ppu));
-    try testing.expectEqual(@as(u16, 100), clock.dot(config.ppu));
+    try testing.expectEqual(@as(u16, 0), clock.scanline());
+    try testing.expectEqual(@as(u16, 100), clock.dot());
 
     // Scanline 1, dot 0 (after 341 cycles)
     clock.ppu_cycles = 341;
-    try testing.expectEqual(@as(u16, 1), clock.scanline(config.ppu));
-    try testing.expectEqual(@as(u16, 0), clock.dot(config.ppu));
+    try testing.expectEqual(@as(u16, 1), clock.scanline());
+    try testing.expectEqual(@as(u16, 0), clock.dot());
 
     // Scanline 10, dot 50
     clock.ppu_cycles = (10 * 341) + 50;
-    try testing.expectEqual(@as(u16, 10), clock.scanline(config.ppu));
-    try testing.expectEqual(@as(u16, 50), clock.dot(config.ppu));
+    try testing.expectEqual(@as(u16, 10), clock.scanline());
+    try testing.expectEqual(@as(u16, 50), clock.dot());
 
     // VBlank start: Scanline 241, dot 1
     clock.ppu_cycles = (241 * 341) + 1;
-    try testing.expectEqual(@as(u16, 241), clock.scanline(config.ppu));
-    try testing.expectEqual(@as(u16, 1), clock.dot(config.ppu));
+    try testing.expectEqual(@as(u16, 241), clock.scanline());
+    try testing.expectEqual(@as(u16, 1), clock.dot());
 }
 
 test "MasterClock: frame calculation NTSC" {
@@ -1816,43 +1782,19 @@ test "MasterClock: frame calculation NTSC" {
 
     // Frame 0
     clock.ppu_cycles = 0;
-    try testing.expectEqual(@as(u64, 0), clock.frame(config.ppu));
+    try testing.expectEqual(@as(u64, 0), clock.frame());
 
     // Still frame 0 (one cycle before frame boundary)
     clock.ppu_cycles = 89_341;
-    try testing.expectEqual(@as(u64, 0), clock.frame(config.ppu));
+    try testing.expectEqual(@as(u64, 0), clock.frame());
 
     // Frame 1 (262 scanlines × 341 cycles = 89,342 cycles)
     clock.ppu_cycles = 89_342;
-    try testing.expectEqual(@as(u64, 1), clock.frame(config.ppu));
+    try testing.expectEqual(@as(u64, 1), clock.frame());
 
     // Frame 10
     clock.ppu_cycles = 89_342 * 10;
-    try testing.expectEqual(@as(u64, 10), clock.frame(config.ppu));
-}
-
-test "MasterClock: CPU cycles in frame" {
-    var clock = MasterClock{};
-    var config = Config.Config.init(testing.allocator);
-    defer config.deinit();
-
-    config.ppu.variant = .rp2c02g_ntsc;
-
-    // Start of frame
-    clock.ppu_cycles = 0;
-    try testing.expectEqual(@as(u32, 0), clock.cpuCyclesInFrame(config.ppu));
-
-    // 300 PPU cycles = 100 CPU cycles
-    clock.ppu_cycles = 300;
-    try testing.expectEqual(@as(u32, 100), clock.cpuCyclesInFrame(config.ppu));
-
-    // Just before frame boundary (89,342 PPU cycles = 29,780 CPU cycles)
-    clock.ppu_cycles = 89_341;
-    try testing.expectEqual(@as(u32, 29_780), clock.cpuCyclesInFrame(config.ppu));
-
-    // Start of next frame (wraps back to 0)
-    clock.ppu_cycles = 89_342;
-    try testing.expectEqual(@as(u32, 0), clock.cpuCyclesInFrame(config.ppu));
+    try testing.expectEqual(@as(u64, 10), clock.frame());
 }
 
 test "EmulationState: initialization" {
@@ -1940,14 +1882,15 @@ test "EmulationState: VBlank timing at scanline 241, dot 1" {
     state.reset();
 
     // Advance to scanline 241, dot 0 (just before VBlank)
-    state.ppu_timing.scanline = 241;
-    state.ppu_timing.dot = 0;
+    // MasterClock: scanline 241, dot 0 = (241 * 341) + 0 PPU cycles
+    state.clock.ppu_cycles = (241 * 341);
     try testing.expect(!state.frame_complete);
 
     // Tick once to reach scanline 241, dot 1 (VBlank start)
+    state.clock.advance(1); // Advance clock first
     state.tickPpu();
-    try testing.expectEqual(@as(u16, 241), state.ppu_timing.scanline);
-    try testing.expectEqual(@as(u16, 1), state.ppu_timing.dot);
+    try testing.expectEqual(@as(u16, 241), state.clock.scanline());
+    try testing.expectEqual(@as(u16, 1), state.clock.dot());
     try testing.expect(state.ppu.status.vblank); // VBlank flag set at 241.1 (NOT frame_complete)
 }
 
@@ -1969,15 +1912,15 @@ test "EmulationState: odd frame skip when rendering enabled" {
     state.clock.ppu_cycles = target_cycle;
 
     // Current position: scanline 261, dot 340
-    try testing.expectEqual(@as(u16, 261), state.clock.scanline(config.ppu));
-    try testing.expectEqual(@as(u16, 340), state.clock.dot(config.ppu));
+    try testing.expectEqual(@as(u16, 261), state.clock.scanline());
+    try testing.expectEqual(@as(u16, 340), state.clock.dot());
 
     // Tick should skip dot 0 of scanline 0, advancing by 2 PPU cycles instead of 1
     state.tick();
 
     // After tick: Should be at scanline 0, dot 1 (skipped dot 0)
-    try testing.expectEqual(@as(u16, 0), state.clock.scanline(config.ppu));
-    try testing.expectEqual(@as(u16, 1), state.clock.dot(config.ppu));
+    try testing.expectEqual(@as(u16, 0), state.clock.scanline());
+    try testing.expectEqual(@as(u16, 1), state.clock.dot());
 
     // Odd frame should be cleared (next frame is even)
     try testing.expect(!state.odd_frame);
@@ -2004,8 +1947,8 @@ test "EmulationState: even frame does not skip dot" {
     state.tick();
 
     // After tick: Should be at scanline 0, dot 0 (normal progression)
-    try testing.expectEqual(@as(u16, 0), state.clock.scanline(config.ppu));
-    try testing.expectEqual(@as(u16, 0), state.clock.dot(config.ppu));
+    try testing.expectEqual(@as(u16, 0), state.clock.scanline());
+    try testing.expectEqual(@as(u16, 0), state.clock.dot());
 }
 
 test "EmulationState: odd frame without rendering does not skip" {
@@ -2029,8 +1972,8 @@ test "EmulationState: odd frame without rendering does not skip" {
     state.tick();
 
     // After tick: Should be at scanline 0, dot 0 (normal progression)
-    try testing.expectEqual(@as(u16, 0), state.clock.scanline(config.ppu));
-    try testing.expectEqual(@as(u16, 0), state.clock.dot(config.ppu));
+    try testing.expectEqual(@as(u16, 0), state.clock.scanline());
+    try testing.expectEqual(@as(u16, 0), state.clock.dot());
 }
 
 test "EmulationState: frame toggle at scanline boundary" {
@@ -2044,23 +1987,24 @@ test "EmulationState: frame toggle at scanline boundary" {
 
     // Start with even frame (odd_frame = false)
     try testing.expect(!state.odd_frame);
-    try testing.expectEqual(@as(u64, 0), state.ppu_timing.frame);
+    try testing.expectEqual(@as(u64, 0), state.clock.frame());
 
     // Advance to end of scanline 261 (last scanline of frame)
-    state.ppu_timing.scanline = 261;
-    state.ppu_timing.dot = 340;
+    state.clock.ppu_cycles = (261 * 341) + 340;
 
     // Tick to cross into scanline 0 of next frame
+    state.clock.advance(1);
     state.tickPpu();
 
     // Frame should have incremented
-    try testing.expectEqual(@as(u64, 1), state.ppu_timing.frame);
+    try testing.expectEqual(@as(u64, 1), state.clock.frame());
     // Should now be odd frame
     try testing.expect(state.odd_frame);
 
     // Advance to next frame boundary
-    state.ppu_timing.scanline = 261;
-    state.ppu_timing.dot = 340;
+    state.clock.ppu_cycles = (261 * 341) + 340 + 89342;
+
+    state.clock.advance(1);
     state.tickPpu();
 
     // Should be back to even frame

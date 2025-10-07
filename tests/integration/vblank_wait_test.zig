@@ -137,8 +137,8 @@ test "VBlank Wait Loop: CPU successfully waits for and detects VBlank" {
         // Check for VBlank and log first BIT $2002 after VBlank
         if (!vblank_seen and state.ppu.status.vblank) {
             std.debug.print("  ✓ VBlank flag SET at scanline {d}, dot {d}, cycle {d}\n", .{
-                state.ppu_timing.scanline,
-                state.ppu_timing.dot,
+                state.clock.scanline(),
+                state.clock.dot(),
                 cycles,
             });
             vblank_seen = true;
@@ -188,8 +188,8 @@ test "VBlank Wait Loop: CPU successfully waits for and detects VBlank" {
     std.debug.print("  Cycles: {d}\n", .{cycles});
     std.debug.print("  Instructions: {d}\n", .{instruction_count});
     std.debug.print("  PPU Status VBlank: {}\n", .{state.ppu.status.vblank});
-    std.debug.print("  PPU Scanline: {d}\n", .{state.ppu_timing.scanline});
-    std.debug.print("  PPU Dot: {d}\n", .{state.ppu_timing.dot});
+    std.debug.print("  PPU Scanline: {d}\n", .{state.clock.scanline()});
+    std.debug.print("  PPU Dot: {d}\n", .{state.clock.dot()});
 
     return error.VBlankWaitTimeout;
 }

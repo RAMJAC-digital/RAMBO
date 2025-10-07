@@ -67,9 +67,7 @@ fn createTestState(config: *const Config) EmulationState {
 
     state.ppu.ctrl = .{ .nmi_enable = true, .sprite_size = true };
     state.ppu.mask = .{ .show_bg = true, .show_sprites = true };
-    state.ppu_timing.scanline = 100;
-    state.ppu_timing.dot = 200;
-    state.ppu_timing.frame = 42;
+    state.clock.ppu_cycles = (42 * 89342) + (100 * 341) + 200; // Frame 42, scanline 100, dot 200
 
     state.bus.ram[0x00] = 0xAA;
     state.bus.ram[0x01] = 0xBB;
@@ -136,9 +134,9 @@ test "Snapshot Integration: Full round-trip without cartridge" {
     try testing.expectEqual(state.ppu.ctrl.sprite_size, restored.ppu.ctrl.sprite_size);
     try testing.expectEqual(state.ppu.mask.show_bg, restored.ppu.mask.show_bg);
     try testing.expectEqual(state.ppu.mask.show_sprites, restored.ppu.mask.show_sprites);
-    try testing.expectEqual(state.ppu_timing.scanline, restored.ppu_timing.scanline);
-    try testing.expectEqual(state.ppu_timing.dot, restored.ppu_timing.dot);
-    try testing.expectEqual(state.ppu_timing.frame, restored.ppu_timing.frame);
+    try testing.expectEqual(state.clock.scanline(), restored.clock.scanline());
+    try testing.expectEqual(state.clock.dot(), restored.clock.dot());
+    try testing.expectEqual(state.clock.frame(), restored.clock.frame());
 
     // Verify Bus state
     try testing.expectEqual(state.bus.ram[0x00], restored.bus.ram[0x00]);
@@ -197,7 +195,7 @@ test "Snapshot Integration: Full round-trip with cartridge (reference mode)" {
     // Verify restoration
     try testing.expectEqual(state.cpu.a, restored.cpu.a);
     try testing.expectEqual(state.cpu.pc, restored.cpu.pc);
-    try testing.expectEqual(state.ppu_timing.frame, restored.ppu_timing.frame);
+    try testing.expectEqual(state.clock.frame(), restored.clock.frame());
 }
 
 test "Snapshot Integration: Snapshot with framebuffer" {
@@ -305,7 +303,7 @@ test "Snapshot Integration: Multiple save/load cycles" {
     // Modify restored state
     var modified = restored1;
     modified.cpu.a = 0x99;
-    modified.ppu_timing.frame = 100;
+    modified.clock.ppu_cycles = 100 * 89342; // Frame 100
 
     // Cycle 2: Save modified state
     const snapshot2 = try Snapshot.saveBinary(
@@ -327,7 +325,7 @@ test "Snapshot Integration: Multiple save/load cycles" {
 
     // Verify modifications persisted
     try testing.expectEqual(@as(u8, 0x99), restored2.cpu.a);
-    try testing.expectEqual(@as(u64, 100), restored2.ppu_timing.frame);
+    try testing.expectEqual(@as(u64, 100), restored2.clock.frame());
 
     // Original state should be unchanged
     try testing.expectEqual(@as(u8, 0x42), state.cpu.a);
