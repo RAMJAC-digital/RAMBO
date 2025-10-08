@@ -107,4 +107,34 @@ pub const Harness = struct {
     pub fn setMirroring(self: *Harness, mode: MirroringType) void {
         self.state.ppu.mirroring = mode;
     }
+
+    /// Helper: Seek emulation to exact scanline.dot position
+    /// Used for precise PPU timing tests (e.g., VBlank NMI timing)
+    pub fn seekToScanlineDot(self: *Harness, target_scanline: u16, target_dot: u16) void {
+        const max_cycles: usize = 100_000; // Safety limit
+        var cycles: usize = 0;
+
+        while (cycles < max_cycles) : (cycles += 1) {
+            const current_sl = self.state.clock.scanline();
+            const current_dot = self.state.clock.dot();
+
+            if (current_sl == target_scanline and current_dot == target_dot) {
+                return; // Exact position reached
+            }
+
+            self.state.tick();
+        }
+
+        @panic("seekToScanlineDot: Failed to reach target position");
+    }
+
+    /// Helper: Get current scanline
+    pub fn getScanline(self: *const Harness) u16 {
+        return self.state.clock.scanline();
+    }
+
+    /// Helper: Get current dot
+    pub fn getDot(self: *const Harness) u16 {
+        return self.state.clock.dot();
+    }
 };

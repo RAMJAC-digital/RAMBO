@@ -600,6 +600,31 @@ pub fn build(b: *std.Build) void {
 
     const run_accuracycoin_prg_ram_tests = b.addRunArtifact(accuracycoin_prg_ram_tests);
 
+    // Framebuffer validation helper tests
+    const framebuffer_validator_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/helpers/FramebufferValidator.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+
+    const run_framebuffer_validator_tests = b.addRunArtifact(framebuffer_validator_tests);
+
+    // Commercial ROM integration tests
+    const commercial_rom_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/commercial_rom_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+
+    const run_commercial_rom_tests = b.addRunArtifact(commercial_rom_tests);
+
     // PPU CHR integration tests
     const chr_integration_tests = b.addTest(.{
         .root_module = b.createModule(.{
@@ -655,6 +680,20 @@ pub fn build(b: *std.Build) void {
     });
 
     const run_sprite_edge_cases_tests = b.addRunArtifact(sprite_edge_cases_tests);
+
+    // PPU VBlank NMI timing tests (fix for race condition)
+    const vblank_nmi_timing_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/ppu/vblank_nmi_timing_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+
+    const run_vblank_nmi_timing_tests = b.addRunArtifact(vblank_nmi_timing_tests);
 
     // Snapshot integration tests
     const snapshot_integration_tests = b.addTest(.{
@@ -940,10 +979,13 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_cartridge_tests.step);
     test_step.dependOn(&run_prg_ram_tests.step);
     test_step.dependOn(&run_accuracycoin_prg_ram_tests.step);
+    test_step.dependOn(&run_framebuffer_validator_tests.step);
+    test_step.dependOn(&run_commercial_rom_tests.step);
     test_step.dependOn(&run_chr_integration_tests.step);
     test_step.dependOn(&run_sprite_evaluation_tests.step);
     test_step.dependOn(&run_sprite_rendering_tests.step);
     test_step.dependOn(&run_sprite_edge_cases_tests.step);
+    test_step.dependOn(&run_vblank_nmi_timing_tests.step);
     test_step.dependOn(&run_snapshot_integration_tests.step);
     test_step.dependOn(&run_debugger_integration_tests.step);
     test_step.dependOn(&run_apu_tests.step);
@@ -991,10 +1033,13 @@ pub fn build(b: *std.Build) void {
     integration_test_step.dependOn(&run_cartridge_tests.step);
     integration_test_step.dependOn(&run_prg_ram_tests.step);
     integration_test_step.dependOn(&run_accuracycoin_prg_ram_tests.step);
+    integration_test_step.dependOn(&run_framebuffer_validator_tests.step);
+    integration_test_step.dependOn(&run_commercial_rom_tests.step);
     integration_test_step.dependOn(&run_chr_integration_tests.step);
     integration_test_step.dependOn(&run_sprite_evaluation_tests.step);
     integration_test_step.dependOn(&run_sprite_rendering_tests.step);
     integration_test_step.dependOn(&run_sprite_edge_cases_tests.step);
+    integration_test_step.dependOn(&run_vblank_nmi_timing_tests.step);
     integration_test_step.dependOn(&run_snapshot_integration_tests.step);
     integration_test_step.dependOn(&run_debugger_integration_tests.step);
     integration_test_step.dependOn(&run_dpcm_dma_tests.step);

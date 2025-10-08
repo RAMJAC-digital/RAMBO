@@ -79,20 +79,31 @@ test "CPU-PPU Integration: NMI not triggered when VBlank set but NMI disabled" {
     try testing.expect(!state.cpu.nmi_line);
 }
 
-test "CPU-PPU Integration: NMI cleared after being polled" {
+test "CPU-PPU Integration: Reading PPUSTATUS clears VBlank but preserves latched NMI" {
     var harness = try TestHarness.init();
     defer harness.deinit();
     const state = harness.statePtr();
 
-    // Enable NMI
+    // Enable NMI and skip warm-up period
     state.busWrite(0x2000, 0x80);
-    state.ppu.status.vblank = true;
-    state.syncDerivedSignals();
+    state.ppu.warmup_complete = true;
 
-    // Reading PPUSTATUS should clear VBlank and deassert NMI
+    // Advance to scanline 241, dot 0 (one cycle before VBlank)
+    while (state.clock.scanline() != 241 or state.clock.dot() != 0) {
+        state.tick();
+    }
+
+    // Tick to dot 1 - VBlank sets AND NMI latches atomically
+    state.tick();
+
+    // Both VBlank and NMI should be active
+    try testing.expect(state.ppu.status.vblank);
+    try testing.expect(state.cpu.nmi_line);
+
+    // Reading PPUSTATUS clears VBlank but NMI remains latched
     _ = state.busRead(0x2002);
-    try testing.expect(!state.ppu.status.vblank);
-    try testing.expect(!state.cpu.nmi_line);
+    try testing.expect(!state.ppu.status.vblank); // VBlank cleared ✓
+    try testing.expect(state.cpu.nmi_line);       // NMI still latched ✓
 }
 
 test "CPU-PPU Integration: Reading PPUSTATUS clears VBlank flag" {

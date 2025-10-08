@@ -18,6 +18,7 @@ const PpuLogic = PpuModule.Logic;
 pub const TickFlags = struct {
     frame_complete: bool = false,
     rendering_enabled: bool,
+    assert_nmi: bool = false, // NMI level to be latched (fix for VBlank race condition)
 };
 
 /// Advance the PPU by one cycle.
@@ -129,6 +130,13 @@ pub fn tick(
     // === VBlank ===
     if (scanline == 241 and dot == 1) {
         state.status.vblank = true;
+
+        // FIX: Latch NMI level ATOMICALLY with VBlank flag set
+        // This prevents race condition where CPU reads $2002 between
+        // VBlank set and NMI level computation (per nesdev.org)
+        // Reading $2002 can now clear vblank, but NMI already latched
+        flags.assert_nmi = state.ctrl.nmi_enable;
+
         // NOTE: Do NOT set frame_complete here! Frame continues through VBlank.
     }
 

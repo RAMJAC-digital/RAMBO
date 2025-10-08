@@ -6,9 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **RAMBO** is a cycle-accurate NES emulator written in Zig 0.15.1, targeting the comprehensive AccuracyCoin test suite (128 tests covering CPU, PPU, APU, and timing accuracy).
 
-**Current Status (2025-10-07):**
+**Current Status (2025-10-08):**
 - **Phase 0:** ✅ **COMPLETE** - 100% CPU implementation with cycle-accurate timing
-- **CPU:** 100% complete (256/256 opcodes, all addressing modes) ✅
+- **CPU Opcodes:** 100% complete (256/256 opcodes, all addressing modes) ✅
+- **CPU Interrupts:** ❌ **NOT IMPLEMENTED** - NMI/IRQ/BRK sequences missing (**P0 BLOCKER**)
 - **Architecture:** State/Logic separation complete, comptime generics implemented ✅
 - **Thread Architecture:** Mailbox pattern + timer-driven emulation complete ✅
 - **PPU Background:** 100% complete (registers, VRAM, rendering pipeline) ✅
@@ -22,18 +23,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Cartridge:** Mapper 0 (NROM) complete with full IRQ infrastructure ✅
 - **Mapper System:** ✅ **FOUNDATION COMPLETE** - AnyCartridge union, IRQ support, A12 tracking
 - **Video Display:** ✅ **COMPLETE** - Wayland window + Vulkan rendering at 60 FPS
-- **Tests:** 896/900 passing (99.6%, 3 threading tests timing-sensitive, 1 skipped)
+- **Tests:** 920/927 passing (99.2%, 5 commercial ROM tests fail - NMI blocker, 2 threading tests)
 - **AccuracyCoin:** ✅ **ALL TESTS PASSING** ($00 $00 $00 $00 status - full CPU/PPU validation)
 
-**CRITICAL MILESTONE:** ⚠️ **INFRASTRUCTURE COMPLETE - GAMES TESTING IN PROGRESS**
-- PPU warm-up period: Games initialize correctly ✅
-- Controller input: Keyboard → emulation fully wired ✅
-- Video display: Full rendering pipeline working ✅
-- **Current Issue:** Games not enabling rendering (PPUMASK=$00) - investigating
+**CRITICAL BLOCKER:** 🔴 **NMI INTERRUPT HANDLING NOT IMPLEMENTED**
+- NMI/IRQ/BRK states defined in enum but **NEVER implemented** in stepCpuCycle()
+- PPU VBlank sets NMI flag correctly ✅
+- CPU edge detection works correctly ✅
+- **But interrupt sequence never executes** ❌
+- **Impact:** ALL commercial games hang in infinite loops waiting for NMI
 
-**Current Phase:** Hardware Accuracy Refinement & Game Testing
-**Next Phase:** Mapper Expansion (MMC1, UxROM, CNROM, MMC3) - 75% game coverage
-**Critical Path:** ✅ P1 Accuracy → ✅ Controller I/O → ✅ Video Display → 🎮 **Playable Games!**
+**Current Phase:** CPU Interrupt Implementation (P0 SHOWSTOPPER)
+**Next Phase:** Commercial ROM Validation → Mapper Expansion
+**Critical Path:** ❌ **BLOCKED ON NMI IMPLEMENTATION** (est. 4-6 hours)
 
 **Key Requirement:** Hardware-accurate 6502 emulation with cycle-level precision for AccuracyCoin compatibility.
 
@@ -82,6 +84,47 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **Impact:** Games should now respond to controller input. This was the FINAL missing piece for playability!
 
 **Test Status:** 896/900 tests passing (3 timing-sensitive threading tests, no functional regressions)
+
+### 🔴 CRITICAL FINDING: NMI Interrupts Not Implemented (2025-10-08)
+
+**Discovery:** After extensive debugging (20+ diagnostic traces), discovered that **NMI/IRQ/BRK interrupt handling is completely missing** from the CPU emulation.
+
+**Root Cause:** Interrupt states (`.interrupt_dummy`, `.interrupt_push_pch`, `.interrupt_push_pcl`, `.interrupt_push_p`, `.interrupt_fetch_vector_low`, `.interrupt_fetch_vector_high`) are **defined in ExecutionState enum but have ZERO implementation** in `stepCpuCycle()`.
+
+**Investigation Path:**
+1. ✅ PPU VBlank sets correctly at scanline 241, dot 1
+2. ✅ `flags.assert_nmi` set based on `nmi_enable`
+3. ✅ `cpu.nmi_line` asserted in EmulationState
+4. ✅ CPU edge detection triggers
+5. ✅ `pending_interrupt = .nmi` set
+6. ✅ `startInterruptSequence()` called
+7. ❌ **CPU enters `.interrupt_dummy` state and gets STUCK FOREVER**
+
+**Impact:**
+- ✅ Test ROMs work (AccuracyCoin doesn't rely on precise NMI timing)
+- ❌ ALL commercial games hang in infinite loops waiting for NMI
+- ❌ Games stuck at PC addresses in initialization code
+- ❌ PPUMASK never progresses past initialization values ($00, $06, $08)
+
+**Required Implementation:** 7-cycle interrupt sequence
+1. Cycle 1: Dummy read at current PC
+2. Cycle 2: Push PCH to stack
+3. Cycle 3: Push PCL to stack
+4. Cycle 4: Push P register (with B flag handling for BRK)
+5. Cycle 5: Fetch vector low byte ($FFFA=NMI, $FFFE=IRQ/BRK, $FFFC=RESET)
+6. Cycle 6: Fetch vector high byte
+7. Cycle 7: Jump to handler (PC = vector)
+
+**Files Modified During Investigation:**
+- `tests/helpers/FramebufferValidator.zig` - Created (252 lines)
+- `tests/integration/commercial_rom_test.zig` - Created (356 lines)
+- `build.zig` - Registered new tests
+
+**Documentation:**
+- `docs/sessions/2025-10-08-nmi-interrupt-investigation/CRITICAL-FINDING-NMI-NOT-IMPLEMENTED.md`
+- `docs/sessions/2025-10-08-nmi-interrupt-investigation/SESSION-SUMMARY.md`
+
+**Estimated Fix Time:** 4-6 hours implementation + 2-3 hours validation = **8-11 hours total**
 
 ---
 

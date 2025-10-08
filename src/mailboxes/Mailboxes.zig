@@ -55,12 +55,12 @@ pub const Mailboxes = struct {
     config: ConfigMailbox,
 
     /// Initialize all mailboxes
-    pub fn init(allocator: std.mem.Allocator) !Mailboxes {
+    pub fn init(allocator: std.mem.Allocator) Mailboxes {
         return Mailboxes{
             .controller_input = ControllerInputMailbox.init(allocator),
             .emulation_command = EmulationCommandMailbox.init(allocator),
             .speed_control = SpeedControlMailbox.init(allocator),
-            .frame = try FrameMailbox.init(allocator),
+            .frame = FrameMailbox.init(), // Pure atomic - no allocator needed
             .emulation_status = EmulationStatusMailbox.init(allocator),
             .xdg_window_event = XdgWindowEventMailbox.init(allocator),
             .xdg_input_event = XdgInputEventMailbox.init(allocator),
@@ -92,7 +92,7 @@ test "mailboxes by-value memory safety" {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    var mailboxes = try Mailboxes.init(allocator);
+    var mailboxes = Mailboxes.init(allocator);
     defer mailboxes.deinit();
 
     // Verify pointers can be taken for dependency injection

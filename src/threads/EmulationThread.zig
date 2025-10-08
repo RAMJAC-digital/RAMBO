@@ -283,7 +283,7 @@ test "EmulationThread: context initialization" {
     defer config.deinit();
 
     var emu_state = EmulationState.init(&config);
-    var mailboxes = try Mailboxes.init(allocator);
+    var mailboxes = Mailboxes.init(allocator);
     defer mailboxes.deinit();
 
     var running = std.atomic.Value(bool).init(true);
@@ -306,7 +306,7 @@ test "EmulationThread: command handling" {
     defer config.deinit();
 
     var emu_state = EmulationState.init(&config);
-    var mailboxes = try Mailboxes.init(allocator);
+    var mailboxes = Mailboxes.init(allocator);
     defer mailboxes.deinit();
 
     var running = std.atomic.Value(bool).init(true);
@@ -334,7 +334,7 @@ test "EmulationThread: mailbox command polling" {
     defer config.deinit();
 
     var emu_state = EmulationState.init(&config);
-    var mailboxes = try Mailboxes.init(allocator);
+    var mailboxes = Mailboxes.init(allocator);
     defer mailboxes.deinit();
 
     var running = std.atomic.Value(bool).init(true);

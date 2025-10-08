@@ -144,7 +144,7 @@ pub fn spawn(
 test "RenderThread: context initialization" {
     const allocator = std.testing.allocator;
 
-    var mailboxes = try Mailboxes.init(allocator);
+    var mailboxes = Mailboxes.init(allocator);
     defer mailboxes.deinit();
 
     var running = std.atomic.Value(bool).init(true);

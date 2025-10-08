@@ -378,9 +378,10 @@ pub const EmulationState = struct {
             0x2000...0x3FFF => blk: {
                 const reg = address & 0x07;
                 const result = PpuLogic.readRegister(&self.ppu, cart_ptr, reg);
-                if (reg == 0x02) {
-                    self.refreshPpuNmiLevel();
-                }
+                // NOTE: Do NOT call refreshPpuNmiLevel() here!
+                // NMI level is latched by PPU tick (Ppu.zig:137) and should not
+                // be recalculated when $2002 is read. This fixes the race condition
+                // where reading $2002 clears VBlank and then NMI gets suppressed.
                 break :blk result;
             },
 
@@ -455,7 +456,10 @@ pub const EmulationState = struct {
             0x2000...0x3FFF => {
                 const reg = address & 0x07;
                 PpuLogic.writeRegister(&self.ppu, cart_ptr, reg, value);
-                if (reg == 0x00 or reg == 0x02) {
+                // Refresh NMI level on $2000 (PPUCTRL) writes only
+                // Writing to $2000 can change nmi_enable, which affects NMI generation
+                // per nesdev.org: toggling NMI enable during VBlank can trigger NMI
+                if (reg == 0x00) {
                     self.refreshPpuNmiLevel();
                 }
             },

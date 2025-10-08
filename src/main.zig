@@ -25,7 +25,7 @@ pub fn main() !void {
     // ========================================================================
 
     std.debug.print("[Main] Initializing mailboxes...\n", .{});
-    var mailboxes = try RAMBO.Mailboxes.Mailboxes.init(allocator);
+    var mailboxes = RAMBO.Mailboxes.Mailboxes.init(allocator);
     defer mailboxes.deinit();
 
     // ========================================================================
