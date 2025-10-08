@@ -45,6 +45,10 @@
             .url = "https://codeberg.org/ifreund/zig-wayland/archive/1b5c038ec1.tar.gz",
             .hash = "wayland-0.5.0-dev-lQa1khrMAQDJDwYFKpdH3HizherB7sHo5dKMECfvxQHe",
         },
+        .zli = .{
+            .url = "https://github.com/xcaeser/zli/archive/v4.1.1.tar.gz",
+            .hash = "zli-4.1.1-LeUjpljfAAAak_E3L4NPowuzPs_FUF9-jYyxuTSNSthM",
+        },
     },
     // Specifies the set of files and directories that are included in this package.
     // Only files and directories listed here are included in the `hash` that

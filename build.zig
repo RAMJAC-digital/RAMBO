@@ -50,10 +50,13 @@ pub fn build(b: *std.Build) void {
     // If neither case applies to you, feel free to delete the declaration you
     // don't need and to put everything under a single module.
     // Add libxev dependency
+
     const xev_dep = b.dependency("libxev", .{
         .target = target,
         .optimize = optimize,
     });
+
+    const zli_dep = b.dependency("zli", .{ .target = target, .optimize = optimize });
 
     // ========================================================================
     // Wayland Client Bindings (for Linux window creation)
@@ -167,6 +170,7 @@ pub fn build(b: *std.Build) void {
                 .{ .name = "RAMBO", .module = mod },
                 // libxev for event loop and thread pooling
                 .{ .name = "xev", .module = xev_dep.module("xev") },
+                .{ .name = "zli", .module = zli_dep.module("zli") },
                 // Wayland client bindings (generated from protocol XMLs)
                 .{ .name = "wayland_client", .module = wayland_client_mod },
                 // Build options (feature flags)
@@ -445,6 +449,20 @@ pub fn build(b: *std.Build) void {
     });
 
     const run_cpu_interrupt_logic_tests = b.addRunArtifact(cpu_interrupt_logic_tests);
+
+    // Interrupt execution integration tests
+    const interrupt_execution_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/interrupt_execution_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+
+    const run_interrupt_execution_tests = b.addRunArtifact(interrupt_execution_tests);
 
     // Bus integration tests
     const bus_integration_tests = b.addTest(.{
@@ -914,7 +932,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("tests/threads/threading_test.zig"),
             .target = target,
             .optimize = optimize,
-            .link_libc = true,  // Required for c_allocator in Wayland code
+            .link_libc = true, // Required for c_allocator in Wayland code
             .imports = &.{
                 .{ .name = "RAMBO", .module = mod },
                 .{ .name = "xev", .module = xev_dep.module("xev") },
@@ -982,6 +1000,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_rmw_tests.step);
     test_step.dependOn(&run_page_crossing_tests.step);
     test_step.dependOn(&run_cpu_interrupt_logic_tests.step);
+    test_step.dependOn(&run_interrupt_execution_tests.step);
     test_step.dependOn(&run_bus_integration_tests.step);
     test_step.dependOn(&run_cpu_ppu_integration_tests.step);
     test_step.dependOn(&run_oam_dma_tests.step);
@@ -1039,6 +1058,7 @@ pub fn build(b: *std.Build) void {
     integration_test_step.dependOn(&run_rmw_tests.step);
     integration_test_step.dependOn(&run_page_crossing_tests.step);
     integration_test_step.dependOn(&run_bus_integration_tests.step);
+    integration_test_step.dependOn(&run_interrupt_execution_tests.step);
     integration_test_step.dependOn(&run_cpu_ppu_integration_tests.step);
     integration_test_step.dependOn(&run_oam_dma_tests.step);
     integration_test_step.dependOn(&run_controller_tests.step);

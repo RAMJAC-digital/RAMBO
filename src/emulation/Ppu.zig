@@ -15,10 +15,12 @@ const PpuState = PpuModule.State.PpuState;
 const PpuLogic = PpuModule.Logic;
 
 /// Result flags produced by a single PPU tick
+/// These are EVENT signals (edge-triggered), not level signals
 pub const TickFlags = struct {
     frame_complete: bool = false,
     rendering_enabled: bool,
-    assert_nmi: bool = false, // NMI level to be latched (fix for VBlank race condition)
+    vblank_started: bool = false, // Scanline 241, dot 1 - VBlank begins
+    vblank_ended: bool = false,   // Scanline 261, dot 1 - VBlank ends
 };
 
 /// Advance the PPU by one cycle.
@@ -130,12 +132,7 @@ pub fn tick(
     // === VBlank ===
     if (scanline == 241 and dot == 1) {
         state.status.vblank = true;
-
-        // FIX: Latch NMI level ATOMICALLY with VBlank flag set
-        // This prevents race condition where CPU reads $2002 between
-        // VBlank set and NMI level computation (per nesdev.org)
-        // Reading $2002 can now clear vblank, but NMI already latched
-        flags.assert_nmi = state.ctrl.nmi_enable;
+        flags.vblank_started = true; // Signal event to emulation state
 
         // NOTE: Do NOT set frame_complete here! Frame continues through VBlank.
     }
@@ -145,6 +142,7 @@ pub fn tick(
         state.status.vblank = false;
         state.status.sprite_0_hit = false;
         state.status.sprite_overflow = false;
+        flags.vblank_ended = true; // Signal event to emulation state
     }
 
     // === Frame Complete ===

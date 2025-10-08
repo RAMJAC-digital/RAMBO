@@ -29,7 +29,8 @@ const AnyCartridge = RegistryModule.AnyCartridge;
 const PpuCycleResult = struct {
     frame_complete: bool = false,
     rendering_enabled: bool = false,
-    assert_nmi: bool = false,
+    vblank_started: bool = false,
+    vblank_ended: bool = false,
     a12_rising: bool = false,
 };
 
@@ -671,8 +672,12 @@ pub const EmulationState = struct {
             }
         }
 
-        self.ppu_nmi_active = result.assert_nmi;
-        self.cpu.nmi_line = result.assert_nmi;
+        // Handle VBlank events and update NMI line
+        // On VBlank start/end, recompute NMI level based on current PPU state
+        // This ensures proper edge detection in CpuLogic.checkInterrupts()
+        if (result.vblank_started or result.vblank_ended) {
+            self.refreshPpuNmiLevel();
+        }
     }
 
     fn stepPpuCycle(self: *EmulationState) PpuCycleResult {
@@ -704,7 +709,11 @@ pub const EmulationState = struct {
         }
 
         self.odd_frame = self.clock.isOddFrame();
-        result.assert_nmi = self.ppu.status.vblank and self.ppu.ctrl.nmi_enable;
+
+        // Pass through PPU event signals to emulation state
+        result.vblank_started = flags.vblank_started;
+        result.vblank_ended = flags.vblank_ended;
+
         return result;
     }
 
