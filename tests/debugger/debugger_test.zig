@@ -69,7 +69,13 @@ test "Debugger: execute breakpoint with condition" {
 
     // Add conditional breakpoint
     try debugger.addBreakpoint(0x8000, .execute);
-    debugger.breakpoints.items[0].condition = .{ .a_equals = 0x42 };
+    // Find the breakpoint we just added and set condition
+    for (debugger.breakpoints[0..256]) |*maybe_bp| {
+        if (maybe_bp.*) |*bp| {
+            bp.condition = .{ .a_equals = 0x42 };
+            break;
+        }
+    }
 
     // Should break (condition met)
     try testing.expect(try debugger.shouldBreak(&state));
@@ -161,11 +167,25 @@ test "Debugger: breakpoint hit count" {
 
     // Hit breakpoint multiple times
     _ = try debugger.shouldBreak(&state);
-    try testing.expectEqual(@as(u64, 1), debugger.breakpoints.items[0].hit_count);
+    // Find the breakpoint and check hit count
+    var hit_count: u64 = 0;
+    for (debugger.breakpoints[0..256]) |maybe_bp| {
+        if (maybe_bp) |bp| {
+            hit_count = bp.hit_count;
+            break;
+        }
+    }
+    try testing.expectEqual(@as(u64, 1), hit_count);
 
     debugger.continue_();
     _ = try debugger.shouldBreak(&state);
-    try testing.expectEqual(@as(u64, 2), debugger.breakpoints.items[0].hit_count);
+    for (debugger.breakpoints[0..256]) |maybe_bp| {
+        if (maybe_bp) |bp| {
+            hit_count = bp.hit_count;
+            break;
+        }
+    }
+    try testing.expectEqual(@as(u64, 2), hit_count);
 }
 
 // ============================================================================
@@ -508,15 +528,15 @@ test "Debugger: clear all breakpoints and watchpoints" {
     try debugger.addBreakpoint(0x8100, .read);
     try debugger.addWatchpoint(0x0000, 1, .write);
 
-    try testing.expectEqual(@as(usize, 2), debugger.breakpoints.items.len);
-    try testing.expectEqual(@as(usize, 1), debugger.watchpoints.items.len);
+    try testing.expectEqual(@as(usize, 2), debugger.breakpoint_count);
+    try testing.expectEqual(@as(usize, 1), debugger.watchpoint_count);
 
     // Clear all
     debugger.clearBreakpoints();
     debugger.clearWatchpoints();
 
-    try testing.expectEqual(@as(usize, 0), debugger.breakpoints.items.len);
-    try testing.expectEqual(@as(usize, 0), debugger.watchpoints.items.len);
+    try testing.expectEqual(@as(usize, 0), debugger.breakpoint_count);
+    try testing.expectEqual(@as(usize, 0), debugger.watchpoint_count);
 }
 
 // ============================================================================
@@ -1301,12 +1321,26 @@ test "Isolation: Runtime execution doesn't corrupt debugger state" {
     state.clock.ppu_cycles = 200 * 341; // Scanline 200
 
     // ✅ Verify debugger state UNCHANGED
-    const breakpoints = debugger.breakpoints.items;
-    try testing.expectEqual(@as(usize, 1), breakpoints.len);
-    try testing.expectEqual(@as(u16, 0x8000), breakpoints[0].address);
-    const watchpoints = debugger.watchpoints.items;
-    try testing.expectEqual(@as(usize, 1), watchpoints.len);
-    try testing.expectEqual(@as(u16, 0x0200), watchpoints[0].address);
+    try testing.expectEqual(@as(usize, 1), debugger.breakpoint_count);
+    try testing.expectEqual(@as(usize, 1), debugger.watchpoint_count);
+    // Find and verify breakpoint address
+    var found_bp_addr: u16 = 0;
+    for (debugger.breakpoints[0..256]) |maybe_bp| {
+        if (maybe_bp) |bp| {
+            found_bp_addr = bp.address;
+            break;
+        }
+    }
+    try testing.expectEqual(@as(u16, 0x8000), found_bp_addr);
+    // Find and verify watchpoint address
+    var found_wp_addr: u16 = 0;
+    for (debugger.watchpoints[0..256]) |maybe_wp| {
+        if (maybe_wp) |wp| {
+            found_wp_addr = wp.address;
+            break;
+        }
+    }
+    try testing.expectEqual(@as(u16, 0x0200), found_wp_addr);
 
     // ✅ Modification history UNCHANGED (runtime ops don't log to debugger)
     try testing.expectEqual(mod_count_before, debugger.getModifications().len);
@@ -1329,7 +1363,7 @@ test "Isolation: Breakpoint state isolation from runtime" {
     try debugger.addBreakpoint(0x8020, .read);
 
     // Capture breakpoint count
-    const bp_count = debugger.breakpoints.items.len;
+    const bp_count = debugger.breakpoint_count;
 
     // Simulate runtime operations that MIGHT affect breakpoints (if shared)
     state.cpu.pc = 0x8000; // PC at breakpoint address
@@ -1342,13 +1376,25 @@ test "Isolation: Breakpoint state isolation from runtime" {
     }
 
     // ✅ Breakpoint count UNCHANGED (runtime doesn't modify breakpoints)
-    try testing.expectEqual(bp_count, debugger.breakpoints.items.len);
+    try testing.expectEqual(bp_count, debugger.breakpoint_count);
 
     // ✅ Breakpoints still at correct addresses
-    const breakpoints = debugger.breakpoints.items;
-    try testing.expectEqual(@as(u16, 0x8000), breakpoints[0].address);
-    try testing.expectEqual(@as(u16, 0x8010), breakpoints[1].address);
-    try testing.expectEqual(@as(u16, 0x8020), breakpoints[2].address);
+    var found_addresses = [_]u16{ 0, 0, 0 };
+    var found_count: usize = 0;
+    for (debugger.breakpoints[0..256]) |maybe_bp| {
+        if (maybe_bp) |bp| {
+            found_addresses[found_count] = bp.address;
+            found_count += 1;
+        }
+    }
+    try testing.expectEqual(@as(usize, 3), found_count);
+    // Check addresses (may be in any order due to fixed array slots)
+    const has_8000 = (found_addresses[0] == 0x8000 or found_addresses[1] == 0x8000 or found_addresses[2] == 0x8000);
+    const has_8010 = (found_addresses[0] == 0x8010 or found_addresses[1] == 0x8010 or found_addresses[2] == 0x8010);
+    const has_8020 = (found_addresses[0] == 0x8020 or found_addresses[1] == 0x8020 or found_addresses[2] == 0x8020);
+    try testing.expect(has_8000);
+    try testing.expect(has_8010);
+    try testing.expect(has_8020);
 
     // Breakpoint storage is ISOLATED from runtime
 }
@@ -1706,3 +1752,45 @@ test "Callback: Const state enforcement - callback receives read-only state" {
     // If this compiles, const enforcement works
     _ = try debugger.shouldBreak(&state);
 }
+
+
+// ============================================================================
+// Fixed Array Capacity Tests
+// ============================================================================
+
+test "Debugger: Breakpoint limit enforcement (256 max)" {
+    var config = Config.init(testing.allocator);
+    defer config.deinit();
+
+    var debugger = Debugger.init(testing.allocator, &config);
+    defer debugger.deinit();
+
+    // Add 256 breakpoints (should succeed)
+    for (0..256) |i| {
+        try debugger.addBreakpoint(@intCast(i), .execute);
+    }
+    try testing.expectEqual(@as(usize, 256), debugger.breakpoint_count);
+
+    // 257th breakpoint should fail
+    try testing.expectError(error.BreakpointLimitReached, debugger.addBreakpoint(256, .execute));
+    try testing.expectEqual(@as(usize, 256), debugger.breakpoint_count); // Count unchanged
+}
+
+test "Debugger: Watchpoint limit enforcement (256 max)" {
+    var config = Config.init(testing.allocator);
+    defer config.deinit();
+
+    var debugger = Debugger.init(testing.allocator, &config);
+    defer debugger.deinit();
+
+    // Add 256 watchpoints (should succeed)
+    for (0..256) |i| {
+        try debugger.addWatchpoint(@intCast(i), 1, .write);
+    }
+    try testing.expectEqual(@as(usize, 256), debugger.watchpoint_count);
+
+    // 257th watchpoint should fail
+    try testing.expectError(error.WatchpointLimitReached, debugger.addWatchpoint(256, 1, .write));
+    try testing.expectEqual(@as(usize, 256), debugger.watchpoint_count); // Count unchanged
+}
+

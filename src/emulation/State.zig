@@ -25,6 +25,7 @@ const ApuLogic = ApuModule.Logic;
 const CartridgeModule = @import("../cartridge/Cartridge.zig");
 const RegistryModule = @import("../cartridge/mappers/registry.zig");
 const AnyCartridge = RegistryModule.AnyCartridge;
+const Debugger = @import("../debugger/Debugger.zig");
 
 const PpuCycleResult = struct {
     frame_complete: bool = false,
@@ -262,6 +263,12 @@ pub const EmulationState = struct {
 
     /// Controller state (shift registers, strobe, buttons)
     controller: ControllerState = .{},
+
+    /// Optional debugger for breakpoints/watchpoints (RT-safe, zero allocations in hot path)
+    debugger: ?Debugger.Debugger = null,
+
+    /// Debug break occurred flag (checked by EmulationThread to post events)
+    debug_break_occurred: bool = false,
 
     /// Hardware configuration (immutable during emulation)
     config: *const Config.Config,
@@ -1168,6 +1175,16 @@ pub const EmulationState = struct {
             if (self.cpu.pending_interrupt != .none and self.cpu.pending_interrupt != .reset) {
                 CpuLogic.startInterruptSequence(&self.cpu);
                 return;
+            }
+
+            // Check debugger breakpoints/watchpoints (RT-safe, zero allocations)
+            if (self.debugger) |*debugger| {
+                if (debugger.shouldBreak(self) catch false) {
+                    // Breakpoint hit - set flag for EmulationThread to post event
+                    self.debug_break_occurred = true;
+                    // Auto-continue execution (EmulationThread will handle pause/inspect)
+                    debugger.continue_();
+                }
             }
         }
 

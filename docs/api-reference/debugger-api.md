@@ -6,13 +6,14 @@ Complete guide to using the RAMBO debugger system for interactive debugging and 
 
 1. [Overview](#overview)
 2. [Quick Start](#quick-start)
-3. [API Reference](#api-reference)
-4. [Breakpoint System](#breakpoint-system)
-5. [Watchpoint System](#watchpoint-system)
-6. [Step Execution](#step-execution)
-7. [Execution History](#execution-history)
-8. [Usage Examples](#usage-examples)
-9. [Best Practices](#best-practices)
+3. [Bidirectional Communication](#bidirectional-communication)
+4. [API Reference](#api-reference)
+5. [Breakpoint System](#breakpoint-system)
+6. [Watchpoint System](#watchpoint-system)
+7. [Step Execution](#step-execution)
+8. [Execution History](#execution-history)
+9. [Usage Examples](#usage-examples)
+10. [Best Practices](#best-practices)
 
 ## Overview
 
@@ -23,6 +24,7 @@ The RAMBO debugger provides comprehensive debugging capabilities for NES emulati
 - **Step Execution**: Step through code instruction-by-instruction, over subroutines, or by frame
 - **Execution History**: Snapshot-based time-travel debugging with state capture/restore
 - **Statistics**: Track execution metrics (instructions, breakpoints hit, etc.)
+- **Bidirectional Mailboxes**: RT-safe communication between main and emulation threads
 
 ### Key Features
 
@@ -45,6 +47,23 @@ checkMemoryAccess() → checks watchpoints → returns true/false
 ```
 
 ## Quick Start
+
+### Command-Line Debugging
+
+```bash
+# Break at reset vector and inspect CPU state
+zig-out/bin/RAMBO rom.nes --break-at 0x8000 --inspect
+
+# Output:
+[Main] === BREAKPOINT HIT ===
+[Main] Reason: Breakpoint at $8000 (hit count: 1)
+
+[Main] CPU State:
+  A:  $1A  X:  $00  Y:  $00
+  SP: $EF  PC: $8045
+  P:  $24  [---I--]
+  Cycle: 29780  Frame: 0
+```
 
 ### Basic Debugging Session
 
@@ -93,6 +112,165 @@ pub fn main() !void {
         // if (memory_access_occurred) {
         //     _ = try debugger.checkMemoryAccess(&state, address, value, is_write);
         // }
+    }
+}
+```
+
+## Bidirectional Communication
+
+**Status:** ✅ Implemented (2025-10-08)
+**Documentation:** `docs/implementation/BIDIRECTIONAL-DEBUG-MAILBOXES-2025-10-08.md`
+
+The debugger supports RT-safe bidirectional communication using lock-free mailboxes:
+
+### Architecture
+
+```
+Main Thread                    Emulation Thread
+     |                                |
+     |  DebugCommandMailbox          |
+     |------------------------->      |
+     |  (64 commands)                 |
+     |                                |
+     |  DebugEventMailbox            |
+     |<-------------------------|     |
+     |  (32 events)                   |
+```
+
+### Debug Commands (Main → Emulation)
+
+Send commands to the emulation thread without blocking:
+
+```zig
+// Commands available via DebugCommandMailbox
+pub const DebugCommand = union(enum) {
+    add_breakpoint: struct { address: u16, bp_type: BreakpointType },
+    remove_breakpoint: struct { address: u16, bp_type: BreakpointType },
+    add_watchpoint: struct { address: u16, size: u16, watch_type: WatchType },
+    remove_watchpoint: struct { address: u16, watch_type: WatchType },
+    pause,
+    resume_execution,
+    step_instruction,
+    step_frame,
+    inspect,
+    clear_breakpoints,
+    clear_watchpoints,
+    set_breakpoint_enabled: struct { address: u16, bp_type: BreakpointType, enabled: bool },
+};
+
+// Example: Send command from main thread
+_ = mailboxes.debug_command.postCommand(.{
+    .add_breakpoint = .{ .address = 0x8000, .bp_type = .execute }
+});
+```
+
+### Debug Events (Emulation → Main)
+
+Receive debug events with immutable CPU snapshots:
+
+```zig
+// Events received via DebugEventMailbox
+pub const DebugEvent = union(enum) {
+    breakpoint_hit: struct {
+        reason: [128]u8,
+        reason_len: usize,
+        snapshot: CpuSnapshot
+    },
+    watchpoint_hit: struct {
+        reason: [128]u8,
+        reason_len: usize,
+        snapshot: CpuSnapshot
+    },
+    inspect_response: struct { snapshot: CpuSnapshot },
+    paused: struct { snapshot: CpuSnapshot },
+    resumed,
+    breakpoint_added: struct { address: u16 },
+    breakpoint_removed: struct { address: u16 },
+    error_occurred: struct { message: [128]u8, message_len: usize },
+};
+
+// Example: Process events in main thread
+var debug_events: [16]RAMBO.Mailboxes.DebugEvent = undefined;
+const count = mailboxes.debug_event.drainEvents(&debug_events);
+
+for (debug_events[0..count]) |event| {
+    switch (event) {
+        .breakpoint_hit => |bp| {
+            const reason = bp.reason[0..bp.reason_len];
+            std.debug.print("Breakpoint: {s}\n", .{reason});
+            printCpuSnapshot(bp.snapshot);
+        },
+        .inspect_response => |resp| {
+            printCpuSnapshot(resp.snapshot);
+        },
+        // ... handle other events
+    }
+}
+```
+
+### CPU Snapshot
+
+Immutable CPU state captured at debug events:
+
+```zig
+pub const CpuSnapshot = struct {
+    a: u8,      // Accumulator
+    x: u8,      // X register
+    y: u8,      // Y register
+    sp: u8,     // Stack pointer
+    pc: u16,    // Program counter
+    p: u8,      // Status flags (packed)
+    cycle: u64, // CPU cycle count
+    frame: u64, // PPU frame count
+};
+```
+
+### RT-Safety Guarantees
+
+**✅ Zero heap allocations** - All buffers stack-allocated
+**✅ Lock-free communication** - Atomic SPSC ring buffers
+**✅ Non-blocking operations** - `pollCommand()` returns immediately
+**✅ No blocking I/O** - All `std.debug.print` removed from emulation thread
+
+### Usage Pattern
+
+```zig
+// Main thread event loop
+while (running) {
+    // Process debug events (non-blocking)
+    var debug_events: [16]DebugEvent = undefined;
+    const count = mailboxes.debug_event.drainEvents(&debug_events);
+
+    for (debug_events[0..count]) |event| {
+        // Handle event (can use blocking I/O here - not RT-critical)
+        handleDebugEvent(event);
+    }
+
+    // Send debug commands (non-blocking)
+    if (user_wants_to_step) {
+        _ = mailboxes.debug_command.postCommand(.step_instruction);
+    }
+
+    // Continue main loop
+    try loop.run(.no_wait);
+}
+
+// Emulation thread (RT-safe)
+fn timerCallback(ctx: *EmulationContext) void {
+    // Process commands (non-blocking poll)
+    while (ctx.mailboxes.debug_command.pollCommand()) |command| {
+        handleDebugCommand(ctx, command); // No blocking I/O!
+    }
+
+    // Execute frame
+    ctx.state.tick();
+
+    // Post events if break occurred
+    if (ctx.state.debug_break_occurred) {
+        const snapshot = captureSnapshot(ctx);
+        _ = ctx.mailboxes.debug_event.postEvent(.{
+            .breakpoint_hit = .{ /* ... */ }
+        });
     }
 }
 ```
@@ -632,6 +810,9 @@ Execution history uses the snapshot system:
 
 ---
 
-**Last Updated:** 2025-10-04
-**Version:** 1.0
+**Last Updated:** 2025-10-08
+**Version:** 1.1
 **RAMBO Version:** 0.1.0
+**Changelog:**
+- 2025-10-08: Added bidirectional mailbox communication section
+- 2025-10-04: Initial debugger API documentation

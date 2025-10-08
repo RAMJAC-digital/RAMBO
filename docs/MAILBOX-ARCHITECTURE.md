@@ -167,6 +167,52 @@ User presses fast-forward key → Main thread
 
 ---
 
+#### 1.4 DebugCommandMailbox (✅ IMPLEMENTED 2025-10-08)
+
+**Direction:** Main Thread → Emulation Thread
+**Purpose:** Interactive debugger control commands
+**Data:** Breakpoint/watchpoint management, step execution, inspect state
+**Update Pattern:** Lock-free SPSC ring buffer (64 commands)
+**File:** `src/mailboxes/DebugCommandMailbox.zig`
+
+```zig
+pub const DebugCommand = union(enum) {
+    add_breakpoint: struct { address: u16, bp_type: BreakpointType },
+    remove_breakpoint: struct { address: u16, bp_type: BreakpointType },
+    add_watchpoint: struct { address: u16, size: u16, watch_type: WatchType },
+    remove_watchpoint: struct { address: u16, watch_type: WatchType },
+    pause,
+    resume_execution,
+    step_instruction,
+    step_frame,
+    inspect,
+    clear_breakpoints,
+    clear_watchpoints,
+    set_breakpoint_enabled: struct { address: u16, bp_type: BreakpointType, enabled: bool },
+};
+
+pub const DebugCommandMailbox = struct {
+    buffer: [64]?DebugCommand,
+    write_pos: std.atomic.Value(usize),
+    read_pos: std.atomic.Value(usize),
+
+    pub fn postCommand(self: *DebugCommandMailbox, command: DebugCommand) bool
+    pub fn pollCommand(self: *DebugCommandMailbox) ?DebugCommand
+    pub fn hasCommands(self: *const DebugCommandMailbox) bool
+};
+```
+
+**Flow:**
+```
+User debug command → Main thread
+  → DebugCommandMailbox.postCommand(.step_instruction)
+  → Emulation thread polls commands (RT-safe, non-blocking)
+  → Debugger executes command
+  → Posts result event via DebugEventMailbox
+```
+
+---
+
 ### 2. Emulation Output Mailboxes
 
 #### 2.1 FrameMailbox (✅ EXISTS - NEEDS ENHANCEMENT)
@@ -282,6 +328,60 @@ Emulation thread updates FPS every second
   → Main thread polls for UI display
   → Logs or displays to user
 ```
+
+---
+
+#### 2.4 DebugEventMailbox (✅ IMPLEMENTED 2025-10-08)
+
+**Direction:** Emulation Thread → Main Thread
+**Purpose:** Debug events with CPU snapshots
+**Data:** Breakpoint hits, watchpoint hits, state inspections, errors
+**Update Pattern:** Lock-free SPSC ring buffer (32 events)
+**File:** `src/mailboxes/DebugEventMailbox.zig`
+
+```zig
+pub const CpuSnapshot = struct {
+    a: u8, x: u8, y: u8, sp: u8, pc: u16, p: u8,
+    cycle: u64, frame: u64,
+};
+
+pub const DebugEvent = union(enum) {
+    breakpoint_hit: struct { reason: [128]u8, reason_len: usize, snapshot: CpuSnapshot },
+    watchpoint_hit: struct { reason: [128]u8, reason_len: usize, snapshot: CpuSnapshot },
+    inspect_response: struct { snapshot: CpuSnapshot },
+    paused: struct { snapshot: CpuSnapshot },
+    resumed,
+    breakpoint_added: struct { address: u16 },
+    breakpoint_removed: struct { address: u16 },
+    error_occurred: struct { message: [128]u8, message_len: usize },
+};
+
+pub const DebugEventMailbox = struct {
+    buffer: [32]?DebugEvent,
+    write_pos: std.atomic.Value(usize),
+    read_pos: std.atomic.Value(usize),
+
+    pub fn postEvent(self: *DebugEventMailbox, event: DebugEvent) bool
+    pub fn pollEvent(self: *DebugEventMailbox) ?DebugEvent
+    pub fn drainEvents(self: *DebugEventMailbox, out_buffer: []DebugEvent) usize
+    pub fn hasEvents(self: *const DebugEventMailbox) bool
+};
+```
+
+**Flow:**
+```
+Debugger detects breakpoint → Emulation thread
+  → Captures CPU snapshot (immutable copy)
+  → DebugEventMailbox.postEvent(.breakpoint_hit)
+  → Main thread drains events
+  → Displays CPU state to user (--inspect flag)
+```
+
+**RT-Safety:**
+- Zero heap allocations (stack buffers only)
+- Non-blocking operations
+- All `std.debug.print` removed from emulation thread
+- Immutable snapshots prevent data races
 
 ---
 

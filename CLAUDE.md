@@ -512,7 +512,7 @@ src/cartridge/
 
 ### Debugger (`src/debugger/`)
 
-**Status:** ✅ 100% Complete - Production Ready
+**Status:** ✅ 100% Complete - Production Ready with Bidirectional Mailboxes
 
 **Features:**
 - ✅ Breakpoints (execute, memory access with conditions)
@@ -522,16 +522,30 @@ src/cartridge/
 - ✅ RT-safe (zero heap allocations in hot path)
 - ✅ Async/libxev compatible
 - ✅ History buffer (snapshot-based time-travel debugging)
+- ✅ **Bidirectional mailboxes (2025-10-08)** - Lock-free thread communication
+
+**Bidirectional Communication:**
+- `DebugCommandMailbox` (Main → Emulation) - 64-command ring buffer
+- `DebugEventMailbox` (Emulation → Main) - 32-event ring buffer
+- CPU snapshots included with debug events
+- --inspect flag for automatic state display
+- RT-safe: All `std.debug.print` removed from emulation thread
 
 **Tests:** 62/62 passing (100%)
 
 **Files:**
 ```
 src/debugger/
-└── Debugger.zig      # External wrapper pattern - zero EmulationState modifications
+└── Debugger.zig                      # External wrapper pattern - zero EmulationState modifications
+
+src/mailboxes/
+├── DebugCommandMailbox.zig           # Main → Emulation commands (179 lines)
+└── DebugEventMailbox.zig             # Emulation → Main events (179 lines)
 ```
 
 **Documentation:**
+- `docs/implementation/BIDIRECTIONAL-DEBUG-MAILBOXES-2025-10-08.md` - Complete mailbox implementation
+- `docs/api-reference/debugger-api.md` - Full API guide (updated 2025-10-08)
 - `docs/archive/DEBUGGER-STATUS.md` - Complete implementation status (archived)
 - `docs/archive/DEBUGGER-API-AUDIT.md` - API audit (archived)
 
@@ -1040,7 +1054,11 @@ zig test tests/ppu/sprite_evaluation_test.zig --dep RAMBO -Mroot=src/root.zig
 
 ---
 
-**Last Updated:** 2025-10-07
+**Last Updated:** 2025-10-08
 **Current Phase:** Hardware Accuracy Refinement & Game Testing
-**Status:** All core components complete, investigating game rendering issues
+**Status:** All core components complete + bidirectional debug mailboxes implemented
 **Tests:** 896/900 passing (99.6%, 3 timing-sensitive threading tests, 1 skipped)
+
+**Recent Updates:**
+- 2025-10-08: Bidirectional debug mailboxes (DebugCommandMailbox, DebugEventMailbox, --inspect flag)
+- 2025-10-07: PPU warm-up period fix, Controller input wiring, NMI investigation

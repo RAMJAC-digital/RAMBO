@@ -171,11 +171,13 @@ pub const Debugger = struct {
     /// Current debug mode
     mode: DebugMode = .running,
 
-    /// Breakpoints (up to 256)
-    breakpoints: std.ArrayList(Breakpoint),
+    /// Breakpoints (up to 256, RT-safe fixed array)
+    breakpoints: [256]?Breakpoint = [_]?Breakpoint{null} ** 256,
+    breakpoint_count: usize = 0,
 
-    /// Watchpoints (up to 256)
-    watchpoints: std.ArrayList(Watchpoint),
+    /// Watchpoints (up to 256, RT-safe fixed array)
+    watchpoints: [256]?Watchpoint = [_]?Watchpoint{null} ** 256,
+    watchpoint_count: usize = 0,
 
     /// Step execution state
     step_state: StepState = .{},
@@ -206,19 +208,14 @@ pub const Debugger = struct {
         return .{
             .allocator = allocator,
             .config = config,
-            .breakpoints = std.ArrayList(Breakpoint){},
-            .watchpoints = std.ArrayList(Watchpoint){},
+            // breakpoints/watchpoints auto-initialize from struct defaults
             .history = std.ArrayList(HistoryEntry){},
             .modifications = std.ArrayList(StateModification){},
         };
     }
 
     pub fn deinit(self: *Debugger) void {
-        // Free breakpoints
-        self.breakpoints.deinit(self.allocator);
-
-        // Free watchpoints
-        self.watchpoints.deinit(self.allocator);
+        // Note: breakpoints/watchpoints are fixed arrays (no cleanup needed)
 
         // Free history snapshots
         for (self.history.items) |entry| {
@@ -237,27 +234,50 @@ pub const Debugger = struct {
     // ========================================================================
 
     /// Add breakpoint
+    /// Returns error.BreakpointLimitReached if 256 breakpoints already exist
     pub fn addBreakpoint(self: *Debugger, address: u16, bp_type: BreakpointType) !void {
-        // Check if breakpoint already exists
-        for (self.breakpoints.items) |*bp| {
-            if (bp.address == address and bp.type == bp_type) {
-                bp.enabled = true;
-                return;
+        // Check if breakpoint already exists (update and re-enable)
+        for (self.breakpoints[0..256]) |*maybe_bp| {
+            if (maybe_bp.*) |*bp| {
+                if (bp.address == address and bp.type == bp_type) {
+                    bp.enabled = true;
+                    return;
+                }
             }
         }
 
-        try self.breakpoints.append(self.allocator, .{
+        // Check capacity
+        if (self.breakpoint_count >= 256) {
+            return error.BreakpointLimitReached;
+        }
+
+        // Find first null slot (linear search)
+        var slot_index: ?usize = null;
+        for (self.breakpoints[0..256], 0..) |maybe_bp, i| {
+            if (maybe_bp == null) {
+                slot_index = i;
+                break;
+            }
+        }
+
+        // Add breakpoint at first available slot
+        const index = slot_index.?; // Guaranteed to exist (checked capacity)
+        self.breakpoints[index] = .{
             .address = address,
             .type = bp_type,
-        });
+        };
+        self.breakpoint_count += 1;
     }
 
     /// Remove breakpoint
     pub fn removeBreakpoint(self: *Debugger, address: u16, bp_type: BreakpointType) bool {
-        for (self.breakpoints.items, 0..) |bp, i| {
-            if (bp.address == address and bp.type == bp_type) {
-                _ = self.breakpoints.swapRemove(i);
-                return true;
+        for (self.breakpoints[0..256], 0..) |*maybe_bp, i| {
+            if (maybe_bp.*) |bp| {
+                if (bp.address == address and bp.type == bp_type) {
+                    self.breakpoints[i] = null;
+                    self.breakpoint_count -= 1;
+                    return true;
+                }
             }
         }
         return false;
@@ -265,10 +285,12 @@ pub const Debugger = struct {
 
     /// Enable/disable breakpoint
     pub fn setBreakpointEnabled(self: *Debugger, address: u16, bp_type: BreakpointType, enabled: bool) bool {
-        for (self.breakpoints.items) |*bp| {
-            if (bp.address == address and bp.type == bp_type) {
-                bp.enabled = enabled;
-                return true;
+        for (self.breakpoints[0..256]) |*maybe_bp| {
+            if (maybe_bp.*) |*bp| {
+                if (bp.address == address and bp.type == bp_type) {
+                    bp.enabled = enabled;
+                    return true;
+                }
             }
         }
         return false;
@@ -276,7 +298,10 @@ pub const Debugger = struct {
 
     /// Clear all breakpoints
     pub fn clearBreakpoints(self: *Debugger) void {
-        self.breakpoints.clearRetainingCapacity();
+        for (self.breakpoints[0..256]) |*maybe_bp| {
+            maybe_bp.* = null;
+        }
+        self.breakpoint_count = 0;
     }
 
     // ========================================================================
@@ -284,29 +309,52 @@ pub const Debugger = struct {
     // ========================================================================
 
     /// Add watchpoint
+    /// Returns error.WatchpointLimitReached if 256 watchpoints already exist
     pub fn addWatchpoint(self: *Debugger, address: u16, size: u16, watch_type: Watchpoint.WatchType) !void {
-        // Check if watchpoint already exists
-        for (self.watchpoints.items) |*wp| {
-            if (wp.address == address and wp.type == watch_type) {
-                wp.enabled = true;
-                wp.size = size;
-                return;
+        // Check if watchpoint already exists (update and re-enable)
+        for (self.watchpoints[0..256]) |*maybe_wp| {
+            if (maybe_wp.*) |*wp| {
+                if (wp.address == address and wp.type == watch_type) {
+                    wp.enabled = true;
+                    wp.size = size;
+                    return;
+                }
             }
         }
 
-        try self.watchpoints.append(self.allocator, .{
+        // Check capacity
+        if (self.watchpoint_count >= 256) {
+            return error.WatchpointLimitReached;
+        }
+
+        // Find first null slot (linear search)
+        var slot_index: ?usize = null;
+        for (self.watchpoints[0..256], 0..) |maybe_wp, i| {
+            if (maybe_wp == null) {
+                slot_index = i;
+                break;
+            }
+        }
+
+        // Add watchpoint at first available slot
+        const index = slot_index.?; // Guaranteed to exist (checked capacity)
+        self.watchpoints[index] = .{
             .address = address,
             .size = size,
             .type = watch_type,
-        });
+        };
+        self.watchpoint_count += 1;
     }
 
     /// Remove watchpoint
     pub fn removeWatchpoint(self: *Debugger, address: u16, watch_type: Watchpoint.WatchType) bool {
-        for (self.watchpoints.items, 0..) |wp, i| {
-            if (wp.address == address and wp.type == watch_type) {
-                _ = self.watchpoints.swapRemove(i);
-                return true;
+        for (self.watchpoints[0..256], 0..) |*maybe_wp, i| {
+            if (maybe_wp.*) |wp| {
+                if (wp.address == address and wp.type == watch_type) {
+                    self.watchpoints[i] = null;
+                    self.watchpoint_count -= 1;
+                    return true;
+                }
             }
         }
         return false;
@@ -314,7 +362,10 @@ pub const Debugger = struct {
 
     /// Clear all watchpoints
     pub fn clearWatchpoints(self: *Debugger) void {
-        self.watchpoints.clearRetainingCapacity();
+        for (self.watchpoints[0..256]) |*maybe_wp| {
+            maybe_wp.* = null;
+        }
+        self.watchpoint_count = 0;
     }
 
     // ========================================================================
@@ -500,31 +551,33 @@ pub const Debugger = struct {
         }
 
         // Check execute breakpoints
-        for (self.breakpoints.items) |*bp| {
-            if (!bp.enabled) continue;
-            if (bp.type != .execute) continue;
-            if (bp.address != state.cpu.pc) continue;
+        for (self.breakpoints[0..256]) |*maybe_bp| {
+            if (maybe_bp.*) |*bp| {
+                if (!bp.enabled) continue;
+                if (bp.type != .execute) continue;
+                if (bp.address != state.cpu.pc) continue;
 
-            // Check condition if present
-            if (bp.condition) |condition| {
-                if (!checkBreakCondition(condition, state)) continue;
+                // Check condition if present
+                if (bp.condition) |condition| {
+                    if (!checkBreakCondition(condition, state)) continue;
+                }
+
+                bp.hit_count += 1;
+                self.stats.breakpoints_hit += 1;
+                self.mode = .paused;
+
+                // ✅ Format into stack buffer (no heap allocation)
+                var buf: [128]u8 = undefined;
+                const reason = std.fmt.bufPrint(
+                    &buf,
+                    "Breakpoint at ${X:0>4} (hit count: {})",
+                    .{ bp.address, bp.hit_count },
+                ) catch "Breakpoint hit"; // Fallback if buffer too small
+
+                try self.setBreakReason(reason);
+
+                return true;
             }
-
-            bp.hit_count += 1;
-            self.stats.breakpoints_hit += 1;
-            self.mode = .paused;
-
-            // ✅ Format into stack buffer (no heap allocation)
-            var buf: [128]u8 = undefined;
-            const reason = std.fmt.bufPrint(
-                &buf,
-                "Breakpoint at ${X:0>4} (hit count: {})",
-                .{ bp.address, bp.hit_count },
-            ) catch "Breakpoint hit";  // Fallback if buffer too small
-
-            try self.setBreakReason(reason);
-
-            return true;
         }
 
         // Check user-defined callbacks
@@ -552,69 +605,73 @@ pub const Debugger = struct {
         is_write: bool,
     ) !bool {
         // Check read/write breakpoints
-        for (self.breakpoints.items) |*bp| {
-            if (!bp.enabled) continue;
+        for (self.breakpoints[0..256]) |*maybe_bp| {
+            if (maybe_bp.*) |*bp| {
+                if (!bp.enabled) continue;
 
-            const matches = switch (bp.type) {
-                .read => !is_write and bp.address == address,
-                .write => is_write and bp.address == address,
-                .access => bp.address == address,
-                .execute => false,
-            };
+                const matches = switch (bp.type) {
+                    .read => !is_write and bp.address == address,
+                    .write => is_write and bp.address == address,
+                    .access => bp.address == address,
+                    .execute => false,
+                };
 
-            if (matches) {
-                bp.hit_count += 1;
-                self.stats.breakpoints_hit += 1;
-                self.mode = .paused;
+                if (matches) {
+                    bp.hit_count += 1;
+                    self.stats.breakpoints_hit += 1;
+                    self.mode = .paused;
 
-                // ✅ Format into stack buffer (no heap allocation)
-                var buf: [128]u8 = undefined;
-                const reason = std.fmt.bufPrint(
-                    &buf,
-                    "Breakpoint: {s} ${X:0>4} = ${X:0>2}",
-                    .{ if (is_write) "Write" else "Read", address, value },
-                ) catch "Memory breakpoint hit";
+                    // ✅ Format into stack buffer (no heap allocation)
+                    var buf: [128]u8 = undefined;
+                    const reason = std.fmt.bufPrint(
+                        &buf,
+                        "Breakpoint: {s} ${X:0>4} = ${X:0>2}",
+                        .{ if (is_write) "Write" else "Read", address, value },
+                    ) catch "Memory breakpoint hit";
 
-                try self.setBreakReason(reason);
+                    try self.setBreakReason(reason);
 
-                return true;
+                    return true;
+                }
             }
         }
 
         // Check watchpoints
-        for (self.watchpoints.items) |*wp| {
-            if (!wp.enabled) continue;
-            if (address < wp.address or address >= wp.address + wp.size) continue;
+        for (self.watchpoints[0..256]) |*maybe_wp| {
+            if (maybe_wp.*) |*wp| {
+                if (!wp.enabled) continue;
+                if (address < wp.address or address >= wp.address + wp.size) continue;
 
-            const should_break = switch (wp.type) {
-                .read => !is_write,
-                .write => is_write,
-                .change => blk: {
-                    if (!is_write) break :blk false;
-                    if (wp.old_value) |old| {
-                        break :blk old != value;
-                    }
-                    break :blk true;
-                },
-            };
+                const should_break = switch (wp.type) {
+                    .read => !is_write,
+                    .write => is_write,
+                    .change => blk: {
+                        if (!is_write) break :blk false;
+                        if (wp.old_value) |old| {
+                            break :blk old != value;
+                        }
+                        break :blk true;
+                    },
+                };
 
-            if (should_break) {
-                wp.old_value = value;
-                wp.hit_count += 1;
-                self.stats.watchpoints_hit += 1;
-                self.mode = .paused;
+                if (should_break) {
+                    wp.old_value = value;
+                    wp.hit_count += 1;
+                    self.stats.watchpoints_hit += 1;
+                    self.mode = .paused;
 
-                // ✅ Format into stack buffer (no heap allocation)
-                var buf: [128]u8 = undefined;
-                const reason = std.fmt.bufPrint(
-                    &buf,
-                    "Watchpoint: {s} ${X:0>4} = ${X:0>2}",
-                    .{ @tagName(wp.type), address, value },
-                ) catch "Watchpoint hit";
+                    // ✅ Format into stack buffer (no heap allocation)
+                    var buf: [128]u8 = undefined;
+                    const reason = std.fmt.bufPrint(
+                        &buf,
+                        "Watchpoint: {s} ${X:0>4} = ${X:0>2}",
+                        .{ @tagName(wp.type), address, value },
+                    ) catch "Watchpoint hit";
 
-                try self.setBreakReason(reason);
+                    try self.setBreakReason(reason);
 
-                return true;
+                    return true;
+                }
             }
         }
 
@@ -1023,8 +1080,8 @@ test "Debugger: init and deinit" {
     defer debugger.deinit();
 
     try testing.expectEqual(DebugMode.running, debugger.mode);
-    try testing.expectEqual(@as(usize, 0), debugger.breakpoints.items.len);
-    try testing.expectEqual(@as(usize, 0), debugger.watchpoints.items.len);
+    try testing.expectEqual(@as(usize, 0), debugger.breakpoint_count);
+    try testing.expectEqual(@as(usize, 0), debugger.watchpoint_count);
 }
 
 test "Debugger: breakpoint management" {
@@ -1036,21 +1093,38 @@ test "Debugger: breakpoint management" {
 
     // Add breakpoint
     try debugger.addBreakpoint(0x8000, .execute);
-    try testing.expectEqual(@as(usize, 1), debugger.breakpoints.items.len);
-    try testing.expectEqual(@as(u16, 0x8000), debugger.breakpoints.items[0].address);
-    try testing.expect(debugger.breakpoints.items[0].enabled);
+    try testing.expectEqual(@as(usize, 1), debugger.breakpoint_count);
+    // Find and verify the breakpoint
+    var found_bp: ?Breakpoint = null;
+    for (debugger.breakpoints[0..256]) |maybe_bp| {
+        if (maybe_bp) |bp| {
+            found_bp = bp;
+            break;
+        }
+    }
+    try testing.expect(found_bp != null);
+    try testing.expectEqual(@as(u16, 0x8000), found_bp.?.address);
+    try testing.expect(found_bp.?.enabled);
 
     // Add duplicate (should not create new entry)
     try debugger.addBreakpoint(0x8000, .execute);
-    try testing.expectEqual(@as(usize, 1), debugger.breakpoints.items.len);
+    try testing.expectEqual(@as(usize, 1), debugger.breakpoint_count);
 
     // Disable breakpoint
     try testing.expect(debugger.setBreakpointEnabled(0x8000, .execute, false));
-    try testing.expect(!debugger.breakpoints.items[0].enabled);
+    // Find and verify disabled state
+    found_bp = null;
+    for (debugger.breakpoints[0..256]) |maybe_bp| {
+        if (maybe_bp) |bp| {
+            found_bp = bp;
+            break;
+        }
+    }
+    try testing.expect(!found_bp.?.enabled);
 
     // Remove breakpoint
     try testing.expect(debugger.removeBreakpoint(0x8000, .execute));
-    try testing.expectEqual(@as(usize, 0), debugger.breakpoints.items.len);
+    try testing.expectEqual(@as(usize, 0), debugger.breakpoint_count);
 
     // Remove non-existent
     try testing.expect(!debugger.removeBreakpoint(0x8000, .execute));
@@ -1065,12 +1139,21 @@ test "Debugger: watchpoint management" {
 
     // Add watchpoint
     try debugger.addWatchpoint(0x0000, 1, .write);
-    try testing.expectEqual(@as(usize, 1), debugger.watchpoints.items.len);
-    try testing.expectEqual(@as(u16, 0x0000), debugger.watchpoints.items[0].address);
+    try testing.expectEqual(@as(usize, 1), debugger.watchpoint_count);
+    // Find and verify the watchpoint
+    var found_wp: ?Watchpoint = null;
+    for (debugger.watchpoints[0..256]) |maybe_wp| {
+        if (maybe_wp) |wp| {
+            found_wp = wp;
+            break;
+        }
+    }
+    try testing.expect(found_wp != null);
+    try testing.expectEqual(@as(u16, 0x0000), found_wp.?.address);
 
     // Remove watchpoint
     try testing.expect(debugger.removeWatchpoint(0x0000, .write));
-    try testing.expectEqual(@as(usize, 0), debugger.watchpoints.items.len);
+    try testing.expectEqual(@as(usize, 0), debugger.watchpoint_count);
 }
 
 test "Debugger: execution modes" {
