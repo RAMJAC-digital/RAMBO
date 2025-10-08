@@ -112,13 +112,10 @@ pub const ExecutionState = enum(u8) {
     push_high,
     push_low,
     pull,
-    /// Interrupt handling states
-    interrupt_dummy,
-    interrupt_push_pch,
-    interrupt_push_pcl,
-    interrupt_push_p,
-    interrupt_vector_low,
-    interrupt_vector_high,
+    /// Interrupt sequence state
+    /// Hardware interrupt (NMI/IRQ/RESET) - 7 cycles
+    /// Uses instruction_cycle counter (0-6) for progress tracking
+    interrupt_sequence,
     /// Branch taken additional cycles
     branch_taken,
     branch_page_cross,

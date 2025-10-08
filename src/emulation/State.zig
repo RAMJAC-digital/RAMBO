@@ -945,6 +945,17 @@ pub const EmulationState = struct {
         return false;
     }
 
+    /// Push status register to stack (for NMI/IRQ - B flag clear)
+    /// Hardware interrupts push P with B=0, BRK pushes P with B=1
+    /// This allows software to distinguish hardware vs software interrupts
+    fn pushStatusInterrupt(self: *EmulationState) bool {
+        const stack_addr = 0x0100 | @as(u16, self.cpu.sp);
+        const status = self.cpu.p.toByte() | 0x20; // B=0, unused=1
+        self.busWrite(stack_addr, status);
+        self.cpu.sp -%= 1;
+        return false;
+    }
+
     // Pull PC low byte from stack (for RTS/RTI)
     fn pullPcl(self: *EmulationState) bool {
         self.cpu.sp +%= 1;
@@ -1149,6 +1160,58 @@ pub const EmulationState = struct {
                 CpuLogic.startInterruptSequence(&self.cpu);
                 return;
             }
+        }
+
+        // Handle hardware interrupts (NMI/IRQ/RESET) - 7 cycles
+        // Pattern matches BRK (software interrupt) at line 1241-1250
+        if (self.cpu.state == .interrupt_sequence) {
+            const complete = switch (self.cpu.instruction_cycle) {
+                0 => blk: {
+                    // Cycle 1: Dummy read at current PC (hijack opcode fetch)
+                    _ = self.busRead(self.cpu.pc);
+                    break :blk false;
+                },
+                1 => self.pushPch(),  // Cycle 2: Push PC high byte
+                2 => self.pushPcl(),  // Cycle 3: Push PC low byte
+                3 => self.pushStatusInterrupt(),  // Cycle 4: Push P (B=0)
+                4 => blk: {
+                    // Cycle 5: Fetch vector low byte
+                    self.cpu.operand_low = switch (self.cpu.pending_interrupt) {
+                        .nmi => self.busRead(0xFFFA),
+                        .irq => self.busRead(0xFFFE),
+                        .reset => self.busRead(0xFFFC),
+                        else => unreachable,
+                    };
+                    self.cpu.p.interrupt = true;  // Set I flag
+                    break :blk false;
+                },
+                5 => blk: {
+                    // Cycle 6: Fetch vector high byte
+                    self.cpu.operand_high = switch (self.cpu.pending_interrupt) {
+                        .nmi => self.busRead(0xFFFB),
+                        .irq => self.busRead(0xFFFF),
+                        .reset => self.busRead(0xFFFD),
+                        else => unreachable,
+                    };
+                    break :blk false;
+                },
+                6 => blk: {
+                    // Cycle 7: Jump to handler
+                    self.cpu.pc = (@as(u16, self.cpu.operand_high) << 8) |
+                                  @as(u16, self.cpu.operand_low);
+                    self.cpu.pending_interrupt = .none;
+                    break :blk true;  // Complete
+                },
+                else => unreachable,
+            };
+
+            if (complete) {
+                self.cpu.state = .fetch_opcode;
+                self.cpu.instruction_cycle = 0;
+            } else {
+                self.cpu.instruction_cycle += 1;
+            }
+            return;
         }
 
         // Cycle 1: Always fetch opcode

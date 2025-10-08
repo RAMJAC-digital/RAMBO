@@ -92,8 +92,10 @@ pub fn checkInterrupts(state: *CpuState) void {
 }
 
 /// Start interrupt sequence (7 cycles total)
+/// Sets CPU state to begin hardware interrupt handling
+/// Called when pending_interrupt is set (NMI/IRQ/RESET)
 pub fn startInterruptSequence(state: *CpuState) void {
-    state.state = .interrupt_dummy;
+    state.state = .interrupt_sequence;
     state.instruction_cycle = 0;
 }
 
