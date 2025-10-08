@@ -26,6 +26,22 @@ const CartridgeModule = @import("../cartridge/Cartridge.zig");
 const RegistryModule = @import("../cartridge/mappers/registry.zig");
 const AnyCartridge = RegistryModule.AnyCartridge;
 
+const PpuCycleResult = struct {
+    frame_complete: bool = false,
+    rendering_enabled: bool = false,
+    assert_nmi: bool = false,
+    a12_rising: bool = false,
+};
+
+const CpuCycleResult = struct {
+    mapper_irq: bool = false,
+};
+
+const ApuCycleResult = struct {
+    frame_irq: bool = false,
+    dmc_irq: bool = false,
+};
+
 /// Memory bus state owned by the emulator runtime
 /// Stores all data required to service CPU/PPU bus accesses.
 pub const BusState = struct {
@@ -221,6 +237,9 @@ pub const EmulationState = struct {
     ppu: PpuState,
     apu: ApuState,
 
+    /// Latched PPU NMI level (asserted while VBlank active and enabled)
+    ppu_nmi_active: bool = false,
+
     /// PPU A12 state (for MMC3 IRQ detection)
     /// Bit 12 of PPU address - transitions during tile fetches
     /// MMC3 IRQ counter decrements on rising edge (0→1)
@@ -332,6 +351,13 @@ pub const EmulationState = struct {
 
         PpuLogic.reset(&self.ppu);
         self.apu.reset();
+        self.ppu_nmi_active = false;
+        self.cpu.nmi_line = false;
+    }
+
+    /// Recompute derived signal lines after manual state mutation (testing/debug)
+    pub fn syncDerivedSignals(self: *EmulationState) void {
+        self.refreshPpuNmiLevel();
     }
 
     // =========================================================================
@@ -349,7 +375,14 @@ pub const EmulationState = struct {
 
             // PPU registers + mirrors ($2000-$3FFF)
             // 8 registers mirrored through $2000-$3FFF
-            0x2000...0x3FFF => PpuLogic.readRegister(&self.ppu, cart_ptr, address & 0x07),
+            0x2000...0x3FFF => blk: {
+                const reg = address & 0x07;
+                const result = PpuLogic.readRegister(&self.ppu, cart_ptr, reg);
+                if (reg == 0x02) {
+                    self.refreshPpuNmiLevel();
+                }
+                break :blk result;
+            },
 
             // APU and I/O registers ($4000-$4017)
             0x4000...0x4013 => self.bus.open_bus, // APU channels write-only
@@ -420,7 +453,11 @@ pub const EmulationState = struct {
 
             // PPU registers + mirrors ($2000-$3FFF)
             0x2000...0x3FFF => {
-                PpuLogic.writeRegister(&self.ppu, cart_ptr, address & 0x07, value);
+                const reg = address & 0x07;
+                PpuLogic.writeRegister(&self.ppu, cart_ptr, reg, value);
+                if (reg == 0x00 or reg == 0x02) {
+                    self.refreshPpuNmiLevel();
+                }
             },
 
             // APU and I/O registers ($4000-$4017)
@@ -589,58 +626,137 @@ pub const EmulationState = struct {
         const current_dot = self.clock.dot();
 
         // Hardware quirk: Odd frame skip
-        // On odd frames with rendering enabled, skip dot 0 of scanline 0 (pre-render)
-        // This shortens odd frames by 1 PPU cycle (341→340 dots on scanline 261)
-        if (self.odd_frame and self.rendering_enabled and
-            current_scanline == 261 and current_dot == 340)
-        {
-            // Skip dot 0 of next scanline (scanline 0)
-            // Advance clock by 2 instead of 1 to skip the dot
+        if (self.odd_frame and self.rendering_enabled and current_scanline == 261 and current_dot == 340) {
             self.clock.advance(2);
-            self.odd_frame = false; // Next frame is even
-            return; // Skip normal tick processing
+            self.odd_frame = false;
+            return;
         }
 
-        // Advance master clock (ONLY place timing advances)
         self.clock.advance(1);
 
-        // Determine which components need to tick this PPU cycle
         const cpu_tick = self.clock.isCpuTick();
-        const ppu_tick = true; // PPU ticks every cycle
-        const apu_tick = cpu_tick; // APU synchronized with CPU
 
-        // Tick components in hardware order
-        if (ppu_tick) {
-            self.tickPpu();
+        const ppu_result = self.stepPpuCycle();
+        self.applyPpuCycleResult(ppu_result);
+
+        if (cpu_tick) {
+            const cpu_result = self.stepCpuCycle();
+            if (cpu_result.mapper_irq) {
+                self.cpu.irq_line = true;
+            }
         }
 
         if (cpu_tick) {
-            // Check DMA priority: DMC DMA (RDY line) > OAM DMA > CPU
-            if (self.dmc_dma.rdy_low) {
-                // DMC DMA active - CPU stalled by RDY line
-                self.tickDmcDma();
-            } else if (self.dma.active) {
-                // OAM DMA active - CPU stalled
-                self.tickDma();
-            } else {
-                // Normal CPU execution
-                self.tickCpu();
-                // TODO: Track last read address for DMC corruption detection
-                // This requires CPU state tracking during reads
+            const apu_result = self.stepApuCycle();
+            if (apu_result.frame_irq or apu_result.dmc_irq) {
+                self.cpu.irq_line = true;
             }
+        }
+    }
 
-            // Poll mapper for IRQ assertion (every CPU cycle)
-            // Mappers like MMC3 can assert IRQ based on PPU scanline counter
+    fn applyPpuCycleResult(self: *EmulationState, result: PpuCycleResult) void {
+        self.rendering_enabled = result.rendering_enabled;
+
+        if (result.frame_complete) {
+            self.frame_complete = true;
+        }
+
+        if (result.a12_rising) {
             if (self.cart) |*cart| {
-                if (cart.tickIrq()) {
-                    self.cpu.irq_line = true;
-                }
+                cart.ppuA12Rising();
             }
         }
 
-        if (apu_tick) {
-            self.tickApu();
+        self.ppu_nmi_active = result.assert_nmi;
+        self.cpu.nmi_line = result.assert_nmi;
+    }
+
+    fn stepPpuCycle(self: *EmulationState) PpuCycleResult {
+        var result = PpuCycleResult{};
+        const cart_ptr = self.cartPtr();
+        const scanline = self.clock.scanline();
+        const dot = self.clock.dot();
+
+        const old_a12 = self.ppu_a12_state;
+        const flags = PpuRuntime.tick(&self.ppu, scanline, dot, cart_ptr, self.framebuffer);
+
+        const new_a12 = (self.ppu.internal.v & 0x1000) != 0;
+        self.ppu_a12_state = new_a12;
+        if (!old_a12 and new_a12) {
+            result.a12_rising = true;
         }
+
+        result.rendering_enabled = flags.rendering_enabled;
+        if (flags.frame_complete) {
+            result.frame_complete = true;
+
+            if (self.clock.frame() < 300 and flags.rendering_enabled and !self.ppu.rendering_was_enabled) {
+                std.debug.print("[Frame {}] Rendering ENABLED! PPUMASK=0x{x:0>2}, PPUCTRL=0x{x:0>2}\n", .{ self.clock.frame(), self.ppu.mask.toByte(), self.ppu.ctrl.toByte() });
+            }
+        }
+
+        if (flags.rendering_enabled and !self.ppu.rendering_was_enabled) {
+            self.ppu.rendering_was_enabled = true;
+        }
+
+        self.odd_frame = self.clock.isOddFrame();
+        result.assert_nmi = self.ppu.status.vblank and self.ppu.ctrl.nmi_enable;
+        return result;
+    }
+
+    fn stepCpuCycle(self: *EmulationState) CpuCycleResult {
+        if (!self.ppu.warmup_complete and self.clock.cpuCycles() >= 29658) {
+            self.ppu.warmup_complete = true;
+        }
+
+        if (self.cpu.halted) {
+            return .{};
+        }
+
+        if (self.dmc_dma.rdy_low) {
+            self.tickDmcDma();
+            return .{};
+        }
+
+        if (self.dma.active) {
+            self.tickDma();
+            return .{};
+        }
+
+        self.executeCpuCycle();
+        return .{ .mapper_irq = self.pollMapperIrq() };
+    }
+
+    fn pollMapperIrq(self: *EmulationState) bool {
+        if (self.cart) |*cart| {
+            return cart.tickIrq();
+        }
+        return false;
+    }
+
+    /// Test helper: execute a single CPU cycle without advancing the master clock.
+    pub fn tickCpu(self: *EmulationState) void {
+        _ = self.stepCpuCycle();
+    }
+
+    fn stepApuCycle(self: *EmulationState) ApuCycleResult {
+        var result = ApuCycleResult{};
+
+        if (ApuLogic.tickFrameCounter(&self.apu)) {
+            result.frame_irq = true;
+        }
+
+        const dmc_needs_sample = ApuLogic.tickDmc(&self.apu);
+        if (dmc_needs_sample) {
+            const address = ApuLogic.getSampleAddress(&self.apu);
+            self.dmc_dma.triggerFetch(address);
+        }
+
+        if (self.apu.dmc_irq_flag) {
+            result.dmc_irq = true;
+        }
+
+        return result;
     }
 
     // ========================================================================
@@ -935,14 +1051,14 @@ pub const EmulationState = struct {
         // If condition false, branch not taken → complete immediately (2 cycles total)
         // If condition true, branch taken → continue to branchAddOffset (3-4 cycles)
         const should_branch = switch (self.cpu.opcode) {
-            0x10 => !self.cpu.p.negative,  // BPL - Branch if Plus (N=0)
-            0x30 => self.cpu.p.negative,   // BMI - Branch if Minus (N=1)
-            0x50 => !self.cpu.p.overflow,  // BVC - Branch if Overflow Clear (V=0)
-            0x70 => self.cpu.p.overflow,   // BVS - Branch if Overflow Set (V=1)
-            0x90 => !self.cpu.p.carry,     // BCC - Branch if Carry Clear (C=0)
-            0xB0 => self.cpu.p.carry,      // BCS - Branch if Carry Set (C=1)
-            0xD0 => !self.cpu.p.zero,      // BNE - Branch if Not Equal (Z=0)
-            0xF0 => self.cpu.p.zero,       // BEQ - Branch if Equal (Z=1)
+            0x10 => !self.cpu.p.negative, // BPL - Branch if Plus (N=0)
+            0x30 => self.cpu.p.negative, // BMI - Branch if Minus (N=1)
+            0x50 => !self.cpu.p.overflow, // BVC - Branch if Overflow Clear (V=0)
+            0x70 => self.cpu.p.overflow, // BVS - Branch if Overflow Set (V=1)
+            0x90 => !self.cpu.p.carry, // BCC - Branch if Carry Clear (C=0)
+            0xB0 => self.cpu.p.carry, // BCS - Branch if Carry Set (C=1)
+            0xD0 => !self.cpu.p.zero, // BNE - Branch if Not Equal (Z=0)
+            0xF0 => self.cpu.p.zero, // BEQ - Branch if Equal (Z=1)
             else => unreachable,
         };
 
@@ -1004,12 +1120,9 @@ pub const EmulationState = struct {
     // END PRIVATE MICROSTEP HELPERS
     // ========================================================================
 
-    /// Tick CPU state machine (called every 3 PPU cycles)
-    /// This contains all CPU side effects - pure functional helpers are in CpuLogic
-    ///
-    /// Note: This does NOT advance the master clock - clock advancement happens in tick().
-    /// For direct testing, use tickCpuWithClock() or manually advance the clock.
-    pub fn tickCpu(self: *EmulationState) void {
+    /// Execute CPU micro-operations for the current cycle.
+    /// Caller is responsible for clock management.
+    fn executeCpuCycle(self: *EmulationState) void {
         // Clock advancement happens in tick() - not here
         // This keeps timing management centralized
 
@@ -1513,74 +1626,11 @@ pub const EmulationState = struct {
         self.tickCpu();
     }
 
-    /// Tick PPU state machine (called every PPU cycle)
-    /// Timing is derived from MasterClock and passed as read-only parameters
-    fn tickPpu(self: *EmulationState) void {
-        const cart_ptr = self.cartPtr();
-
-        // Derive current scanline/dot from master clock
-        const scanline = self.clock.scanline();
-        const dot = self.clock.dot();
-
-        // Sample A12 state before PPU tick (for MMC3 IRQ edge detection)
-        const old_a12 = self.ppu_a12_state;
-
-        // Tick PPU with derived timing (pure function, no timing mutation)
-        const flags = PpuRuntime.tick(&self.ppu, scanline, dot, cart_ptr, self.framebuffer);
-
-        // Update A12 state after PPU tick
-        // A12 = bit 12 of PPU address register (v)
-        const new_a12 = (self.ppu.internal.v & 0x1000) != 0;
-        self.ppu_a12_state = new_a12;
-
-        // Detect A12 rising edge (0→1 transition) and notify mapper
-        // MMC3 uses this to decrement its IRQ scanline counter
-        if (!old_a12 and new_a12) {
-            if (self.cart) |*cart| {
-                cart.ppuA12Rising();
-            }
-        }
-
-        self.rendering_enabled = flags.rendering_enabled;
-        if (flags.frame_complete) {
-            self.frame_complete = true;
-
-            // Add diagnostic logging here (access to frame number)
-            if (self.clock.frame() < 300 and flags.rendering_enabled and !self.ppu.rendering_was_enabled) {
-                std.debug.print("[Frame {}] Rendering ENABLED! PPUMASK=0x{x:0>2}, PPUCTRL=0x{x:0>2}\n",
-                    .{self.clock.frame(), self.ppu.mask.toByte(), self.ppu.ctrl.toByte()});
-            }
-        }
-
-        // Update odd frame flag from master clock
-        self.odd_frame = self.clock.isOddFrame();
-    }
-
-    /// Tick APU state machine (called every CPU cycle)
-    /// This contains all APU side effects - pure functional helpers are in ApuLogic
-    fn tickApu(self: *EmulationState) void {
-        // Tick frame counter
-        const frame_irq = ApuLogic.tickFrameCounter(&self.apu);
-
-        // If frame IRQ generated, assert CPU IRQ line
-        if (frame_irq) {
-            self.cpu.irq_line = true;
-        }
-
-        // Tick DMC timer and output unit
-        // Returns true if sample buffer needs refill (trigger DMA)
-        const dmc_needs_sample = ApuLogic.tickDmc(&self.apu);
-        if (dmc_needs_sample) {
-            const address = ApuLogic.getSampleAddress(&self.apu);
-            self.dmc_dma.triggerFetch(address);
-        }
-
-        // Check DMC IRQ flag and assert CPU IRQ line if needed
-        if (self.apu.dmc_irq_flag) {
-            self.cpu.irq_line = true;
-        }
-
-        // TODO: Tick other channels (Phase 2: Audio Synthesis)
+    /// Synchronize CPU NMI input with current PPU status/CTRL configuration
+    fn refreshPpuNmiLevel(self: *EmulationState) void {
+        const active = self.ppu.status.vblank and self.ppu.ctrl.nmi_enable;
+        self.ppu_nmi_active = active;
+        self.cpu.nmi_line = active;
     }
 
     /// Tick DMA state machine (called every 3 PPU cycles, same as CPU)
@@ -1909,8 +1959,7 @@ test "EmulationState: VBlank timing at scanline 241, dot 1" {
     try testing.expect(!state.frame_complete);
 
     // Tick once to reach scanline 241, dot 1 (VBlank start)
-    state.clock.advance(1); // Advance clock first
-    state.tickPpu();
+    state.tick();
     try testing.expectEqual(@as(u16, 241), state.clock.scanline());
     try testing.expectEqual(@as(u16, 1), state.clock.dot());
     try testing.expect(state.ppu.status.vblank); // VBlank flag set at 241.1 (NOT frame_complete)
@@ -2015,8 +2064,7 @@ test "EmulationState: frame toggle at scanline boundary" {
     state.clock.ppu_cycles = (261 * 341) + 340;
 
     // Tick to cross into scanline 0 of next frame
-    state.clock.advance(1);
-    state.tickPpu();
+    state.tick();
 
     // Frame should have incremented
     try testing.expectEqual(@as(u64, 1), state.clock.frame());
@@ -2026,8 +2074,7 @@ test "EmulationState: frame toggle at scanline boundary" {
     // Advance to next frame boundary
     state.clock.ppu_cycles = (261 * 341) + 340 + 89342;
 
-    state.clock.advance(1);
-    state.tickPpu();
+    state.tick();
 
     // Should be back to even frame
     try testing.expect(!state.odd_frame);

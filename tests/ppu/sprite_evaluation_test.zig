@@ -372,8 +372,9 @@ test "Sprite Evaluation: Sprite overflow cleared at pre-render scanline" {
     ppu.status.sprite_overflow = true;
 
     // Advance to pre-render scanline (261), dot 1
-    harness.setPpuTiming(261, 0);
-    harness.tickPpu(); // Advances to dot 1
+    // Flags are cleared DURING dot 1, so we need to tick AT dot 1
+    harness.setPpuTiming(261, 1);
+    harness.tickPpu(); // Ticks at dot 1 (where clearing happens)
 
     // Overflow flag should be cleared
     try testing.expect(!ppu.status.sprite_overflow);
@@ -449,7 +450,8 @@ test "Sprite 0 Hit: Cleared at pre-render scanline" {
     ppu.status.sprite_0_hit = true;
 
     // Advance to pre-render scanline (261), dot 1
-    harness.setPpuTiming(261, 0);
+    // Flags are cleared DURING dot 1, so we need to tick AT dot 1
+    harness.setPpuTiming(261, 1);
     harness.tickPpu();
 
     // Flag should be cleared

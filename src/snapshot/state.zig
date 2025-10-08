@@ -207,7 +207,6 @@ pub fn writePpuState(writer: anytype, ppu: *const PpuState) !void {
 
     // Metadata (2 bytes) - timing now stored in MasterClock
     try writer.writeByte(@intFromEnum(ppu.mirroring));
-    try writer.writeByte(@intFromBool(ppu.nmi_occurred));
 }
 
 /// Read PpuState from binary format
@@ -251,7 +250,6 @@ pub fn readPpuState(reader: anytype) !PpuState {
 
     // Metadata - timing now stored in MasterClock
     ppu.mirroring = @enumFromInt(try reader.readByte());
-    ppu.nmi_occurred = try reader.readByte() != 0;
 
     return ppu;
 }

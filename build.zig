@@ -418,10 +418,24 @@ pub fn build(b: *std.Build) void {
 
     const run_rmw_tests = b.addRunArtifact(rmw_tests);
 
+    // Page crossing behavior tests
+    const page_crossing_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/cpu/page_crossing_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+
+    const run_page_crossing_tests = b.addRunArtifact(page_crossing_tests);
+
     // Bus integration tests
     const bus_integration_tests = b.addTest(.{
         .root_module = b.createModule(.{
-            .root_source_file = b.path("tests/bus/bus_integration_test.zig"),
+            .root_source_file = b.path("tests/cpu/bus_integration_test.zig"),
             .target = target,
             .optimize = optimize,
             .imports = &.{
@@ -913,6 +927,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_unofficial_opcode_tests.step);
     test_step.dependOn(&run_control_flow_tests.step);
     test_step.dependOn(&run_rmw_tests.step);
+    test_step.dependOn(&run_page_crossing_tests.step);
     test_step.dependOn(&run_bus_integration_tests.step);
     test_step.dependOn(&run_cpu_ppu_integration_tests.step);
     test_step.dependOn(&run_oam_dma_tests.step);
@@ -965,6 +980,7 @@ pub fn build(b: *std.Build) void {
     const integration_test_step = b.step("test-integration", "Run integration tests only");
     integration_test_step.dependOn(&run_cpu_integration_tests.step);
     integration_test_step.dependOn(&run_rmw_tests.step);
+    integration_test_step.dependOn(&run_page_crossing_tests.step);
     integration_test_step.dependOn(&run_bus_integration_tests.step);
     integration_test_step.dependOn(&run_cpu_ppu_integration_tests.step);
     integration_test_step.dependOn(&run_oam_dma_tests.step);

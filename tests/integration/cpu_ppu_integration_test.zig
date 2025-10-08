@@ -52,53 +52,47 @@ test "CPU-PPU Integration: NMI triggered when VBlank flag set and NMI enabled" {
     var harness = try TestHarness.init();
     defer harness.deinit();
     const state = harness.statePtr();
-    const ppu = &state.ppu;
-
     // Enable NMI in PPUCTRL
     state.busWrite(0x2000, 0x80); // Bit 7 = NMI enable
 
     // Simulate VBlank start (as PPU tick would do)
-    ppu.status.vblank = true;
-    ppu.nmi_occurred = true; // PPU sets this at scanline 241
+    state.ppu.status.vblank = true;
+    state.syncDerivedSignals();
 
-    // Poll NMI - should be triggered
-    const nmi_triggered = ppu.pollNmi();
-    try testing.expect(nmi_triggered);
+    // CPU NMI line should now be asserted
+    try testing.expect(state.cpu.nmi_line);
 }
 
 test "CPU-PPU Integration: NMI not triggered when VBlank set but NMI disabled" {
     var harness = try TestHarness.init();
     defer harness.deinit();
     const state = harness.statePtr();
-    const ppu = &state.ppu;
 
     // Disable NMI in PPUCTRL
     state.busWrite(0x2000, 0x00); // Bit 7 = 0
 
     // Set VBlank flag
-    ppu.status.vblank = true;
+    state.ppu.status.vblank = true;
+    state.syncDerivedSignals();
 
-    // Poll NMI - should NOT be triggered
-    const nmi_triggered = ppu.pollNmi();
-    try testing.expect(!nmi_triggered);
+    // CPU NMI line should remain deasserted
+    try testing.expect(!state.cpu.nmi_line);
 }
 
 test "CPU-PPU Integration: NMI cleared after being polled" {
     var harness = try TestHarness.init();
     defer harness.deinit();
     const state = harness.statePtr();
-    const ppu = &state.ppu;
 
     // Enable NMI
     state.busWrite(0x2000, 0x80);
-    ppu.status.vblank = true;
-    ppu.nmi_occurred = true; // Simulate PPU setting NMI
+    state.ppu.status.vblank = true;
+    state.syncDerivedSignals();
 
-    // First poll should trigger NMI
-    try testing.expect(ppu.pollNmi());
-
-    // Second poll should NOT trigger (edge detection - NMI was cleared)
-    try testing.expect(!ppu.pollNmi());
+    // Reading PPUSTATUS should clear VBlank and deassert NMI
+    _ = state.busRead(0x2002);
+    try testing.expect(!state.ppu.status.vblank);
+    try testing.expect(!state.cpu.nmi_line);
 }
 
 test "CPU-PPU Integration: Reading PPUSTATUS clears VBlank flag" {
@@ -107,8 +101,9 @@ test "CPU-PPU Integration: Reading PPUSTATUS clears VBlank flag" {
     const state = harness.statePtr();
     const ppu = &state.ppu;
 
-    // Set VBlank flag
+    // Set VBlank flag and resync
     ppu.status.vblank = true;
+    state.syncDerivedSignals();
 
     // Read PPUSTATUS
     const status = state.busRead(0x2002);
@@ -128,6 +123,7 @@ test "CPU-PPU Integration: VBlank flag race condition (read during setting)" {
 
     // Simulate race condition: VBlank just set
     ppu.status.vblank = true;
+    state.syncDerivedSignals();
 
     // Immediate read should see VBlank flag
     const status = state.busRead(0x2002);
@@ -149,20 +145,14 @@ test "CPU-PPU Integration: NMI edge detection (enabling NMI during VBlank)" {
 
     // Set VBlank first (without NMI enable)
     ppu.status.vblank = true;
-    // nmi_occurred stays false because NMI wasn't enabled
-
-    // NMI disabled, so no NMI yet
-    try testing.expect(!ppu.pollNmi());
+    state.syncDerivedSignals();
+    try testing.expect(!state.cpu.nmi_line);
 
     // Now enable NMI - in real hardware, enabling NMI during VBlank triggers NMI
     state.busWrite(0x2000, 0x80);
-    // Simulate the edge detection behavior
-    if (ppu.ctrl.nmi_enable and ppu.status.vblank) {
-        ppu.nmi_occurred = true;
-    }
 
-    // This should trigger NMI (edge detection)
-    try testing.expect(ppu.pollNmi());
+    // CPU NMI line should assert immediately because VBlank is still active
+    try testing.expect(state.cpu.nmi_line);
 }
 
 // ============================================================================

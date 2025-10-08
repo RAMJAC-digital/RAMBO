@@ -309,7 +309,7 @@ fn getSizeForPpuState() u32 {
     size += 32; // Secondary OAM
     size += 2048; // VRAM
     size += 32; // Palette RAM
-    size += 15; // Metadata (mirroring, nmi_occurred, scanline, dot, frame)
+    size += 14; // Metadata (mirroring, scanline, dot, frame)
     return size;
 }
 

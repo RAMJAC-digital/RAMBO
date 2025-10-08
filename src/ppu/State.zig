@@ -18,14 +18,14 @@ const NromCart = @import("../cartridge/Cartridge.zig").NromCart;
 /// |+-------- PPU master/slave select (0: read backdrop from EXT, 1: output color on EXT)
 /// +--------- Generate NMI at start of VBlank (0: off, 1: on)
 pub const PpuCtrl = packed struct(u8) {
-    nametable_x: bool = false,      // Bit 0
-    nametable_y: bool = false,      // Bit 1
-    vram_increment: bool = false,   // Bit 2: 0=+1, 1=+32
-    sprite_pattern: bool = false,   // Bit 3: 0=$0000, 1=$1000
-    bg_pattern: bool = false,       // Bit 4: 0=$0000, 1=$1000
-    sprite_size: bool = false,      // Bit 5: 0=8x8, 1=8x16
-    master_slave: bool = false,     // Bit 6
-    nmi_enable: bool = false,       // Bit 7
+    nametable_x: bool = false, // Bit 0
+    nametable_y: bool = false, // Bit 1
+    vram_increment: bool = false, // Bit 2: 0=+1, 1=+32
+    sprite_pattern: bool = false, // Bit 3: 0=$0000, 1=$1000
+    bg_pattern: bool = false, // Bit 4: 0=$0000, 1=$1000
+    sprite_size: bool = false, // Bit 5: 0=8x8, 1=8x16
+    master_slave: bool = false, // Bit 6
+    nmi_enable: bool = false, // Bit 7
 
     /// Convert to byte representation
     pub fn toByte(self: PpuCtrl) u8 {
@@ -62,14 +62,14 @@ pub const PpuCtrl = packed struct(u8) {
 /// |+-------- Emphasize green
 /// +--------- Emphasize blue
 pub const PpuMask = packed struct(u8) {
-    greyscale: bool = false,             // Bit 0
-    show_bg_left: bool = false,          // Bit 1
-    show_sprites_left: bool = false,     // Bit 2
-    show_bg: bool = false,               // Bit 3
-    show_sprites: bool = false,          // Bit 4
-    emphasize_red: bool = false,         // Bit 5
-    emphasize_green: bool = false,       // Bit 6
-    emphasize_blue: bool = false,        // Bit 7
+    greyscale: bool = false, // Bit 0
+    show_bg_left: bool = false, // Bit 1
+    show_sprites_left: bool = false, // Bit 2
+    show_bg: bool = false, // Bit 3
+    show_sprites: bool = false, // Bit 4
+    emphasize_red: bool = false, // Bit 5
+    emphasize_green: bool = false, // Bit 6
+    emphasize_blue: bool = false, // Bit 7
 
     /// Convert to byte representation
     pub fn toByte(self: PpuMask) u8 {
@@ -95,10 +95,10 @@ pub const PpuMask = packed struct(u8) {
 /// |+-------- Sprite 0 hit flag
 /// +--------- VBlank flag (1 if in VBlank)
 pub const PpuStatus = packed struct(u8) {
-    open_bus: u5 = 0,                    // Bits 0-4: Open bus
-    sprite_overflow: bool = false,       // Bit 5
-    sprite_0_hit: bool = false,          // Bit 6
-    vblank: bool = false,                // Bit 7
+    open_bus: u5 = 0, // Bits 0-4: Open bus
+    sprite_overflow: bool = false, // Bit 5
+    sprite_0_hit: bool = false, // Bit 6
+    vblank: bool = false, // Bit 7
 
     /// Convert to byte representation
     /// Open bus bits come from PPU data bus latch
@@ -244,10 +244,10 @@ pub const BackgroundState = struct {
     attribute_shift_hi: u8 = 0,
 
     /// Tile data latches (loaded during fetch, transferred to shift regs)
-    nametable_latch: u8 = 0,  // Tile index from nametable
-    attribute_latch: u8 = 0,   // Palette bits from attribute table
-    pattern_latch_lo: u8 = 0,  // Pattern bitplane 0
-    pattern_latch_hi: u8 = 0,  // Pattern bitplane 1
+    nametable_latch: u8 = 0, // Tile index from nametable
+    attribute_latch: u8 = 0, // Palette bits from attribute table
+    pattern_latch_lo: u8 = 0, // Pattern bitplane 0
+    pattern_latch_hi: u8 = 0, // Pattern bitplane 1
 
     /// Load shift registers from latches
     /// Called every 8 pixels after fetching next tile
@@ -315,11 +315,6 @@ pub const PpuState = struct {
     /// Determines how nametable addresses map to physical VRAM
     mirroring: Mirroring = .horizontal,
 
-    /// NMI occurred flag
-    /// Set when VBlank starts and NMI is enabled
-    /// Cleared when NMI is serviced
-    nmi_occurred: bool = false,
-
     /// PPU warm-up complete flag
     /// The PPU ignores writes to $2000/$2001/$2005/$2006 for the first ~29,658 CPU cycles
     /// after power-on. This flag is set by EmulationState after the warm-up period.
@@ -338,11 +333,5 @@ pub const PpuState = struct {
     /// Initialize PPU state to power-on values
     pub fn init() PpuState {
         return .{};
-    }
-
-    /// Poll NMI flag (delegates to Logic module)
-    pub inline fn pollNmi(self: *PpuState) bool {
-        const Logic = @import("Logic.zig");
-        return Logic.pollNmi(self);
     }
 };

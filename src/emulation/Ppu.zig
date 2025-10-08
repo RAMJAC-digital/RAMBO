@@ -129,9 +129,6 @@ pub fn tick(
     // === VBlank ===
     if (scanline == 241 and dot == 1) {
         state.status.vblank = true;
-        if (state.ctrl.nmi_enable) {
-            state.nmi_occurred = true;
-        }
         // NOTE: Do NOT set frame_complete here! Frame continues through VBlank.
     }
 
@@ -140,7 +137,6 @@ pub fn tick(
         state.status.vblank = false;
         state.status.sprite_0_hit = false;
         state.status.sprite_overflow = false;
-        state.nmi_occurred = false;
     }
 
     // === Frame Complete ===
@@ -157,4 +153,3 @@ pub fn tick(
     flags.rendering_enabled = rendering_enabled;
     return flags;
 }
-

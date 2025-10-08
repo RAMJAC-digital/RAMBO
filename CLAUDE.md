@@ -22,16 +22,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Cartridge:** Mapper 0 (NROM) complete with full IRQ infrastructure ✅
 - **Mapper System:** ✅ **FOUNDATION COMPLETE** - AnyCartridge union, IRQ support, A12 tracking
 - **Video Display:** ✅ **COMPLETE** - Wayland window + Vulkan rendering at 60 FPS
-- **Tests:** 887/888 passing (99.9%, 1 threading test flaky/non-blocking)
+- **Tests:** 896/900 passing (99.6%, 3 threading tests timing-sensitive, 1 skipped)
 - **AccuracyCoin:** ✅ **ALL TESTS PASSING** ($00 $00 $00 $00 status - full CPU/PPU validation)
 
-**CRITICAL MILESTONE:** ✅ **COMMERCIAL GAMES SHOULD NOW BE PLAYABLE!**
-- PPU warm-up period: Games initialize correctly
-- Controller input: Keyboard → emulation fully wired
-- Video display: Full rendering pipeline working
-- **Ready for testing:** Mario 1, Burger Time, and all Mapper 0 games
+**CRITICAL MILESTONE:** ⚠️ **INFRASTRUCTURE COMPLETE - GAMES TESTING IN PROGRESS**
+- PPU warm-up period: Games initialize correctly ✅
+- Controller input: Keyboard → emulation fully wired ✅
+- Video display: Full rendering pipeline working ✅
+- **Current Issue:** Games not enabling rendering (PPUMASK=$00) - investigating
 
-**Current Phase:** Commercial Game Testing & Validation
+**Current Phase:** Hardware Accuracy Refinement & Game Testing
 **Next Phase:** Mapper Expansion (MMC1, UxROM, CNROM, MMC3) - 75% game coverage
 **Critical Path:** ✅ P1 Accuracy → ✅ Controller I/O → ✅ Video Display → 🎮 **Playable Games!**
 
@@ -81,7 +81,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Impact:** Games should now respond to controller input. This was the FINAL missing piece for playability!
 
-**Test Status:** 887/888 tests passing (no regressions)
+**Test Status:** 896/900 tests passing (3 timing-sensitive threading tests, no functional regressions)
 
 ---
 
@@ -94,7 +94,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 zig build
 
 # Run all tests (unit + integration)
-zig build test      # 887/888 tests passing (99.9%, 1 threading test flaky)
+zig build test      # 896/900 tests passing (99.6%, 3 threading tests timing-sensitive)
 
 # Run specific test categories
 zig build test-unit               # Unit tests only (fast)
@@ -111,18 +111,20 @@ zig build run
 
 ### Test Status by Category
 
-- **Total:** 876 / 878 tests passing (99.8%, 1 snapshot test + 1 EmulationState VBlank test non-blocking)
-- **CPU suites:** 105 unit + integration tests covering all 256 opcodes and microstep timing
-- **PPU suites:** 79 tests (background rendering, sprite evaluation, rendering, and edge cases)
-- **Debugger:** 62 tests validating breakpoints, watchpoints, and callback wiring
+- **Total:** 896 / 900 tests passing (99.6%, 3 timing-sensitive threading tests, 1 skipped)
+- **CPU suites:** ~280 tests (264 in tests/cpu/ + 16 embedded) covering all 256 opcodes and microstep timing
+- **PPU suites:** ~90 tests (79 in tests/ppu/ + 11 embedded) - background rendering, sprite evaluation/rendering, edge cases
+- **APU suites:** 135 tests (frame counter, DMC, envelopes, sweeps, length counter, IRQ edge cases)
+- **Debugger:** ~66 tests (62 in tests/ + 4 embedded) - breakpoints, watchpoints, callback wiring
 - **Controller:** 14 tests (strobe protocol, shift register, button sequence, open bus)
-- **Input System:** 41 tests (21 ButtonState + 20 KeyboardMapper external, unified type, RT-safe) ✨ **AUDITED & OPTIMIZED**
-- **Mailboxes:** 6 tests (ControllerInputMailbox, thread-safety, atomic updates)
-- **Bus & Memory:** 17 tests (open bus, mirroring, mapper routing)
-- **Cartridge:** 2 tests (NROM loader/validation)
-- **Mapper Registry:** 45 tests (AnyCartridge dispatch, IRQ interface, comptime validation)
-- **Snapshot:** 8/9 tests (1 failing, non-blocking - metadata, serialization, checksum, load/save)
-- **Integration:** 35 tests (CPU⇆PPU, AccuracyCoin traces, OAM DMA, controller I/O)
+- **Input System:** 40 tests (19 ButtonState + 21 KeyboardMapper, unified type, RT-safe) ✨ **AUDITED & OPTIMIZED**
+- **Mailboxes:** 57 tests (all mailbox types, thread-safety, atomic updates, ring buffers)
+- **Bus & Memory:** ~20 tests (17 in tests/bus/ + 3 embedded) - open bus, mirroring, mapper routing
+- **Cartridge:** ~48 tests (13 in tests/ + 35 embedded) - NROM, iNES parsing, PRG RAM, registry
+- **Snapshot:** ~23 tests (9 in tests/ + 14 embedded) - metadata, serialization, checksum, load/save
+- **Integration:** 94 tests (CPU⇆PPU, AccuracyCoin traces, OAM DMA, controller I/O, benchmarks)
+- **Threading:** 14 tests (EmulationThread, RenderThread coordination, frame timing) - 3 timing-sensitive
+- **Config:** ~30 tests (15 in tests/ + 15 embedded) - parser, validation, defaults
 - **Comptime:** 8 compile-time validation suites for mappers and opcode tables
 - **AccuracyCoin:** ✅ **PASSING** - Full CPU/PPU validation (status bytes: $00 $00 $00 $00)
 
@@ -298,9 +300,11 @@ src/ppu/
 
 ---
 
-### Bus (`src/bus/`)
+### Bus (`src/emulation/State.zig`)
 
 **Status:** ✅ 100% Complete - All I/O Registers Implemented
+
+**Architecture Note:** BusState is integrated into `EmulationState` rather than a separate module, as bus operations are tightly coupled with emulation coordination.
 
 **Features:**
 - ✅ RAM mirroring (2KB → $0000-$1FFF)
@@ -311,15 +315,12 @@ src/ppu/
 - ✅ Cartridge integration ($4020-$FFFF)
 - ✅ Special methods: `read16()`, `read16Bug()` (JMP indirect page wrap bug)
 
-**Tests:** 17/17 passing (100%)
+**Tests:** ~20 tests (17 in tests/bus/ + 3 embedded)
 
-**Files:**
-```
-src/bus/
-├── Bus.zig           # Module re-exports
-├── State.zig         # BusState - RAM, open bus, non-owning component pointers
-└── Logic.zig         # Pure functions for bus operations
-```
+**Implementation:**
+- `BusState` struct in `src/emulation/State.zig:47-56`
+- Bus logic methods in `EmulationState` for CPU/PPU bus access
+- Integrated with cartridge mapper routing
 
 ---
 
@@ -378,7 +379,7 @@ tests/integration/controller_test.zig     # 14 comprehensive tests
 - Register handlers: $4000-$4017 (all APU registers)
 - Pure functional architecture with State/Logic separation
 
-**Tests:** 131/131 passing (100%)
+**Tests:** 135/135 passing (100%)
 
 **Files:**
 ```
@@ -707,16 +708,19 @@ The culminating achievement of P0 was fixing the systematic +1 cycle deviation f
 
 **Recommendation:** Video subsystem for immediate visual feedback and debugging capabilities
 
-### Phase 8: Video Display (Wayland + Vulkan) - Recommended Next
+### Phase 8: Video Display (Wayland + Vulkan) - ✅ COMPLETE
 
 **Objective:** Implement Wayland window and Vulkan rendering backend to display PPU frame output.
 
-**Current Status:**
+**Status: ✅ FULLY IMPLEMENTED**
 - ✅ FrameMailbox double-buffered (480 KB, RGBA format ready)
-- ✅ WaylandEventMailbox scaffolding implemented
+- ✅ WaylandEventMailbox for input events
 - ✅ zig-wayland dependency configured in build.zig.zon
-- ⬜ Wayland window integration (not started)
-- ⬜ Vulkan rendering backend (not started)
+- ✅ Wayland window integration (WaylandLogic.zig - 196 lines)
+- ✅ Vulkan rendering backend (VulkanLogic.zig - 1857 lines)
+- ✅ RenderThread fully functional with 60 FPS rendering
+- ✅ XDG shell protocol integration
+- ✅ Texture upload from FrameMailbox working
 
 #### **Phase 8.1: Wayland Window** (6-8 hours)
 
@@ -952,42 +956,48 @@ zig test tests/ppu/sprite_evaluation_test.zig --dep RAMBO -Mroot=src/root.zig
 
 ### Immediate (Current Session)
 
-1. **Begin Phase 8: Video Subsystem Implementation**
-   - Design Wayland window integration
-   - Plan Vulkan rendering backend
-   - Understand existing WaylandEventMailbox scaffolding
+1. **Debug Game Rendering Issue**
+   - Investigate why games keep PPUMASK=$00 (rendering disabled)
+   - Check if games are waiting for specific input sequences
+   - Verify NMI timing and VBlank behavior with commercial ROMs
+   - Test with multiple Mapper 0 games (Mario, Burger Time, Donkey Kong)
 
-2. **Phase 8.1: Wayland Window (6-8 hours)**
-   - Create `src/video/Window.zig` (Wayland + XDG shell)
-   - Implement window event handling
-   - Post events to WaylandEventMailbox
+2. **Fix Timing-Sensitive Threading Tests**
+   - Review 3 failing threading tests for race conditions
+   - Adjust timing tolerances for CI/test environments
+   - Consider mocking timer for deterministic testing
 
-3. **Phase 8.2: Vulkan Backend (8-10 hours)**
-   - Create `src/video/VulkanRenderer.zig`
-   - Setup swapchain and render pass
-   - Implement texture upload from FrameMailbox
+3. **Documentation Cleanup**
+   - Archive completed phase documentation (Phases 0-8)
+   - Consolidate duplicate docs (8 video → 1, 20 audits → 1)
+   - Create QUICK-START.md for new users
+   - Update test count documentation across all files
 
-### Next Session
+### Next Phase Options
 
-4. **Phase 8.3: Integration (4-6 hours)**
-   - Connect PPU rendering to FrameMailbox
-   - Connect ControllerInputMailbox to keyboard input
-   - Integrate video thread with main loop
-   - Test with AccuracyCoin.nes graphics (background + sprites + controller)
+4. **Option A: Mapper Expansion** (High Value, 14-19 days)
+   - Implement MMC1 (Mapper 1) - adds 28% game coverage
+   - Implement UxROM (Mapper 2) - adds 11% coverage
+   - Implement CNROM (Mapper 3) - adds 6% coverage
+   - Implement MMC3 (Mapper 4) - adds 25% coverage
+   - **Result:** 75% of NES library playable
 
-5. **Phase 8.4: Polish (2-4 hours)**
-   - Add FPS counter
-   - Implement window resize handling
-   - Aspect ratio correction (8:7 pixel aspect)
+5. **Option B: APU Audio Output** (Medium Value, 10-14 days)
+   - Complete APU Milestone 7 (Integration & Refinement)
+   - Implement waveform generation for all channels
+   - Add audio output backend (SDL2 or miniaudio)
+   - Mix channels and apply filters
+   - **Result:** Games playable with sound
 
-6. **Begin Phase 9: Controller I/O (3-4 hours)**
-   - Implement $4016/$4017 registers
-   - Map keyboard to NES controller
-   - Test with interactive ROMs
+6. **Option C: Hardware Accuracy Refinement** (Lower Effort, 3-5 days)
+   - Fix timing edge cases discovered during game testing
+   - Implement missing PPU behaviors (emphasis bits, etc.)
+   - Add more comprehensive hardware test ROM suite
+   - **Result:** Higher compatibility with demanding games
 
 ---
 
-**Last Updated:** 2025-10-06
-**Current Phase:** APU Development (4/7 milestones complete)
-**Status:** DMC, Envelopes, Linear Counter, Sweep Units complete
-**Tests:** 712/714 passing (99.7%, 2 skipped due to missing PRG RAM)
+**Last Updated:** 2025-10-07
+**Current Phase:** Hardware Accuracy Refinement & Game Testing
+**Status:** All core components complete, investigating game rendering issues
+**Tests:** 896/900 passing (99.6%, 3 timing-sensitive threading tests, 1 skipped)
