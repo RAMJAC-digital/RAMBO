@@ -306,14 +306,14 @@ test "parseKdl: fuzz with various inputs" {
     const allocator = testing.allocator;
 
     const fuzz_inputs = [_][]const u8{
-        "",                           // Empty
-        "    \n  \n  ",              // Only whitespace
-        "// just comments\n",        // Only comments
-        "{\n}\n",                    // Empty braces
-        "cpu { }",                   // Empty section
-        "cpu {\nvariant\n}",        // Missing value
-        "cpu { variant }",          // Missing value inline
-        "\x00\x01\x02",             // Binary data
+        "", // Empty
+        "    \n  \n  ", // Only whitespace
+        "// just comments\n", // Only comments
+        "{\n}\n", // Empty braces
+        "cpu { }", // Empty section
+        "cpu {\nvariant\n}", // Missing value
+        "cpu { variant }", // Missing value inline
+        "\x00\x01\x02", // Binary data
     };
 
     for (fuzz_inputs) |input| {

@@ -658,12 +658,12 @@ test "State Manipulation: set complete status register" {
     // Binary: 10001011 = 0x8B
     debugger.setStatusRegister(&state, 0x8B);
 
-    try testing.expect(state.cpu.p.carry);     // Bit 0
-    try testing.expect(state.cpu.p.zero);      // Bit 1
+    try testing.expect(state.cpu.p.carry); // Bit 0
+    try testing.expect(state.cpu.p.zero); // Bit 1
     try testing.expect(!state.cpu.p.interrupt); // Bit 2
-    try testing.expect(state.cpu.p.decimal);    // Bit 3
-    try testing.expect(!state.cpu.p.overflow);  // Bit 6
-    try testing.expect(state.cpu.p.negative);   // Bit 7
+    try testing.expect(state.cpu.p.decimal); // Bit 3
+    try testing.expect(!state.cpu.p.overflow); // Bit 6
+    try testing.expect(state.cpu.p.negative); // Bit 7
 }
 
 // ============================================================================
@@ -1517,7 +1517,7 @@ const TestCallback = struct {
         const self: *TestCallback = @ptrCast(@alignCast(userdata));
         self.last_pc = state.cpu.pc;
         self.break_count += 1;
-        return state.cpu.pc == 0x8100;  // Break at specific PC
+        return state.cpu.pc == 0x8100; // Break at specific PC
     }
 
     fn onMemoryAccess(userdata: *anyopaque, address: u16, value: u8, is_write: bool) bool {
@@ -1525,7 +1525,7 @@ const TestCallback = struct {
         self.last_address = address;
         _ = value;
         _ = is_write;
-        return address == 0x2000;  // Break on PPU access
+        return address == 0x2000; // Break on PPU access
     }
 };
 
@@ -1654,7 +1654,7 @@ test "Callback: Unregister works correctly" {
     // Callback should NOT be called anymore
     state.cpu.pc = 0x8000;
     _ = try debugger.shouldBreak(&state);
-    try testing.expectEqual(@as(u32, 1), callback.break_count);  // Still 1, not incremented
+    try testing.expectEqual(@as(u32, 1), callback.break_count); // Still 1, not incremented
 }
 
 test "Callback: Clear all callbacks" {
@@ -1753,7 +1753,6 @@ test "Callback: Const state enforcement - callback receives read-only state" {
     _ = try debugger.shouldBreak(&state);
 }
 
-
 // ============================================================================
 // Fixed Array Capacity Tests
 // ============================================================================
@@ -1794,3 +1793,57 @@ test "Debugger: Watchpoint limit enforcement (256 max)" {
     try testing.expectEqual(@as(usize, 256), debugger.watchpoint_count); // Count unchanged
 }
 
+test "Debugger: memory trigger tracking" {
+    var config = Config.init(testing.allocator);
+    defer config.deinit();
+
+    var debugger = Debugger.init(testing.allocator, &config);
+    defer debugger.deinit();
+
+    try testing.expect(!debugger.hasMemoryTriggers());
+
+    try debugger.addBreakpoint(0x8000, .execute);
+    try testing.expect(!debugger.hasMemoryTriggers());
+
+    try debugger.addBreakpoint(0x8000, .write);
+    try testing.expect(debugger.hasMemoryTriggers());
+
+    try testing.expect(debugger.setBreakpointEnabled(0x8000, .write, false));
+    try testing.expect(!debugger.hasMemoryTriggers());
+    try testing.expect(debugger.setBreakpointEnabled(0x8000, .write, true));
+    try testing.expect(debugger.hasMemoryTriggers());
+
+    try testing.expect(debugger.removeBreakpoint(0x8000, .write));
+    try testing.expect(!debugger.hasMemoryTriggers());
+
+    try debugger.addWatchpoint(0x2000, 1, .write);
+    try testing.expect(debugger.hasMemoryTriggers());
+    try testing.expect(debugger.removeWatchpoint(0x2000, .write));
+    try testing.expect(!debugger.hasMemoryTriggers());
+
+    debugger.clearBreakpoints();
+    debugger.clearWatchpoints();
+    try testing.expect(!debugger.hasMemoryTriggers());
+}
+
+test "Debugger: bus memory access halts execution" {
+    var config = Config.init(testing.allocator);
+    defer config.deinit();
+
+    var state = EmulationState.init(&config);
+
+    state.debugger = Debugger.init(testing.allocator, &config);
+    defer if (state.debugger) |*d| d.deinit();
+
+    var debugger = &state.debugger.?;
+    try debugger.addWatchpoint(0x0000, 1, .write);
+    try testing.expect(debugger.hasMemoryTriggers());
+
+    state.busWrite(0x0000, 0x42);
+
+    try testing.expect(state.debuggerIsPaused());
+    try testing.expect(state.debug_break_occurred);
+
+    const reason = debugger.getBreakReason() orelse "";
+    try testing.expectEqualStrings("Watchpoint: write $0000 = $42", reason);
+}

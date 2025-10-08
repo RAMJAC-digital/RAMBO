@@ -66,8 +66,7 @@ fn timerCallback(
     completion: *xev.Completion,
     result: xev.Timer.RunError!void,
 ) xev.CallbackAction {
-    _ = result catch |err| {
-        std.debug.print("[Emulation] Timer error: {}\n", .{err});
+    _ = result catch {
         return .disarm;
     };
 
@@ -76,10 +75,6 @@ fn timerCallback(
     // Check for shutdown signal
     if (!ctx.running.load(.acquire)) {
         if (!ctx.shutdown_printed) {
-            std.debug.print("[Emulation] Shutdown signal received (frames: {d}, cycles: {d})\n", .{
-                ctx.total_frames,
-                ctx.total_cycles,
-            });
             ctx.shutdown_printed = true;
         }
         return .disarm;
@@ -98,8 +93,6 @@ fn timerCallback(
     // Poll controller input mailbox and update controller state
     const input = ctx.mailboxes.controller_input.getInput();
     ctx.state.controller.updateButtons(input.controller1.toByte(), input.controller2.toByte());
-
-    // TODO: Poll speed control mailbox for speed changes
 
     // Get write buffer for PPU frame output
     const write_buffer = ctx.mailboxes.frame.getWriteBuffer();
@@ -133,44 +126,14 @@ fn timerCallback(
         }
     }
 
-    // DEBUG: Check if PPU wrote any pixels (sample a few positions)
-    if (ctx.total_frames == 10) {
-        const pixel_after = write_buffer[0];
-        const pixel_mid = write_buffer[30000]; // Middle of screen
-        const pixel_end = write_buffer[61439]; // Last pixel
-        std.debug.print("[Emu] Frame 10 diagnostics:\n", .{});
-        std.debug.print("  Pixel[0]:     0x{x:0>8}\n", .{pixel_after});
-        std.debug.print("  Pixel[30000]: 0x{x:0>8}\n", .{pixel_mid});
-        std.debug.print("  Pixel[61439]: 0x{x:0>8}\n", .{pixel_end});
-        std.debug.print("  PPUMASK: 0x{x:0>2} (rendering={})\n", .{
-            ctx.state.ppu.mask.toByte(),
-            ctx.state.ppu.mask.renderingEnabled(),
-        });
-        std.debug.print("  PPUCTRL: 0x{x:0>2}\n", .{ctx.state.ppu.ctrl.toByte()});
-        std.debug.print("  Palette[0]: 0x{x:0>2}\n", .{ctx.state.ppu.palette_ram[0]});
-        std.debug.print("  Palette[1]: 0x{x:0>2}\n", .{ctx.state.ppu.palette_ram[1]});
-    }
-
     // Post completed frame to render thread
     ctx.mailboxes.frame.swapBuffers();
 
     // Clear framebuffer reference
     ctx.state.framebuffer = null;
 
-    // TODO: Post emulation status updates (if state changed)
-
     // FPS reporting (periodic diagnostics)
     reportProgress(ctx);
-
-    // DEBUG: Log periodic status to check CPU progression
-    if (ctx.total_frames == 60 or ctx.total_frames == 300 or ctx.total_frames == 600 or ctx.total_frames == 1800) {
-        const mask = ctx.state.ppu.mask.toByte();
-        const ctrl = ctx.state.ppu.ctrl.toByte();
-        const pc = ctx.state.cpu.pc;
-        std.debug.print("[Emu] Frame {d}: PC=0x{x:0>4} | PPUCTRL=0x{x:0>2} PPUMASK=0x{x:0>2}\n", .{
-            ctx.total_frames, pc, ctrl, mask,
-        });
-    }
 
     // Rearm timer for next frame
     const frame_duration_ms: u64 = 16_639_267 / 1_000_000; // ~16.6ms
@@ -184,7 +147,6 @@ fn timerCallback(
 fn handleCommand(ctx: *EmulationContext, command: EmulationCommand) void {
     switch (command) {
         .power_on => {
-            std.debug.print("[Emulation] Command: Power On\n", .{});
             // Reset state to power-on defaults
             ctx.state.reset();
             ctx.frame_count = 0;
@@ -192,28 +154,22 @@ fn handleCommand(ctx: *EmulationContext, command: EmulationCommand) void {
             ctx.total_cycles = 0;
         },
         .reset => {
-            std.debug.print("[Emulation] Command: Reset\n", .{});
             // Warm reset (like pressing reset button)
             ctx.state.reset();
         },
         .pause_emulation => {
-            std.debug.print("[Emulation] Command: Pause (not yet implemented)\n", .{});
             // TODO: Set paused flag, stop timer
         },
         .resume_emulation => {
-            std.debug.print("[Emulation] Command: Resume (not yet implemented)\n", .{});
             // TODO: Clear paused flag, restart timer
         },
         .save_state => {
-            std.debug.print("[Emulation] Command: Save State (not yet implemented)\n", .{});
             // TODO: Serialize state to snapshot
         },
         .load_state => {
-            std.debug.print("[Emulation] Command: Load State (not yet implemented)\n", .{});
             // TODO: Deserialize state from snapshot
         },
         .shutdown => {
-            std.debug.print("[Emulation] Command: Shutdown\n", .{});
             ctx.running.store(false, .release);
         },
     }
@@ -328,16 +284,6 @@ fn reportProgress(ctx: *EmulationContext) void {
 
     const elapsed_ns = now - ctx.last_report_time;
     if (elapsed_ns >= 1_000_000_000) { // Report every 1 second
-        const elapsed_sec = @as(f64, @floatFromInt(elapsed_ns)) / 1_000_000_000.0;
-        const fps = @as(f64, @floatFromInt(ctx.frame_count)) / elapsed_sec;
-        const total_frames = ctx.mailboxes.frame.getFrameCount();
-
-        std.debug.print("[Emulation] FPS: {d:.2} | Frames: {d} | Cycles: {d}\n", .{
-            fps,
-            total_frames,
-            ctx.total_cycles,
-        });
-
         ctx.frame_count = 0;
         ctx.last_report_time = now;
     }
@@ -350,18 +296,15 @@ pub fn threadMain(
     mailboxes: *Mailboxes,
     running: *std.atomic.Value(bool),
 ) void {
-    std.debug.print("[Emulation] Thread started (TID: {d})\n", .{std.Thread.getCurrentId()});
 
     // Create event loop for this thread
-    var loop = xev.Loop.init(.{}) catch |err| {
-        std.debug.print("[Emulation] Failed to init event loop: {}\n", .{err});
+    var loop = xev.Loop.init(.{}) catch {
         return;
     };
     defer loop.deinit();
 
     // Create timer for frame pacing
-    var timer = xev.Timer.init() catch |err| {
-        std.debug.print("[Emulation] Failed to init timer: {}\n", .{err});
+    var timer = xev.Timer.init() catch {
         return;
     };
     defer timer.deinit();
@@ -376,17 +319,12 @@ pub fn threadMain(
     // Start timer-driven emulation
     // NTSC: 60.0988 Hz = 16,639,267 ns per frame ≈ 16.6 ms
     const frame_duration_ms: u64 = 16_639_267 / 1_000_000;
-    std.debug.print("[Emulation] Starting timer at {d}ms per frame (60.10 Hz NTSC)\n", .{frame_duration_ms});
 
     var completion: xev.Completion = undefined;
     timer.run(&loop, &completion, frame_duration_ms, EmulationContext, &ctx, timerCallback);
 
     // Run event loop until timer disarms (shutdown signal)
-    loop.run(.until_done) catch |err| {
-        std.debug.print("[Emulation] Event loop error: {}\n", .{err});
-    };
-
-    std.debug.print("[Emulation] Thread stopping (total cycles: {d})\n", .{ctx.total_cycles});
+    loop.run(.until_done) catch {};
 }
 
 /// Spawn emulation thread

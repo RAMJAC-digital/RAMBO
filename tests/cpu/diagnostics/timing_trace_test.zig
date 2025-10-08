@@ -202,12 +202,6 @@ test "ASL absolute,X - cycle trace (CORRECT - RMW)" {
 
     for (0..7) |i| {
         state.tickCpuWithClock();
-        std.debug.print("ASL Cycle {}: state={s}, ic={}, result=0x{X:0>2}\n", .{
-            i + 1,
-            @tagName(state.cpu.state),
-            state.cpu.instruction_cycle,
-            state.bus.ram[0x205],
-        });
     }
 
     try testing.expectEqual(@as(u8, 0x02), state.bus.ram[0x205]);

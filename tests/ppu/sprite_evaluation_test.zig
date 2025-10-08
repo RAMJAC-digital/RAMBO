@@ -59,12 +59,11 @@ test "Sprite Evaluation: Secondary OAM cleared every visible scanline" {
         harness.tickPpuCycles(64);
 
         // Verify all $FF
-        for (ppu.secondary_oam, 0..) |byte, i| {
+        for (ppu.secondary_oam) |byte| {
             testing.expectEqual(
                 @as(u8, 0xFF),
                 byte,
             ) catch |err| {
-                std.debug.print("Failed at scanline {}, byte {}\n", .{ scanline, i });
                 return err;
             };
         }
@@ -175,7 +174,6 @@ test "Sprite Evaluation: 8×8 sprite range check" {
 
         // Should be in secondary OAM
         testing.expectEqual(@as(u8, 100), ppu.secondary_oam[0]) catch |err| {
-            std.debug.print("Failed at scanline {} (should be visible)\n", .{scanline});
             return err;
         };
     }
@@ -193,7 +191,6 @@ test "Sprite Evaluation: 8×8 sprite range check" {
 
         // Should NOT be in secondary OAM (all $FF)
         testing.expectEqual(@as(u8, 0xFF), ppu.secondary_oam[0]) catch |err| {
-            std.debug.print("Failed at scanline {} (should NOT be visible)\n", .{scanline});
             return err;
         };
     }
@@ -230,7 +227,6 @@ test "Sprite Evaluation: 8×16 sprite range check" {
 
         // Should be in secondary OAM
         testing.expectEqual(@as(u8, 100), ppu.secondary_oam[0]) catch |err| {
-            std.debug.print("Failed at scanline {} (should be visible in 8×16 mode)\n", .{scanline});
             return err;
         };
     }
@@ -248,7 +244,6 @@ test "Sprite Evaluation: 8×16 sprite range check" {
 
         // Should NOT be in secondary OAM (all $FF)
         testing.expectEqual(@as(u8, 0xFF), ppu.secondary_oam[0]) catch |err| {
-            std.debug.print("Failed at scanline {} (should NOT be visible)\n", .{scanline});
             return err;
         };
     }
@@ -288,12 +283,10 @@ test "Sprite Evaluation: 8 sprite limit enforced" {
         const tile = ppu.secondary_oam[i * 4 + 1];
 
         testing.expectEqual(@as(u8, 100), y) catch |err| {
-            std.debug.print("Sprite {} Y mismatch\n", .{i});
             return err;
         };
 
         testing.expectEqual(@as(u8, @intCast(i)), tile) catch |err| {
-            std.debug.print("Sprite {} tile mismatch\n", .{i});
             return err;
         };
     }

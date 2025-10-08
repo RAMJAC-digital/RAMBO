@@ -22,32 +22,8 @@ const DebugFlags = struct {
     }
 };
 
-/// Print CPU state snapshot for debugging
-fn printCpuSnapshot(snapshot: RAMBO.Mailboxes.CpuSnapshot) void {
-    std.debug.print("\n[Main] CPU State:\n", .{});
-    std.debug.print("  A:  ${X:0>2}  X:  ${X:0>2}  Y:  ${X:0>2}\n", .{ snapshot.a, snapshot.x, snapshot.y });
-    std.debug.print("  SP: ${X:0>2}  PC: ${X:0>4}\n", .{ snapshot.sp, snapshot.pc });
-    std.debug.print("  P:  ${X:0>2}  [", .{snapshot.p});
-
-    // Decode status flags
-    const N = (snapshot.p & 0x80) != 0;
-    const V = (snapshot.p & 0x40) != 0;
-    const D = (snapshot.p & 0x08) != 0;
-    const I = (snapshot.p & 0x04) != 0;
-    const Z = (snapshot.p & 0x02) != 0;
-    const C = (snapshot.p & 0x01) != 0;
-
-    std.debug.print("{s}{s}{s}{s}{s}{s}]\n", .{
-        if (N) "N" else "-",
-        if (V) "V" else "-",
-        if (D) "D" else "-",
-        if (I) "I" else "-",
-        if (Z) "Z" else "-",
-        if (C) "C" else "-",
-    });
-
-    std.debug.print("  Cycle: {d}  Frame: {d}\n\n", .{ snapshot.cycle, snapshot.frame });
-}
+/// Observe CPU state snapshot for future integrations (currently no-op)
+fn handleCpuSnapshot(_: RAMBO.Mailboxes.CpuSnapshot) void {}
 
 /// Parse comma-separated hex addresses (e.g., "0x8000,0xFFFA")
 fn parseHexArray(allocator: std.mem.Allocator, input: ?[]const u8) !?[]const u16 {
@@ -68,10 +44,7 @@ fn parseHexArray(allocator: std.mem.Allocator, input: ?[]const u8) !?[]const u16
         else
             trimmed;
 
-        const addr = std.fmt.parseInt(u16, hex_str, 16) catch |err| {
-            std.debug.print("Error: Invalid hex address '{s}': {}\n", .{ trimmed, err });
-            return error.InvalidHexAddress;
-        };
+        const addr = std.fmt.parseInt(u16, hex_str, 16) catch return error.InvalidHexAddress;
 
         try list.append(allocator, addr);
     }
@@ -112,30 +85,16 @@ fn mainExec(ctx: zli.CommandContext) !void {
     };
     defer debug_flags.deinit(allocator);
 
-    // Print header
-    std.debug.print("RAMBO NES Emulator v0.1.0\n", .{});
-    std.debug.print("================================================\n", .{});
-    if (debug_flags.trace or debug_flags.break_at != null or debug_flags.watch != null) {
-        std.debug.print("DEBUG MODE ENABLED\n", .{});
-        std.debug.print("================================================\n", .{});
-    }
-    std.debug.print("Main Thread:      Coordinator (TID: {d})\n", .{std.Thread.getCurrentId()});
-    std.debug.print("Emulation Thread: Timer-driven execution (spawning...)\n", .{});
-    std.debug.print("Render Thread:    Wayland + Vulkan\n\n", .{});
-
     // ========================================================================
     // 1. Initialize Mailboxes (dependency injection container)
     // ========================================================================
 
-    std.debug.print("[Main] Initializing mailboxes...\n", .{});
     var mailboxes = RAMBO.Mailboxes.Mailboxes.init(allocator);
     defer mailboxes.deinit();
 
     // ========================================================================
     // 2. Initialize Emulation State
     // ========================================================================
-
-    std.debug.print("[Main] Initializing emulation state...\n", .{});
 
     // Create default configuration (NTSC AccuracyCoin target)
     var config = RAMBO.Config.Config.init(allocator);
@@ -145,7 +104,6 @@ fn mainExec(ctx: zli.CommandContext) !void {
     var emu_state = RAMBO.EmulationState.EmulationState.init(&config);
 
     // Load ROM from command line
-    std.debug.print("[Main] Loading ROM: {s}\n", .{rom_path});
 
     const file = try std.fs.cwd().openFile(rom_path, .{});
     defer file.close();
@@ -159,9 +117,6 @@ fn mainExec(ctx: zli.CommandContext) !void {
     // Reset CPU to load reset vector and initialize state
     emu_state.reset();
 
-    std.debug.print("[Main] ROM loaded successfully\n", .{});
-    std.debug.print("[Main] Reset vector loaded: PC=0x{x:0>4}\n", .{emu_state.cpu.pc});
-
     // ========================================================================
     // 2.5. Initialize Debugger (if debug flags enabled)
     // ========================================================================
@@ -171,78 +126,40 @@ fn mainExec(ctx: zli.CommandContext) !void {
         debug_flags.watch != null or
         debug_flags.inspect)
     {
-        std.debug.print("[Main] Initializing debugger...\n", .{});
         emu_state.debugger = RAMBO.Debugger.Debugger.init(allocator, &config);
 
         // Configure breakpoints from CLI
         if (debug_flags.break_at) |addrs| {
             for (addrs) |addr| {
-                emu_state.debugger.?.addBreakpoint(addr, .execute) catch |err| {
-                    std.debug.print("[Main] Failed to add breakpoint at ${X:0>4}: {}\n", .{ addr, err });
+                emu_state.debugger.?.addBreakpoint(addr, .execute) catch {
                     continue;
                 };
-                std.debug.print("[Main] Breakpoint added at ${X:0>4}\n", .{addr});
             }
         }
 
         // Configure watchpoints from CLI
         if (debug_flags.watch) |addrs| {
             for (addrs) |addr| {
-                emu_state.debugger.?.addWatchpoint(addr, 1, .write) catch |err| {
-                    std.debug.print("[Main] Failed to add watchpoint at ${X:0>4}: {}\n", .{ addr, err });
+                emu_state.debugger.?.addWatchpoint(addr, 1, .write) catch {
                     continue;
                 };
-                std.debug.print("[Main] Watchpoint added at ${X:0>4}\n", .{addr});
             }
         }
-
-        std.debug.print("[Main] Debugger initialized (RT-safe)\n", .{});
     }
 
     // Cleanup debugger on exit
     defer if (emu_state.debugger) |*d| d.deinit();
 
-    // Print debug configuration if enabled
-    if (debug_flags.verbose) {
-        std.debug.print("\n[Debug] Configuration:\n", .{});
-        std.debug.print("  Trace:     {}\n", .{debug_flags.trace});
-        if (debug_flags.trace_file) |path| {
-            std.debug.print("  Trace file: {s}\n", .{path});
-        }
-        if (debug_flags.break_at) |addrs| {
-            std.debug.print("  Breakpoints: ", .{});
-            for (addrs, 0..) |addr, i| {
-                if (i > 0) std.debug.print(", ", .{});
-                std.debug.print("${x:0>4}", .{addr});
-            }
-            std.debug.print("\n", .{});
-        }
-        if (debug_flags.watch) |addrs| {
-            std.debug.print("  Watchpoints: ", .{});
-            for (addrs, 0..) |addr, i| {
-                if (i > 0) std.debug.print(", ", .{});
-                std.debug.print("${x:0>4}", .{addr});
-            }
-            std.debug.print("\n", .{});
-        }
-        if (debug_flags.cycles) |c| std.debug.print("  Cycle limit: {d}\n", .{c});
-        if (debug_flags.frames) |f| std.debug.print("  Frame limit: {d}\n", .{f});
-        std.debug.print("  Inspect:    {}\n\n", .{debug_flags.inspect});
-    }
-
     // ========================================================================
     // 3. Initialize libxev Loop (Main Thread Coordinator)
     // ========================================================================
 
-    std.debug.print("[Main] Initializing libxev event loop...\n", .{});
     var loop = try xev.Loop.init(.{});
     defer loop.deinit();
 
     // ========================================================================
     // 4. Spawn Threads
     // ========================================================================
-
-    std.debug.print("[Main] Spawning threads...\n", .{});
 
     // Shared running flag (atomic for thread-safe coordination)
     var running = std.atomic.Value(bool).init(true);
@@ -300,53 +217,42 @@ fn mainExec(ctx: zli.CommandContext) !void {
             for (debug_events[0..debug_count]) |event| {
                 switch (event) {
                     .breakpoint_hit => |bp| {
-                        const reason = bp.reason[0..bp.reason_len];
-                        std.debug.print("\n[Main] === BREAKPOINT HIT ===\n", .{});
-                        std.debug.print("[Main] Reason: {s}\n", .{reason});
+                        // TODO: Display reason in GUI/TUI
+                        _ = bp.reason;
+                        _ = bp.reason_len;
 
                         if (debug_flags.inspect) {
-                            printCpuSnapshot(bp.snapshot);
+                            handleCpuSnapshot(bp.snapshot);
                         }
                     },
                     .watchpoint_hit => |wp| {
-                        const reason = wp.reason[0..wp.reason_len];
-                        std.debug.print("\n[Main] === WATCHPOINT HIT ===\n", .{});
-                        std.debug.print("[Main] Reason: {s}\n", .{reason});
+                        // TODO: Display reason in GUI/TUI
+                        _ = wp.reason;
+                        _ = wp.reason_len;
 
                         if (debug_flags.inspect) {
-                            printCpuSnapshot(wp.snapshot);
+                            handleCpuSnapshot(wp.snapshot);
                         }
                     },
                     .inspect_response => |resp| {
-                        std.debug.print("\n[Main] === STATE INSPECTION ===\n", .{});
-                        printCpuSnapshot(resp.snapshot);
+                        handleCpuSnapshot(resp.snapshot);
                     },
                     .paused => |p| {
-                        std.debug.print("\n[Main] === EMULATION PAUSED ===\n", .{});
                         if (debug_flags.inspect) {
-                            printCpuSnapshot(p.snapshot);
+                            handleCpuSnapshot(p.snapshot);
                         }
                     },
-                    .resumed => {
-                        std.debug.print("\n[Main] === EMULATION RESUMED ===\n", .{});
-                    },
-                    .breakpoint_added => |bp| {
-                        std.debug.print("[Main] Breakpoint added at ${X:0>4}\n", .{bp.address});
-                    },
-                    .breakpoint_removed => |bp| {
-                        std.debug.print("[Main] Breakpoint removed at ${X:0>4}\n", .{bp.address});
-                    },
+                    .resumed => {},
+                    .breakpoint_added => |_| {},
+                    .breakpoint_removed => |_| {},
                     .error_occurred => |err| {
-                        const msg = err.message[0..err.message_len];
-                        std.debug.print("[Main] DEBUG ERROR: {s}\n", .{msg});
+                        // TODO: Display error in GUI/TUI
+                        _ = err.message;
+                        _ = err.message_len;
                     },
                 }
             }
         }
-
-        // Process config updates (legacy)
-        const config_update = mailboxes.config.pollUpdate();
-        _ = config_update; // Discard for now
 
         // Run libxev loop (no_wait for polling)
         try loop.run(.no_wait);
@@ -355,29 +261,14 @@ fn mainExec(ctx: zli.CommandContext) !void {
         std.Thread.sleep(100_000_000); // 100ms
     }
 
-    const elapsed_sec = @as(f64, @floatFromInt(std.time.nanoTimestamp() - start_time)) / 1_000_000_000.0;
-    const total_frames = mailboxes.frame.getFrameCount();
-    const avg_fps = @as(f64, @floatFromInt(total_frames)) / elapsed_sec;
-
-    std.debug.print("\n[Main] === Emulation Statistics ===\n", .{});
-    std.debug.print("[Main] Duration:     {d:.2}s\n", .{elapsed_sec});
-    std.debug.print("[Main] Total frames: {d}\n", .{total_frames});
-    std.debug.print("[Main] Average FPS:  {d:.2}\n", .{avg_fps});
-    std.debug.print("[Main] Target FPS:   60.10 (NTSC)\n", .{});
-
     // ========================================================================
     // 6. Shutdown
     // ========================================================================
 
-    std.debug.print("\n[Main] Shutting down...\n", .{});
     running.store(false, .release);
 
-    std.debug.print("[Main] Waiting for threads to stop...\n", .{});
     emulation_thread.join();
     render_thread.join();
-
-    std.debug.print("[Main] All threads stopped. Cleanup complete.\n", .{});
-    std.debug.print("[Main] Goodbye!\n", .{});
 }
 
 /// Main entry point - sets up zli Command and executes

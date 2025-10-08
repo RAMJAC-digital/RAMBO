@@ -1,7 +1,7 @@
 # RAMBO Documentation Hub
 
-**Last Updated:** 2025-10-07
-**Test Status:** 897/900 passing (99.7%)
+**Last Updated:** 2025-10-08
+**Test Status:** 920/926 passing (99.4%)
 **Current Phase:** Hardware Accuracy Refinement & Game Testing
 
 ---
@@ -22,7 +22,6 @@
 |----------|---------|
 | [**CLAUDE.md**](../CLAUDE.md) | **Primary development reference** (architecture, patterns, roadmap) |
 | [**CURRENT-STATUS.md**](CURRENT-STATUS.md) | Current implementation status and known issues |
-| [**DOCUMENTATION-AUDIT-SUMMARY-2025-10-07.md**](DOCUMENTATION-AUDIT-SUMMARY-2025-10-07.md) | Recent audit findings and cleanup summary |
 
 ---
 
@@ -205,37 +204,40 @@ For full details, see [CURRENT-STATUS.md](CURRENT-STATUS.md).
 
 ---
 
-## Recent Changes (2025-10-07)
+## Recent Changes (2025-10-08)
 
 ### Documentation Cleanup
 
-**Major Reorganization:**
+**Latest Archival (2025-10-08):**
+- ✅ Archived dated audit files from docs/implementation/ (13 files → archive/audits-2025-10-07/)
+- ✅ Archived Phase 8 planning docs (COMPLETE-ARCHITECTURE-AND-PLAN.md, MAILBOX-ARCHITECTURE.md, INDEX.md)
+- ✅ Archived documentation assessment files
+- ✅ Top-level docs clean (only README.md and CURRENT-STATUS.md)
+
+**Previous Cleanup (2025-10-07):**
 - ✅ Consolidated video subsystem docs (8 → 1)
 - ✅ Consolidated audit docs (20+ → 1)
-- ✅ Consolidated APU docs (6 → 1)
 - ✅ Created CURRENT-STATUS.md (single source of truth)
-- ✅ Created QUICK-START.md (user guide)
 - ✅ Archived all completed phase documentation
-- ✅ Archived historical audits and planning docs
-
-**Documentation Now:**
-- Cleaner structure (60 active docs vs 182 before)
-- No duplicates
-- Current state only (no outdated planning docs in active area)
-- Easy navigation
 
 ### Code Updates
 
-- ✅ Fixed threading test compilation error
-- ✅ Updated CLAUDE.md with accurate test counts (897/900)
-- ✅ Fixed 8 critical CLAUDE.md inaccuracies
-- ✅ Removed all legacy references
+**Threading & Mailbox Refactoring (2025-10-08):**
+- ✅ Removed 4 unused mailboxes (SpeedControl, EmulationStatus, RenderStatus, Config)
+- ✅ Fixed threading tests (timing-sensitive → behavior-based)
+- ✅ Added RT-safety documentation to FrameMailbox (720 KB stack allocation)
+- ✅ All existing tests passing
+
+**Debugging Enhancements (2025-10-08):**
+- ✅ Implemented bidirectional debug mailboxes (DebugCommandMailbox, DebugEventMailbox)
+- ✅ RT-safe debug communication (lock-free SPSC ring buffers)
+- ✅ Added --inspect flag for automatic CPU snapshot display
+- ✅ Removed all std.debug.print from emulation thread
 
 ### Test Status
 
-**Before:** 885/886 passing
-**Now:** 897/900 passing
-**Change:** +12 tests (threading tests now compile and run)
+**Latest:** 920/926 passing (99.4%)
+**Previous:** 897/900 passing (99.7%)
 
 ---
 

@@ -175,8 +175,8 @@ test "RTI: restores status and PC" {
     // Setup stack: status, PC low, PC high
     state.cpu.sp = 0xFC;
     state.bus.ram[0x01FD] = 0b11000011; // Status (N=1, V=1, Z=1, C=1)
-    state.bus.ram[0x01FE] = 0x00;       // PC low
-    state.bus.ram[0x01FF] = 0x02;       // PC high ($0200)
+    state.bus.ram[0x01FE] = 0x00; // PC low
+    state.bus.ram[0x01FF] = 0x02; // PC high ($0200)
 
     state.cpu.pc = 0x0100;
     state.bus.ram[0x100] = 0x40; // RTI

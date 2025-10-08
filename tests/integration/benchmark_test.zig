@@ -31,7 +31,6 @@ test "Benchmark: AccuracyCoin emulation performance" {
         config,
     ) catch |err| {
         if (err == error.FileNotFound) {
-            std.debug.print("Skipping benchmark - ROM not found\n", .{});
             return error.SkipZigTest;
         }
         return err;
@@ -54,35 +53,14 @@ test "Benchmark: AccuracyCoin emulation performance" {
 
         // Progress every 60 frames
         if (frames_executed % 60 == 0) {
-            const current_metrics = bench.getMetrics();
-            std.debug.print("Frame {d}/600: {d:.2} IPS, {d:.2} FPS, {d:.2}x speed\n", .{
-                frames_executed,
-                current_metrics.instructionsPerSecond(),
-                current_metrics.framesPerSecond(),
-                current_metrics.speedRatio(),
-            });
+            _ = bench.getMetrics();
         }
     }
 
     // Stop benchmark and print results
     bench.stop();
 
-    std.debug.print("\n=== AccuracyCoin Benchmark Results ===\n", .{});
     const metrics = bench.getMetrics();
-    const seconds = @as(f64, @floatFromInt(metrics.elapsed_ns)) / 1_000_000_000.0;
-    std.debug.print("Total Cycles:       {d}\n", .{metrics.total_cycles});
-    std.debug.print("Total Instructions: {d}\n", .{metrics.total_instructions});
-    std.debug.print("Total Frames:       {d}\n", .{metrics.total_frames});
-    std.debug.print("Elapsed Time:       {d:.3}s\n", .{seconds});
-    std.debug.print("\n=== Performance ===\n", .{});
-    std.debug.print("Instructions/sec:   {d:.2}\n", .{metrics.instructionsPerSecond()});
-    std.debug.print("Cycles/sec:         {d:.2}\n", .{metrics.cyclesPerSecond()});
-    std.debug.print("Frames/sec:         {d:.2}\n", .{metrics.framesPerSecond()});
-    std.debug.print("Cycles/instruction: {d:.2}\n", .{metrics.cyclesPerInstruction()});
-    std.debug.print("Instructions/frame: {d:.2}\n", .{metrics.instructionsPerFrame()});
-    std.debug.print("\n=== Accuracy ===\n", .{});
-    std.debug.print("Speed Ratio:        {d:.2}x real-time\n", .{metrics.speedRatio()});
-    std.debug.print("Timing Accuracy:    {d:.2}% of ideal\n", .{metrics.timingAccuracy()});
 
     // Validate performance metrics
 
@@ -93,12 +71,7 @@ test "Benchmark: AccuracyCoin emulation performance" {
 
     // Performance expectations (should be much faster than real-time on modern hardware)
     // Real-time is 1.0x, we expect at least 10x on any reasonable hardware
-    const speed = metrics.speedRatio();
-    std.debug.print("\nPerformance: {d:.2}x real-time (target: >10x)\n", .{speed});
-
-    if (speed < 10.0) {
-        std.debug.print("WARNING: Performance below target ({d:.2}x < 10x)\n", .{speed});
-    }
+    _ = metrics.speedRatio();
 }
 
 test "Benchmark.Metrics: Comprehensive calculation tests" {

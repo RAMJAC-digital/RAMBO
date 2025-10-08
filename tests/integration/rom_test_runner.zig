@@ -142,17 +142,13 @@ pub const RomTestRunner = struct {
             if (self.run_config.completion_address) |addr| {
                 const value = self.state.busRead(addr);
                 if (value == self.run_config.completion_value) {
-                    if (self.run_config.verbose) {
-                        std.debug.print("Test completed at frame {d}\n", .{frames_executed});
-                    }
+                    if (self.run_config.verbose) {}
                     break;
                 }
             }
 
             // Verbose progress
-            if (self.run_config.verbose and frames_executed % 60 == 0) {
-                std.debug.print("Frame {d}/{d}, Instructions: {d}\n", .{ frames_executed, self.run_config.max_frames, instructions_executed });
-            }
+            if (self.run_config.verbose and frames_executed % 60 == 0) {}
         }
 
         // Extract test results
@@ -275,25 +271,9 @@ pub fn runAccuracyCoinTest(allocator: std.mem.Allocator, rom_path: []const u8) !
 
 /// Print test result summary
 pub fn printTestResult(result: TestResult) void {
-    std.debug.print("\n=== Test Result ===\n", .{});
-    std.debug.print("Status: {s}\n", .{if (result.passed) "PASS" else "FAIL"});
-    std.debug.print("Frames: {d}\n", .{result.frames_executed});
-    std.debug.print("Instructions: {d}\n", .{result.instructions_executed});
-    std.debug.print("Status Bytes: 0x{X:0>2} 0x{X:0>2} 0x{X:0>2} 0x{X:0>2}\n", .{
-        result.status_bytes[0],
-        result.status_bytes[1],
-        result.status_bytes[2],
-        result.status_bytes[3],
-    });
+    if (result.error_message) |_| {}
 
-    if (result.error_message) |msg| {
-        std.debug.print("Error: {s}\n", .{msg});
-    }
-
-    if (result.timed_out) {
-        std.debug.print("WARNING: Test timed out\n", .{});
-    }
-    std.debug.print("==================\n\n", .{});
+    if (result.timed_out) {}
 }
 
 // ============================================================================

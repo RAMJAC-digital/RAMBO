@@ -33,10 +33,10 @@ fn createVBlankWaitRom(allocator: std.mem.Allocator) ![]u8 {
     // iNES header
     try rom.appendSlice(allocator, &[_]u8{
         'N', 'E', 'S', 0x1A, // Magic
-        1,                    // 1 x 16KB PRG ROM
-        1,                    // 1 x 8KB CHR ROM
-        0,                    // Mapper 0 (NROM), horizontal mirroring
-        0,                    // Mapper 0 (upper bits)
+        1, // 1 x 16KB PRG ROM
+        1, // 1 x 8KB CHR ROM
+        0, // Mapper 0 (NROM), horizontal mirroring
+        0, // Mapper 0 (upper bits)
         0, 0, 0, 0, 0, 0, 0, 0, // Padding
     });
 
@@ -55,20 +55,20 @@ fn createVBlankWaitRom(allocator: std.mem.Allocator) ![]u8 {
     //   BPL vblankwait1  ; Loop while bit 7 = 0 (not in VBlank)
     try code.appendSlice(allocator, &[_]u8{
         0x2C, 0x02, 0x20, // BIT $2002
-        0x10, 0xFB,       // BPL -5 (loop back to BIT)
+        0x10, 0xFB, // BPL -5 (loop back to BIT)
     });
 
     // After VBlank detected, write to PPU control registers
     try code.appendSlice(allocator, &[_]u8{
-        0xA9, 0x80,       // LDA #$80 (enable NMI)
+        0xA9, 0x80, // LDA #$80 (enable NMI)
         0x8D, 0x00, 0x20, // STA $2000 (PPUCTRL)
-        0xA9, 0x1E,       // LDA #$1E (enable rendering)
+        0xA9, 0x1E, // LDA #$1E (enable rendering)
         0x8D, 0x01, 0x20, // STA $2001 (PPUMASK)
     });
 
     // Write success marker to $6000 (for test verification)
     try code.appendSlice(allocator, &[_]u8{
-        0xA9, 0x42,       // LDA #$42
+        0xA9, 0x42, // LDA #$42
         0x8D, 0x00, 0x60, // STA $6000
     });
 
@@ -110,18 +110,7 @@ test "VBlank Wait Loop: CPU successfully waits for and detects VBlank" {
     state.loadCartridge(any_cart);
     state.reset();
 
-    std.debug.print("\n[VBlank Wait Test] Starting emulation\n", .{});
-    std.debug.print("  Reset vector: PC=0x{x:0>4}\n", .{state.cpu.pc});
-
     // DEBUG: Verify ROM code is loaded correctly
-    std.debug.print("  Code at 0x8000: {x:0>2} {x:0>2} {x:0>2} {x:0>2} {x:0>2}\n", .{
-        state.busRead(0x8000),
-        state.busRead(0x8001),
-        state.busRead(0x8002),
-        state.busRead(0x8003),
-        state.busRead(0x8004),
-    });
-    std.debug.print("  Expected:       2C 02 20 10 FB (BIT $2002, BPL -5)\n", .{});
 
     // Run emulation for maximum 2 frames (should complete in ~1 frame)
     const max_cycles: u64 = 89342 * 2; // 2 NTSC frames
@@ -136,11 +125,6 @@ test "VBlank Wait Loop: CPU successfully waits for and detects VBlank" {
     while (cycles < max_cycles and instruction_count < max_instructions) {
         // Check for VBlank and log first BIT $2002 after VBlank
         if (!vblank_seen and state.ppu.status.vblank) {
-            std.debug.print("  ✓ VBlank flag SET at scanline {d}, dot {d}, cycle {d}\n", .{
-                state.clock.scanline(),
-                state.clock.dot(),
-                cycles,
-            });
             vblank_seen = true;
         }
 
@@ -153,23 +137,12 @@ test "VBlank Wait Loop: CPU successfully waits for and detects VBlank" {
             instruction_count += 1;
 
             // Log first few BIT instructions after VBlank
-            if (vblank_seen and instruction_count >= 2740 and instruction_count <= 2750) {
-                std.debug.print("  → Instruction {d}: PC=0x{x:0>4}, A=0x{x:0>2}, N={}, VBlank={}\n", .{
-                    instruction_count,
-                    state.cpu.pc,
-                    state.cpu.a,
-                    state.cpu.p.negative,
-                    state.ppu.status.vblank,
-                });
-            }
+            if (vblank_seen and instruction_count >= 2740 and instruction_count <= 2750) {}
 
             // Check success marker every 100 instructions
             if (instruction_count % 100 == 0) {
                 const marker = state.busRead(0x6000);
                 if (marker == 0x42) {
-                    std.debug.print("  ✓ Success marker detected after {d} instructions\n", .{instruction_count});
-                    std.debug.print("  ✓ PPU CTRL: 0x{x:0>2}\n", .{state.ppu.ctrl.toByte()});
-                    std.debug.print("  ✓ PPU MASK: 0x{x:0>2}\n", .{state.ppu.mask.toByte()});
 
                     // Verify PPU registers were set correctly
                     try testing.expectEqual(@as(u8, 0x80), state.ppu.ctrl.toByte());
@@ -183,13 +156,6 @@ test "VBlank Wait Loop: CPU successfully waits for and detects VBlank" {
     }
 
     // If we get here, test failed
-    std.debug.print("  ✗ FAILED: VBlank wait loop did not complete\n", .{});
-    std.debug.print("  Final PC: 0x{x:0>4}\n", .{state.cpu.pc});
-    std.debug.print("  Cycles: {d}\n", .{cycles});
-    std.debug.print("  Instructions: {d}\n", .{instruction_count});
-    std.debug.print("  PPU Status VBlank: {}\n", .{state.ppu.status.vblank});
-    std.debug.print("  PPU Scanline: {d}\n", .{state.clock.scanline()});
-    std.debug.print("  PPU Dot: {d}\n", .{state.clock.dot()});
 
     return error.VBlankWaitTimeout;
 }

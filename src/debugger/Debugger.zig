@@ -165,8 +165,12 @@ pub const StateModification = union(enum) {
 
 /// Main debugger structure
 pub const Debugger = struct {
+    const magic_value: u64 = 0xDEB6_6170_5055_4247; // 'DEBlaPPUBG' sentinel
+
     allocator: std.mem.Allocator,
     config: *const Config,
+
+    magic: u64 = magic_value,
 
     /// Current debug mode
     mode: DebugMode = .running,
@@ -174,10 +178,12 @@ pub const Debugger = struct {
     /// Breakpoints (up to 256, RT-safe fixed array)
     breakpoints: [256]?Breakpoint = [_]?Breakpoint{null} ** 256,
     breakpoint_count: usize = 0,
+    memory_breakpoint_enabled_count: usize = 0,
 
     /// Watchpoints (up to 256, RT-safe fixed array)
     watchpoints: [256]?Watchpoint = [_]?Watchpoint{null} ** 256,
     watchpoint_count: usize = 0,
+    watchpoint_enabled_count: usize = 0,
 
     /// Step execution state
     step_state: StepState = .{},
@@ -240,7 +246,12 @@ pub const Debugger = struct {
         for (self.breakpoints[0..256]) |*maybe_bp| {
             if (maybe_bp.*) |*bp| {
                 if (bp.address == address and bp.type == bp_type) {
-                    bp.enabled = true;
+                    if (!bp.enabled) {
+                        bp.enabled = true;
+                        if (isMemoryBreakpointType(bp_type)) {
+                            self.memory_breakpoint_enabled_count += 1;
+                        }
+                    }
                     return;
                 }
             }
@@ -267,6 +278,9 @@ pub const Debugger = struct {
             .type = bp_type,
         };
         self.breakpoint_count += 1;
+        if (isMemoryBreakpointType(bp_type)) {
+            self.memory_breakpoint_enabled_count += 1;
+        }
     }
 
     /// Remove breakpoint
@@ -274,6 +288,9 @@ pub const Debugger = struct {
         for (self.breakpoints[0..256], 0..) |*maybe_bp, i| {
             if (maybe_bp.*) |bp| {
                 if (bp.address == address and bp.type == bp_type) {
+                    if (bp.enabled and isMemoryBreakpointType(bp_type)) {
+                        self.memory_breakpoint_enabled_count -= 1;
+                    }
                     self.breakpoints[i] = null;
                     self.breakpoint_count -= 1;
                     return true;
@@ -288,6 +305,19 @@ pub const Debugger = struct {
         for (self.breakpoints[0..256]) |*maybe_bp| {
             if (maybe_bp.*) |*bp| {
                 if (bp.address == address and bp.type == bp_type) {
+                    if (bp.enabled == enabled) {
+                        return true;
+                    }
+
+                    const is_memory = isMemoryBreakpointType(bp.type);
+                    if (is_memory) {
+                        if (enabled) {
+                            self.memory_breakpoint_enabled_count += 1;
+                        } else {
+                            self.memory_breakpoint_enabled_count -= 1;
+                        }
+                    }
+
                     bp.enabled = enabled;
                     return true;
                 }
@@ -302,6 +332,7 @@ pub const Debugger = struct {
             maybe_bp.* = null;
         }
         self.breakpoint_count = 0;
+        self.memory_breakpoint_enabled_count = 0;
     }
 
     // ========================================================================
@@ -315,7 +346,10 @@ pub const Debugger = struct {
         for (self.watchpoints[0..256]) |*maybe_wp| {
             if (maybe_wp.*) |*wp| {
                 if (wp.address == address and wp.type == watch_type) {
-                    wp.enabled = true;
+                    if (!wp.enabled) {
+                        wp.enabled = true;
+                        self.watchpoint_enabled_count += 1;
+                    }
                     wp.size = size;
                     return;
                 }
@@ -344,6 +378,7 @@ pub const Debugger = struct {
             .type = watch_type,
         };
         self.watchpoint_count += 1;
+        self.watchpoint_enabled_count += 1;
     }
 
     /// Remove watchpoint
@@ -351,6 +386,9 @@ pub const Debugger = struct {
         for (self.watchpoints[0..256], 0..) |*maybe_wp, i| {
             if (maybe_wp.*) |wp| {
                 if (wp.address == address and wp.type == watch_type) {
+                    if (wp.enabled) {
+                        self.watchpoint_enabled_count -= 1;
+                    }
                     self.watchpoints[i] = null;
                     self.watchpoint_count -= 1;
                     return true;
@@ -366,6 +404,7 @@ pub const Debugger = struct {
             maybe_wp.* = null;
         }
         self.watchpoint_count = 0;
+        self.watchpoint_enabled_count = 0;
     }
 
     // ========================================================================
@@ -498,6 +537,13 @@ pub const Debugger = struct {
         // Update stats
         self.stats.instructions_executed += 1;
 
+        if (self.breakpoint_count > self.breakpoints.len or
+            self.watchpoint_count > self.watchpoints.len or
+            self.callback_count > self.callbacks.len)
+        {
+            return false;
+        }
+
         // Check step modes
         switch (self.mode) {
             .running => {},
@@ -581,7 +627,8 @@ pub const Debugger = struct {
         }
 
         // Check user-defined callbacks
-        for (self.callbacks[0..self.callback_count]) |maybe_callback| {
+        const callback_limit = @min(self.callback_count, self.callbacks.len);
+        for (self.callbacks[0..callback_limit]) |maybe_callback| {
             if (maybe_callback) |callback| {
                 if (callback.onBeforeInstruction) |func| {
                     if (func(callback.userdata, state)) {
@@ -604,8 +651,10 @@ pub const Debugger = struct {
         value: u8,
         is_write: bool,
     ) !bool {
+        const breakpoint_limit = @min(self.breakpoint_count, self.breakpoints.len);
+
         // Check read/write breakpoints
-        for (self.breakpoints[0..256]) |*maybe_bp| {
+        for (self.breakpoints[0..breakpoint_limit]) |*maybe_bp| {
             if (maybe_bp.*) |*bp| {
                 if (!bp.enabled) continue;
 
@@ -637,7 +686,8 @@ pub const Debugger = struct {
         }
 
         // Check watchpoints
-        for (self.watchpoints[0..256]) |*maybe_wp| {
+        const watchpoint_limit = @min(self.watchpoint_count, self.watchpoints.len);
+        for (self.watchpoints[0..watchpoint_limit]) |*maybe_wp| {
             if (maybe_wp.*) |*wp| {
                 if (!wp.enabled) continue;
                 if (address < wp.address or address >= wp.address + wp.size) continue;
@@ -676,7 +726,8 @@ pub const Debugger = struct {
         }
 
         // Check user-defined callbacks
-        for (self.callbacks[0..self.callback_count]) |maybe_callback| {
+        const callback_limit = @min(self.callback_count, self.callbacks.len);
+        for (self.callbacks[0..callback_limit]) |maybe_callback| {
             if (maybe_callback) |callback| {
                 if (callback.onMemoryAccess) |func| {
                     if (func(callback.userdata, address, value, is_write)) {
@@ -931,7 +982,7 @@ pub const Debugger = struct {
         self.logModification(.{ .memory_write = .{
             .address = address,
             .value = value,
-        }});
+        } });
     }
 
     /// Write byte range to memory
@@ -948,7 +999,7 @@ pub const Debugger = struct {
         self.logModification(.{ .memory_range = .{
             .start = start_address,
             .length = @intCast(data.len),
-        }});
+        } });
     }
 
     /// Read memory for inspection WITHOUT side effects
@@ -983,9 +1034,7 @@ pub const Debugger = struct {
         const buffer = try allocator.alloc(u8, length);
         // Use peekMemory() which does NOT update open_bus
         for (0..length) |i| {
-            buffer[i] = state.peekMemory(
-                start_address +% @as(u16, @intCast(i))
-            );
+            buffer[i] = state.peekMemory(start_address +% @as(u16, @intCast(i)));
         }
         return buffer;
     }
@@ -1021,10 +1070,7 @@ pub const Debugger = struct {
             _ = self.modifications.orderedRemove(0);
         }
 
-        self.modifications.append(self.allocator, modification) catch |err| {
-            // Log error but don't fail - modification already applied
-            std.debug.print("Failed to log modification: {}\n", .{err});
-        };
+        _ = self.modifications.append(self.allocator, modification) catch {};
     }
 
     /// Get modification history
@@ -1050,6 +1096,13 @@ pub const Debugger = struct {
         };
     }
 
+    inline fn isMemoryBreakpointType(bp_type: BreakpointType) bool {
+        return switch (bp_type) {
+            .execute => false,
+            .read, .write, .access => true,
+        };
+    }
+
     /// Set break reason using pre-allocated buffer (RT-safe)
     /// No heap allocation - copies to static buffer
     fn setBreakReason(self: *Debugger, reason: []const u8) !void {
@@ -1063,6 +1116,16 @@ pub const Debugger = struct {
     pub fn getBreakReason(self: *const Debugger) ?[]const u8 {
         if (self.break_reason_len == 0) return null;
         return self.break_reason_buffer[0..self.break_reason_len];
+    }
+
+    /// Check if debugger is currently paused
+    pub fn isPaused(self: *const Debugger) bool {
+        return self.mode == .paused;
+    }
+
+    /// Fast check for any active memory breakpoints or watchpoints
+    pub fn hasMemoryTriggers(self: *const Debugger) bool {
+        return self.memory_breakpoint_enabled_count > 0 or self.watchpoint_enabled_count > 0;
     }
 };
 

@@ -47,7 +47,6 @@ test "Load AccuracyCoin.nes" {
     var cart = NromCart.load(testing.allocator, accuracycoin_path) catch |err| {
         // If file doesn't exist, skip test (not an error)
         if (err == error.FileNotFound) {
-            std.debug.print("Skipping AccuracyCoin test - file not found at: {s}\n", .{accuracycoin_path});
             return error.SkipZigTest;
         }
         return err;
@@ -81,12 +80,6 @@ test "Load AccuracyCoin.nes" {
     // Verify we can read from CHR ROM
     const chr_value = cart.ppuRead(0x0000);
     _ = chr_value;
-
-    std.debug.print("AccuracyCoin.nes loaded successfully:\n", .{});
-    std.debug.print("  Mapper: {d}\n", .{cart.header.getMapperNumber()});
-    std.debug.print("  PRG ROM: {d} KB\n", .{cart.prg_rom.len / 1024});
-    std.debug.print("  CHR ROM: {d} KB\n", .{cart.chr_data.len / 1024});
-    std.debug.print("  Mirroring: {s}\n", .{@tagName(cart.mirroring)});
 }
 
 test "Load AccuracyCoin.nes through Bus" {
@@ -94,7 +87,6 @@ test "Load AccuracyCoin.nes through Bus" {
 
     const nrom_cart = NromCart.load(testing.allocator, accuracycoin_path) catch |err| {
         if (err == error.FileNotFound) {
-            std.debug.print("Skipping Bus integration test - file not found\n", .{});
             return error.SkipZigTest;
         }
         return err;
@@ -117,8 +109,6 @@ test "Load AccuracyCoin.nes through Bus" {
     const reset_low = state.busRead(0xFFFC);
     const reset_high = state.busRead(0xFFFD);
     const reset_vector = (@as(u16, reset_high) << 8) | @as(u16, reset_low);
-
-    std.debug.print("  Reset vector: ${X:0>4}\n", .{reset_vector});
 
     // Reset vector should be in ROM space ($8000-$FFFF)
     try testing.expect(reset_vector >= 0x8000);

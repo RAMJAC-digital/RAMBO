@@ -129,7 +129,7 @@ test "Sweep: One's complement vs two's complement difference" {
     sweep2.shift = 1;
 
     // Clock both with different complement modes
-    SweepModule.clock(&sweep1, &period1, true);  // Pulse 1: one's complement
+    SweepModule.clock(&sweep1, &period1, true); // Pulse 1: one's complement
     SweepModule.clock(&sweep2, &period2, false); // Pulse 2: two's complement
 
     // Pulse 1: 200 - 100 - 1 = 99

@@ -264,7 +264,6 @@ test "PRG RAM: Properly freed on deinit" {
     rom_data[6] = 0;
     rom_data[7] = 0;
 
-
     // Create and destroy multiple times - should not leak
     var i: usize = 0;
     while (i < 10) : (i += 1) {

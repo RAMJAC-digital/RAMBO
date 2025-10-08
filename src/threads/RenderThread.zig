@@ -63,8 +63,6 @@ pub fn threadMain(
 ) void {
     _ = config;
 
-    std.debug.print("[Render] Thread started (TID: {d})\n", .{std.Thread.getCurrentId()});
-
     // Initialize Wayland window with mailbox dependency injection
     var wayland = WaylandLogic.init(std.heap.c_allocator, &mailboxes.xdg_window_event, &mailboxes.xdg_input_event) catch {
         // Wayland may not be available in test environments - silently exit
@@ -72,16 +70,11 @@ pub fn threadMain(
     };
     defer WaylandLogic.deinit(&wayland);
 
-    std.debug.print("[Render] Wayland window created successfully\n", .{});
-
     // Initialize Vulkan renderer
-    var vulkan = VulkanLogic.init(std.heap.c_allocator, &wayland) catch |err| {
-        std.debug.print("[Render] Failed to initialize Vulkan: {}\n", .{err});
+    var vulkan = VulkanLogic.init(std.heap.c_allocator, &wayland) catch {
         return;
     };
     defer VulkanLogic.deinit(&vulkan);
-
-    std.debug.print("[Render] Vulkan renderer initialized successfully\n", .{});
 
     var ctx = RenderContext{
         .mailboxes = mailboxes,
@@ -101,17 +94,13 @@ pub fn threadMain(
             ctx.frame_count += 1;
 
             // Upload frame to Vulkan and render
-            VulkanLogic.renderFrame(&vulkan, frame_buffer) catch |err| {
-                std.debug.print("[Render] Frame render error: {}\n", .{err});
+            VulkanLogic.renderFrame(&vulkan, frame_buffer) catch {
                 // Continue on errors - might be transient (e.g., window resize)
             };
 
             // Report rendering FPS every second
             const now = std.time.nanoTimestamp();
             if (now - last_fps_report >= 1_000_000_000) {
-                const elapsed = @as(f64, @floatFromInt(now - last_fps_report)) / 1_000_000_000.0;
-                const fps = @as(f64, @floatFromInt(ctx.frame_count)) / elapsed;
-                std.debug.print("[Render] Rendered {d} frames ({d:.2} FPS)\n", .{ ctx.frame_count, fps });
                 last_fps_report = now;
                 ctx.frame_count = 0;
             }
@@ -120,11 +109,6 @@ pub fn threadMain(
         // 3. Small sleep to avoid busy-wait (will be removed in Phase 2 with vsync)
         std.Thread.sleep(1_000_000); // 1ms
     }
-
-    std.debug.print("[Render] Thread stopping (window_closed={} running={})\n", .{
-        wayland.closed,
-        running.load(.acquire),
-    });
 }
 
 /// Spawn render thread

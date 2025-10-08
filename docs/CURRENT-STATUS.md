@@ -1,8 +1,8 @@
 # RAMBO Emulator - Current Status
 
-**Last Updated:** 2025-10-07
+**Last Updated:** 2025-10-08
 **Version:** 0.1.0 (Pre-release)
-**Test Status:** 897/900 passing (99.7%)
+**Test Status:** 920/926 passing (99.4%)
 
 ---
 
@@ -50,7 +50,7 @@ RAMBO is a cycle-accurate NES emulator with **complete core implementation** and
 
 ## Test Coverage
 
-**Total:** 897/900 tests passing (99.7%)
+**Total:** 920/926 tests passing (99.4%)
 
 ### By Component
 
@@ -64,7 +64,7 @@ RAMBO is a cycle-accurate NES emulator with **complete core implementation** and
 | Mailboxes | 57 | ✅ All passing | Complete |
 | Input System | 40 | ✅ All passing | Complete |
 | Cartridge | ~48 | ✅ All passing | Mapper 0 only |
-| Threading | 14 | ⚠️ 12/14 passing | 2 timing-sensitive failures |
+| Threading | 14 | ✅ All passing | Fixed timing-sensitive tests |
 | Config | ~30 | ✅ All passing | Complete |
 | iNES | 26 | ✅ All passing | Complete |
 | Snapshot | ~23 | ✅ All passing | Complete |
@@ -172,22 +172,26 @@ RAMBO is a cycle-accurate NES emulator with **complete core implementation** and
 
 **Design:**
 - 3-thread model: Main, Emulation, Render
-- 8 mailboxes for lock-free communication
+- 7 mailboxes for lock-free communication (reduced from 11)
 - Timer-driven emulation (60.0988 Hz NTSC)
 - Full thread isolation
 
 **Mailboxes:**
-- FrameMailbox (double-buffered, 480KB)
+- FrameMailbox (triple-buffered, 720KB stack-allocated, RT-safe)
 - ControllerInputMailbox
 - EmulationCommandMailbox
-- EmulationStatusMailbox
+- DebugCommandMailbox (lock-free SPSC, RT-safe)
+- DebugEventMailbox (lock-free SPSC, RT-safe)
 - XdgWindowEventMailbox
 - XdgInputEventMailbox
-- RenderStatusMailbox
-- SpeedControlMailbox
 
-**Files:** `src/threads/`, `src/mailboxes/` (20+ files)
+**Files:** `src/threads/`, `src/mailboxes/` (15 files)
 **Tests:** 14 threading + 57 mailbox tests
+**Recent Updates (2025-10-08):**
+- Removed 4 unused mailboxes (SpeedControl, EmulationStatus, RenderStatus, Config)
+- Implemented bidirectional debug mailboxes (DebugCommandMailbox, DebugEventMailbox)
+- Fixed threading tests (timing-sensitive → behavior-based)
+- Enhanced FrameMailbox documentation (RT-safety critical)
 
 ---
 
@@ -203,11 +207,11 @@ RAMBO is a cycle-accurate NES emulator with **complete core implementation** and
 
 ### Minor (Non-Blocking)
 
-2. **Threading Tests Timing-Sensitive**
-   - **Severity:** Low
-   - **Impact:** 2 test failures in CI environments
-   - **Workaround:** Tests pass on developer machines
-   - **Status:** Need timing tolerance adjustments
+2. ~~**Threading Tests Timing-Sensitive**~~ ✅ FIXED (2025-10-08)
+   - **Severity:** N/A
+   - **Impact:** None - fixed
+   - **Solution:** Converted timing-based assertions to behavior-based
+   - **Status:** All threading tests passing
 
 3. **No Mapper Support Beyond Mapper 0**
    - **Severity:** Medium

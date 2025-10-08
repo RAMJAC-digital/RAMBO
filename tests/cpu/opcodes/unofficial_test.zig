@@ -404,7 +404,7 @@ test "ANC: various bit 7 states" {
     try testing.expect(flags2.carry); // Bit 7 of result is 1
 }
 
-// ALR edge cases  
+// ALR edge cases
 test "ALR: zero result" {
     const state = helpers.makeState(0xFF, 0, 0, helpers.clearFlags());
     const result = Opcodes.alr(state, 0x01); // 0xFF & 0x01 = 0x01, >> 1 = 0x00

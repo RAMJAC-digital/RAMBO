@@ -18,8 +18,6 @@ test "BIT $2002: N flag reflects VBlank state before clearing" {
     var state = EmulationState.init(&config);
     state.reset();
 
-    std.debug.print("\n=== Test: BIT $2002 with VBlank ===\n", .{});
-
     // Setup: BIT $2002 instruction at 0x0000
     state.bus.ram[0] = 0x2C; // BIT absolute
     state.bus.ram[1] = 0x02; // Low byte of $2002
@@ -27,7 +25,6 @@ test "BIT $2002: N flag reflects VBlank state before clearing" {
     state.cpu.pc = 0x0000;
 
     // Test 1: VBlank clear
-    std.debug.print("\nTest 1: VBlank CLEAR\n", .{});
     state.ppu.status.vblank = false;
 
     // Execute BIT $2002 (4 cycles)
@@ -36,12 +33,10 @@ test "BIT $2002: N flag reflects VBlank state before clearing" {
         state.tick();
     }
 
-    std.debug.print("  After BIT: N={}, VBlank={}\n", .{ state.cpu.p.negative, state.ppu.status.vblank });
     try testing.expect(!state.cpu.p.negative); // N should be 0
     try testing.expect(!state.ppu.status.vblank); // VBlank should still be clear
 
     // Test 2: VBlank set
-    std.debug.print("\nTest 2: VBlank SET\n", .{});
     state.cpu.pc = 0x0000; // Reset PC
     state.ppu.status.vblank = true;
 
@@ -50,11 +45,9 @@ test "BIT $2002: N flag reflects VBlank state before clearing" {
         state.tick();
     }
 
-    std.debug.print("  After BIT: N={}, VBlank={}\n", .{ state.cpu.p.negative, state.ppu.status.vblank });
     try testing.expect(state.cpu.p.negative); // N should be 1 (bit 7 was set)
     try testing.expect(!state.ppu.status.vblank); // VBlank should be cleared by read
 
-    std.debug.print("\n✓ BIT $2002 correctly sets N flag and clears VBlank\n", .{});
 }
 
 test "BIT $2002 then BPL: Loop should exit when VBlank set" {
@@ -63,8 +56,6 @@ test "BIT $2002 then BPL: Loop should exit when VBlank set" {
 
     var state = EmulationState.init(&config);
     state.reset();
-
-    std.debug.print("\n=== Test: BIT $2002 + BPL loop exit ===\n", .{});
 
     // Setup: BIT $2002, BPL -5 loop at 0x0000
     state.bus.ram[0] = 0x2C; // BIT absolute
@@ -76,7 +67,6 @@ test "BIT $2002 then BPL: Loop should exit when VBlank set" {
 
     // Set VBlank
     state.ppu.status.vblank = true;
-    std.debug.print("  VBlank set before loop\n", .{});
 
     // Execute BIT $2002 (4 CPU cycles = 12 PPU cycles)
     var ppu_cycles: usize = 0;
@@ -84,7 +74,6 @@ test "BIT $2002 then BPL: Loop should exit when VBlank set" {
         state.tick();
     }
 
-    std.debug.print("  After BIT: N={}, PC=0x{x:0>4}\n", .{ state.cpu.p.negative, state.cpu.pc });
     try testing.expect(state.cpu.p.negative); // N should be 1
 
     // Execute BPL (2 CPU cycles = 6 PPU cycles, branch not taken)
@@ -93,10 +82,7 @@ test "BIT $2002 then BPL: Loop should exit when VBlank set" {
         state.tick();
     }
 
-    std.debug.print("  After BPL: PC=0x{x:0>4}\n", .{state.cpu.pc});
-
     // PC should have advanced past BPL (not branched)
     try testing.expect(state.cpu.pc == 0x0005); // BPL not taken, PC moved forward
 
-    std.debug.print("\n✓ BPL correctly did NOT branch when N=1\n", .{});
 }

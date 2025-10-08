@@ -46,7 +46,7 @@ pub fn framebufferDiffPercent(fb1: []const u32, fb2: []const u32) f32 {
         if (p1 != p2) diff_count += 1;
     }
     const diff_ratio = @as(f32, @floatFromInt(diff_count)) /
-                       @as(f32, @floatFromInt(fb1.len));
+        @as(f32, @floatFromInt(fb1.len));
     return diff_ratio * 100.0;
 }
 
@@ -111,10 +111,6 @@ pub fn validateFramebuffer(
     if (expect.min_non_zero_pixels) |min_pixels| {
         const count = countNonZeroPixels(framebuffer);
         if (count < min_pixels) {
-            std.debug.print(
-                "Framebuffer validation FAILED: Expected >= {d} non-zero pixels, got {d}\n",
-                .{ min_pixels, count },
-            );
             return error.InsufficientRendering;
         }
     }
@@ -122,10 +118,6 @@ pub fn validateFramebuffer(
     if (expect.max_black_pixels) |max_black| {
         const black_count = countColorPixels(framebuffer, 0x00000000);
         if (black_count > max_black) {
-            std.debug.print(
-                "Framebuffer validation FAILED: Expected <= {d} black pixels, got {d}\n",
-                .{ max_black, black_count },
-            );
             return error.TooManyBlackPixels;
         }
     }
@@ -133,10 +125,6 @@ pub fn validateFramebuffer(
     if (expect.expected_hash) |expected| {
         const actual = framebufferHash(framebuffer);
         if (actual != expected and expect.hash_tolerance == 0.0) {
-            std.debug.print(
-                "Framebuffer validation FAILED: Hash mismatch\n  Expected: 0x{x}\n  Actual:   0x{x}\n",
-                .{ expected, actual },
-            );
             return error.HashMismatch;
         }
     }

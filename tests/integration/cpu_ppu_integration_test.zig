@@ -103,7 +103,7 @@ test "CPU-PPU Integration: Reading PPUSTATUS clears VBlank but preserves latched
     // Reading PPUSTATUS clears VBlank but NMI remains latched
     _ = state.busRead(0x2002);
     try testing.expect(!state.ppu.status.vblank); // VBlank cleared ✓
-    try testing.expect(state.cpu.nmi_line);       // NMI still latched ✓
+    try testing.expect(state.cpu.nmi_line); // NMI still latched ✓
 }
 
 test "CPU-PPU Integration: Reading PPUSTATUS clears VBlank flag" {

@@ -15,9 +15,9 @@ pub const CpuCoreState = StateModule.CpuCoreState;
 pub const OpcodeResult = StateModule.OpcodeResult;
 pub const StatusFlags = StateModule.StatusFlags;
 
-// ============================================================================ 
+// ============================================================================
 // State Builders
-// ============================================================================ 
+// ============================================================================
 
 /// Create a minimal CPU state for testing
 /// Most tests only care about A, flags, and operand
@@ -46,9 +46,9 @@ pub fn makeStateWithAddress(a: u8, x: u8, y: u8, flags: StatusFlags, address: u1
     };
 }
 
-// ============================================================================ 
+// ============================================================================
 // Flag Builders
-// ============================================================================ 
+// ============================================================================
 
 /// Create flags with all explicit settings
 pub fn makeFlags(z: bool, n: bool, c: bool, v: bool) StatusFlags {
@@ -74,16 +74,15 @@ pub fn flagsWithCarry() StatusFlags {
     return makeFlags(false, false, true, false);
 }
 
-// ============================================================================ 
+// ============================================================================
 // Result Verifiers
-// ============================================================================ 
+// ============================================================================
 
 /// Verify a register changed to expected value
 /// Fails if register is null (unchanged) or has wrong value
 pub fn expectRegister(result: OpcodeResult, comptime field: []const u8, expected: u8) !void {
     const value = @field(result, field);
     if (value == null) {
-        std.debug.print("Expected register '{s}' to change, but it was null (unchanged)\n", .{field});
         return error.TestExpectedEqual;
     }
     try testing.expectEqual(expected, value.?);
@@ -93,7 +92,6 @@ pub fn expectRegister(result: OpcodeResult, comptime field: []const u8, expected
 pub fn expectRegisterUnchanged(result: OpcodeResult, comptime field: []const u8) !void {
     const value = @field(result, field);
     if (value != null) {
-        std.debug.print("Expected register '{s}' to be unchanged, but it was set to {}\n", .{ field, value.? });
         return error.TestUnexpectedValue;
     }
 }
@@ -102,7 +100,6 @@ pub fn expectRegisterUnchanged(result: OpcodeResult, comptime field: []const u8)
 /// Fails if flags are null or any flag doesn't match
 pub fn expectFlags(result: OpcodeResult, expected: StatusFlags) !void {
     if (result.flags == null) {
-        std.debug.print("Expected flags to be set, but they were null (unchanged)\n", .{});
         return error.TestExpectedEqual;
     }
 
@@ -110,19 +107,15 @@ pub fn expectFlags(result: OpcodeResult, expected: StatusFlags) !void {
 
     // Check each flag individually for better error messages
     if (flags.zero != expected.zero) {
-        std.debug.print("Zero flag mismatch: expected {}, got {}\n", .{ expected.zero, flags.zero });
         return error.TestExpectedEqual;
     }
     if (flags.negative != expected.negative) {
-        std.debug.print("Negative flag mismatch: expected {}, got {}\n", .{ expected.negative, flags.negative });
         return error.TestExpectedEqual;
     }
     if (flags.carry != expected.carry) {
-        std.debug.print("Carry flag mismatch: expected {}, got {}\n", .{ expected.carry, flags.carry });
         return error.TestExpectedEqual;
     }
     if (flags.overflow != expected.overflow) {
-        std.debug.print("Overflow flag mismatch: expected {}, got {}\n", .{ expected.overflow, flags.overflow });
         return error.TestExpectedEqual;
     }
 }
@@ -131,17 +124,14 @@ pub fn expectFlags(result: OpcodeResult, expected: StatusFlags) !void {
 /// Carry and overflow should be unchanged (null or preserved)
 pub fn expectZN(result: OpcodeResult, zero: bool, negative: bool) !void {
     if (result.flags == null) {
-        std.debug.print("Expected flags to be set, but they were null\n", .{});
         return error.TestExpectedEqual;
     }
 
     const flags = result.flags.?;
     if (flags.zero != zero) {
-        std.debug.print("Zero flag mismatch: expected {}, got {}\n", .{ zero, flags.zero });
         return error.TestExpectedEqual;
     }
     if (flags.negative != negative) {
-        std.debug.print("Negative flag mismatch: expected {}, got {}\n", .{ negative, flags.negative });
         return error.TestExpectedEqual;
     }
 }
@@ -149,7 +139,6 @@ pub fn expectZN(result: OpcodeResult, zero: bool, negative: bool) !void {
 /// Verify bus write occurred with expected address and value
 pub fn expectBusWrite(result: OpcodeResult, address: u16, value: u8) !void {
     if (result.bus_write == null) {
-        std.debug.print("Expected bus write, but bus_write was null\n", .{});
         return error.TestExpectedEqual;
     }
 
@@ -161,8 +150,6 @@ pub fn expectBusWrite(result: OpcodeResult, address: u16, value: u8) !void {
 /// Verify no bus write occurred
 pub fn expectNoBusWrite(result: OpcodeResult) !void {
     if (result.bus_write != null) {
-        const write = result.bus_write.?;
-        std.debug.print("Expected no bus write, but got write to ${X:0>4} = ${X:0>2}\n", .{ write.address, write.value });
         return error.TestUnexpectedValue;
     }
 }
@@ -170,7 +157,6 @@ pub fn expectNoBusWrite(result: OpcodeResult) !void {
 /// Verify push operation with expected value
 pub fn expectPush(result: OpcodeResult, value: u8) !void {
     if (result.push == null) {
-        std.debug.print("Expected push, but push was null\n", .{});
         return error.TestExpectedEqual;
     }
     try testing.expectEqual(value, result.push.?);
@@ -181,9 +167,9 @@ pub fn expectPull(result: OpcodeResult) !void {
     try testing.expect(result.pull);
 }
 
-// ============================================================================ 
+// ============================================================================
 // Common Test Patterns
-// ============================================================================ 
+// ============================================================================
 
 /// Test pattern: Load instruction (LDA, LDX, LDY)
 /// Expects: Register set to operand, Z and N flags updated
@@ -214,7 +200,6 @@ pub fn testStore(
 
     try expectBusWrite(result, state.effective_address, expected_value);
     if (result.flags != null) {
-        std.debug.print("Store instruction should not change flags\n", .{});
         return error.TestUnexpectedValue;
     }
 }

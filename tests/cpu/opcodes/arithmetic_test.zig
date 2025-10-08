@@ -49,9 +49,9 @@ test "ADC: carry out (0xFF + 0x01 = 0x00, C=1)" {
 
     try helpers.expectRegister(result, "a", 0x00);
     try helpers.expectFlags(result, helpers.makeFlags(
-        true,  // Z (result = 0)
+        true, // Z (result = 0)
         false, // N (bit 7 clear)
-        true,  // C (carry out)
+        true, // C (carry out)
         false, // V
     ));
 }
@@ -63,9 +63,9 @@ test "ADC: overflow - positive + positive = negative (0x50 + 0x50 = 0xA0)" {
     try helpers.expectRegister(result, "a", 0xA0);
     try helpers.expectFlags(result, helpers.makeFlags(
         false, // Z
-        true,  // N (bit 7 set)
+        true, // N (bit 7 set)
         false, // C (no carry out)
-        true,  // V (overflow: +80 + +80 = -96)
+        true, // V (overflow: +80 + +80 = -96)
     ));
 }
 
@@ -75,10 +75,10 @@ test "ADC: overflow - negative + negative = positive (0x80 + 0x80 = 0x00)" {
 
     try helpers.expectRegister(result, "a", 0x00);
     try helpers.expectFlags(result, helpers.makeFlags(
-        true,  // Z (result = 0)
+        true, // Z (result = 0)
         false, // N (bit 7 clear)
-        true,  // C (carry out)
-        true,  // V (overflow: -128 + -128 = 0 with overflow)
+        true, // C (carry out)
+        true, // V (overflow: -128 + -128 = 0 with overflow)
     ));
 }
 
@@ -90,7 +90,7 @@ test "ADC: no overflow - positive + negative (0x50 + 0xF0 = 0x40)" {
     try helpers.expectFlags(result, helpers.makeFlags(
         false, // Z
         false, // N
-        true,  // C (carry out)
+        true, // C (carry out)
         false, // V (no overflow: different signs)
     ));
 }
@@ -108,7 +108,7 @@ test "SBC: simple subtraction (0x50 - 0x10 with C=1 = 0x40)" {
     try helpers.expectFlags(result, helpers.makeFlags(
         false, // Z
         false, // N
-        true,  // C (no borrow occurred)
+        true, // C (no borrow occurred)
         false, // V
     ));
 }
@@ -121,7 +121,7 @@ test "SBC: subtraction with borrow in (0x50 - 0x10 with C=0 = 0x3F)" {
     try helpers.expectFlags(result, helpers.makeFlags(
         false, // Z
         false, // N
-        true,  // C (no borrow in final result)
+        true, // C (no borrow in final result)
         false, // V
     ));
 }
@@ -135,7 +135,7 @@ test "SBC: borrow flag cleared (0x10 - 0x20 with C=1 = 0xF0, C=0)" {
     try helpers.expectRegister(result, "a", 0xF0); // Wrapped around
     try helpers.expectFlags(result, helpers.makeFlags(
         false, // Z
-        true,  // N (bit 7 set)
+        true, // N (bit 7 set)
         false, // C (borrow occurred) ← BUG: Current code will set this to true!
         false, // V
     ));
@@ -148,9 +148,9 @@ test "SBC: overflow flag (0x50 - 0x80 with C=1 = overflow)" {
     // +80 - (-128) = +80 + 128 = -48 (overflow)
     try helpers.expectFlags(result, helpers.makeFlags(
         false, // Z
-        true,  // N
+        true, // N
         false, // C
-        true,  // V (overflow)
+        true, // V (overflow)
     ));
 }
 
@@ -160,9 +160,9 @@ test "SBC: zero flag (0x50 - 0x50 with C=1 = 0x00)" {
 
     try helpers.expectRegister(result, "a", 0x00);
     try helpers.expectFlags(result, helpers.makeFlags(
-        true,  // Z (result = 0)
+        true, // Z (result = 0)
         false, // N
-        true,  // C (no borrow)
+        true, // C (no borrow)
         false, // V
     ));
 }

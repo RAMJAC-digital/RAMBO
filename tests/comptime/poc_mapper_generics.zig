@@ -77,7 +77,6 @@ fn Cartridge(comptime MapperType: type) type {
 const PocMapper = struct {
     /// Mapper has no state for this POC
     /// Real mappers (MMC1, etc.) would have state fields here
-
     /// CPU read - uses anytype for cart parameter (structural duck typing)
     pub fn cpuRead(_: *const PocMapper, cart: anytype, address: u16) u8 {
         // Access cart fields directly - no import needed!

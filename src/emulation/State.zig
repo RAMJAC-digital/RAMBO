@@ -436,6 +436,7 @@ pub const EmulationState = struct {
         if (address != 0x4015) {
             self.bus.open_bus = value;
         }
+        self.debuggerCheckMemoryAccess(address, value, false);
         return value;
     }
 
@@ -445,6 +446,32 @@ pub const EmulationState = struct {
             return cart_ref;
         }
         return null;
+    }
+
+    /// Determine if debugger is attached and currently holding execution
+    fn debuggerShouldHalt(self: *const EmulationState) bool {
+        if (self.debugger) |*debugger| {
+            return debugger.isPaused();
+        }
+        return false;
+    }
+
+    /// Public helper for external threads to query pause state
+    pub fn debuggerIsPaused(self: *const EmulationState) bool {
+        return self.debuggerShouldHalt();
+    }
+
+    /// Notify debugger about memory accesses (breakpoint/watchpoint handling)
+    fn debuggerCheckMemoryAccess(self: *EmulationState, address: u16, value: u8, is_write: bool) void {
+        if (self.debugger) |*debugger| {
+            if (!debugger.hasMemoryTriggers()) {
+                return;
+            }
+            const should_break = debugger.checkMemoryAccess(self, address, value, is_write) catch false;
+            if (should_break) {
+                self.debug_break_occurred = true;
+            }
+        }
     }
 
     /// Write to NES memory bus
@@ -530,6 +557,7 @@ pub const EmulationState = struct {
             // Unmapped regions - write ignored
             else => {},
         }
+        self.debuggerCheckMemoryAccess(address, value, true);
     }
 
     /// Read 16-bit value (little-endian)
@@ -634,6 +662,10 @@ pub const EmulationState = struct {
     /// - VBlank timing: Sets at scanline 241, dot 1
     /// - Pre-render scanline: Clears VBlank at scanline -1/261, dot 1
     pub fn tick(self: *EmulationState) void {
+        if (self.debuggerShouldHalt()) {
+            return;
+        }
+
         const current_scanline = self.clock.scanline();
         const current_dot = self.clock.dot();
 
@@ -655,6 +687,9 @@ pub const EmulationState = struct {
             const cpu_result = self.stepCpuCycle();
             if (cpu_result.mapper_irq) {
                 self.cpu.irq_line = true;
+            }
+            if (self.debuggerShouldHalt()) {
+                return;
             }
         }
 
@@ -706,9 +741,7 @@ pub const EmulationState = struct {
         if (flags.frame_complete) {
             result.frame_complete = true;
 
-            if (self.clock.frame() < 300 and flags.rendering_enabled and !self.ppu.rendering_was_enabled) {
-                std.debug.print("[Frame {}] Rendering ENABLED! PPUMASK=0x{x:0>2}, PPUCTRL=0x{x:0>2}\n", .{ self.clock.frame(), self.ppu.mask.toByte(), self.ppu.ctrl.toByte() });
-            }
+            if (self.clock.frame() < 300 and flags.rendering_enabled and !self.ppu.rendering_was_enabled) {}
         }
 
         if (flags.rendering_enabled and !self.ppu.rendering_was_enabled) {
@@ -730,6 +763,10 @@ pub const EmulationState = struct {
         }
 
         if (self.cpu.halted) {
+            return .{};
+        }
+
+        if (self.debuggerShouldHalt()) {
             return .{};
         }
 
@@ -1054,10 +1091,6 @@ pub const EmulationState = struct {
             .indexed_indirect => self.cpu.effective_address, // (ind,X)
             .indirect_indexed => self.cpu.effective_address, // (ind),Y
             else => {
-                std.debug.print("ERROR: RMW with unsupported addressing mode!\n", .{});
-                std.debug.print("  Opcode: ${X:0>2}\n", .{self.cpu.opcode});
-                std.debug.print("  Address mode: {}\n", .{self.cpu.address_mode});
-                std.debug.print("  PC: ${X:0>4}\n", .{self.cpu.pc});
                 unreachable;
             },
         };
@@ -1100,7 +1133,6 @@ pub const EmulationState = struct {
         }
 
         // Branch taken - continue to branchAddOffset (3-4 cycles total)
-        // std.debug.print("[DEBUG] Branch TAKEN (opcode=0x{x:0>2}): PC=0x{x:0>4}, offset=0x{x:0>2}\n", .{ self.cpu.opcode, self.cpu.pc, self.cpu.operand_low });
         return false;
     }
 
@@ -1169,6 +1201,10 @@ pub const EmulationState = struct {
             return;
         }
 
+        if (self.debuggerShouldHalt()) {
+            return;
+        }
+
         // Check for interrupts at the start of instruction fetch
         if (self.cpu.state == .fetch_opcode) {
             CpuLogic.checkInterrupts(&self.cpu);
@@ -1182,8 +1218,7 @@ pub const EmulationState = struct {
                 if (debugger.shouldBreak(self) catch false) {
                     // Breakpoint hit - set flag for EmulationThread to post event
                     self.debug_break_occurred = true;
-                    // Auto-continue execution (EmulationThread will handle pause/inspect)
-                    debugger.continue_();
+                    return;
                 }
             }
         }
@@ -1197,9 +1232,9 @@ pub const EmulationState = struct {
                     _ = self.busRead(self.cpu.pc);
                     break :blk false;
                 },
-                1 => self.pushPch(),  // Cycle 2: Push PC high byte
-                2 => self.pushPcl(),  // Cycle 3: Push PC low byte
-                3 => self.pushStatusInterrupt(),  // Cycle 4: Push P (B=0)
+                1 => self.pushPch(), // Cycle 2: Push PC high byte
+                2 => self.pushPcl(), // Cycle 3: Push PC low byte
+                3 => self.pushStatusInterrupt(), // Cycle 4: Push P (B=0)
                 4 => blk: {
                     // Cycle 5: Fetch vector low byte
                     self.cpu.operand_low = switch (self.cpu.pending_interrupt) {
@@ -1208,7 +1243,7 @@ pub const EmulationState = struct {
                         .reset => self.busRead(0xFFFC),
                         else => unreachable,
                     };
-                    self.cpu.p.interrupt = true;  // Set I flag
+                    self.cpu.p.interrupt = true; // Set I flag
                     break :blk false;
                 },
                 5 => blk: {
@@ -1224,9 +1259,9 @@ pub const EmulationState = struct {
                 6 => blk: {
                     // Cycle 7: Jump to handler
                     self.cpu.pc = (@as(u16, self.cpu.operand_high) << 8) |
-                                  @as(u16, self.cpu.operand_low);
+                        @as(u16, self.cpu.operand_low);
                     self.cpu.pending_interrupt = .none;
-                    break :blk true;  // Complete
+                    break :blk true; // Complete
                 },
                 else => unreachable,
             };
@@ -1848,17 +1883,29 @@ pub const EmulationState = struct {
         const start_cycle = self.clock.ppu_cycles;
         self.frame_complete = false;
 
+        if (self.debuggerShouldHalt()) {
+            return 0;
+        }
+
         // Advance until VBlank (scanline 241, dot 1)
         // NTSC: 89,342 PPU cycles per frame
         // PAL: 106,392 PPU cycles per frame
         while (!self.frame_complete) {
             self.tick();
+            if (self.debuggerShouldHalt()) {
+                break;
+            }
 
             // Safety: Prevent infinite loop if something goes wrong
             // Maximum frame cycles + 1000 cycle buffer
             // This check is RT-safe: unreachable is optimized out in ReleaseFast
             const max_cycles: u64 = 110_000;
-            if (self.clock.ppu_cycles - start_cycle > max_cycles) {
+            const current_cycles = self.clock.ppu_cycles;
+            const elapsed = if (current_cycles >= start_cycle)
+                current_cycles - start_cycle
+            else
+                0;
+            if (elapsed > max_cycles) {
                 if (comptime std.debug.runtime_safety) {
                     unreachable; // Debug mode only, no allocation
                 }

@@ -118,7 +118,6 @@ test "OAM DMA: transfer from page $07 (stack page)" {
     var ts = try makeTestState();
     defer ts.deinit();
     var state = &ts.emu;
-    
 
     // Fill stack region with test pattern
     fillRamPage(state, 0x07, 0x55);
@@ -146,7 +145,6 @@ test "OAM DMA: even cycle start takes exactly 513 CPU cycles" {
     var ts = try makeTestState();
     defer ts.deinit();
     var state = &ts.emu;
-    
 
     // Prepare source data
     fillRamPage(state, 0x03, 0x00);
@@ -179,7 +177,6 @@ test "OAM DMA: odd cycle start takes exactly 514 CPU cycles" {
     var ts = try makeTestState();
     defer ts.deinit();
     var state = &ts.emu;
-    
 
     // Prepare source data
     fillRamPage(state, 0x04, 0x00);
@@ -212,7 +209,6 @@ test "OAM DMA: CPU is stalled during transfer" {
     var ts = try makeTestState();
     defer ts.deinit();
     var state = &ts.emu;
-    
 
     // Prepare source data
     fillRamPage(state, 0x05, 0x00);
@@ -242,7 +238,6 @@ test "OAM DMA: PPU continues running during transfer" {
     var ts = try makeTestState();
     defer ts.deinit();
     var state = &ts.emu;
-    
 
     // Prepare source data
     fillRamPage(state, 0x06, 0x00);
@@ -273,7 +268,6 @@ test "OAM DMA: transfer during VBlank" {
     var ts = try makeTestState();
     defer ts.deinit();
     var state = &ts.emu;
-    
 
     // Advance to VBlank (scanline 241)
     while (state.clock.scanline() != 241) {
@@ -302,7 +296,6 @@ test "OAM DMA: multiple sequential transfers" {
     var ts = try makeTestState();
     defer ts.deinit();
     var state = &ts.emu;
-    
 
     // First transfer from page $02
     fillRamPage(state, 0x02, 0x10);
@@ -330,7 +323,6 @@ test "OAM DMA: offset wraps correctly within page" {
     defer ts.deinit();
     var state = &ts.emu;
 
-
     // Test that all 256 bytes transfer correctly (offset wraps from 0xFF to 0x00)
     // Use page $06 (valid RAM region)
     fillRamPage(state, 0x06, 0xCC);
@@ -351,7 +343,6 @@ test "OAM DMA: DMA state resets after completion" {
     var ts = try makeTestState();
     defer ts.deinit();
     var state = &ts.emu;
-    
 
     // Prepare source data
     fillRamPage(state, 0x02, 0x00);
@@ -376,7 +367,6 @@ test "OAM DMA: transfer integrity with alternating pattern" {
     var ts = try makeTestState();
     defer ts.deinit();
     var state = &ts.emu;
-    
 
     // Fill with alternating 0xAA/0x55 pattern
     for (0..256) |i| {
@@ -406,7 +396,6 @@ test "OAM DMA: reading $4014 returns open bus" {
     var ts = try makeTestState();
     defer ts.deinit();
     var state = &ts.emu;
-    
 
     // Set open bus value
     state.bus.open_bus = 0x42;
@@ -420,7 +409,6 @@ test "OAM DMA: DMA not triggered on read from $4014" {
     var ts = try makeTestState();
     defer ts.deinit();
     var state = &ts.emu;
-    
 
     // Read from $4014 (should not trigger DMA)
     _ = state.busRead(0x4014);

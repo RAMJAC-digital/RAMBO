@@ -16,7 +16,7 @@ test "Frame IRQ: Flag set at cycle 29829" {
     var apu = ApuState.init();
 
     // Setup 4-step mode, IRQ enabled
-    apu.frame_counter_mode = false;  // 4-step mode
+    apu.frame_counter_mode = false; // 4-step mode
     apu.irq_inhibit = false;
     apu.frame_counter_cycles = 29828;
 
@@ -75,12 +75,12 @@ test "Frame IRQ: Flag re-set after reading $4015 at cycle 29829" {
     // Read $4015 - clears flag (side effect)
     const status = ApuLogic.readStatus(&apu);
     _ = status;
-    ApuLogic.clearFrameIrq(&apu);  // Side effect of reading $4015
+    ApuLogic.clearFrameIrq(&apu); // Side effect of reading $4015
     try testing.expect(!apu.frame_irq_flag); // Flag cleared by read
 
     // Tick to cycle 29830 - RE-SETS flag (edge case)
     const should_irq = ApuLogic.tickFrameCounter(&apu);
-    try testing.expect(apu.frame_irq_flag);  // Flag re-set!
+    try testing.expect(apu.frame_irq_flag); // Flag re-set!
     try testing.expect(should_irq);
 }
 
@@ -95,7 +95,7 @@ test "Frame IRQ: Flag re-set after reading $4015 at cycle 29830" {
 
     // Read $4015 at cycle 29829 - clears flag
     _ = ApuLogic.readStatus(&apu);
-    ApuLogic.clearFrameIrq(&apu);  // Side effect
+    ApuLogic.clearFrameIrq(&apu); // Side effect
     try testing.expect(!apu.frame_irq_flag);
 
     // Tick to cycle 29830 - RE-SETS flag
@@ -104,7 +104,7 @@ test "Frame IRQ: Flag re-set after reading $4015 at cycle 29830" {
 
     // Read $4015 at cycle 29830 - clears flag again
     _ = ApuLogic.readStatus(&apu);
-    ApuLogic.clearFrameIrq(&apu);  // Side effect
+    ApuLogic.clearFrameIrq(&apu); // Side effect
     try testing.expect(!apu.frame_irq_flag);
 
     // Tick to cycle 29831 - RE-SETS flag again
@@ -124,11 +124,11 @@ test "Frame IRQ: Flag cleared successfully after cycle 29832" {
 
     // Tick to cycle 29832 - resets frame, no longer sets IRQ
     const should_irq = ApuLogic.tickFrameCounter(&apu);
-    try testing.expect(!should_irq);  // Frame reset, cycles now at 0
+    try testing.expect(!should_irq); // Frame reset, cycles now at 0
 
     // Read $4015 - clears flag
     _ = ApuLogic.readStatus(&apu);
-    ApuLogic.clearFrameIrq(&apu);  // Side effect
+    ApuLogic.clearFrameIrq(&apu); // Side effect
     try testing.expect(!apu.frame_irq_flag);
 
     // Tick - flag stays cleared
@@ -141,7 +141,7 @@ test "Frame IRQ: IRQ inhibit prevents flag setting" {
 
     // Setup 4-step mode, IRQ INHIBITED
     apu.frame_counter_mode = false;
-    apu.irq_inhibit = true;  // IRQ disabled
+    apu.irq_inhibit = true; // IRQ disabled
     apu.frame_counter_cycles = 29828;
 
     // Tick through cycles 29829-29831
@@ -172,7 +172,7 @@ test "Frame IRQ: 5-step mode never sets IRQ flag" {
     var apu = ApuState.init();
 
     // Setup 5-step mode (no IRQ)
-    apu.frame_counter_mode = true;  // 5-step mode
+    apu.frame_counter_mode = true; // 5-step mode
     apu.irq_inhibit = false;
     apu.frame_counter_cycles = 29828;
 

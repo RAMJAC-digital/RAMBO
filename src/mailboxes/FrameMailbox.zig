@@ -14,6 +14,11 @@
 //!
 //! Hardware Reference: NES PPU outputs 256×240 pixels per frame
 //! Format: RGBA u32 (0xAABBGGRR) for Vulkan compatibility
+//!
+//! CRITICAL RT-SAFETY NOTE:
+//! All buffers are stack-allocated (720 KB total) to ensure ZERO heap allocations
+//! during frame rendering. This is essential for real-time performance and prevents
+//! unpredictable latency from memory allocator calls. Do NOT move to heap allocation.
 
 const std = @import("std");
 

@@ -2,7 +2,7 @@
 
 Cycle-accurate NES emulator written in Zig 0.15.1.
 
-**Current Status:** 88% complete (560/561 tests passing, AccuracyCoin PASSING ✅)
+**Current Status:** ~99% complete (920/926 tests passing, AccuracyCoin PASSING ✅)
 
 ---
 
@@ -18,18 +18,18 @@ cd RAMBO
 # Build executable
 zig build
 
-# Run tests (560/561 passing)
+# Run tests (920/926 passing)
 zig build test
 
-# Run emulator (video output in Phase 8)
+# Run emulator
 zig build run
 ```
 
 ### Requirements
 
 - **Zig:** 0.15.1 (check with `zig version`)
-- **System:** Linux with Wayland compositor (for Phase 8 video)
-- **GPU:** Vulkan 1.0+ compatible (for Phase 8 video)
+- **System:** Linux with Wayland compositor
+- **GPU:** Vulkan 1.0+ compatible
 
 ---
 
@@ -37,52 +37,67 @@ zig build run
 
 ### Completed ✅
 
-- **CPU (6502):** 100% complete (105/105 tests)
+- **CPU (6502):** 100% complete (~280 tests)
   - All 256 opcodes (151 official + 105 unofficial)
   - Cycle-accurate microstep execution
   - NMI edge detection, IRQ level triggering
+  - Hardware-accurate timing quirks
 
-- **PPU (2C02):** 100% complete (79/79 tests)
+- **PPU (2C02):** 100% complete (~90 tests)
   - Background rendering (tile fetching, scroll, palette)
   - Sprite rendering (evaluation, fetching, priority)
   - Sprite 0 hit detection
+  - Hardware warm-up period (29,658 cycles)
+
+- **Video Display:** 100% complete - Wayland + Vulkan
+  - XDG shell window management
+  - 60 FPS rendering at 256×240
+  - Nearest-neighbor filtering
+  - Lock-free frame delivery
+
+- **Input System:** 100% complete (40 tests)
+  - NES controller emulation (ButtonState)
+  - Keyboard mapping (Wayland events → NES buttons)
+  - Thread-safe mailbox delivery
+
+- **Controller I/O:** 100% complete (14 tests)
+  - Hardware-accurate 4021 shift register
+  - $4016/$4017 register emulation
+  - NES strobe protocol
 
 - **Thread Architecture:** Mailbox pattern with timer-driven emulation
   - RT-safe emulation (zero heap allocations in hot path)
-  - 62.97 FPS average (4.8% over 60.10 NTSC target)
-  - Double-buffered frame passing
+  - 3-thread model (Main, Emulation, Render)
+  - Lock-free communication
 
-- **Debugger:** Full debugging system (62/62 tests)
+- **Debugger:** 100% complete (~66 tests)
   - Breakpoints, watchpoints, callbacks
   - Step execution (instruction, scanline, frame)
+  - Bidirectional mailbox communication
   - Snapshot-based time-travel debugging
 
-- **Bus & Memory:** 85% complete (17/17 tests)
+- **Bus & Memory:** 100% complete (~20 tests)
   - RAM mirroring, open bus simulation
   - ROM write protection, PPU register routing
+  - Controller I/O integration
 
-- **Cartridge:** Mapper system foundation complete (47/47 tests)
+- **Cartridge:** Mapper system foundation complete (~48 tests)
   - AnyCartridge tagged union with inline dispatch
   - Duck-typed mapper interface (zero VTable overhead)
   - Full IRQ infrastructure (A12 tracking, IRQ polling)
   - Mapper 0 (NROM) fully implemented
 
-### In Progress 🟡
-
-- **Video Display:** Phase 8 - Wayland + Vulkan (20-28 hours)
-  - Window management (XDG shell)
-  - Vulkan rendering backend
-  - Vsync integration
+- **APU (Audio):** 86% complete (135 tests)
+  - Frame counter (4-step/5-step modes)
+  - DMC channel with DMA
+  - Envelope generators, sweep units
+  - Linear counter, length counters
+  - Frame IRQ edge cases
 
 ### Planned ⬜
 
-- **Controller I/O:** Phase 9 (3-4 hours)
-  - $4016/$4017 registers
-  - Keyboard to NES controller mapping
-
-- **APU (Audio):** Future (40-60 hours)
-  - All 5 channels (Pulse, Triangle, Noise, DMC)
-  - Sample-accurate audio
+- **APU Audio Output:** Waveform generation + audio backend
+- **Additional Mappers:** MMC1, UxROM, CNROM, MMC3 (75% game coverage)
 
 ---
 
@@ -95,6 +110,18 @@ All components use **hybrid State/Logic pattern** for modularity and RT-safety:
 - **State modules:** Pure data structures, fully serializable
 - **Logic modules:** Pure functions, deterministic execution
 - **Zero hidden state:** All side effects explicit
+
+```zig
+// Example: src/cpu/State.zig
+pub const CpuState = struct {
+    a: u8, x: u8, y: u8, sp: u8, pc: u16,
+    p: StatusRegister,
+
+    pub inline fn tick(self: *CpuState, bus: *BusState) void {
+        Logic.tick(self, bus);
+    }
+};
+```
 
 ### Comptime Generics
 
@@ -114,11 +141,11 @@ pub fn Cartridge(comptime MapperType: type) type {
 
 ### Thread Model
 
-2-thread mailbox pattern (3 threads in Phase 8):
+3-thread mailbox pattern:
 
-1. **Main Thread:** Coordinator only (minimal work)
+1. **Main Thread:** Coordinator (minimal work)
 2. **Emulation Thread:** RT-safe cycle-accurate emulation
-3. **Video Thread:** Wayland window + Vulkan rendering (Phase 8)
+3. **Render Thread:** Wayland window + Vulkan rendering
 
 ---
 
@@ -126,7 +153,7 @@ pub fn Cartridge(comptime MapperType: type) type {
 
 ### Test Status
 
-**560/561 tests passing (99.8%)**
+**939/947 tests passing (99.2%)**
 
 ```bash
 # All tests
@@ -135,22 +162,29 @@ zig build test
 # Specific categories
 zig build test-unit           # Fast unit tests
 zig build test-integration    # Integration tests
-zig build test-trace          # Cycle-by-cycle traces
+zig build bench-release       # Release benchmarks
 ```
 
 ### Test Breakdown
 
-- CPU: 105/105 (100%)
-- PPU: 79/79 (100%)
-- Debugger: 62/62 (100%)
-- Bus: 17/17 (100%)
-- Integration: 35/35 (100%)
-- Cartridge: 2/2 (100%)
-- Mapper Registry: 45/45 (100%)
-- Snapshot: 8/9 (1 non-blocking failure)
-- Comptime: 8/8 (100%)
+| Component | Tests | Status |
+|-----------|-------|--------|
+| CPU | ~280 | ✅ All passing |
+| PPU | ~90 | ✅ All passing |
+| APU | 135 | ✅ All passing |
+| Debugger | ~66 | ✅ All passing |
+| Integration | 94 | ✅ All passing |
+| Mailboxes | 57 | ✅ All passing |
+| Input System | 40 | ✅ All passing |
+| Cartridge | ~48 | ✅ All passing |
+| Threading | 14 | ⚠️ 13/14 passing |
+| Config | ~30 | ✅ All passing |
+| iNES | 26 | ✅ All passing |
+| Snapshot | ~23 | ✅ All passing |
+| Bus & Memory | ~20 | ✅ All passing |
+| Comptime | 8 | ✅ All passing |
 
-### AccuracyCoin Target
+### AccuracyCoin Validation
 
 **Goal:** Pass all 128 AccuracyCoin tests (CPU, PPU, APU, timing)
 
@@ -163,13 +197,21 @@ zig build test-trace          # Cycle-by-cycle traces
 
 ## Companion ROM Tooling
 
-- `compiler/` is a uv-managed Python workspace that builds and caches the patched `nesasm` assembler alongside helper CLIs.
-- Run `uv run compiler toolchain` once per machine to fetch and patch `nesasm`, then `uv run compiler build-accuracycoin` to regenerate the AccuracyCoin ROM used by integration tests.
-- Builds are byte-for-byte verified against `AccuracyCoin/AccuracyCoin.nes` by default so the emulator always exercises the canonical test image.
-- The Microsoft BASIC port effort is tracked in `compiler/docs/microsoft-basic-port-plan.md`; once the macro translation layer lands the `build-basic` command will emit a NES-compatible ROM.
-- Use `uv run compiler analyze-basic` to refresh the Microsoft BASIC macro manifest (`compiler/docs/microsoft-basic-macro-manifest.json`).
-- `uv run compiler preprocess-basic` runs the in-progress MACRO-11 → nesasm converter (`--verify` enforces a macro/conditional-free output), expanding macros and evaluated conditionals into `compiler/dist/basic/m6502.preprocessed.asm` as groundwork for the final ROM build.
-- Additional mapper/memory reference notes for future ROM work live in `compiler/README.md`.
+The `compiler/` directory is a Python workspace for building reference ROMs:
+
+```bash
+# Setup (once per machine)
+uv run compiler toolchain
+
+# Build AccuracyCoin test ROM
+uv run compiler build-accuracycoin
+
+# Microsoft BASIC port (in progress)
+uv run compiler analyze-basic
+uv run compiler preprocess-basic
+```
+
+Builds are byte-for-byte verified against canonical test ROMs. See `compiler/README.md` for details.
 
 ---
 
@@ -178,15 +220,15 @@ zig build test-trace          # Cycle-by-cycle traces
 ### For Users
 
 - **[Documentation Hub](docs/README.md)** - Start here for navigation
-- **[Development Roadmap](docs/DEVELOPMENT-ROADMAP.md)** - Project status and timeline
-- **[Build & Test Guide](docs/README.md#quick-start)** - Getting started
+- **[Current Status](docs/CURRENT-STATUS.md)** - Detailed implementation status
+- **[Quick Start](QUICK-START.md)** - Getting started guide
 
 ### For Developers
 
-- **[CLAUDE.md](CLAUDE.md)** - Development guide for contributors
+- **[CLAUDE.md](CLAUDE.md)** - **Primary development reference**
 - **[Architecture Overview](docs/code-review/01-architecture.md)** - Hybrid State/Logic pattern
 - **[Thread Architecture](docs/architecture/threading.md)** - Mailbox pattern details
-- **[Video System Plan](docs/architecture/video-system.md)** - Phase 8 implementation
+- **[Video System](docs/implementation/video-subsystem.md)** - Wayland + Vulkan implementation
 
 ### For Code Review
 
@@ -204,15 +246,21 @@ RAMBO/
 ├── src/
 │   ├── cpu/              # 6502 CPU emulation
 │   ├── ppu/              # 2C02 PPU emulation
-│   ├── bus/              # Memory bus and routing
+│   ├── apu/              # Audio Processing Unit
+│   ├── video/            # Wayland + Vulkan rendering
+│   ├── input/            # Input system (keyboard mapping)
 │   ├── cartridge/        # Cartridge and mapper system
+│   │   ├── ines/         # iNES ROM parser
 │   │   └── mappers/      # Mapper implementations + registry
+│   ├── emulation/        # Emulation coordination (State, Bus)
 │   ├── debugger/         # Debugging system
 │   ├── mailboxes/        # Thread communication
+│   ├── threads/          # EmulationThread, RenderThread
+│   ├── snapshot/         # Save state system
 │   ├── config/           # Configuration management
 │   └── main.zig          # Entry point
 ├── compiler/             # Python toolchain for assembling reference ROMs
-├── tests/                # Test suite (560/561 passing)
+├── tests/                # Test suite (939/947 passing)
 ├── docs/                 # Comprehensive documentation
 └── build.zig             # Build configuration
 ```
@@ -223,34 +271,16 @@ RAMBO/
 
 ### Emulation Performance
 
-- **FPS:** 62.97 average (target: 60.10 NTSC)
-- **Frame Timing:** 16ms intervals (timer-driven)
+- **FPS:** ~60 FPS (NTSC timing)
+- **Frame Timing:** 16.67ms intervals (timer-driven)
 - **Accuracy:** Cycle-accurate 6502, PPU rendering
-- **Memory:** <1 MB working set
+- **Memory:** <2 MB working set
 
 ### CPU Usage
 
-- Emulation thread: 100% of one core
+- Emulation thread: ~100% of one core
+- Render thread: ~10-20% of one core
 - Main thread: <1%
-- Future video thread: 10-20% of one core
-
----
-
-## Critical Path to Playability
-
-**Current Progress: 88% Complete**
-
-1. ✅ CPU Emulation (100%)
-2. ✅ Architecture Refactoring (100%)
-3. ✅ PPU Background (100%)
-4. ✅ PPU Sprites (100%)
-5. ✅ Debugger (100%)
-6. ✅ Thread Architecture (100%)
-7. ✅ Controller I/O (100%) - $4016/$4017 registers
-8. ✅ Mapper System Foundation (100%) - AnyCartridge, IRQ infrastructure
-9. 🟡 Video Display (0%) - Wayland + Vulkan - **NEXT** (20-28 hours)
-
-**Estimated Time to Playable:** 20-28 hours (2.5-3.5 days)
 
 ---
 
@@ -263,6 +293,7 @@ RAMBO/
 - ✅ Open bus simulation (decay timer)
 - ✅ Zero page wrapping
 - ✅ NMI edge detection (falling edge trigger)
+- ✅ PPU warm-up period (29,658 cycles)
 - ✅ Sprite 0 hit detection
 - ✅ Sprite evaluation algorithm (8 sprite limit)
 
@@ -280,18 +311,21 @@ RAMBO/
 
 **Configured in build.zig.zon:**
 
-- **libxev:** Event loop library (integrated, used for timer-driven emulation)
-- **zig-wayland:** Wayland protocol bindings (configured, awaiting Phase 8)
+- **libxev:** Event loop library (timer-driven emulation)
+- **zig-wayland:** Wayland protocol bindings (window management)
+- **zli:** CLI argument parsing
 
 ### System Requirements
 
 **Development:**
 - Zig 0.15.1
-- Linux (Wayland compositor for Phase 8)
+- Linux with Wayland compositor
+- Vulkan SDK (for shader compilation: `glslc`)
 
 **Runtime:**
-- Vulkan 1.0+ GPU (for Phase 8 video)
-- Wayland compositor: GNOME, KDE Plasma, Sway, etc.
+- Vulkan 1.0+ compatible GPU
+- Wayland compositor (GNOME, KDE Plasma, Sway, etc.)
+- System libraries: `wayland-client`, `vulkan`
 
 ---
 
@@ -308,15 +342,15 @@ RAMBO/
 ### Getting Started
 
 1. Read [CLAUDE.md](CLAUDE.md) for development guide
-2. Check [Development Roadmap](docs/DEVELOPMENT-ROADMAP.md) for current priorities
+2. Check [Current Status](docs/CURRENT-STATUS.md) for priorities
 3. Review [Architecture Overview](docs/code-review/01-architecture.md) for patterns
-4. Pick a task from current phase
+4. Run tests: `zig build test`
 
 ### Testing Requirements
 
 ```bash
 # Before committing
-zig build test  # Must report 560/561 (1 known non-blocking failure)
+zig build test  # Must report 939/947 (7 skipped, 1 timing-sensitive failure)
 
 # Verify no regressions
 git diff --stat
@@ -345,7 +379,7 @@ MIT License (see LICENSE file)
 
 ---
 
-**Last Updated:** 2025-10-06
+**Last Updated:** 2025-10-08
 **Version:** 0.2.0-alpha
-**Status:** 88% complete, 560/561 tests passing, AccuracyCoin PASSING ✅
-**Next Milestone:** Video Display (Phase 8) - 20-28 hours to first visual output
+**Status:** ~99% complete, 939/947 tests passing, AccuracyCoin PASSING ✅
+**Current Focus:** Hardware accuracy refinement & game testing

@@ -49,8 +49,6 @@ test "Bus: Direct RAM write and read" {
         .{ .addr = 0x0701, .value = 0xFF },
     };
 
-    std.debug.print("\n=== Bus Read/Write Verification ===\n", .{});
-
     for (test_cases) |tc| {
         // Write value
         h.harness.state.busWrite(tc.addr, tc.value);
@@ -58,29 +56,15 @@ test "Bus: Direct RAM write and read" {
         // Read it back
         const read_value = h.harness.state.busRead(tc.addr);
 
-        std.debug.print("Address ${X:0>4}: wrote ${X:0>2}, read ${X:0>2} ", .{
-            tc.addr,
-            tc.value,
-            read_value,
-        });
-
-        if (read_value == tc.value) {
-            std.debug.print("✓\n", .{});
-        } else {
-            std.debug.print("✗ FAILED\n", .{});
-        }
+        if (read_value == tc.value) {} else {}
 
         try testing.expectEqual(tc.value, read_value);
     }
-
-    std.debug.print("\n", .{});
 }
 
 test "Bus: CPU reads from RAM correctly" {
     var h = try BusTestHarness.init();
     defer h.deinit();
-
-    std.debug.print("\n=== CPU RAM Read Test ===\n", .{});
 
     // Place LDA immediate instruction: LDA #$42
     h.harness.state.bus.ram[0x0000] = 0xA9; // LDA immediate
@@ -90,27 +74,13 @@ test "Bus: CPU reads from RAM correctly" {
     h.harness.state.cpu.pc = 0x0000;
     const initial_pc = h.harness.state.cpu.pc;
 
-    std.debug.print("Initial PC: ${X:0>4}\n", .{initial_pc});
-    std.debug.print("Initial A:  ${X:0>2}\n", .{h.harness.state.cpu.a});
-    std.debug.print("Instruction bytes: ${X:0>2} ${X:0>2}\n", .{
-        h.harness.state.bus.ram[0],
-        h.harness.state.bus.ram[1],
-    });
-
     // Execute instruction (LDA #$42 takes 2 CPU cycles = 6 PPU cycles)
     // CPU runs at 1/3 PPU speed, so we need to tick 6 times minimum
     var ppu_cycles: u32 = 0;
     var instruction_started = false;
     while (ppu_cycles < 20) : (ppu_cycles += 1) {
         h.harness.state.tick();
-        const cpu_cycle = h.harness.state.clock.cpuCycles();
-        std.debug.print("PPU cycle {}: CPU cycle {}, PC=${X:0>4}, A=${X:0>2}, CPU state={}\n", .{
-            ppu_cycles + 1,
-            cpu_cycle,
-            h.harness.state.cpu.pc,
-            h.harness.state.cpu.a,
-            h.harness.state.cpu.state,
-        });
+        _ = h.harness.state.clock.cpuCycles();
 
         // Track when instruction starts (PC changes)
         if (h.harness.state.cpu.pc != initial_pc) {
@@ -123,9 +93,6 @@ test "Bus: CPU reads from RAM correctly" {
         }
     }
 
-    std.debug.print("Final PC: ${X:0>4}\n", .{h.harness.state.cpu.pc});
-    std.debug.print("Final A:  ${X:0>2}\n", .{h.harness.state.cpu.a});
-
     try testing.expectEqual(@as(u8, 0x42), h.harness.state.cpu.a);
     try testing.expect(h.harness.state.cpu.pc != initial_pc);
 }
@@ -133,8 +100,6 @@ test "Bus: CPU reads from RAM correctly" {
 test "Bus: CPU reads from absolute address" {
     var h = try BusTestHarness.init();
     defer h.deinit();
-
-    std.debug.print("\n=== CPU Absolute Read Test ===\n", .{});
 
     // Place LDA absolute instruction: LDA $0201
     h.harness.state.bus.ram[0x0000] = 0xAD; // LDA absolute
@@ -144,30 +109,16 @@ test "Bus: CPU reads from absolute address" {
     // Put test value at target address
     h.harness.state.busWrite(0x0201, 0x42);
 
-    std.debug.print("Target address $0201 contains: ${X:0>2}\n", .{
-        h.harness.state.busRead(0x0201),
-    });
-
     // Set PC and execute
     h.harness.state.cpu.pc = 0x0000;
     const initial_pc = h.harness.state.cpu.pc;
-
-    std.debug.print("Initial PC: ${X:0>4}\n", .{initial_pc});
-    std.debug.print("Instruction: LDA $0201\n", .{});
 
     // Execute instruction (LDA absolute takes 4 CPU cycles = 12 PPU cycles)
     var ppu_cycles: u32 = 0;
     var instruction_started = false;
     while (ppu_cycles < 20) : (ppu_cycles += 1) {
         h.harness.state.tick();
-        const cpu_cycle = h.harness.state.clock.cpuCycles();
-        std.debug.print("PPU cycle {}: CPU cycle {}, PC=${X:0>4}, A=${X:0>2}, state={}\n", .{
-            ppu_cycles + 1,
-            cpu_cycle,
-            h.harness.state.cpu.pc,
-            h.harness.state.cpu.a,
-            h.harness.state.cpu.state,
-        });
+        _ = h.harness.state.clock.cpuCycles();
 
         if (h.harness.state.cpu.pc != initial_pc) {
             instruction_started = true;
@@ -178,17 +129,12 @@ test "Bus: CPU reads from absolute address" {
         }
     }
 
-    std.debug.print("Final PC: ${X:0>4}\n", .{h.harness.state.cpu.pc});
-    std.debug.print("Final A:  ${X:0>2}\n", .{h.harness.state.cpu.a});
-
     try testing.expectEqual(@as(u8, 0x42), h.harness.state.cpu.a);
 }
 
 test "Bus: CPU indexed addressing works" {
     var h = try BusTestHarness.init();
     defer h.deinit();
-
-    std.debug.print("\n=== CPU Indexed Read Test ===\n", .{});
 
     // Place LDA absolute,X instruction: LDA $0200,X
     h.harness.state.bus.ram[0x0000] = 0xBD; // LDA absolute,X
@@ -201,30 +147,16 @@ test "Bus: CPU indexed addressing works" {
     // Put test value at target address ($0200 + $01 = $0201)
     h.harness.state.busWrite(0x0201, 0x99);
 
-    std.debug.print("X register: ${X:0>2}\n", .{h.harness.state.cpu.x});
-    std.debug.print("Target address $0201 contains: ${X:0>2}\n", .{
-        h.harness.state.busRead(0x0201),
-    });
-
     // Set PC and execute
     h.harness.state.cpu.pc = 0x0000;
     const initial_pc = h.harness.state.cpu.pc;
-
-    std.debug.print("Instruction: LDA $0200,X\n", .{});
 
     // Execute instruction (LDA absolute,X takes 4 CPU cycles = 12 PPU cycles)
     var ppu_cycles: u32 = 0;
     var instruction_started = false;
     while (ppu_cycles < 20) : (ppu_cycles += 1) {
         h.harness.state.tick();
-        const cpu_cycle = h.harness.state.clock.cpuCycles();
-        std.debug.print("PPU cycle {}: CPU cycle {}, PC=${X:0>4}, A=${X:0>2}, state={}\n", .{
-            ppu_cycles + 1,
-            cpu_cycle,
-            h.harness.state.cpu.pc,
-            h.harness.state.cpu.a,
-            h.harness.state.cpu.state,
-        });
+        _ = h.harness.state.clock.cpuCycles();
 
         if (h.harness.state.cpu.pc != initial_pc) {
             instruction_started = true;
@@ -234,8 +166,6 @@ test "Bus: CPU indexed addressing works" {
             break;
         }
     }
-
-    std.debug.print("Final A: ${X:0>2} (expected: $99)\n", .{h.harness.state.cpu.a});
 
     try testing.expectEqual(@as(u8, 0x99), h.harness.state.cpu.a);
 }
