@@ -14,10 +14,8 @@ const std = @import("std");
 const testing = std.testing;
 const RAMBO = @import("RAMBO");
 
-const EmulationState = RAMBO.EmulationState.EmulationState;
-const Config = RAMBO.Config;
+const Harness = RAMBO.TestHarness.Harness;
 const NromCart = RAMBO.CartridgeType;
-const AnyCartridge = RAMBO.AnyCartridge;
 
 /// Create a minimal test ROM that waits for VBlank
 /// ROM structure:
@@ -96,19 +94,14 @@ test "VBlank Wait Loop: CPU successfully waits for and detects VBlank" {
     const rom_data = try createVBlankWaitRom(testing.allocator);
     defer testing.allocator.free(rom_data);
 
-    // Load ROM
+    // Load ROM using Harness
     const cart = try NromCart.loadFromData(testing.allocator, rom_data);
-    const any_cart = AnyCartridge{ .nrom = cart };
 
-    // Initialize emulation
-    var config = Config.Config.init(testing.allocator);
-    defer config.deinit();
+    var harness = try Harness.init();
+    defer harness.deinit();
 
-    var state = EmulationState.init(&config);
-    defer state.deinit();
-
-    state.loadCartridge(any_cart);
-    state.reset();
+    harness.loadNromCartridge(cart);
+    harness.state.reset();
 
     // DEBUG: Verify ROM code is loaded correctly
 
@@ -119,21 +112,21 @@ test "VBlank Wait Loop: CPU successfully waits for and detects VBlank" {
     const max_instructions: usize = 10000; // Safety limit
 
     // Track state transitions to count actual instructions (not PPU cycles)
-    var last_cpu_state: @TypeOf(state.cpu.state) = state.cpu.state;
+    var last_cpu_state: @TypeOf(harness.state.cpu.state) = harness.state.cpu.state;
     var vblank_seen = false;
 
     while (cycles < max_cycles and instruction_count < max_instructions) {
         // Check for VBlank and log first BIT $2002 after VBlank
-        if (!vblank_seen and state.ppu.status.vblank) {
+        if (!vblank_seen and harness.state.ppu.status.vblank) {
             vblank_seen = true;
         }
 
-        state.tick();
+        harness.state.tick();
         cycles += 1;
 
         // Count instructions by detecting TRANSITIONS to fetch_opcode
         // This avoids counting the same instruction 3 times (once per PPU cycle)
-        if (state.cpu.state == .fetch_opcode and last_cpu_state != .fetch_opcode) {
+        if (harness.state.cpu.state == .fetch_opcode and last_cpu_state != .fetch_opcode) {
             instruction_count += 1;
 
             // Log first few BIT instructions after VBlank
@@ -141,18 +134,18 @@ test "VBlank Wait Loop: CPU successfully waits for and detects VBlank" {
 
             // Check success marker every 100 instructions
             if (instruction_count % 100 == 0) {
-                const marker = state.busRead(0x6000);
+                const marker = harness.state.busRead(0x6000);
                 if (marker == 0x42) {
 
                     // Verify PPU registers were set correctly
-                    try testing.expectEqual(@as(u8, 0x80), state.ppu.ctrl.toByte());
-                    try testing.expectEqual(@as(u8, 0x1E), state.ppu.mask.toByte());
+                    try testing.expectEqual(@as(u8, 0x80), harness.state.ppu.ctrl.toByte());
+                    try testing.expectEqual(@as(u8, 0x1E), harness.state.ppu.mask.toByte());
                     return; // Test passed!
                 }
             }
         }
 
-        last_cpu_state = state.cpu.state;
+        last_cpu_state = harness.state.cpu.state;
     }
 
     // If we get here, test failed

@@ -1,46 +1,54 @@
-//! Test to understand seekToScanlineDot behavior
+//! Test to verify Harness seekToScanlineDot behavior
+//!
+//! Validates that seekToScanlineDot correctly positions at exact scanline.dot
+//! and that VBlank flag behavior is correct at boundary conditions.
 
 const std = @import("std");
 const testing = std.testing;
 const RAMBO = @import("RAMBO");
 
-const EmulationState = RAMBO.EmulationState.EmulationState;
-const Config = RAMBO.Config.Config;
+const Harness = RAMBO.TestHarness.Harness;
 
-test "Seek Behavior: What state after seekToScanlineDot(241,1)?" {
-    var config = Config.init(testing.allocator);
-    defer config.deinit();
+test "Seek Behavior: Harness seekToScanlineDot(241,1) sets VBlank correctly" {
+    var harness = try Harness.init();
+    defer harness.deinit();
 
-    var state = EmulationState.init(&config);
-    defer state.deinit();
+    harness.state.ppu.warmup_complete = true;
 
-    state.reset();
-    state.ppu.warmup_complete = true;
+    // Seek to scanline 241, dot 0 (just before VBlank)
+    harness.seekToScanlineDot(241, 0);
 
-    // Manually advance to scanline 241, dot 0
-    while (state.clock.scanline() < 241) {
-        state.tick();
-    }
-
-    // Clock should be at 241, dot 0
-    try testing.expectEqual(@as(u16, 241), state.clock.scanline());
-    try testing.expectEqual(@as(u16, 0), state.clock.dot());
+    // Verify position
+    try testing.expectEqual(@as(u16, 241), harness.getScanline());
+    try testing.expectEqual(@as(u16, 0), harness.getDot());
 
     // VBlank should NOT be set (we're at dot 0, VBlank sets at dot 1)
-    try testing.expect(!state.ppu.status.vblank);
+    try testing.expect(!harness.state.ppu.status.vblank);
 
-    // Now tick ONCE
-    state.tick();
+    // Now tick ONCE to advance to 241.1
+    harness.state.tick();
 
-    // Clock should advance to 241, dot 1
-    try testing.expectEqual(@as(u16, 241), state.clock.scanline());
-    try testing.expectEqual(@as(u16, 1), state.clock.dot());
+    // Verify position advanced
+    try testing.expectEqual(@as(u16, 241), harness.getScanline());
+    try testing.expectEqual(@as(u16, 1), harness.getDot());
 
-    // Has VBlank been set?
-    // If PPU processes AFTER advance: YES (PPU processed dot 1)
-    // If PPU processes BEFORE advance: NO (PPU processed dot 0)
-    const vblank_after_one_tick = state.ppu.status.vblank;
+    // VBlank MUST be set at 241.1
+    try testing.expect(harness.state.ppu.status.vblank);
+}
 
-    // Show the result
-    try testing.expectEqual(true, vblank_after_one_tick);
+test "Seek Behavior: Harness seekToScanlineDot(241,1) direct positioning" {
+    var harness = try Harness.init();
+    defer harness.deinit();
+
+    harness.state.ppu.warmup_complete = true;
+
+    // Seek directly to 241.1 (where VBlank sets)
+    harness.seekToScanlineDot(241, 1);
+
+    // Verify exact position
+    try testing.expectEqual(@as(u16, 241), harness.getScanline());
+    try testing.expectEqual(@as(u16, 1), harness.getDot());
+
+    // VBlank MUST be set
+    try testing.expect(harness.state.ppu.status.vblank);
 }
