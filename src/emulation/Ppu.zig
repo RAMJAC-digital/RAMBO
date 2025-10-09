@@ -141,9 +141,6 @@ pub fn tick(
     // Set VBlank flag at start of VBlank period
     if (scanline == 241 and dot == 1) {
         if (!state.status.vblank) { // Only set if not already set
-            if (DEBUG_VBLANK) {
-                std.debug.print("[VBlank] SET at scanline={}, dot={}\n", .{ scanline, dot });
-            }
             state.status.vblank = true;
             flags.nmi_signal = true; // Signal NMI edge detection to CPU
         }

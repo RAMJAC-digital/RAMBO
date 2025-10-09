@@ -95,9 +95,8 @@ pub inline fn busWrite(state: anytype, address: u16, value: u8) void {
         0x2000...0x3FFF => |addr| {
             const reg = addr & 0x07;
             PpuLogic.writeRegister(&state.ppu, cart_ptr, reg, value);
-            // NOTE: Caller must call refreshPpuNmiLevel() when reg == 0x00
-            // Writing to $2000 (PPUCTRL) can change nmi_enable, which affects NMI generation
-            // We return the register index so the caller can handle this
+            // NOTE: PPUCTRL writes ($2000) are handled by State.busWrite() which records
+            // NMI enable toggles in VBlankLedger for edge detection
         },
 
         // APU and I/O registers ($4000-$4017)

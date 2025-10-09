@@ -84,9 +84,6 @@ pub const EmulationState = struct {
     ppu: PpuState,
     apu: ApuState,
 
-    /// Latched PPU NMI level (asserted while VBlank active and enabled)
-    ppu_nmi_active: bool = false,
-
     /// VBlank timestamp ledger for cycle-accurate NMI edge detection
     /// Records VBlank set/clear, $2002 reads, PPUCTRL writes with master clock timestamps
     /// Decouples CPU NMI latch from readable PPU status flag
@@ -214,7 +211,6 @@ pub const EmulationState = struct {
 
         PpuLogic.reset(&self.ppu);
         self.apu.reset();
-        self.ppu_nmi_active = false;
         self.cpu.nmi_line = false;
     }
 
@@ -226,6 +222,40 @@ pub const EmulationState = struct {
         // - state.vblank_ledger.recordVBlankSet() instead of setting ppu.status.vblank
         // - state.vblank_ledger.recordCtrlToggle() instead of setting ppu.ctrl.nmi_enable
         _ = self;
+    }
+
+    // =========================================================================
+    // Test Helper Functions
+    // =========================================================================
+    // These functions coordinate VBlank flag changes with the VBlankLedger
+    // to ensure tests properly simulate hardware behavior
+
+    /// TEST HELPER: Simulate VBlank flag set with ledger coordination
+    /// Use this in tests instead of manually setting ppu.status.vblank
+    ///
+    /// This ensures both the readable flag AND the ledger span state are synchronized
+    pub fn testSetVBlank(self: *EmulationState) void {
+        self.ppu.status.vblank = true;
+        const nmi_enabled = self.ppu.ctrl.nmi_enable;
+        self.vblank_ledger.recordVBlankSet(self.clock.ppu_cycles, nmi_enabled);
+    }
+
+    /// TEST HELPER: Simulate VBlank flag clear with ledger coordination
+    pub fn testClearVBlank(self: *EmulationState) void {
+        self.ppu.status.vblank = false;
+        self.vblank_ledger.recordVBlankSpanEnd(self.clock.ppu_cycles);
+    }
+
+    /// TEST HELPER: Simulate PPUCTRL NMI enable toggle with ledger coordination
+    /// Use this in tests instead of manually setting ppu.ctrl.nmi_enable
+    pub fn testSetNmiEnable(self: *EmulationState, enabled: bool) void {
+        const old_enabled = self.ppu.ctrl.nmi_enable;
+        self.ppu.ctrl.nmi_enable = enabled;
+        self.vblank_ledger.recordCtrlToggle(
+            self.clock.ppu_cycles,
+            old_enabled,
+            enabled,
+        );
     }
 
     // =========================================================================

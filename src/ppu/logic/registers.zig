@@ -32,9 +32,7 @@ pub fn readRegister(state: *PpuState, cart: ?*AnyCartridge, address: u16) u8 {
             // $2002 PPUSTATUS - Read-only
             const value = state.status.toByte(state.open_bus.value);
 
-            if (DEBUG_PPUSTATUS) {
-                std.debug.print("[PPUSTATUS] Read 0x{X:0>2}, VBlank={} (before clear)\n", .{ value, state.status.vblank });
-            }
+            // Debug disabled for performance
 
             // Side effects:
             // 1. Clear VBlank flag
