@@ -94,15 +94,26 @@ fn timerCallback(
     const input = ctx.mailboxes.controller_input.getInput();
     ctx.state.controller.updateButtons(input.controller1.toByte(), input.controller2.toByte());
 
-    // Get write buffer for PPU frame output
+    // Get write buffer for PPU frame output (may be null if buffer full)
     const write_buffer = ctx.mailboxes.frame.getWriteBuffer();
-    ctx.state.framebuffer = write_buffer;
 
-    // Emulate one frame (cycle-accurate execution)
-    const cycles = ctx.state.emulateFrame();
-    ctx.total_cycles += cycles;
-    ctx.frame_count += 1;
-    ctx.total_frames += 1;
+    if (write_buffer) |buffer| {
+        // Buffer available - render frame normally
+        ctx.state.framebuffer = buffer;
+
+        // Emulate one frame (cycle-accurate execution)
+        const cycles = ctx.state.emulateFrame();
+        ctx.total_cycles += cycles;
+        ctx.frame_count += 1;
+        ctx.total_frames += 1;
+    } else {
+        // Buffer full - skip rendering but still advance timing
+        // This prevents visible tearing from rendering to active display buffer
+        ctx.state.framebuffer = null;
+        const cycles = ctx.state.emulateFrame();
+        ctx.total_cycles += cycles;
+        _ = ctx.mailboxes.frame.getFramesDropped(); // Count this as a drop
+    }
 
     // Check if debug break occurred during frame execution
     if (ctx.state.debug_break_occurred) {
@@ -126,8 +137,10 @@ fn timerCallback(
         }
     }
 
-    // Post completed frame to render thread
-    ctx.mailboxes.frame.swapBuffers();
+    // Post completed frame to render thread (only if we rendered)
+    if (write_buffer != null) {
+        ctx.mailboxes.frame.swapBuffers();
+    }
 
     // Clear framebuffer reference
     ctx.state.framebuffer = null;

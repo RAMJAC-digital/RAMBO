@@ -449,22 +449,31 @@ pub const EmulationState = struct {
 
         self.applyPpuCycleResult(ppu_result);
 
+        // Process APU if this is an APU tick (synchronized with CPU)
+        // IMPORTANT: APU must tick BEFORE CPU to update IRQ state
+        if (step.apu_tick) {
+            const apu_result = self.stepApuCycle();
+            _ = apu_result; // APU updates its own IRQ flags
+        }
+
         // Process CPU if this is a CPU tick
         if (step.cpu_tick) {
+            // Update IRQ line from all sources (level-triggered, reflects current state)
+            // IRQ line is HIGH when ANY source is active
+            // Note: mapper_irq is checked in pollMapperIrq() called from stepCpuCycle()
+            const apu_frame_irq = self.apu.frame_irq_flag;
+            const apu_dmc_irq = self.apu.dmc_irq_flag;
+
+            self.cpu.irq_line = apu_frame_irq or apu_dmc_irq;
+
             const cpu_result = self.stepCpuCycle();
+            // Mapper IRQ is checked after CPU tick
             if (cpu_result.mapper_irq) {
                 self.cpu.irq_line = true;
             }
+
             if (self.debuggerShouldHalt()) {
                 return;
-            }
-        }
-
-        // Process APU if this is an APU tick (synchronized with CPU)
-        if (step.apu_tick) {
-            const apu_result = self.stepApuCycle();
-            if (apu_result.frame_irq or apu_result.dmc_irq) {
-                self.cpu.irq_line = true;
             }
         }
     }

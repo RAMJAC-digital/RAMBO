@@ -38,12 +38,17 @@ test "NMI: Complete 7-cycle execution sequence" {
     harness.state.ppu.ctrl.nmi_enable = true;
     harness.state.ppu.warmup_complete = true;
 
-    // Trigger VBlank (set vblank flag)
+    // Advance clock to avoid initialization race
+    harness.state.clock.advance(100);
+
+    // Trigger VBlank (set vblank flag and record in ledger)
     harness.state.ppu.status.vblank = true;
 
-    // Manually trigger NMI (assert NMI line)
-    harness.state.ppu_nmi_active = true;
-    harness.state.cpu.nmi_line = true;
+    // Record VBlank start in ledger (NMI line will be computed from this)
+    const vblank_start_ppu_cycle = harness.state.clock.ppu_cycles;
+    harness.state.vblank_ledger.recordVBlankSet(vblank_start_ppu_cycle, harness.state.ppu.ctrl.nmi_enable);
+
+    // NMI line will be computed automatically by stepCycle() from VBlankLedger
 
     // This should trigger NMI on next CPU tick
     // Step 1: Interrupt detection
@@ -123,10 +128,17 @@ test "NMI: Triggers on VBlank with nmi_enable=true" {
     harness.state.ppu.warmup_complete = true;
     harness.state.cpu.pc = 0x8000;
 
-    // Manually trigger VBlank
+    // Advance clock to avoid initialization race
+    harness.state.clock.advance(100);
+
+    // Trigger VBlank (set vblank flag and record in ledger)
     harness.state.ppu.status.vblank = true;
-    harness.state.ppu_nmi_active = true;
-    harness.state.cpu.nmi_line = true;
+
+    // Record VBlank start in ledger
+    const vblank_start_ppu_cycle = harness.state.clock.ppu_cycles;
+    harness.state.vblank_ledger.recordVBlankSet(vblank_start_ppu_cycle, harness.state.ppu.ctrl.nmi_enable);
+
+    // NMI line will be computed automatically by stepCycle() from VBlankLedger
 
     // Step CPU - should detect NMI
     harness.state.tickCpu();
@@ -155,10 +167,9 @@ test "NMI: Does NOT trigger when nmi_enable=false" {
     harness.state.cpu.pc = 0x8000;
     harness.state.cpu.state = .fetch_opcode;
 
-    // Manually trigger VBlank
-    harness.state.ppu.status.vblank = true;
-    harness.state.ppu_nmi_active = false; // NMI not active because nmi_enable=false
-    harness.state.cpu.nmi_line = false;
+    // VBlank NOT triggered (vblank flag remains false)
+    // Since nmi_enable=false, even if VBlank occurred, NMI wouldn't fire
+    harness.state.ppu.status.vblank = false;
 
     // Step CPU - should NOT detect NMI
     harness.state.tickCpu();

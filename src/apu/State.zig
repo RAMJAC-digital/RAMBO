@@ -16,7 +16,8 @@ pub const ApuState = struct {
     frame_counter_mode: bool = false,
 
     /// IRQ inhibit flag (bit 6 of $4017)
-    irq_inhibit: bool = false,
+    /// Hardware default: IRQ disabled at power-on (nesdev.org/wiki/APU)
+    irq_inhibit: bool = true,
 
     /// Frame IRQ flag (readable via $4015 bit 6)
     frame_irq_flag: bool = false,

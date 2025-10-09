@@ -55,6 +55,9 @@ test "CPU-PPU Integration: NMI triggered when VBlank flag set and NMI enabled" {
     // Enable NMI in PPUCTRL
     state.busWrite(0x2000, 0x80); // Bit 7 = NMI enable
 
+    // Advance clock to avoid initialization race (both last_set_cycle and last_status_read_cycle start at 0)
+    state.clock.advance(100);
+
     // Simulate VBlank start (as PPU tick would do) using the ledger API
     state.ppu.status.vblank = true;
     state.vblank_ledger.recordVBlankSet(state.clock.ppu_cycles, state.ppu.ctrl.nmi_enable);
@@ -164,6 +167,9 @@ test "CPU-PPU Integration: NMI edge detection (enabling NMI during VBlank)" {
     const state = harness.statePtr();
     const ppu = &state.ppu;
 
+    // Advance clock to avoid initialization race
+    state.clock.advance(100);
+
     // Set VBlank first (without NMI enable) using ledger API
     ppu.status.vblank = true;
     state.vblank_ledger.recordVBlankSet(state.clock.ppu_cycles, state.ppu.ctrl.nmi_enable);
@@ -175,6 +181,9 @@ test "CPU-PPU Integration: NMI edge detection (enabling NMI during VBlank)" {
         state.ppu.status.vblank,
     );
     try testing.expect(!should_assert_nmi);
+
+    // Advance clock before toggling PPUCTRL
+    state.clock.advance(10);
 
     // Now enable NMI - in real hardware, enabling NMI during VBlank triggers NMI
     // This will call recordCtrlToggle via busWrite

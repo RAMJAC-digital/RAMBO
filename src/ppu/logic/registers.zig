@@ -12,6 +12,7 @@ const memory = @import("memory.zig");
 
 // DEBUG: $2002 read diagnostics
 const DEBUG_PPUSTATUS = false;
+const DEBUG_PPU_WRITES = false;
 
 /// Read from PPU register (via CPU memory bus)
 /// Handles register mirroring and open bus behavior
@@ -32,7 +33,9 @@ pub fn readRegister(state: *PpuState, cart: ?*AnyCartridge, address: u16) u8 {
             // $2002 PPUSTATUS - Read-only
             const value = state.status.toByte(state.open_bus.value);
 
-            // Debug disabled for performance
+            if (DEBUG_PPUSTATUS and state.status.vblank) {
+                std.debug.print("[$2002 READ] value=0x{X:0>2}, VBlank FLAG WAS SET, now clearing\n", .{value});
+            }
 
             // Side effects:
             // 1. Clear VBlank flag
@@ -111,7 +114,9 @@ pub fn writeRegister(state: *PpuState, cart: ?*AnyCartridge, address: u16, value
         0x0000 => {
             // $2000 PPUCTRL
             // Ignored during warm-up period (first ~29,658 CPU cycles)
-            if (!state.warmup_complete) return;
+            if (!state.warmup_complete) {
+                return;
+            }
 
             state.ctrl = PpuCtrl.fromByte(value);
 
@@ -123,15 +128,9 @@ pub fn writeRegister(state: *PpuState, cart: ?*AnyCartridge, address: u16, value
             // $2001 PPUMASK
             // Ignored during warm-up period (first ~29,658 CPU cycles)
             if (!state.warmup_complete) {
-                if (DEBUG_PPUSTATUS) {
-                    std.debug.print("[PPUMASK] Write 0x{X:0>2} IGNORED (warmup not complete)\n", .{value});
-                }
                 return;
             }
 
-            if (DEBUG_PPUSTATUS) {
-                std.debug.print("[PPUMASK] Write 0x{X:0>2}, show_bg={}, show_sprites={}\n", .{ value, (value & 0x08) != 0, (value & 0x10) != 0 });
-            }
             state.mask = PpuMask.fromByte(value);
         },
         0x0002 => {

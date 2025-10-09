@@ -7,7 +7,7 @@ const ApuLogic = ApuModule.Logic;
 test "APU: initialization" {
     const apu = ApuState.init();
     try testing.expectEqual(false, apu.frame_counter_mode);
-    try testing.expectEqual(false, apu.irq_inhibit);
+    try testing.expectEqual(true, apu.irq_inhibit); // Hardware default: IRQ disabled at power-on
     try testing.expectEqual(false, apu.frame_irq_flag);
 }
 
