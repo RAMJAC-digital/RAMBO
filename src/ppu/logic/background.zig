@@ -99,7 +99,8 @@ pub fn getBackgroundPixel(state: *PpuState) u8 {
 
     // Apply fine X scroll (0-7)
     // Shift amount is 15 - fine_x (range: 8-15)
-    const shift_amount = @as(u4, 15) - state.internal.x;
+    const fine_x: u8 = state.internal.x;
+    const shift_amount: u4 = @intCast(15 - fine_x);
 
     // Extract bits from pattern shift registers
     const bit0 = (state.bg_state.pattern_shift_lo >> shift_amount) & 1;
