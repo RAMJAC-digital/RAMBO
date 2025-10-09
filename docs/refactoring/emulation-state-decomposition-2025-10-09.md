@@ -8,8 +8,8 @@
 
 ## Status Dashboard
 
-**Current Phase:** Phase 0 - Test Cleanup (0-A, 0-B, 0-C, 0-D Complete, 0-E Next)
-**Overall Progress:** 28% (5/18 sub-phases complete)
+**Current Phase:** Phase 0 - Complete ✅ | Phase 1 - Dead Code Elimination (Ready to Start)
+**Overall Progress:** 33% (6/18 sub-phases complete)
 **Strategy Change:** Clean up tests BEFORE refactoring code (prevents wasted effort)
 
 ### Metrics
@@ -32,7 +32,7 @@
 - [x] 0-B: Analyze 2 failing tests → documented as known issues (COMPLETE - 2025-10-09)
 - [x] 0-C: Consolidate VBlank tests (7 → 4 files, +7 tests, -4 duplicates) (COMPLETE - 2025-10-09)
 - [x] 0-D: Consolidate PPUSTATUS tests (3 → 2 files, +3 tests, -5 duplicates) (COMPLETE - 2025-10-09)
-- [ ] 0-E: Migrate high-priority tests to Harness (8 hours)
+- [x] 0-E: Assess Harness migration needs → DEFERRED to post-Phase 2 (COMPLETE - 2025-10-09)
 
 **Phase 1: Dead Code Elimination (Day 2)**
 - [ ] 1.1: Remove VBlank orphaned files (VBlankState.zig, VBlankFix.zig)
@@ -55,6 +55,51 @@
 ---
 
 ## Extraction Log
+
+### 2025-10-09 - Phase 0-E Complete: Harness Migration Assessment (DEFERRED)
+**Status:** ✅ Assessment Complete → Deferred to Post-Phase 2
+**Action:** Comprehensive analysis of remaining EmulationState tests for Harness migration
+**Decision:** Defer full migration due to complexity and diminishing returns
+
+**Analysis Created:**
+- `docs/refactoring/phase-0e-harness-migration-inventory.md` - Detailed assessment of 21 files
+
+**Files Analyzed:**
+- **21 files** using direct EmulationState
+- **49 tests** across 7 high-priority integration test files
+- **13 files** currently using Harness (21% adoption)
+
+**Key Findings:**
+1. **Target Achieved:** Test file count goal (63 files) reached in Phase 0-D ✅
+2. **Migration Complexity:** Remaining tests are complex integration tests (12-16 hour estimate)
+3. **Timing Risk:** High risk of breaking timing-sensitive tests (NMI, DMA, interrupts)
+4. **Better Timing:** Post-Phase 2 (after EmulationState decomposition) provides more stable API
+
+**Migration Candidates Identified:**
+- **P0 (7 files, 49 tests):** Integration tests (cpu_ppu, nmi, interrupts, DMA)
+- **P1 (3 files):** Additional integration tests
+- **P2 (11 files):** Keep existing patterns (ROM loading, debugger, specialized tests)
+
+**Deferral Rationale:**
+1. Primary Phase 0 goals achieved (test cleanup, consolidation, pattern consistency)
+2. Remaining migrations provide marginal benefit vs high risk
+3. Post-Phase 2 timing allows API stability before complex migrations
+4. Test infrastructure needs enhancements (ROM loading helpers in Harness)
+
+**Recommendation Accepted:** Option A (Assessment Only)
+- ✅ Comprehensive inventory created
+- ✅ Migration complexity documented
+- ✅ Defer to post-Phase 2
+- ✅ Zero disruption to stable test suite
+
+**Phase 0 Summary:**
+- Test files: 77 → 63 (**-18% reduction, target reached**)
+- Tests passing: 936/946 → 939/949 (**+3 net improvement**)
+- Harness adoption: 7 → 13 files (**+86% growth**)
+- Zero coverage loss across all phases
+- All failing tests documented as known issues
+
+**Next:** Phase 1 (Dead Code Elimination)
 
 ### 2025-10-09 - Phase 0-D Complete: PPUSTATUS Test Consolidation
 **Status:** ✅ Complete
