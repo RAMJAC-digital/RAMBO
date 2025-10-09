@@ -149,7 +149,10 @@ fn timerCallback(
     reportProgress(ctx);
 
     // Rearm timer for next frame
-    const frame_duration_ms: u64 = 16_639_267 / 1_000_000; // ~16.6ms
+    // NTSC: 60.0988 Hz = 16,639,267 ns/frame (NESdev wiki: Cycle reference chart)
+    // Convert to milliseconds with proper rounding to preserve precision
+    const frame_duration_ns: u64 = 16_639_267;
+    const frame_duration_ms: u64 = (frame_duration_ns + 500_000) / 1_000_000; // Round to 17ms
     var timer = xev.Timer{};
     timer.run(loop, completion, frame_duration_ms, EmulationContext, ctx, timerCallback);
 
@@ -330,8 +333,10 @@ pub fn threadMain(
     };
 
     // Start timer-driven emulation
-    // NTSC: 60.0988 Hz = 16,639,267 ns per frame ≈ 16.6 ms
-    const frame_duration_ms: u64 = 16_639_267 / 1_000_000;
+    // NTSC: 60.0988 Hz = 16,639,267 ns/frame (NESdev wiki: Cycle reference chart)
+    // Convert to milliseconds with proper rounding to preserve precision
+    const frame_duration_ns: u64 = 16_639_267;
+    const frame_duration_ms: u64 = (frame_duration_ns + 500_000) / 1_000_000; // Round to 17ms
 
     var completion: xev.Completion = undefined;
     timer.run(&loop, &completion, frame_duration_ms, EmulationContext, &ctx, timerCallback);
