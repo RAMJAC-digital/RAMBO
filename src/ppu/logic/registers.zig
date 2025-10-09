@@ -12,7 +12,7 @@ const memory = @import("memory.zig");
 
 // DEBUG: $2002 read diagnostics
 const DEBUG_PPUSTATUS = false;  // Enable to see $2002 reads
-const DEBUG_PPUSTATUS_VBLANK_ONLY = true;  // Only log when VBlank changes
+const DEBUG_PPUSTATUS_VBLANK_ONLY = false;  // Only log when VBlank changes
 const DEBUG_PPU_WRITES = false;
 
 /// Read from PPU register (via CPU memory bus)

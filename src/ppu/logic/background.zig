@@ -104,9 +104,10 @@ pub fn getBackgroundPixel(state: *PpuState, pixel_x: u16) u8 {
     }
 
     // Apply fine X scroll (0-7)
-    // Shift amount is 15 - fine_x (range: 8-15)
-    const fine_x: u8 = state.internal.x;
-    const shift_amount: u4 = @intCast(15 - fine_x);
+    // Hardware: fine X is a 3-bit register (nesdev.org/wiki/PPU_scrolling)
+    // Mask to ensure valid range before arithmetic
+    const fine_x: u8 = state.internal.x & 0x07;
+    const shift_amount: u4 = @intCast(15 - fine_x); // Range: 8-15
 
     // Extract bits from pattern shift registers
     const bit0 = (state.bg_state.pattern_shift_lo >> shift_amount) & 1;

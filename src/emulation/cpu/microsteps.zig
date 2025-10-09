@@ -181,9 +181,15 @@ pub fn pushStatusBrk(state: anytype) bool {
 /// Push status register to stack (for NMI/IRQ - B flag clear)
 /// Hardware interrupts push P with B=0, BRK pushes P with B=1
 /// This allows software to distinguish hardware vs software interrupts
+///
+/// Hardware behavior (nesdev.org/wiki/Status_flags#The_B_flag):
+/// - NMI/IRQ push with B=0, unused=1 (bits 4,5 = 0b01)
+/// - BRK pushes with B=1, unused=1 (bits 4,5 = 0b11)
+/// - RTI can distinguish hardware vs software interrupt by checking bit 4
 pub fn pushStatusInterrupt(state: anytype) bool {
     const stack_addr = 0x0100 | @as(u16, state.cpu.sp);
-    const status = state.cpu.p.toByte() | 0x20; // B=0, unused=1
+    // Mask off B flag (bit 4), then set unused flag (bit 5)
+    const status = (state.cpu.p.toByte() & ~@as(u8, 0x10)) | 0x20; // B=0, unused=1
     state.busWrite(stack_addr, status);
     state.cpu.sp -%= 1;
     return false;
