@@ -26,6 +26,7 @@ const CartridgeModule = @import("../cartridge/Cartridge.zig");
 const RegistryModule = @import("../cartridge/mappers/registry.zig");
 const AnyCartridge = RegistryModule.AnyCartridge;
 const Debugger = @import("../debugger/Debugger.zig");
+const CpuExecution = @import("cpu/execution.zig");
 
 // Cycle result structures
 const CycleResults = @import("state/CycleResults.zig");
@@ -220,7 +221,7 @@ pub const EmulationState = struct {
     }
 
     /// Determine if debugger is attached and currently holding execution
-    fn debuggerShouldHalt(self: *const EmulationState) bool {
+    pub fn debuggerShouldHalt(self: *const EmulationState) bool {
         if (self.debugger) |*debugger| {
             return debugger.isPaused();
         }
@@ -445,33 +446,10 @@ pub const EmulationState = struct {
     }
 
     fn stepCpuCycle(self: *EmulationState) CpuCycleResult {
-        if (!self.ppu.warmup_complete and self.clock.cpuCycles() >= 29658) {
-            self.ppu.warmup_complete = true;
-        }
-
-        if (self.cpu.halted) {
-            return .{};
-        }
-
-        if (self.debuggerShouldHalt()) {
-            return .{};
-        }
-
-        if (self.dmc_dma.rdy_low) {
-            self.tickDmcDma();
-            return .{};
-        }
-
-        if (self.dma.active) {
-            self.tickDma();
-            return .{};
-        }
-
-        self.executeCpuCycle();
-        return .{ .mapper_irq = self.pollMapperIrq() };
+        return CpuExecution.stepCycle(self);
     }
 
-    fn pollMapperIrq(self: *EmulationState) bool {
+    pub fn pollMapperIrq(self: *EmulationState) bool {
         if (self.cart) |*cart| {
             return cart.tickIrq();
         }
@@ -509,155 +487,155 @@ pub const EmulationState = struct {
     // CPU MICROSTEP WRAPPERS
     // Inline delegation to cpu/microsteps.zig for all 40 atomic operations
     // ========================================================================
-    fn fetchOperandLow(self: *EmulationState) bool {
+    pub fn fetchOperandLow(self: *EmulationState) bool {
         return CpuMicrosteps.fetchOperandLow(self);
     }
 
-    fn fetchAbsLow(self: *EmulationState) bool {
+    pub fn fetchAbsLow(self: *EmulationState) bool {
         return CpuMicrosteps.fetchAbsLow(self);
     }
 
-    fn fetchAbsHigh(self: *EmulationState) bool {
+    pub fn fetchAbsHigh(self: *EmulationState) bool {
         return CpuMicrosteps.fetchAbsHigh(self);
     }
 
-    fn addXToZeroPage(self: *EmulationState) bool {
+    pub fn addXToZeroPage(self: *EmulationState) bool {
         return CpuMicrosteps.addXToZeroPage(self);
     }
 
-    fn addYToZeroPage(self: *EmulationState) bool {
+    pub fn addYToZeroPage(self: *EmulationState) bool {
         return CpuMicrosteps.addYToZeroPage(self);
     }
 
-    fn calcAbsoluteX(self: *EmulationState) bool {
+    pub fn calcAbsoluteX(self: *EmulationState) bool {
         return CpuMicrosteps.calcAbsoluteX(self);
     }
 
-    fn calcAbsoluteY(self: *EmulationState) bool {
+    pub fn calcAbsoluteY(self: *EmulationState) bool {
         return CpuMicrosteps.calcAbsoluteY(self);
     }
 
-    fn fixHighByte(self: *EmulationState) bool {
+    pub fn fixHighByte(self: *EmulationState) bool {
         return CpuMicrosteps.fixHighByte(self);
     }
 
-    fn fetchZpBase(self: *EmulationState) bool {
+    pub fn fetchZpBase(self: *EmulationState) bool {
         return CpuMicrosteps.fetchZpBase(self);
     }
 
-    fn addXToBase(self: *EmulationState) bool {
+    pub fn addXToBase(self: *EmulationState) bool {
         return CpuMicrosteps.addXToBase(self);
     }
 
-    fn fetchIndirectLow(self: *EmulationState) bool {
+    pub fn fetchIndirectLow(self: *EmulationState) bool {
         return CpuMicrosteps.fetchIndirectLow(self);
     }
 
-    fn fetchIndirectHigh(self: *EmulationState) bool {
+    pub fn fetchIndirectHigh(self: *EmulationState) bool {
         return CpuMicrosteps.fetchIndirectHigh(self);
     }
 
-    fn fetchZpPointer(self: *EmulationState) bool {
+    pub fn fetchZpPointer(self: *EmulationState) bool {
         return CpuMicrosteps.fetchZpPointer(self);
     }
 
-    fn fetchPointerLow(self: *EmulationState) bool {
+    pub fn fetchPointerLow(self: *EmulationState) bool {
         return CpuMicrosteps.fetchPointerLow(self);
     }
 
-    fn fetchPointerHigh(self: *EmulationState) bool {
+    pub fn fetchPointerHigh(self: *EmulationState) bool {
         return CpuMicrosteps.fetchPointerHigh(self);
     }
 
-    fn addYCheckPage(self: *EmulationState) bool {
+    pub fn addYCheckPage(self: *EmulationState) bool {
         return CpuMicrosteps.addYCheckPage(self);
     }
 
-    fn pullByte(self: *EmulationState) bool {
+    pub fn pullByte(self: *EmulationState) bool {
         return CpuMicrosteps.pullByte(self);
     }
 
-    fn stackDummyRead(self: *EmulationState) bool {
+    pub fn stackDummyRead(self: *EmulationState) bool {
         return CpuMicrosteps.stackDummyRead(self);
     }
 
-    fn pushPch(self: *EmulationState) bool {
+    pub fn pushPch(self: *EmulationState) bool {
         return CpuMicrosteps.pushPch(self);
     }
 
-    fn pushPcl(self: *EmulationState) bool {
+    pub fn pushPcl(self: *EmulationState) bool {
         return CpuMicrosteps.pushPcl(self);
     }
 
-    fn pushStatusBrk(self: *EmulationState) bool {
+    pub fn pushStatusBrk(self: *EmulationState) bool {
         return CpuMicrosteps.pushStatusBrk(self);
     }
 
-    fn pushStatusInterrupt(self: *EmulationState) bool {
+    pub fn pushStatusInterrupt(self: *EmulationState) bool {
         return CpuMicrosteps.pushStatusInterrupt(self);
     }
 
-    fn pullPcl(self: *EmulationState) bool {
+    pub fn pullPcl(self: *EmulationState) bool {
         return CpuMicrosteps.pullPcl(self);
     }
 
-    fn pullPch(self: *EmulationState) bool {
+    pub fn pullPch(self: *EmulationState) bool {
         return CpuMicrosteps.pullPch(self);
     }
 
-    fn pullPchRti(self: *EmulationState) bool {
+    pub fn pullPchRti(self: *EmulationState) bool {
         return CpuMicrosteps.pullPchRti(self);
     }
 
-    fn pullStatus(self: *EmulationState) bool {
+    pub fn pullStatus(self: *EmulationState) bool {
         return CpuMicrosteps.pullStatus(self);
     }
 
-    fn incrementPcAfterRts(self: *EmulationState) bool {
+    pub fn incrementPcAfterRts(self: *EmulationState) bool {
         return CpuMicrosteps.incrementPcAfterRts(self);
     }
 
-    fn jsrStackDummy(self: *EmulationState) bool {
+    pub fn jsrStackDummy(self: *EmulationState) bool {
         return CpuMicrosteps.jsrStackDummy(self);
     }
 
-    fn fetchAbsHighJsr(self: *EmulationState) bool {
+    pub fn fetchAbsHighJsr(self: *EmulationState) bool {
         return CpuMicrosteps.fetchAbsHighJsr(self);
     }
 
-    fn fetchIrqVectorLow(self: *EmulationState) bool {
+    pub fn fetchIrqVectorLow(self: *EmulationState) bool {
         return CpuMicrosteps.fetchIrqVectorLow(self);
     }
 
-    fn fetchIrqVectorHigh(self: *EmulationState) bool {
+    pub fn fetchIrqVectorHigh(self: *EmulationState) bool {
         return CpuMicrosteps.fetchIrqVectorHigh(self);
     }
 
-    fn rmwRead(self: *EmulationState) bool {
+    pub fn rmwRead(self: *EmulationState) bool {
         return CpuMicrosteps.rmwRead(self);
     }
 
-    fn rmwDummyWrite(self: *EmulationState) bool {
+    pub fn rmwDummyWrite(self: *EmulationState) bool {
         return CpuMicrosteps.rmwDummyWrite(self);
     }
 
-    fn branchFetchOffset(self: *EmulationState) bool {
+    pub fn branchFetchOffset(self: *EmulationState) bool {
         return CpuMicrosteps.branchFetchOffset(self);
     }
 
-    fn branchAddOffset(self: *EmulationState) bool {
+    pub fn branchAddOffset(self: *EmulationState) bool {
         return CpuMicrosteps.branchAddOffset(self);
     }
 
-    fn branchFixPch(self: *EmulationState) bool {
+    pub fn branchFixPch(self: *EmulationState) bool {
         return CpuMicrosteps.branchFixPch(self);
     }
 
-    fn jmpIndirectFetchLow(self: *EmulationState) bool {
+    pub fn jmpIndirectFetchLow(self: *EmulationState) bool {
         return CpuMicrosteps.jmpIndirectFetchLow(self);
     }
 
-    fn jmpIndirectFetchHigh(self: *EmulationState) bool {
+    pub fn jmpIndirectFetchHigh(self: *EmulationState) bool {
         return CpuMicrosteps.jmpIndirectFetchHigh(self);
     }
 
@@ -667,564 +645,7 @@ pub const EmulationState = struct {
     /// Execute CPU micro-operations for the current cycle.
     /// Caller is responsible for clock management.
     fn executeCpuCycle(self: *EmulationState) void {
-        // Clock advancement happens in tick() - not here
-        // This keeps timing management centralized
-
-        // Check if PPU warm-up period has completed (29,658 CPU cycles)
-        // During warm-up, PPU ignores writes to $2000/$2001/$2005/$2006
-        // Reference: nesdev.org/wiki/PPU_power_up_state
-        if (!self.ppu.warmup_complete and self.clock.cpuCycles() >= 29658) {
-            self.ppu.warmup_complete = true;
-        }
-
-        // If CPU is halted (JAM/KIL), do nothing until RESET
-        if (self.cpu.halted) {
-            return;
-        }
-
-        if (self.debuggerShouldHalt()) {
-            return;
-        }
-
-        // Check for interrupts at the start of instruction fetch
-        if (self.cpu.state == .fetch_opcode) {
-            CpuLogic.checkInterrupts(&self.cpu);
-            if (self.cpu.pending_interrupt != .none and self.cpu.pending_interrupt != .reset) {
-                CpuLogic.startInterruptSequence(&self.cpu);
-                return;
-            }
-
-            // Check debugger breakpoints/watchpoints (RT-safe, zero allocations)
-            if (self.debugger) |*debugger| {
-                if (debugger.shouldBreak(self) catch false) {
-                    // Breakpoint hit - set flag for EmulationThread to post event
-                    self.debug_break_occurred = true;
-                    return;
-                }
-            }
-        }
-
-        // Handle hardware interrupts (NMI/IRQ/RESET) - 7 cycles
-        // Pattern matches BRK (software interrupt) at line 1241-1250
-        if (self.cpu.state == .interrupt_sequence) {
-            const complete = switch (self.cpu.instruction_cycle) {
-                0 => blk: {
-                    // Cycle 1: Dummy read at current PC (hijack opcode fetch)
-                    _ = self.busRead(self.cpu.pc);
-                    break :blk false;
-                },
-                1 => self.pushPch(), // Cycle 2: Push PC high byte
-                2 => self.pushPcl(), // Cycle 3: Push PC low byte
-                3 => self.pushStatusInterrupt(), // Cycle 4: Push P (B=0)
-                4 => blk: {
-                    // Cycle 5: Fetch vector low byte
-                    self.cpu.operand_low = switch (self.cpu.pending_interrupt) {
-                        .nmi => self.busRead(0xFFFA),
-                        .irq => self.busRead(0xFFFE),
-                        .reset => self.busRead(0xFFFC),
-                        else => unreachable,
-                    };
-                    self.cpu.p.interrupt = true; // Set I flag
-                    break :blk false;
-                },
-                5 => blk: {
-                    // Cycle 6: Fetch vector high byte
-                    self.cpu.operand_high = switch (self.cpu.pending_interrupt) {
-                        .nmi => self.busRead(0xFFFB),
-                        .irq => self.busRead(0xFFFF),
-                        .reset => self.busRead(0xFFFD),
-                        else => unreachable,
-                    };
-                    break :blk false;
-                },
-                6 => blk: {
-                    // Cycle 7: Jump to handler
-                    self.cpu.pc = (@as(u16, self.cpu.operand_high) << 8) |
-                        @as(u16, self.cpu.operand_low);
-                    self.cpu.pending_interrupt = .none;
-                    break :blk true; // Complete
-                },
-                else => unreachable,
-            };
-
-            if (complete) {
-                self.cpu.state = .fetch_opcode;
-                self.cpu.instruction_cycle = 0;
-            } else {
-                self.cpu.instruction_cycle += 1;
-            }
-            return;
-        }
-
-        // Cycle 1: Always fetch opcode
-        if (self.cpu.state == .fetch_opcode) {
-            self.cpu.opcode = self.busRead(self.cpu.pc);
-            self.cpu.data_bus = self.cpu.opcode;
-            self.cpu.pc +%= 1;
-
-            const entry = CpuModule.dispatch.DISPATCH_TABLE[self.cpu.opcode];
-            self.cpu.address_mode = entry.info.mode;
-
-            // Determine if addressing cycles needed (inline logic, no arrays)
-            // IMPORTANT: Control flow opcodes (JSR/RTS/RTI/BRK/PHA/PLA/PHP/PLP) have custom microstep
-            // sequences even though they're marked as .implied or .absolute in the decode table
-            const needs_addressing = switch (self.cpu.opcode) {
-                0x20, 0x60, 0x40, 0x00, 0x48, 0x68, 0x08, 0x28 => true, // Force addressing state for control flow
-                else => switch (entry.info.mode) {
-                    .implied, .accumulator, .immediate => false,
-                    else => true,
-                },
-            };
-
-            if (needs_addressing) {
-                self.cpu.state = .fetch_operand_low;
-                self.cpu.instruction_cycle = 0;
-            } else {
-                self.cpu.state = .execute;
-            }
-            return;
-        }
-
-        // Handle addressing mode microsteps (inline switch logic)
-        if (self.cpu.state == .fetch_operand_low) {
-            const entry = CpuModule.dispatch.DISPATCH_TABLE[self.cpu.opcode];
-
-            // Check for control flow opcodes with custom microstep sequences FIRST
-            // These have special cycle patterns that don't match their addressing mode
-            const is_control_flow = switch (self.cpu.opcode) {
-                0x20, 0x60, 0x40, 0x00, 0x48, 0x68, 0x08, 0x28 => true, // JSR, RTS, RTI, BRK, PHA, PLA, PHP, PLP
-                else => false,
-            };
-
-            // Call appropriate microstep based on mode and cycle
-            // Returns true if instruction completes early (e.g., branch not taken)
-            const complete = if (is_control_flow) blk: {
-                // Control flow instructions with completely custom microstep sequences
-                break :blk switch (self.cpu.opcode) {
-                    // JSR - 6 cycles
-                    0x20 => switch (self.cpu.instruction_cycle) {
-                        0 => self.fetchAbsLow(),
-                        1 => self.jsrStackDummy(),
-                        2 => self.pushPch(),
-                        3 => self.pushPcl(),
-                        4 => self.fetchAbsHighJsr(),
-                        else => unreachable,
-                    },
-                    // RTS - 6 cycles
-                    0x60 => switch (self.cpu.instruction_cycle) {
-                        0 => self.stackDummyRead(),
-                        1 => self.stackDummyRead(),
-                        2 => self.pullPcl(),
-                        3 => self.pullPch(),
-                        4 => self.incrementPcAfterRts(),
-                        else => unreachable,
-                    },
-                    // RTI - 6 cycles
-                    0x40 => switch (self.cpu.instruction_cycle) {
-                        0 => self.stackDummyRead(),
-                        1 => self.pullStatus(),
-                        2 => self.pullPcl(),
-                        3 => self.pullPch(), // Pull PC high
-                        4 => blk2: { // Dummy read at new PC before completing
-                            _ = self.busRead(self.cpu.pc);
-                            break :blk2 true; // RTI complete
-                        },
-                        else => unreachable,
-                    },
-                    // BRK - 7 cycles
-                    0x00 => switch (self.cpu.instruction_cycle) {
-                        0 => self.fetchOperandLow(),
-                        1 => self.pushPch(),
-                        2 => self.pushPcl(),
-                        3 => self.pushStatusBrk(),
-                        4 => self.fetchIrqVectorLow(),
-                        5 => self.fetchIrqVectorHigh(),
-                        else => unreachable,
-                    },
-                    // PHA - 3 cycles (dummy read, then execute pushes)
-                    0x48 => switch (self.cpu.instruction_cycle) {
-                        0 => self.stackDummyRead(),
-                        else => unreachable,
-                    },
-                    // PHP - 3 cycles (dummy read, then execute pushes)
-                    0x08 => switch (self.cpu.instruction_cycle) {
-                        0 => self.stackDummyRead(),
-                        else => unreachable,
-                    },
-                    // PLA - 4 cycles (dummy read twice, then pull)
-                    0x68 => switch (self.cpu.instruction_cycle) {
-                        0 => self.stackDummyRead(),
-                        1 => self.pullByte(),
-                        else => unreachable,
-                    },
-                    // PLP - 4 cycles
-                    0x28 => switch (self.cpu.instruction_cycle) {
-                        0 => self.stackDummyRead(),
-                        1 => self.pullStatus(),
-                        else => unreachable,
-                    },
-                    else => unreachable,
-                };
-            } else switch (entry.info.mode) {
-                .zero_page => blk: {
-                    if (entry.is_rmw) {
-                        // RMW: 5 cycles (fetch, read, dummy write, execute)
-                        break :blk switch (self.cpu.instruction_cycle) {
-                            0 => self.fetchOperandLow(),
-                            1 => self.rmwRead(),
-                            2 => self.rmwDummyWrite(),
-                            else => unreachable,
-                        };
-                    } else {
-                        break :blk switch (self.cpu.instruction_cycle) {
-                            0 => self.fetchOperandLow(),
-                            else => unreachable,
-                        };
-                    }
-                },
-                .zero_page_x => blk: {
-                    if (entry.is_rmw) {
-                        // RMW: 6 cycles (fetch, add X, read, dummy write, execute)
-                        break :blk switch (self.cpu.instruction_cycle) {
-                            0 => self.fetchOperandLow(),
-                            1 => self.addXToZeroPage(),
-                            2 => self.rmwRead(),
-                            3 => self.rmwDummyWrite(),
-                            else => unreachable,
-                        };
-                    } else {
-                        break :blk switch (self.cpu.instruction_cycle) {
-                            0 => self.fetchOperandLow(),
-                            1 => self.addXToZeroPage(),
-                            else => unreachable,
-                        };
-                    }
-                },
-                .zero_page_y => switch (self.cpu.instruction_cycle) {
-                    0 => self.fetchOperandLow(),
-                    1 => self.addYToZeroPage(),
-                    else => unreachable,
-                },
-                .absolute => blk: {
-                    if (entry.is_rmw) {
-                        // RMW: 6 cycles (fetch low, high, read, dummy write, execute)
-                        break :blk switch (self.cpu.instruction_cycle) {
-                            0 => self.fetchAbsLow(),
-                            1 => self.fetchAbsHigh(),
-                            2 => self.rmwRead(),
-                            3 => self.rmwDummyWrite(),
-                            else => unreachable,
-                        };
-                    } else {
-                        break :blk switch (self.cpu.instruction_cycle) {
-                            0 => self.fetchAbsLow(),
-                            1 => self.fetchAbsHigh(),
-                            else => unreachable,
-                        };
-                    }
-                },
-                .absolute_x => blk: {
-                    // Read vs write have different cycle counts
-                    if (entry.is_rmw) {
-                        // RMW: 7 cycles (fetch low, high, calc+dummy, read, dummy write, execute)
-                        break :blk switch (self.cpu.instruction_cycle) {
-                            0 => self.fetchAbsLow(),
-                            1 => self.fetchAbsHigh(),
-                            2 => self.calcAbsoluteX(),
-                            3 => self.rmwRead(),
-                            4 => self.rmwDummyWrite(),
-                            else => unreachable,
-                        };
-                    } else {
-                        // Regular read: 4-5 cycles (4 if no page cross, 5 if page cross)
-                        break :blk switch (self.cpu.instruction_cycle) {
-                            0 => self.fetchAbsLow(),
-                            1 => self.fetchAbsHigh(),
-                            2 => self.calcAbsoluteX(),
-                            3 => self.fixHighByte(),
-                            else => unreachable,
-                        };
-                    }
-                },
-                .absolute_y => blk: {
-                    if (entry.is_rmw) {
-                        // RMW not used with absolute_y, but handle for completeness
-                        break :blk switch (self.cpu.instruction_cycle) {
-                            0 => self.fetchAbsLow(),
-                            1 => self.fetchAbsHigh(),
-                            2 => self.calcAbsoluteY(),
-                            3 => self.rmwRead(),
-                            4 => self.rmwDummyWrite(),
-                            else => unreachable,
-                        };
-                    } else {
-                        // Regular read: 4-5 cycles (4 if no page cross, 5 if page cross)
-                        break :blk switch (self.cpu.instruction_cycle) {
-                            0 => self.fetchAbsLow(),
-                            1 => self.fetchAbsHigh(),
-                            2 => self.calcAbsoluteY(),
-                            3 => self.fixHighByte(),
-                            else => unreachable,
-                        };
-                    }
-                },
-                .indexed_indirect => blk: {
-                    if (entry.is_rmw) {
-                        // RMW: 8 cycles
-                        break :blk switch (self.cpu.instruction_cycle) {
-                            0 => self.fetchZpBase(),
-                            1 => self.addXToBase(),
-                            2 => self.fetchIndirectLow(),
-                            3 => self.fetchIndirectHigh(),
-                            4 => self.rmwRead(),
-                            5 => self.rmwDummyWrite(),
-                            else => unreachable,
-                        };
-                    } else {
-                        // Regular: 6 cycles
-                        break :blk switch (self.cpu.instruction_cycle) {
-                            0 => self.fetchZpBase(),
-                            1 => self.addXToBase(),
-                            2 => self.fetchIndirectLow(),
-                            3 => self.fetchIndirectHigh(),
-                            else => unreachable,
-                        };
-                    }
-                },
-                .indirect_indexed => blk: {
-                    if (entry.is_rmw) {
-                        // RMW: 8 cycles
-                        break :blk switch (self.cpu.instruction_cycle) {
-                            0 => self.fetchZpPointer(),
-                            1 => self.fetchPointerLow(),
-                            2 => self.fetchPointerHigh(),
-                            3 => self.addYCheckPage(),
-                            4 => self.rmwRead(),
-                            5 => self.rmwDummyWrite(),
-                            else => unreachable,
-                        };
-                    } else {
-                        // Regular read: 5-6 cycles (5 if no page cross, 6 if page cross)
-                        break :blk switch (self.cpu.instruction_cycle) {
-                            0 => self.fetchZpPointer(),
-                            1 => self.fetchPointerLow(),
-                            2 => self.fetchPointerHigh(),
-                            3 => self.addYCheckPage(),
-                            4 => self.fixHighByte(),
-                            else => unreachable,
-                        };
-                    }
-                },
-                .relative => switch (self.cpu.instruction_cycle) {
-                    0 => self.branchFetchOffset(),
-                    1 => self.branchAddOffset(),
-                    2 => self.branchFixPch(),
-                    else => unreachable,
-                },
-                .indirect => switch (self.cpu.instruction_cycle) {
-                    0 => self.fetchAbsLow(),
-                    1 => self.fetchAbsHigh(),
-                    2 => self.jmpIndirectFetchLow(),
-                    3 => self.jmpIndirectFetchHigh(),
-                    else => unreachable,
-                },
-                else => unreachable, // All addressing modes should be handled above
-            };
-
-            self.cpu.instruction_cycle += 1;
-
-            if (complete) {
-                // Instruction completed early (e.g., branch not taken)
-                self.cpu.state = .fetch_opcode;
-                self.cpu.instruction_cycle = 0;
-                return;
-            }
-
-            // Check if addressing is complete and we should move to execute
-            // IMPORTANT: Check for control flow opcodes FIRST before checking addressing mode
-            // These opcodes have conventional addressing modes but custom microstep sequences
-            const addressing_done = if (is_control_flow) blk: {
-                // Control flow instructions complete via their final microstep
-                break :blk switch (self.cpu.opcode) {
-                    0x20 => self.cpu.instruction_cycle >= 5, // JSR (6 cycles total)
-                    0x60 => self.cpu.instruction_cycle >= 5, // RTS (6 cycles total)
-                    0x40 => self.cpu.instruction_cycle >= 5, // RTI (6 cycles total)
-                    0x00 => self.cpu.instruction_cycle >= 6, // BRK (7 cycles total)
-                    0x48, 0x08 => self.cpu.instruction_cycle >= 1, // PHA, PHP (3 cycles total)
-                    0x68, 0x28 => self.cpu.instruction_cycle >= 2, // PLA, PLP (4 cycles total)
-                    else => unreachable,
-                };
-            } else switch (entry.info.mode) {
-                .zero_page => blk: {
-                    if (entry.is_rmw) {
-                        break :blk self.cpu.instruction_cycle >= 3;
-                    } else {
-                        break :blk self.cpu.instruction_cycle >= 1;
-                    }
-                },
-                .zero_page_x => blk: {
-                    if (entry.is_rmw) {
-                        break :blk self.cpu.instruction_cycle >= 4;
-                    } else {
-                        break :blk self.cpu.instruction_cycle >= 2;
-                    }
-                },
-                .zero_page_y => self.cpu.instruction_cycle >= 2,
-                .absolute => blk: {
-                    if (entry.is_rmw) {
-                        break :blk self.cpu.instruction_cycle >= 4;
-                    } else {
-                        break :blk self.cpu.instruction_cycle >= 2;
-                    }
-                },
-                .absolute_x, .absolute_y => blk: {
-                    if (entry.is_rmw) {
-                        break :blk self.cpu.instruction_cycle >= 5;
-                    } else {
-                        // Non-RMW reads: 5 cycles (no page cross) or 6 cycles (page cross)
-                        // After calcAbsolute sets page_crossed flag
-                        const threshold: u8 = if (self.cpu.page_crossed) 4 else 3;
-                        break :blk self.cpu.instruction_cycle >= threshold;
-                    }
-                },
-                .indexed_indirect => blk: {
-                    if (entry.is_rmw) {
-                        break :blk self.cpu.instruction_cycle >= 6;
-                    } else {
-                        break :blk self.cpu.instruction_cycle >= 4;
-                    }
-                },
-                .indirect_indexed => blk: {
-                    if (entry.is_rmw) {
-                        break :blk self.cpu.instruction_cycle >= 6;
-                    } else {
-                        // Non-RMW reads: 6 cycles (no page cross) or 7 cycles (page cross)
-                        // After addYCheckPage sets page_crossed flag
-                        const threshold: u8 = if (self.cpu.page_crossed) 5 else 4;
-                        break :blk self.cpu.instruction_cycle >= threshold;
-                    }
-                },
-                .relative => false, // Branches always complete via return value
-                .indirect => self.cpu.instruction_cycle >= 4,
-                else => true, // implied, accumulator, immediate
-            };
-
-            if (addressing_done) {
-                self.cpu.state = .execute;
-
-                // Conditional fallthrough: ONLY for indexed modes with +1 cycle deviation
-                // Hardware combines final operand read + execute in same cycle for:
-                // - absolute,X / absolute,Y
-                // - indirect,Y (indirect indexed)
-                // Other modes already have correct timing - don't fall through!
-                const dispatch_entry = CpuModule.dispatch.DISPATCH_TABLE[self.cpu.opcode];
-                const should_fallthrough = !dispatch_entry.is_rmw and
-                    (self.cpu.address_mode == .absolute_x or
-                        self.cpu.address_mode == .absolute_y or
-                        self.cpu.address_mode == .indirect_indexed);
-
-                if (should_fallthrough) {
-                    // Fall through to execute state (don't return)
-                    // Indexed modes complete in same tick as final addressing
-                } else {
-                    // All other modes: execute in separate cycle
-                    return;
-                }
-            } else {
-                return;
-            }
-        }
-
-        // Execute instruction (Pure Function Architecture)
-        if (self.cpu.state == .execute) {
-            const entry = CpuModule.dispatch.DISPATCH_TABLE[self.cpu.opcode];
-
-            // Extract operand value based on addressing mode (inline for bus access)
-            const operand = if (entry.is_rmw or entry.is_pull)
-                self.cpu.temp_value
-            else switch (self.cpu.address_mode) {
-                .immediate => self.busRead(self.cpu.pc),
-                .accumulator => self.cpu.a,
-                .implied => 0,
-                .zero_page => self.busRead(@as(u16, self.cpu.operand_low)),
-                .zero_page_x, .zero_page_y => self.busRead(self.cpu.effective_address),
-                .absolute => blk: {
-                    const addr = (@as(u16, self.cpu.operand_high) << 8) | self.cpu.operand_low;
-
-                    // Check if this is a write-only instruction (STA, STX, STY)
-                    // Real 6502 hardware doesn't read before writing for these instructions
-                    const is_write_only = switch (self.cpu.opcode) {
-                        0x8D, // STA absolute
-                        0x8E, // STX absolute
-                        0x8C, // STY absolute
-                        => true,
-                        else => false,
-                    };
-
-                    if (is_write_only) {
-                        break :blk 0; // Operand not used for write-only instructions
-                    }
-
-                    break :blk self.busRead(addr);
-                },
-                // Indexed modes: Always use temp_value (already read in addressing state)
-                // No page cross: calcAbsoluteX/Y read it
-                // Page cross: fixHighByte read it
-                .absolute_x, .absolute_y, .indirect_indexed => self.cpu.temp_value,
-                .indexed_indirect => self.busRead(self.cpu.effective_address),
-                .indirect => unreachable,
-                .relative => self.cpu.operand_low,
-            };
-
-            // Immediate mode: Increment PC after reading operand
-            if (self.cpu.address_mode == .immediate) {
-                self.cpu.pc +%= 1;
-            }
-
-            // Set effective_address for modes that need it
-            switch (self.cpu.address_mode) {
-                .zero_page => {
-                    self.cpu.effective_address = @as(u16, self.cpu.operand_low);
-                },
-                .absolute => {
-                    self.cpu.effective_address = (@as(u16, self.cpu.operand_high) << 8) | @as(u16, self.cpu.operand_low);
-                },
-                else => {},
-            }
-
-            // Convert to core CPU state (6502 registers + effective address)
-            const core_state = CpuLogic.toCoreState(&self.cpu);
-
-            // Call pure opcode function (returns delta structure)
-            const result = entry.operation(core_state, operand);
-
-            // Apply result (inline for bus writes)
-            if (result.a) |new_a| self.cpu.a = new_a;
-            if (result.x) |new_x| self.cpu.x = new_x;
-            if (result.y) |new_y| self.cpu.y = new_y;
-            if (result.sp) |new_sp| self.cpu.sp = new_sp;
-            if (result.pc) |new_pc| self.cpu.pc = new_pc;
-            if (result.flags) |new_flags| self.cpu.p = new_flags;
-
-            if (result.bus_write) |write| {
-                self.busWrite(write.address, write.value);
-                self.cpu.data_bus = write.value;
-            }
-
-            if (result.push) |value| {
-                self.busWrite(0x0100 | @as(u16, self.cpu.sp), value);
-                self.cpu.sp -%= 1;
-                self.cpu.data_bus = value;
-            }
-
-            if (result.halt) {
-                self.cpu.halted = true;
-            }
-
-            // Instruction complete
-            self.cpu.state = .fetch_opcode;
-            self.cpu.instruction_cycle = 0;
-        }
+        CpuExecution.executeCycle(self);
     }
 
     /// Test helper: Tick CPU with clock advancement
@@ -1256,7 +677,7 @@ pub const EmulationState = struct {
     /// - CPU is stalled (no instruction execution)
     /// - PPU continues running normally
     /// - Bus is monopolized by DMA controller
-    fn tickDma(self: *EmulationState) void {
+    pub fn tickDma(self: *EmulationState) void {
         // CPU cycle count removed - time tracked by MasterClock
         // No increment needed - clock is advanced in tick()
 
