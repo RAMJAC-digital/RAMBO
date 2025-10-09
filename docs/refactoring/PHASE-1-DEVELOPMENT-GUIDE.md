@@ -534,14 +534,20 @@ zig build test  # Must pass ≥940/950
 
 | Milestone | Status | Lines Reduced | Tests Updated | Commit |
 |-----------|--------|---------------|---------------|--------|
-| 1.0 Dead Code | ✅ Ready | -256 | 0 | - |
-| 1.1 Data Structures | 🎯 Next | -286 | 3 | - |
-| 1.2 Bus Routing | ⏳ Planned | -280 | 0 | - |
-| 1.3 CPU Microsteps | ⏳ Planned | -320 | 0 | - |
-| 1.4 CPU Execution | ⏳ Planned | -600 | 0 | - |
-| **Total** | **0%** | **-1,742** | **3** | - |
+| 1.0 Dead Code | ✅ Complete | -256 | 0 | ✅ |
+| 1.1 Data Structures | ✅ Complete | -179 | 0 | ✅ |
+| 1.2 Bus Routing | ✅ Complete | -141 | 0 | ✅ |
+| 1.3 CPU Microsteps | ✅ Complete | -203 | 0 | ✅ |
+| 1.4 CPU Execution | ✅ Complete | -579 | 0 | ✅ |
+| 1.5 VulkanLogic | ✅ Complete | -1,712 | 0 | ✅ |
+| 1.6 State.zig Final | ✅ Complete | -630 | 1 | ✅ |
+| 1.7 Config Decomp | ✅ Complete | -290 | 0 | ✅ |
+| 1.8 Quick Wins | ⏳ Planned | TBD | 0 | - |
+| 1.9 Final Validation | ⏳ Planned | N/A | 0 | - |
+| 1.10 Documentation | ⏳ Planned | N/A | 0 | - |
+| **Total** | **73%** | **-3,990** | **1** | **8/11** |
 
-**Current:** Phase 1 Planning Complete, Ready to Begin Milestone 1.0
+**Current:** Milestone 1.7 Complete, Ready for M1.8 (Quick Wins) or Debugger
 
 ---
 

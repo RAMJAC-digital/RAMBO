@@ -12,11 +12,12 @@
 
 | Metric | Current | Target | Status |
 |--------|---------|--------|--------|
-| **Milestones Complete** | 7/10 | 10/10 | 70% ✅ |
-| **State.zig Lines** | 493 | <800 | ✅ M1.6 DONE (-56.1%!) |
+| **Milestones Complete** | 8/10 | 10/10 | 80% ✅ |
+| **State.zig Lines** | 493 | <800 | ✅ M1.6 DONE (-77.8%!) |
 | **VulkanLogic.zig Lines** | 145 | N/A | ✅ M1.5 (-92.2%!) |
+| **Config.zig Lines** | 492 | <800 | ✅ M1.7 DONE (-37.1%!) |
 | **Tests Passing** | 941/951 | ≥940/950 | ✅ Baseline |
-| **Files Created** | 18 (+2,322 lines) | - | ✅ M1.6 |
+| **Files Created** | 22 (+2,666 lines) | - | ✅ M1.7 |
 | **Documentation** | Updated | Current | ✅ Ready |
 
 ---
@@ -723,9 +724,42 @@ Build: 116/120 steps succeeded ✅
 
 ### Milestone 1.7: Config Decomposition
 
-**Status:** ⏳ Not Started
-**Estimated:** 1 day
-**Risk:** 🟢 Low
+**Status:** ✅ **COMPLETE**
+**Completed:** 2025-10-09
+**Time:** 45 minutes
+**Risk:** 🟢 Low - Successfully executed
+
+**What Was Extracted:**
+- ✅ Type definitions → `types/hardware.zig` (189 lines)
+- ✅ PPU/video types → `types/ppu.zig` (109 lines)
+- ✅ Settings types → `types/settings.zig` (22 lines)
+- ✅ Type re-export facade → `types.zig` (24 lines)
+- ✅ Config.zig refactored to use imports and re-exports
+
+**Result:**
+- Config.zig: 782 → 492 lines (-290 lines, -37.1%)
+- New files: 4 (+344 lines)
+- Net change: +54 lines (6.9% overhead for module boundaries)
+- Tests updated: 0 files (re-export pattern preserved API)
+- Tests passing: 941/951 (baseline maintained) ✅
+
+**Technical Notes:**
+- Re-export pattern worked perfectly - zero test changes needed
+- Types organized by concern: hardware, ppu, settings
+- All existing tests pass unchanged through re-exported types
+- Clean module boundaries with minimal overhead
+
+**Directory Structure:**
+```
+src/config/
+├── Config.zig (492 lines) - Facade + Config struct + tests
+├── types.zig (24 lines) - Type re-export facade
+├── types/
+│   ├── hardware.zig (189 lines) - Console/CPU/CIC/Controller types
+│   ├── ppu.zig (109 lines) - PPU/video/rendering types
+│   └── settings.zig (22 lines) - Runtime settings
+└── parser.zig (280 lines) - KDL parser (existing)
+```
 
 ---
 
