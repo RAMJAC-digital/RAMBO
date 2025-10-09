@@ -12,10 +12,10 @@
 
 | Metric | Current | Target | Status |
 |--------|---------|--------|--------|
-| **Milestones Complete** | 1/10 | 10/10 | 10% ✅ |
-| **State.zig Lines** | 2,225 | <800 | 🎯 M1.1 Next |
+| **Milestones Complete** | 2/10 | 10/10 | 20% ✅ |
+| **State.zig Lines** | 2,046 | <800 | 🎯 M1.2 Next |
 | **Tests Passing** | 940/950 | ≥940/950 | ✅ Baseline |
-| **Files Deleted** | 2 (-256 lines) | - | ✅ M1.0 |
+| **Files Created** | 5 (+207 lines) | - | ✅ M1.1 |
 | **Documentation** | Updated | Current | ✅ Ready |
 
 ---
@@ -79,6 +79,45 @@ Skipped: 7 ✅
 
 ---
 
+### 2025-10-09 (Day 0 - Continued) - Milestone 1.1 Started
+
+**Status:** ✅ **COMPLETE**
+**Time:** 45 minutes
+**Work Done:**
+- Created directory structure: `src/emulation/state/` and `src/emulation/state/peripherals/`
+- Extracted CycleResults.zig (22 lines, 3 structs: PpuCycleResult, CpuCycleResult, ApuCycleResult)
+- Extracted BusState.zig (16 lines, 1 struct with ram, open_bus, test_ram fields)
+- Extracted OamDma.zig (45 lines, OAM DMA state machine)
+- Extracted DmcDma.zig (36 lines, DMC DMA state machine)
+- Extracted ControllerState.zig (88 lines, NES controller shift register logic)
+- Updated State.zig to import and re-export all extracted types
+- No test updates required (pub re-exports maintain compatibility)
+
+**Files Created:**
+- `src/emulation/state/CycleResults.zig` (22 lines)
+- `src/emulation/state/BusState.zig` (16 lines)
+- `src/emulation/state/peripherals/OamDma.zig` (45 lines)
+- `src/emulation/state/peripherals/DmcDma.zig` (36 lines)
+- `src/emulation/state/peripherals/ControllerState.zig` (88 lines)
+
+**Impact:**
+- State.zig: 2,225 → 2,046 lines (-179 lines, -8.0%)
+- New files: 5 (+207 lines)
+- Net change: +28 lines (due to file headers and improved documentation)
+- Test changes: 0 files (pub re-exports maintained compatibility)
+
+**Validation:**
+```
+Tests: 940/950 passing ✅
+Failing: 3 (known issues) + 1 (timing-sensitive) ✅
+Skipped: 6 ✅
+Build: 114/118 steps succeeded ✅
+```
+
+**Next:** Begin Milestone 1.2 (Extract Bus Routing)
+
+---
+
 ## Milestone Tracking
 
 ### Milestone 1.0: Dead Code Removal
@@ -110,53 +149,55 @@ Skipped: 7 ✅
 
 ### Milestone 1.1: Extract Pure Data Structures
 
-**Status:** ⏳ Not Started
-**Estimated:** 2-3 days
+**Status:** ✅ **COMPLETE**
+**Completed:** 2025-10-09
+**Time:** 45 minutes
 **Risk:** 🟢 Minimal
 
 #### Subtasks
 
 **1.1.1 Create Directory Structure** (30 min)
-- [ ] `mkdir -p src/emulation/state/peripherals`
-- [ ] No code changes, just scaffolding
+- ✅ `mkdir -p src/emulation/state/peripherals`
+- ✅ No code changes, just scaffolding
 
 **1.1.2 Extract CycleResults.zig** (1 hour)
-- [ ] Create `src/emulation/state/CycleResults.zig`
-- [ ] Update State.zig imports
-- [ ] Run tests (expected: 940/950 passing)
+- ✅ Create `src/emulation/state/CycleResults.zig`
+- ✅ Update State.zig imports
+- ✅ Run tests (expected: 940/950 passing)
 
 **1.1.3 Extract BusState.zig** (1 hour)
-- [ ] Create `src/emulation/state/BusState.zig`
-- [ ] Update State.zig imports
-- [ ] Run tests (expected: 940/950 passing)
+- ✅ Create `src/emulation/state/BusState.zig`
+- ✅ Update State.zig imports
+- ✅ Run tests (expected: 940/950 passing)
 
 **1.1.4 Extract OamDma.zig** (2 hours)
-- [ ] Create `src/emulation/state/peripherals/OamDma.zig`
-- [ ] Update State.zig imports
-- [ ] Update `tests/integration/oam_dma_timing_test.zig`
-- [ ] Run tests (expected: 940/950 passing)
+- ✅ Create `src/emulation/state/peripherals/OamDma.zig`
+- ✅ Update State.zig imports (renamed DmaState → OamDma)
+- ✅ No test updates required (type accessed through EmulationState)
+- ✅ Run tests (expected: 940/950 passing)
 
 **1.1.5 Extract DmcDma.zig** (2 hours)
-- [ ] Create `src/emulation/state/peripherals/DmcDma.zig`
-- [ ] Update State.zig imports
-- [ ] Update `tests/integration/dmc_dma_conflict_test.zig`
-- [ ] Run tests (expected: 940/950 passing)
+- ✅ Create `src/emulation/state/peripherals/DmcDma.zig`
+- ✅ Update State.zig imports (renamed DmcDmaState → DmcDma)
+- ✅ No test updates required
+- ✅ Run tests (expected: 940/950 passing)
 
 **1.1.6 Extract ControllerState.zig** (2 hours)
-- [ ] Create `src/emulation/state/peripherals/ControllerState.zig`
-- [ ] Update State.zig imports
-- [ ] Update `tests/integration/controller_integration_test.zig` (if needed)
-- [ ] Run tests (expected: 940/950 passing)
+- ✅ Create `src/emulation/state/peripherals/ControllerState.zig`
+- ✅ Update State.zig imports with pub re-export
+- ✅ No test updates required (pub re-export maintains compatibility)
+- ✅ Run tests (expected: 940/950 passing)
 
 **1.1.7 Final Validation** (1 hour)
-- [ ] `zig build test` passes ≥940/950
-- [ ] All documentation updated
-- [ ] Git commit created
+- ✅ `zig build test` passes ≥940/950 (exactly 940/950)
+- ✅ All documentation updated
+- ✅ Git commit ready
 
 **Result:**
-- State.zig: 2,225 → 1,939 lines (-286 lines, -12.9%)
-- New files: 5
-- Tests updated: 3 files
+- State.zig: 2,225 → 2,046 lines (-179 lines, -8.0%)
+- New files: 5 (+207 lines)
+- Net: +28 lines (file headers and documentation)
+- Tests updated: 0 files (pub re-exports maintained compatibility)
 
 ---
 
@@ -282,10 +323,10 @@ Skipped: 7 ✅
 |-----------|------------------|-----------------|-----------|
 | Baseline | 2,225 | 2,225 | 0% |
 | 1.0 Dead Code | 2,225 | 2,225 | 0% (different file) |
-| 1.1 Data Structures | 2,225 | 1,939 | -12.9% |
-| 1.2 Bus Routing | 1,939 | 1,659 | -25.4% |
-| 1.3 CPU Microsteps | 1,659 | 1,339 | -39.8% |
-| 1.4 CPU Execution | 1,339 | 739 | -66.8% |
+| 1.1 Data Structures | 2,225 | 2,046 | -8.0% |
+| 1.2 Bus Routing | 2,046 | TBD | TBD |
+| 1.3 CPU Microsteps | TBD | TBD | TBD |
+| 1.4 CPU Execution | TBD | TBD | TBD |
 | **Final Target** | **2,225** | **<800** | **>64%** |
 
 ### Test Health
@@ -301,7 +342,7 @@ Skipped: 7 ✅
 | Milestone | Files Created | Total Lines Added |
 |-----------|---------------|-------------------|
 | 1.0 | 0 (deleted 2) | -256 |
-| 1.1 | 5 | +286 |
+| 1.1 | 5 | +207 |
 | 1.2 | TBD | TBD |
 
 ---

@@ -27,201 +27,22 @@ const RegistryModule = @import("../cartridge/mappers/registry.zig");
 const AnyCartridge = RegistryModule.AnyCartridge;
 const Debugger = @import("../debugger/Debugger.zig");
 
-const PpuCycleResult = struct {
-    frame_complete: bool = false,
-    rendering_enabled: bool = false,
-    nmi_signal: bool = false,      // VBlank just started (edge detection for NMI)
-    vblank_clear: bool = false,    // VBlank period ended
-    a12_rising: bool = false,
-};
+// Cycle result structures
+const CycleResults = @import("state/CycleResults.zig");
+const PpuCycleResult = CycleResults.PpuCycleResult;
+const CpuCycleResult = CycleResults.CpuCycleResult;
+const ApuCycleResult = CycleResults.ApuCycleResult;
 
-const CpuCycleResult = struct {
-    mapper_irq: bool = false,
-};
+// Bus state
+const BusState = @import("state/BusState.zig").BusState;
 
-const ApuCycleResult = struct {
-    frame_irq: bool = false,
-    dmc_irq: bool = false,
-};
+// Peripheral state (re-exported for tests and external use)
+pub const OamDma = @import("state/peripherals/OamDma.zig").OamDma;
+pub const DmcDma = @import("state/peripherals/DmcDma.zig").DmcDma;
+pub const ControllerState = @import("state/peripherals/ControllerState.zig").ControllerState;
 
-/// Memory bus state owned by the emulator runtime
-/// Stores all data required to service CPU/PPU bus accesses.
-pub const BusState = struct {
-    /// Internal RAM: 2KB ($0000-$07FF), mirrored through $0000-$1FFF
-    ram: [2048]u8 = std.mem.zeroes([2048]u8),
 
-    /// Last value observed on the CPU data bus (open bus behaviour)
-    open_bus: u8 = 0,
 
-    /// Optional external RAM used by tests in lieu of a cartridge
-    test_ram: ?[]u8 = null,
-};
-
-/// OAM DMA State Machine
-/// Cycle-accurate DMA transfer from CPU RAM to PPU OAM
-/// Follows microstep pattern for hardware accuracy
-pub const DmaState = struct {
-    /// DMA active flag
-    active: bool = false,
-
-    /// Source page number (written to $4014)
-    /// DMA copies from ($source_page << 8) to ($source_page << 8) + 255
-    source_page: u8 = 0,
-
-    /// Current byte offset within page (0-255)
-    current_offset: u8 = 0,
-
-    /// Cycle counter within DMA transfer
-    /// Used for read/write cycle alternation
-    current_cycle: u16 = 0,
-
-    /// Alignment wait needed (odd CPU cycle start)
-    /// True if DMA triggered on odd cycle (adds 1 extra wait cycle)
-    needs_alignment: bool = false,
-
-    /// Temporary value for read/write pair
-    /// Cycle N (even): Read into temp_value
-    /// Cycle N+1 (odd): Write temp_value to OAM
-    temp_value: u8 = 0,
-
-    /// Trigger DMA transfer
-    /// Called when $4014 is written
-    pub fn trigger(self: *DmaState, page: u8, on_odd_cycle: bool) void {
-        self.active = true;
-        self.source_page = page;
-        self.current_offset = 0;
-        self.current_cycle = 0;
-        self.needs_alignment = on_odd_cycle;
-        self.temp_value = 0;
-    }
-
-    /// Reset DMA state
-    pub fn reset(self: *DmaState) void {
-        self.* = .{};
-    }
-};
-
-/// NES Controller State
-/// Implements cycle-accurate 4021 8-bit shift register behavior
-/// Button order: A, B, Select, Start, Up, Down, Left, Right
-pub const ControllerState = struct {
-    /// Controller 1 shift register
-    /// Bits shift out LSB-first on each read
-    shift1: u8 = 0,
-
-    /// Controller 2 shift register
-    shift2: u8 = 0,
-
-    /// Strobe state (latched buttons or shifting mode)
-    /// True = reload shift registers on each read (strobe high)
-    /// False = shift out bits on each read (strobe low)
-    strobe: bool = false,
-
-    /// Button data for controller 1
-    /// Reloaded into shift1 when strobe goes high
-    buttons1: u8 = 0,
-
-    /// Button data for controller 2
-    buttons2: u8 = 0,
-
-    /// Latch controller buttons into shift registers
-    /// Called when strobe transitions high (bit 0 of $4016 write)
-    pub fn latch(self: *ControllerState) void {
-        self.shift1 = self.buttons1;
-        self.shift2 = self.buttons2;
-    }
-
-    /// Update button data from mailbox
-    /// Called each frame to sync with current input
-    pub fn updateButtons(self: *ControllerState, buttons1: u8, buttons2: u8) void {
-        self.buttons1 = buttons1;
-        self.buttons2 = buttons2;
-        // If strobe is high, immediately reload shift registers
-        if (self.strobe) {
-            self.latch();
-        }
-    }
-
-    /// Read controller 1 serial data (bit 0)
-    /// Returns next bit from shift register
-    pub fn read1(self: *ControllerState) u8 {
-        if (self.strobe) {
-            // Strobe high: continuously reload shift register
-            return self.buttons1 & 0x01;
-        } else {
-            // Strobe low: shift out bits
-            const bit = self.shift1 & 0x01;
-            self.shift1 = (self.shift1 >> 1) | 0x80; // Shift right, fill with 1
-            return bit;
-        }
-    }
-
-    /// Read controller 2 serial data (bit 0)
-    pub fn read2(self: *ControllerState) u8 {
-        if (self.strobe) {
-            return self.buttons2 & 0x01;
-        } else {
-            const bit = self.shift2 & 0x01;
-            self.shift2 = (self.shift2 >> 1) | 0x80;
-            return bit;
-        }
-    }
-
-    /// Write strobe state ($4016 write, bit 0)
-    /// Transition high→low starts shift mode
-    /// Transition low→high latches button state
-    pub fn writeStrobe(self: *ControllerState, value: u8) void {
-        const new_strobe = (value & 0x01) != 0;
-        const rising_edge = new_strobe and !self.strobe;
-
-        self.strobe = new_strobe;
-
-        // Latch on rising edge (0→1 transition)
-        if (rising_edge) {
-            self.latch();
-        }
-    }
-
-    /// Reset controller state
-    pub fn reset(self: *ControllerState) void {
-        self.* = .{};
-    }
-};
-
-/// DMC DMA State Machine
-/// Simulates RDY line (CPU stall) during DMC sample fetch
-/// NTSC (2A03) only: Causes controller/PPU register corruption
-pub const DmcDmaState = struct {
-    /// RDY line active (CPU stalled)
-    rdy_low: bool = false,
-
-    /// Cycles remaining in RDY stall (0-4)
-    /// Hardware: 3 idle cycles + 1 fetch cycle
-    stall_cycles_remaining: u8 = 0,
-
-    /// Sample address to fetch
-    sample_address: u16 = 0,
-
-    /// Sample byte fetched (returned to APU)
-    sample_byte: u8 = 0,
-
-    /// Last CPU read address (for repeat reads during stall)
-    /// This is where corruption happens
-    last_read_address: u16 = 0,
-
-    /// Trigger DMC sample fetch
-    /// Called by APU when it needs next sample byte
-    pub fn triggerFetch(self: *DmcDmaState, address: u16) void {
-        self.rdy_low = true;
-        self.stall_cycles_remaining = 4; // 3 idle + 1 fetch
-        self.sample_address = address;
-    }
-
-    /// Reset DMC DMA state
-    pub fn reset(self: *DmcDmaState) void {
-        self.* = .{};
-    }
-};
 
 /// Complete emulation state (pure data, no hidden state)
 /// This is the core of the RT emulation loop
@@ -256,10 +77,10 @@ pub const EmulationState = struct {
     cart: ?AnyCartridge = null,
 
     /// DMA state machine
-    dma: DmaState = .{},
+    dma: OamDma = .{},
 
     /// DMC DMA state machine (RDY line / DPCM sample fetch)
-    dmc_dma: DmcDmaState = .{},
+    dmc_dma: DmcDma = .{},
 
     /// Controller state (shift registers, strobe, buttons)
     controller: ControllerState = .{},
