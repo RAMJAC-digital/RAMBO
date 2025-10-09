@@ -60,6 +60,11 @@ const DebugIntegration = @import("debug/integration.zig");
 // Emulation helpers (convenience wrappers for testing/benchmarking)
 const Helpers = @import("helpers.zig");
 
+// Timing structures and helpers
+const Timing = @import("state/Timing.zig");
+const TimingStep = Timing.TimingStep;
+const TimingHelpers = Timing.TimingHelpers;
+
 /// Complete emulation state (pure data, no hidden state)
 /// This is the core of the RT emulation loop
 ///
@@ -78,6 +83,9 @@ pub const EmulationState = struct {
 
     /// Latched PPU NMI level (asserted while VBlank active and enabled)
     ppu_nmi_active: bool = false,
+
+    /// NMI latch for edge detection, preventing race conditions.
+    nmi_latched: bool = false,
 
     /// PPU A12 state (for MMC3 IRQ detection)
     /// Bit 12 of PPU address - transitions during tile fetches
@@ -202,6 +210,7 @@ pub const EmulationState = struct {
         self.apu.reset();
         self.ppu_nmi_active = false;
         self.cpu.nmi_line = false;
+        self.nmi_latched = false;
     }
 
     /// Recompute derived signal lines after manual state mutation (testing/debug)
@@ -288,8 +297,69 @@ pub const EmulationState = struct {
         return BusInspection.peekMemory(self, address);
     }
 
+    /// Compute next timing step and advance master clock
+    /// This is the ONLY function that advances timing in the emulator
+    ///
+    /// Architecture:
+    /// - Captures current timing state BEFORE advancing clock
+    /// - Decides how much to advance (1 or 2 cycles for odd frame skip)
+    /// - Returns timing metadata for component coordination
+    ///
+    /// Odd Frame Skip Hardware Behavior:
+    /// - On odd frames with rendering enabled, the PPU skips one cycle
+    /// - Skip occurs at the transition from scanline 261 dot 340 → scanline 0 dot 0
+    /// - Hardware skips the PPU clock tick entirely (no component work for that slot)
+    /// - Result: Odd frames are 89,341 cycles, even frames are 89,342 cycles
+    ///
+    /// Returns: TimingStep with pre-advance scanline/dot and skip flag
+    ///
+    /// References:
+    /// - docs/code-review/clock-advance-refactor-plan.md Section 4.2
+    /// - nesdev.org/wiki/PPU_frame_timing (odd frame skip)
+    inline fn nextTimingStep(self: *EmulationState) TimingStep {
+        // Capture timing state BEFORE clock advancement
+        const current_scanline = self.clock.scanline();
+        const current_dot = self.clock.dot();
+
+        // Check if this is the odd-frame skip point
+        // Hardware: At scanline 261 dot 340, if odd frame + rendering enabled,
+        // the NEXT tick skips dot 0 of scanline 0
+        const skip_slot = TimingHelpers.shouldSkipOddFrame(
+            self.odd_frame,
+            self.rendering_enabled,
+            current_scanline,
+            current_dot,
+        );
+
+        // Advance clock by 1 PPU cycle (always happens)
+        self.clock.advance(1);
+
+        // If skip condition met, advance by additional 1 cycle
+        // This simulates the skipped PPU clock tick
+        if (skip_slot) {
+            self.clock.advance(1);
+        }
+
+        // Build timing step descriptor with PRE-advance position
+        // but POST-advance CPU/APU tick flags (since they depend on new clock position)
+        const step = TimingStep{
+            .scanline = current_scanline,
+            .dot = current_dot,
+            .cpu_tick = self.clock.isCpuTick(), // ← Checked AFTER advance
+            .apu_tick = self.clock.isApuTick(), // ← Checked AFTER advance
+            .skip_slot = skip_slot,
+        };
+
+        return step;
+    }
+
     /// RT emulation loop - advances state by exactly 1 PPU cycle
     /// This is the core tick function for cycle-accurate emulation
+    ///
+    /// Architecture (Post-Refactor):
+    /// - Delegates timing decisions to nextTimingStep() scheduler
+    /// - Early returns on skip_slot (no component work for skipped cycles)
+    /// - Components receive already-advanced clock position
     ///
     /// Timing relationships:
     /// - PPU: Every PPU cycle (1x)
@@ -305,29 +375,33 @@ pub const EmulationState = struct {
     /// - Odd frame skip: Dot 0 of scanline 0 skipped when rendering enabled on odd frames
     /// - VBlank timing: Sets at scanline 241, dot 1
     /// - Pre-render scanline: Clears VBlank at scanline -1/261, dot 1
+    ///
+    /// References:
+    /// - docs/code-review/clock-advance-refactor-plan.md Section 4.3
     pub fn tick(self: *EmulationState) void {
         if (self.debuggerShouldHalt()) {
             return;
         }
 
-        // Always advance by exactly 1 cycle
-        self.clock.advance(1);
+        // Compute next timing step and advance clock
+        // This is the ONLY place clock advancement happens
+        const step = self.nextTimingStep();
 
-        const cpu_tick = self.clock.isCpuTick();
+        // Process PPU at the POST-advance position (current clock state)
+        // VBlank/frame events happen at specific scanline/dot coordinates
+        var ppu_result = self.stepPpuCycle(self.clock.scanline(), self.clock.dot());
 
-        // Hardware quirk: Odd frame skip
-        // On odd frames with rendering enabled, scanline 0 dot 0 is skipped
-        // Check AFTER advancing, and skip processing if at 0.0 on odd frame
-        const skip_odd_frame = self.odd_frame and self.rendering_enabled and
-            self.clock.scanline() == 0 and self.clock.dot() == 0;
-
-        if (!skip_odd_frame) {
-            // Process PPU at current clock position
-            const ppu_result = self.stepPpuCycle();
-            self.applyPpuCycleResult(ppu_result);
+        // Special handling for odd frame skip:
+        // Frame completion happened at (261, 340) but we skipped to (0, 1)
+        // Manually set frame_complete flag since PPU didn't see (261, 340)
+        if (step.skip_slot) {
+            ppu_result.frame_complete = true;
         }
 
-        if (cpu_tick) {
+        self.applyPpuCycleResult(ppu_result);
+
+        // Process CPU if this is a CPU tick
+        if (step.cpu_tick) {
             const cpu_result = self.stepCpuCycle();
             if (cpu_result.mapper_irq) {
                 self.cpu.irq_line = true;
@@ -337,7 +411,8 @@ pub const EmulationState = struct {
             }
         }
 
-        if (cpu_tick) {
+        // Process APU if this is an APU tick (synchronized with CPU)
+        if (step.apu_tick) {
             const apu_result = self.stepApuCycle();
             if (apu_result.frame_irq or apu_result.dmc_irq) {
                 self.cpu.irq_line = true;
@@ -350,6 +425,7 @@ pub const EmulationState = struct {
 
         if (result.frame_complete) {
             self.frame_complete = true;
+            self.odd_frame = !self.odd_frame; // Toggle odd/even frame flag
         }
 
         if (result.a12_rising) {
@@ -361,16 +437,22 @@ pub const EmulationState = struct {
         // Handle VBlank events and update NMI line
         // On VBlank start/end, recompute NMI level based on current PPU state
         // This ensures proper edge detection in CpuLogic.checkInterrupts()
-        if (result.nmi_signal or result.vblank_clear) {
+        if (result.nmi_signal) {
+            if (self.ppu.ctrl.nmi_enable and self.ppu.status.vblank) {
+                self.nmi_latched = true;
+            }
+        }
+        if (result.vblank_clear) {
             self.refreshPpuNmiLevel();
         }
     }
 
-    fn stepPpuCycle(self: *EmulationState) PpuCycleResult {
+    /// Execute one PPU cycle at explicit scanline/dot position
+    /// Post-refactor: All PPU work happens at explicit timing coordinates
+    /// This decouples PPU execution from master clock state
+    fn stepPpuCycle(self: *EmulationState, scanline: u16, dot: u16) PpuCycleResult {
         var result = PpuCycleResult{};
         const cart_ptr = self.cartPtr();
-        const scanline = self.clock.scanline();
-        const dot = self.clock.dot();
 
         const old_a12 = self.ppu_a12_state;
         const flags = PpuRuntime.tick(&self.ppu, scanline, dot, cart_ptr, self.framebuffer);
