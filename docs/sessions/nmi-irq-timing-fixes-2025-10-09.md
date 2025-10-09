@@ -143,10 +143,59 @@ zig build test  # Must pass before moving to next fix
 - Tested Mario Bros ✅ vs Super Mario Bros ❌
 - Created development plan (sequential fixes)
 
+---
+
+## Session Progress
+
+### Phase 1 Completed ✅ (Commits: eec68f9)
+
+**Fix 1: Debug Logging** ✅
+- Disabled `DEBUG_PPUSTATUS_VBLANK_ONLY` flag in registers.zig:15
+- Verified: No $2002 spam in emulator output
+
+**Fix 2: BRK Flag Masking** ✅
+- Fixed `pushStatusInterrupt()` in microsteps.zig:192
+- Changed: `p.toByte() | 0x20` → `(p.toByte() & ~0x10) | 0x20`
+- Hardware: NMI/IRQ must clear B flag, BRK sets it
+- Allows RTI to distinguish hardware vs software interrupts
+
+**Fix 3: Background fine_x Guard** ✅
+- Added mask in background.zig:109
+- Changed: `const fine_x = state.internal.x` → `state.internal.x & 0x07`
+- Prevents panic when fine_x > 7 (3-bit register per nesdev.org)
+
+**Test Results:** 955/967 passing (no regressions from baseline)
+
+### Phase 2 Completed ✅ (Commit: 9440e83)
+
+**Fix 4: Frame Pacing Precision** ✅
+- Fixed EmulationThread.zig timer precision
+- Changed: `16_639_267 / 1_000_000 = 16ms` (truncation)
+- To: `(16_639_267 + 500_000) / 1_000_000 = 17ms` (rounding)
+- Timing error: +4.0% (62.5 FPS) → -2.1% (58.82 FPS)
+- Closer to NTSC 60.0988 Hz
+
+### Outstanding Items
+
+1. **Frame drop counter** - Code review says it's not incrementing (EmulationThread.zig:109-116)
+   - Status: Needs investigation (may be false positive)
+
+2. **PPUSTATUS test failures** - Reset vector issue (tests writing $8000 but CPU starts at $0000)
+   - 2 tests failing in ppustatus_polling_test.zig
+   - Status: Test infrastructure issue, not emulator bug
+
+3. **VBlank wait test failure** - Integration test timing out
+   - vblank_wait_test.zig failing
+   - Status: May be related to VBlank ledger edge cases
+
+4. **Super Mario Bros blank screen** - Ultimate integration test
+   - Mario Bros (World).nes ✅ works
+   - Super Mario Bros (World).nes ❌ blank screen/freeze
+   - Status: Ready for debugger investigation
+
 ### Next Actions
-1. Commit previous sprite 0 work
-2. Fix 1: Disable debug logging
-3. Fix 2: BRK flag masking
-4. Fix 3: fine_x panic guard
-5. Test suite validation
-6. Continue to Phase 2...
+1. ✅ Commit Phase 1 fixes
+2. ✅ Commit Phase 2 fix
+3. Update session documentation
+4. Use built-in debugger to investigate SMB blank screen
+5. Analyze VBlank/NMI timing with real ROM execution
