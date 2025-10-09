@@ -10,6 +10,9 @@ const Cartridge = @import("../cartridge/Cartridge.zig");
 const PpuModule = @import("../ppu/Ppu.zig");
 const RegistryModule = @import("../cartridge/mappers/registry.zig");
 
+// DEBUG: VBlank timing diagnostics
+const DEBUG_VBLANK = false;
+
 const AnyCartridge = RegistryModule.AnyCartridge;
 const PpuState = PpuModule.State.PpuState;
 const PpuLogic = PpuModule.Logic;
@@ -138,6 +141,9 @@ pub fn tick(
     // Set VBlank flag at start of VBlank period
     if (scanline == 241 and dot == 1) {
         if (!state.status.vblank) { // Only set if not already set
+            if (DEBUG_VBLANK) {
+                std.debug.print("[VBlank] SET at scanline={}, dot={}\n", .{ scanline, dot });
+            }
             state.status.vblank = true;
             flags.nmi_signal = true; // Signal NMI edge detection to CPU
         }
@@ -145,6 +151,9 @@ pub fn tick(
 
     // Clear VBlank and other flags at pre-render scanline
     if (scanline == 261 and dot == 1) {
+        if (DEBUG_VBLANK and state.status.vblank) {
+            std.debug.print("[VBlank] CLEAR at scanline={}, dot={}\n", .{ scanline, dot });
+        }
         state.status.vblank = false;  // VBlank DOES clear here on hardware
         state.status.sprite_0_hit = false;
         state.status.sprite_overflow = false;

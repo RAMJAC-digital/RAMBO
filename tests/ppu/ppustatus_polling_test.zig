@@ -130,8 +130,9 @@ test "PPUSTATUS Polling: Multiple polls within VBlank period" {
     var poll_count: usize = 0;
 
     // Poll continuously through VBlank period
-    // From scanline 240.340 to 261.10 (well into pre-render)
-    while (harness.getScanline() <= 261 and harness.getDot() < 20) {
+    // From scanline 240.340 to 261.20 (well into pre-render)
+    // Loop until we reach scanline 261 AND have advanced past dot 340 into the next frame
+    while (harness.getScanline() < 261 or (harness.getScanline() == 261 and harness.getDot() < 20)) {
         const status = harness.state.busRead(0x2002);
 
         if ((status & 0x80) != 0) {

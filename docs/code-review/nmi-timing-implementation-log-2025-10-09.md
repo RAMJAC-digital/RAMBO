@@ -535,7 +535,175 @@ tick() {
 
 ---
 
-**End of Implementation Log**
-**Final Status**: 957/966 tests passing (99.1%)
-**Commits**: 3 (870961f, 6db2b2b, 3088575)
-**Time**: ~10 hours (Phase 1: 4h, Phase 2: 6h)
+## ADDENDUM: Architecture Cleanup (2025-10-09)
+
+### Critical Duplication Discovery
+
+**Time**: Phase 0 completion review
+**Trigger**: User feedback on `nmi_latched` field usage
+
+During execution planning review, user identified potential architectural duplication:
+
+> "nmi_latched <- is it? Make sure this isn't legacy, and we aren't trying to support two systems at once... We need to expose a consistent api and keep all side effects contained."
+
+### Investigation Findings
+
+**Two systems tracking same NMI edge state:**
+
+1. **VBlankLedger** (timestamp-based, authoritative):
+   - `nmi_edge_pending: bool` - latched NMI edge
+   - `vblank_set_at: ?u64` - VBlank flag set timestamp
+   - `ctrl_toggled_at: ?u64` - PPUCTRL toggle timestamp
+   - Complete timestamp tracking for deterministic replay
+
+2. **EmulationState** (redundant synchronized copy):
+   - `nmi_latched: bool` - duplicate of `nmi_edge_pending`
+   - Set in `applyPpuCycleResult()` when VBlank occurs
+   - Consumed in `stepCycle()` to set `cpu.nmi_line`
+
+**Root Cause**: `nmi_latched` was temporary fix from Gemini review that should have been REPLACED by VBlankLedger, not coexist with it. Created synchronized state violating single source of truth principle.
+
+### Architecture Cleanup (5 Steps)
+
+**Objective**: Eliminate duplication, establish VBlankLedger as single source of truth.
+
+#### Step 1: Add shouldAssertNmiLine() API
+
+**File**: `src/emulation/state/VBlankLedger.zig`
+
+Added pure query API combining edge (latched) and level (active) logic:
+
+```zig
+/// Query if CPU NMI line should be asserted this cycle
+/// Combines edge (latched) and level (active) logic into single source of truth
+pub fn shouldAssertNmiLine(
+    self: *const VBlankLedger,
+    cycle: u64,
+    nmi_enabled: bool,
+    vblank_flag: bool,
+) bool {
+    // If edge is pending (latched), NMI line stays asserted
+    if (self.shouldNmiEdge(cycle, nmi_enabled)) {
+        return true;
+    }
+    // Otherwise, reflect current level state (readable flags)
+    return vblank_flag and nmi_enabled;
+}
+```
+
+**Rationale**: Single API encapsulates all NMI line logic - no need for callers to manage local copies.
+
+#### Step 2: Update stepCycle() to Query Ledger
+
+**File**: `src/emulation/cpu/execution.zig:76-84`
+
+```zig
+pub fn stepCycle(state: anytype) CpuCycleResult {
+    // Query VBlankLedger for NMI line state (single source of truth)
+    const nmi_line = state.vblank_ledger.shouldAssertNmiLine(
+        state.clock.ppu_cycles,
+        state.ppu.ctrl.nmi_enable,
+        state.ppu.status.vblank,
+    );
+    state.cpu.nmi_line = nmi_line;
+    // ... rest of function
+}
+```
+
+**Change**: Replaced `nmi_latched` query with direct ledger query.
+
+#### Step 3: Update NMI Acknowledgment
+
+**File**: `src/emulation/cpu/execution.zig:196-199`
+
+```zig
+if (was_nmi) {
+    // Acknowledge in ledger (single source of truth)
+    state.vblank_ledger.acknowledgeCpu(state.clock.ppu_cycles);
+    // REMOVED: state.nmi_latched = false;
+}
+```
+
+**Change**: Removed local flag clearing - ledger manages acknowledgment internally.
+
+#### Step 4: Update applyPpuCycleResult()
+
+**File**: `src/emulation/State.zig:451-460`
+
+```zig
+// Handle VBlank events with timestamp ledger
+if (result.nmi_signal) {
+    // VBlank flag set at scanline 241 dot 1
+    // Ledger internally manages nmi_edge_pending flag
+    const nmi_enabled = self.ppu.ctrl.nmi_enable;
+    self.vblank_ledger.recordVBlankSet(self.clock.ppu_cycles, nmi_enabled);
+    // REMOVED: self.nmi_latched = true;
+}
+```
+
+**Change**: Removed duplicate flag setting - ledger is authority.
+
+#### Step 5: Remove nmi_latched Field
+
+**File**: `src/emulation/State.zig:91`
+
+```zig
+// DELETED ENTIRELY:
+// /// NMI latch for edge detection, preventing race conditions.
+// nmi_latched: bool = false,
+```
+
+**Change**: Removed field from EmulationState struct.
+
+### Results
+
+**Test Results**: 958/966 tests passing (maintained, no regressions)
+
+**Architecture Benefits**:
+- ✅ Single source of truth for NMI state
+- ✅ Single query point in `stepCycle()`
+- ✅ No synchronized state copies
+- ✅ Clear separation: ledger manages state, components query it
+- ✅ Deterministic replay maintained (timestamp-based)
+
+**Code Quality**:
+- Removed 3 lines of duplicate state management
+- Removed 2 synchronized write points
+- Added 1 comprehensive query API
+- Net: Cleaner, more maintainable architecture
+
+### Additional Bug Fix
+
+**File**: `tests/ppu/ppustatus_polling_test.zig:135`
+
+**Issue**: Loop condition prevented execution from dot 340:
+
+```zig
+// BEFORE (BROKEN):
+while (harness.getScanline() <= 261 and harness.getDot() < 20) {
+
+// AFTER (FIXED):
+while (harness.getScanline() < 261 or (harness.getScanline() == 261 and harness.getDot() < 20)) {
+```
+
+**Impact**: +1 test passing (957 → 958)
+
+### Remaining Test Failures (Expected)
+
+**2 tests fail as expected:**
+
+1. **BIT Instruction Timing** (`ppustatus_polling_test.zig:308`)
+   - **Cause**: Test infrastructure issue (seekToScanlineDot corrupts CPU state)
+   - **Documented**: `docs/issues/cpu-test-harness-reset-sequence-2025-10-09.md`
+   - **Impact**: Not an emulation bug
+
+2. **AccuracyCoin ROM Diagnosis** (`accuracycoin_execution_test.zig:166`)
+   - **Cause**: Diagnostic test for ROM behavior (extended to 1000 frames)
+   - **Impact**: AccuracyCoin main tests pass 939/939 - diagnostic only
+
+---
+
+**End of Implementation Log + Addendum**
+**Final Status**: 958/966 tests passing (99.2%)
+**Commits**: 3 initial (870961f, 6db2b2b, 3088575) + 1 cleanup (pending)
+**Time**: ~12 hours total (Phase 1: 4h, Phase 2: 6h, Cleanup: 2h)

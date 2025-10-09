@@ -87,9 +87,6 @@ pub const EmulationState = struct {
     /// Latched PPU NMI level (asserted while VBlank active and enabled)
     ppu_nmi_active: bool = false,
 
-    /// NMI latch for edge detection, preventing race conditions.
-    nmi_latched: bool = false,
-
     /// VBlank timestamp ledger for cycle-accurate NMI edge detection
     /// Records VBlank set/clear, $2002 reads, PPUCTRL writes with master clock timestamps
     /// Decouples CPU NMI latch from readable PPU status flag
@@ -219,7 +216,6 @@ pub const EmulationState = struct {
         self.apu.reset();
         self.ppu_nmi_active = false;
         self.cpu.nmi_line = false;
-        self.nmi_latched = false;
     }
 
     /// Recompute derived signal lines after manual state mutation (testing/debug)
@@ -274,8 +270,9 @@ pub const EmulationState = struct {
         // Writing to $2000 can change nmi_enable, which affects NMI generation
         // per nesdev.org: toggling NMI enable during VBlank can trigger NMI
         if (address >= 0x2000 and address <= 0x3FFF and (address & 0x07) == 0x00) {
-            const nmi_enabled = (value & 0x80) != 0;
-            self.vblank_ledger.recordCtrlToggle(self.clock.ppu_cycles, nmi_enabled);
+            const old_enabled = self.ppu.ctrl.nmi_enable;
+            const new_enabled = (value & 0x80) != 0;
+            self.vblank_ledger.recordCtrlToggle(self.clock.ppu_cycles, old_enabled, new_enabled);
             self.refreshPpuNmiLevel();
         }
 
@@ -449,15 +446,13 @@ pub const EmulationState = struct {
 
         // Handle VBlank events with timestamp ledger
         // Post-refactor: Record events with master clock cycles for deterministic NMI
+        // Ledger is single source of truth - no local nmi_latched flag
         if (result.nmi_signal) {
             // VBlank flag set at scanline 241 dot 1
-            self.vblank_ledger.recordVBlankSet(self.clock.ppu_cycles);
-
-            // Check for NMI edge: VBlank set while NMI enabled
-            if (self.ppu.ctrl.nmi_enable and self.ppu.status.vblank) {
-                self.nmi_latched = true;
-                self.vblank_ledger.nmi_edge_pending = true;
-            }
+            // Pass current NMI enable state for edge detection
+            // Ledger internally manages nmi_edge_pending flag
+            const nmi_enabled = self.ppu.ctrl.nmi_enable;
+            self.vblank_ledger.recordVBlankSet(self.clock.ppu_cycles, nmi_enabled);
         }
 
         if (result.vblank_clear) {
@@ -554,10 +549,16 @@ pub const EmulationState = struct {
     }
 
     /// Synchronize CPU NMI input with current PPU status/CTRL configuration
+    /// Hardware: NMI line is a LEVEL signal (high when vblank AND nmi_enable)
+    /// The CPU latches the falling EDGE separately (handled by nmi_latched flag)
     fn refreshPpuNmiLevel(self: *EmulationState) void {
+        // NMI line reflects current hardware state (level signal)
         const active = self.ppu.status.vblank and self.ppu.ctrl.nmi_enable;
         self.ppu_nmi_active = active;
         self.cpu.nmi_line = active;
+
+        // Edge detection is handled separately by VBlankLedger and nmi_latched flag
+        // Reading $2002 clears the level but not the latched edge
     }
 
     /// Tick DMA state machine (called every 3 PPU cycles, same as CPU)

@@ -29,9 +29,6 @@ pub const VBlankLedger = struct {
     /// VBlank span is currently active (set at 241.1, cleared at 261.1)
     span_active: bool = false,
 
-    /// PPUCTRL.7 (NMI output enable) current state
-    ctrl_nmi_enabled: bool = false,
-
     /// NMI edge is pending acknowledgment by CPU interrupt controller
     nmi_edge_pending: bool = false,
 
@@ -54,9 +51,19 @@ pub const VBlankLedger = struct {
 
     /// Record VBlank flag set event
     /// Called at scanline 241 dot 1
-    pub fn recordVBlankSet(self: *VBlankLedger, cycle: u64) void {
+    ///
+    /// Hardware behavior: If NMI is already enabled when VBlank sets,
+    /// this creates a 0→1 edge on (VBlank AND NMI_enable) signal.
+    pub fn recordVBlankSet(self: *VBlankLedger, cycle: u64, nmi_enabled: bool) void {
+        const was_active = self.span_active;
         self.span_active = true;
         self.last_set_cycle = cycle;
+
+        // Detect NMI edge: 0→1 transition of (VBlank span AND NMI_enable)
+        // If VBlank sets while NMI is already enabled, fire NMI edge
+        if (!was_active and nmi_enabled) {
+            self.nmi_edge_pending = true;
+        }
     }
 
     /// Record VBlank flag clear event
@@ -81,14 +88,12 @@ pub const VBlankLedger = struct {
 
     /// Record PPUCTRL write (may toggle NMI enable)
     /// Multiple toggles during VBlank can generate multiple NMI edges
-    pub fn recordCtrlToggle(self: *VBlankLedger, cycle: u64, nmi_enabled: bool) void {
-        const old_enabled = self.ctrl_nmi_enabled;
-        self.ctrl_nmi_enabled = nmi_enabled;
+    pub fn recordCtrlToggle(self: *VBlankLedger, cycle: u64, old_enabled: bool, new_enabled: bool) void {
         self.last_ctrl_toggle_cycle = cycle;
 
         // Detect NMI edge: 0→1 transition of (VBlank AND NMI_enable)
         // Hardware: NMI fires when BOTH vblank flag and ctrl.nmi_enable are true
-        if (!old_enabled and nmi_enabled and self.span_active) {
+        if (!old_enabled and new_enabled and self.span_active) {
             self.nmi_edge_pending = true;
         }
     }
@@ -98,17 +103,17 @@ pub const VBlankLedger = struct {
     ///
     /// NMI edge occurs when:
     /// 1. VBlank span is active (between 241.1 and 261.1)
-    /// 2. PPUCTRL.7 (NMI enable) is set
+    /// 2. PPUCTRL.7 (NMI enable) is set (passed as parameter)
     /// 3. Edge hasn't been acknowledged yet
     /// 4. No race condition from $2002 read on exact set cycle
     ///
     /// Returns: true if NMI should latch this cycle
-    pub fn shouldNmiEdge(self: *const VBlankLedger, _: u64) bool {
+    pub fn shouldNmiEdge(self: *const VBlankLedger, _: u64, nmi_enabled: bool) bool {
         // Must be within VBlank window
         if (!self.span_active) return false;
 
         // NMI output must be enabled
-        if (!self.ctrl_nmi_enabled) return false;
+        if (!nmi_enabled) return false;
 
         // Check if edge is pending
         if (!self.nmi_edge_pending) return false;
@@ -119,6 +124,30 @@ pub const VBlankLedger = struct {
         if (read_on_set) return false;
 
         return true;
+    }
+
+    /// Query if CPU NMI line should be asserted this cycle
+    /// Combines edge (latched) and level (active) logic into single source of truth
+    ///
+    /// Hardware behavior:
+    /// - NMI line is HIGH when (VBlank flag AND NMI enable) are both true (LEVEL signal)
+    /// - CPU latches falling edge (1→0 transition) to trigger interrupt (EDGE detection)
+    /// - Once edge is latched, NMI fires even if $2002 read clears VBlank flag
+    ///
+    /// Returns: true if cpu.nmi_line should be asserted
+    pub fn shouldAssertNmiLine(
+        self: *const VBlankLedger,
+        cycle: u64,
+        nmi_enabled: bool,
+        vblank_flag: bool,
+    ) bool {
+        // If edge is pending (latched), NMI line stays asserted
+        if (self.shouldNmiEdge(cycle, nmi_enabled)) {
+            return true;
+        }
+
+        // Otherwise, reflect current level state (readable flags)
+        return vblank_flag and nmi_enabled;
     }
 
     /// CPU acknowledged NMI (during interrupt sequence cycle 6)
@@ -144,7 +173,6 @@ test "VBlankLedger: initialization" {
     const ledger = VBlankLedger{};
 
     try testing.expect(!ledger.span_active);
-    try testing.expect(!ledger.ctrl_nmi_enabled);
     try testing.expect(!ledger.nmi_edge_pending);
     try testing.expectEqual(@as(u64, 0), ledger.last_set_cycle);
 }
@@ -152,7 +180,7 @@ test "VBlankLedger: initialization" {
 test "VBlankLedger: VBlank set marks span active" {
     var ledger = VBlankLedger{};
 
-    ledger.recordVBlankSet(100);
+    ledger.recordVBlankSet(100, false); // NMI not enabled yet
 
     try testing.expect(ledger.span_active);
     try testing.expectEqual(@as(u64, 100), ledger.last_set_cycle);
@@ -161,11 +189,11 @@ test "VBlankLedger: VBlank set marks span active" {
 test "VBlankLedger: PPUCTRL toggle during VBlank triggers NMI edge" {
     var ledger = VBlankLedger{};
 
-    // Set VBlank active
-    ledger.recordVBlankSet(100);
+    // Set VBlank active (NMI not enabled yet)
+    ledger.recordVBlankSet(100, false);
 
-    // Enable NMI during VBlank
-    ledger.recordCtrlToggle(110, true);
+    // Enable NMI during VBlank (0→1 transition)
+    ledger.recordCtrlToggle(110, false, true);
 
     try testing.expect(ledger.nmi_edge_pending);
 }
@@ -173,37 +201,39 @@ test "VBlankLedger: PPUCTRL toggle during VBlank triggers NMI edge" {
 test "VBlankLedger: PPUCTRL toggle before VBlank does not trigger edge" {
     var ledger = VBlankLedger{};
 
-    // Enable NMI before VBlank
-    ledger.recordCtrlToggle(50, true);
+    // Enable NMI before VBlank (0→1 transition, but no VBlank yet)
+    ledger.recordCtrlToggle(50, false, true);
 
     try testing.expect(!ledger.nmi_edge_pending);
 
-    // VBlank starts
-    ledger.recordVBlankSet(100);
+    // VBlank starts WITH NMI already enabled → should trigger edge
+    ledger.recordVBlankSet(100, true);
 
-    // Edge should now be pending (VBlank set with NMI already enabled)
-    // This is handled by EmulationState checking both conditions
+    // Edge should now be pending (VBlank 0→1 with NMI pre-enabled)
+    try testing.expect(ledger.nmi_edge_pending);
 }
 
 test "VBlankLedger: shouldNmiEdge returns true when conditions met" {
     var ledger = VBlankLedger{};
 
-    ledger.recordVBlankSet(100);
-    ledger.recordCtrlToggle(110, true);
+    ledger.recordVBlankSet(100, false);
+    ledger.recordCtrlToggle(110, false, true);
 
-    try testing.expect(ledger.shouldNmiEdge(120));
+    // NMI is enabled, VBlank is active, edge is pending
+    try testing.expect(ledger.shouldNmiEdge(120, true));
 }
 
 test "VBlankLedger: shouldNmiEdge returns false after acknowledgment" {
     var ledger = VBlankLedger{};
 
-    ledger.recordVBlankSet(100);
-    ledger.recordCtrlToggle(110, true);
+    ledger.recordVBlankSet(100, false);
+    ledger.recordCtrlToggle(110, false, true);
 
     // Acknowledge NMI
     ledger.acknowledgeCpu(120);
 
-    try testing.expect(!ledger.shouldNmiEdge(130));
+    // After acknowledgment, edge is no longer pending
+    try testing.expect(!ledger.shouldNmiEdge(130, true));
 }
 
 test "VBlankLedger: $2002 read on exact set cycle suppresses NMI" {
@@ -211,40 +241,40 @@ test "VBlankLedger: $2002 read on exact set cycle suppresses NMI" {
 
     const vblank_set_cycle = 100;
 
-    ledger.recordVBlankSet(vblank_set_cycle);
-    ledger.ctrl_nmi_enabled = true;
-    ledger.nmi_edge_pending = true;
+    // VBlank sets with NMI already enabled → edge pending
+    ledger.recordVBlankSet(vblank_set_cycle, true);
+    try testing.expect(ledger.nmi_edge_pending);
 
-    // Read $2002 on exact same cycle VBlank sets
+    // Read $2002 on exact same cycle VBlank sets (race condition)
     ledger.recordStatusRead(vblank_set_cycle);
 
     // NMI should be suppressed due to race condition
-    try testing.expect(!ledger.shouldNmiEdge(vblank_set_cycle + 1));
+    try testing.expect(!ledger.shouldNmiEdge(vblank_set_cycle + 1, true));
 }
 
 test "VBlankLedger: $2002 read after VBlank set does not suppress NMI" {
     var ledger = VBlankLedger{};
 
-    ledger.recordVBlankSet(100);
-    ledger.ctrl_nmi_enabled = true;
-    ledger.nmi_edge_pending = true;
+    // VBlank sets with NMI enabled → edge pending
+    ledger.recordVBlankSet(100, true);
+    try testing.expect(ledger.nmi_edge_pending);
 
-    // Read $2002 a few cycles after VBlank set
+    // Read $2002 a few cycles AFTER VBlank set (no race)
     ledger.recordStatusRead(105);
 
-    // NMI should still fire (no race condition)
-    try testing.expect(ledger.shouldNmiEdge(110));
+    // NMI should still fire (no race condition, read was not on exact cycle)
+    try testing.expect(ledger.shouldNmiEdge(110, true));
 }
 
 test "VBlankLedger: reset clears all state" {
     var ledger = VBlankLedger{};
 
-    ledger.recordVBlankSet(100);
-    ledger.recordCtrlToggle(110, true);
+    ledger.recordVBlankSet(100, true);
+    ledger.recordCtrlToggle(110, false, true);
 
     ledger.reset();
 
     try testing.expect(!ledger.span_active);
-    try testing.expect(!ledger.ctrl_nmi_enabled);
+    try testing.expect(!ledger.nmi_edge_pending);
     try testing.expectEqual(@as(u64, 0), ledger.last_set_cycle);
 }

@@ -64,6 +64,7 @@ const CpuCycleResult = CycleResults.CpuCycleResult;
 ///
 /// Handles:
 /// - PPU warmup period completion (29,658 CPU cycles)
+/// - NMI line synchronization (queries VBlankLedger - single source of truth)
 /// - CPU halted state (JAM/KIL opcodes)
 /// - Debugger breakpoint/watchpoint checks
 /// - DMC DMA stall cycles (RDY line low)
@@ -73,9 +74,14 @@ const CpuCycleResult = CycleResults.CpuCycleResult;
 ///
 /// Returns: CpuCycleResult with mapper_irq flag
 pub fn stepCycle(state: anytype) CpuCycleResult {
-    if (state.nmi_latched) {
-        state.cpu.nmi_line = true;
-    }
+    // Query VBlankLedger for NMI line state (single source of truth)
+    // Combines edge (latched) and level (active) logic
+    const nmi_line = state.vblank_ledger.shouldAssertNmiLine(
+        state.clock.ppu_cycles,
+        state.ppu.ctrl.nmi_enable,
+        state.ppu.status.vblank,
+    );
+    state.cpu.nmi_line = nmi_line;
 
     // Check PPU warmup period completion (29,658 CPU cycles)
     // During warmup, PPU ignores writes to $2000/$2001/$2005/$2006
@@ -188,8 +194,7 @@ pub fn executeCycle(state: anytype) void {
                 state.cpu.pending_interrupt = .none;
 
                 if (was_nmi) {
-                    // Clear NMI latch and acknowledge in ledger
-                    state.nmi_latched = false;
+                    // Acknowledge in ledger (single source of truth)
                     state.vblank_ledger.acknowledgeCpu(state.clock.ppu_cycles);
                 }
 

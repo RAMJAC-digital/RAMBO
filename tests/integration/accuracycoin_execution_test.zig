@@ -145,7 +145,9 @@ test "ROM Diagnosis: Compare PPU initialization sequences" {
         defer runner.deinit();
 
         // Sample PPU state at key frames
-        const sample_frames = [_]usize{ 1, 5, 10, 30, 60, 120, 180, 240, 300 };
+        // Extended to 1000 frames as ROM may not enable rendering immediately
+        // This is a diagnostic test - ROM's 939 opcode tests are the real validation
+        const sample_frames = [_]usize{ 1, 5, 10, 30, 60, 120, 180, 240, 300, 500, 750, 1000 };
 
         var rendering_enabled_frame: ?u64 = null;
 
