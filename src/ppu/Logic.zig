@@ -26,6 +26,9 @@ pub fn reset(state: *PpuState) void {
     state.mask = .{};
     // Status VBlank bit is random at reset
     state.internal.resetToggle();
+    state.internal.x = 0;
+    state.internal.v = 0;
+    state.internal.t = 0;
     // RESET skips the warm-up period (PPU already initialized)
     state.warmup_complete = true;
 }

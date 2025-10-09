@@ -30,8 +30,8 @@ const Debugger = @import("../debugger/Debugger.zig");
 const PpuCycleResult = struct {
     frame_complete: bool = false,
     rendering_enabled: bool = false,
-    vblank_started: bool = false,
-    vblank_ended: bool = false,
+    nmi_signal: bool = false,      // VBlank just started (edge detection for NMI)
+    vblank_clear: bool = false,    // VBlank period ended
     a12_rising: bool = false,
 };
 
@@ -356,6 +356,10 @@ pub const EmulationState = struct {
         self.cpu.pc = reset_vector;
         self.cpu.sp = 0xFD;
         self.cpu.p.interrupt = true;
+        self.cpu.state = .fetch_opcode;
+        self.cpu.instruction_cycle = 0;
+        self.cpu.pending_interrupt = .none;
+        self.cpu.halted = false;
 
         PpuLogic.reset(&self.ppu);
         self.apu.reset();
@@ -666,22 +670,22 @@ pub const EmulationState = struct {
             return;
         }
 
-        const current_scanline = self.clock.scanline();
-        const current_dot = self.clock.dot();
-
-        // Hardware quirk: Odd frame skip
-        if (self.odd_frame and self.rendering_enabled and current_scanline == 261 and current_dot == 340) {
-            self.clock.advance(2);
-            self.odd_frame = false;
-            return;
-        }
-
+        // Always advance by exactly 1 cycle
         self.clock.advance(1);
 
         const cpu_tick = self.clock.isCpuTick();
 
-        const ppu_result = self.stepPpuCycle();
-        self.applyPpuCycleResult(ppu_result);
+        // Hardware quirk: Odd frame skip
+        // On odd frames with rendering enabled, scanline 0 dot 0 is skipped
+        // Check AFTER advancing, and skip processing if at 0.0 on odd frame
+        const skip_odd_frame = self.odd_frame and self.rendering_enabled and
+            self.clock.scanline() == 0 and self.clock.dot() == 0;
+
+        if (!skip_odd_frame) {
+            // Process PPU at current clock position
+            const ppu_result = self.stepPpuCycle();
+            self.applyPpuCycleResult(ppu_result);
+        }
 
         if (cpu_tick) {
             const cpu_result = self.stepCpuCycle();
@@ -717,7 +721,7 @@ pub const EmulationState = struct {
         // Handle VBlank events and update NMI line
         // On VBlank start/end, recompute NMI level based on current PPU state
         // This ensures proper edge detection in CpuLogic.checkInterrupts()
-        if (result.vblank_started or result.vblank_ended) {
+        if (result.nmi_signal or result.vblank_clear) {
             self.refreshPpuNmiLevel();
         }
     }
@@ -751,8 +755,8 @@ pub const EmulationState = struct {
         self.odd_frame = self.clock.isOddFrame();
 
         // Pass through PPU event signals to emulation state
-        result.vblank_started = flags.vblank_started;
-        result.vblank_ended = flags.vblank_ended;
+        result.nmi_signal = flags.nmi_signal;
+        result.vblank_clear = flags.vblank_clear;
 
         return result;
     }
