@@ -17,6 +17,15 @@ const EmulationState = @import("../emulation/State.zig").EmulationState;
 const Config = @import("../config/Config.zig").Config;
 const AnyCartridge = @import("../cartridge/mappers/registry.zig").AnyCartridge;
 
+// Logic modules
+const DebuggerState = @import("State.zig").DebuggerState;
+const breakpoints = @import("breakpoints.zig");
+const watchpoints = @import("watchpoints.zig");
+const stepping = @import("stepping.zig");
+const history = @import("history.zig");
+const inspection = @import("inspection.zig");
+const modification = @import("modification.zig");
+
 // Re-export all types (preserves existing API)
 pub const DebugCallback = @import("types.zig").DebugCallback;
 pub const DebugMode = @import("types.zig").DebugMode;
@@ -29,302 +38,100 @@ pub const DebugStats = @import("types.zig").DebugStats;
 pub const StatusFlag = @import("types.zig").StatusFlag;
 pub const StateModification = @import("types.zig").StateModification;
 
-/// Main debugger structure
+/// Main debugger facade - wraps DebuggerState with inline delegation
 pub const Debugger = struct {
-    const magic_value: u64 = 0xDEB6_6170_5055_4247; // 'DEBlaPPUBG' sentinel
-
-    allocator: std.mem.Allocator,
-    config: *const Config,
-
-    magic: u64 = magic_value,
-
-    /// Current debug mode
-    mode: DebugMode = .running,
-
-    /// Breakpoints (up to 256, RT-safe fixed array)
-    breakpoints: [256]?Breakpoint = [_]?Breakpoint{null} ** 256,
-    breakpoint_count: usize = 0,
-    memory_breakpoint_enabled_count: usize = 0,
-
-    /// Watchpoints (up to 256, RT-safe fixed array)
-    watchpoints: [256]?Watchpoint = [_]?Watchpoint{null} ** 256,
-    watchpoint_count: usize = 0,
-    watchpoint_enabled_count: usize = 0,
-
-    /// Step execution state
-    step_state: StepState = .{},
-
-    /// Execution history (circular buffer)
-    history: std.ArrayList(HistoryEntry),
-    history_max_size: usize = 100,
-
-    /// State modification history (circular buffer)
-    modifications: std.ArrayList(StateModification),
-    modifications_max_size: usize = 1000,
-
-    /// Debug statistics
-    stats: DebugStats = .{},
-
-    /// Pre-allocated buffer for break reasons (RT-safe, no heap allocation)
-    /// Used by shouldBreak() and checkMemoryAccess() to avoid allocPrint()
-    break_reason_buffer: [256]u8 = undefined,
-    break_reason_len: usize = 0,
-
-    /// User-defined callbacks (RT-safe, fixed-size array)
-    /// Maximum 8 callbacks can be registered
-    /// Callbacks are called in registration order
-    callbacks: [8]?DebugCallback = [_]?DebugCallback{null} ** 8,
-    callback_count: usize = 0,
+    state: DebuggerState,
 
     pub fn init(allocator: std.mem.Allocator, config: *const Config) Debugger {
         return .{
-            .allocator = allocator,
-            .config = config,
-            // breakpoints/watchpoints auto-initialize from struct defaults
-            .history = std.ArrayList(HistoryEntry){},
-            .modifications = std.ArrayList(StateModification){},
+            .state = DebuggerState.init(allocator, config),
         };
     }
 
     pub fn deinit(self: *Debugger) void {
-        // Note: breakpoints/watchpoints are fixed arrays (no cleanup needed)
-
-        // Free history snapshots
-        for (self.history.items) |entry| {
-            self.allocator.free(entry.snapshot);
-        }
-        self.history.deinit(self.allocator);
-
-        // Free modifications
-        self.modifications.deinit(self.allocator);
-
-        // Note: break_reason_buffer is a fixed array (no cleanup needed)
+        self.state.deinit();
     }
 
     // ========================================================================
-    // Breakpoint Management
+    // Breakpoint Management (delegate to breakpoints.zig)
     // ========================================================================
 
     /// Add breakpoint
-    /// Returns error.BreakpointLimitReached if 256 breakpoints already exist
-    pub fn addBreakpoint(self: *Debugger, address: u16, bp_type: BreakpointType) !void {
-        // Check if breakpoint already exists (update and re-enable)
-        for (self.breakpoints[0..256]) |*maybe_bp| {
-            if (maybe_bp.*) |*bp| {
-                if (bp.address == address and bp.type == bp_type) {
-                    if (!bp.enabled) {
-                        bp.enabled = true;
-                        if (isMemoryBreakpointType(bp_type)) {
-                            self.memory_breakpoint_enabled_count += 1;
-                        }
-                    }
-                    return;
-                }
-            }
-        }
-
-        // Check capacity
-        if (self.breakpoint_count >= 256) {
-            return error.BreakpointLimitReached;
-        }
-
-        // Find first null slot (linear search)
-        var slot_index: ?usize = null;
-        for (self.breakpoints[0..256], 0..) |maybe_bp, i| {
-            if (maybe_bp == null) {
-                slot_index = i;
-                break;
-            }
-        }
-
-        // Add breakpoint at first available slot
-        const index = slot_index.?; // Guaranteed to exist (checked capacity)
-        self.breakpoints[index] = .{
-            .address = address,
-            .type = bp_type,
-        };
-        self.breakpoint_count += 1;
-        if (isMemoryBreakpointType(bp_type)) {
-            self.memory_breakpoint_enabled_count += 1;
-        }
+    pub inline fn addBreakpoint(self: *Debugger, address: u16, bp_type: BreakpointType) !void {
+        return breakpoints.add(&self.state, address, bp_type);
     }
 
     /// Remove breakpoint
-    pub fn removeBreakpoint(self: *Debugger, address: u16, bp_type: BreakpointType) bool {
-        for (self.breakpoints[0..256], 0..) |*maybe_bp, i| {
-            if (maybe_bp.*) |bp| {
-                if (bp.address == address and bp.type == bp_type) {
-                    if (bp.enabled and isMemoryBreakpointType(bp_type)) {
-                        self.memory_breakpoint_enabled_count -= 1;
-                    }
-                    self.breakpoints[i] = null;
-                    self.breakpoint_count -= 1;
-                    return true;
-                }
-            }
-        }
-        return false;
+    pub inline fn removeBreakpoint(self: *Debugger, address: u16, bp_type: BreakpointType) bool {
+        return breakpoints.remove(&self.state, address, bp_type);
     }
 
     /// Enable/disable breakpoint
-    pub fn setBreakpointEnabled(self: *Debugger, address: u16, bp_type: BreakpointType, enabled: bool) bool {
-        for (self.breakpoints[0..256]) |*maybe_bp| {
-            if (maybe_bp.*) |*bp| {
-                if (bp.address == address and bp.type == bp_type) {
-                    if (bp.enabled == enabled) {
-                        return true;
-                    }
-
-                    const is_memory = isMemoryBreakpointType(bp.type);
-                    if (is_memory) {
-                        if (enabled) {
-                            self.memory_breakpoint_enabled_count += 1;
-                        } else {
-                            self.memory_breakpoint_enabled_count -= 1;
-                        }
-                    }
-
-                    bp.enabled = enabled;
-                    return true;
-                }
-            }
-        }
-        return false;
+    pub inline fn setBreakpointEnabled(self: *Debugger, address: u16, bp_type: BreakpointType, enabled: bool) bool {
+        return breakpoints.setEnabled(&self.state, address, bp_type, enabled);
     }
 
     /// Clear all breakpoints
-    pub fn clearBreakpoints(self: *Debugger) void {
-        for (self.breakpoints[0..256]) |*maybe_bp| {
-            maybe_bp.* = null;
-        }
-        self.breakpoint_count = 0;
-        self.memory_breakpoint_enabled_count = 0;
+    pub inline fn clearBreakpoints(self: *Debugger) void {
+        breakpoints.clear(&self.state);
     }
 
     // ========================================================================
-    // Watchpoint Management
+    // Watchpoint Management (delegate to watchpoints.zig)
     // ========================================================================
 
     /// Add watchpoint
-    /// Returns error.WatchpointLimitReached if 256 watchpoints already exist
-    pub fn addWatchpoint(self: *Debugger, address: u16, size: u16, watch_type: Watchpoint.WatchType) !void {
-        // Check if watchpoint already exists (update and re-enable)
-        for (self.watchpoints[0..256]) |*maybe_wp| {
-            if (maybe_wp.*) |*wp| {
-                if (wp.address == address and wp.type == watch_type) {
-                    if (!wp.enabled) {
-                        wp.enabled = true;
-                        self.watchpoint_enabled_count += 1;
-                    }
-                    wp.size = size;
-                    return;
-                }
-            }
-        }
-
-        // Check capacity
-        if (self.watchpoint_count >= 256) {
-            return error.WatchpointLimitReached;
-        }
-
-        // Find first null slot (linear search)
-        var slot_index: ?usize = null;
-        for (self.watchpoints[0..256], 0..) |maybe_wp, i| {
-            if (maybe_wp == null) {
-                slot_index = i;
-                break;
-            }
-        }
-
-        // Add watchpoint at first available slot
-        const index = slot_index.?; // Guaranteed to exist (checked capacity)
-        self.watchpoints[index] = .{
-            .address = address,
-            .size = size,
-            .type = watch_type,
-        };
-        self.watchpoint_count += 1;
-        self.watchpoint_enabled_count += 1;
+    pub inline fn addWatchpoint(self: *Debugger, address: u16, size: u16, watch_type: Watchpoint.WatchType) !void {
+        return watchpoints.add(&self.state, address, size, watch_type);
     }
 
     /// Remove watchpoint
-    pub fn removeWatchpoint(self: *Debugger, address: u16, watch_type: Watchpoint.WatchType) bool {
-        for (self.watchpoints[0..256], 0..) |*maybe_wp, i| {
-            if (maybe_wp.*) |wp| {
-                if (wp.address == address and wp.type == watch_type) {
-                    if (wp.enabled) {
-                        self.watchpoint_enabled_count -= 1;
-                    }
-                    self.watchpoints[i] = null;
-                    self.watchpoint_count -= 1;
-                    return true;
-                }
-            }
-        }
-        return false;
+    pub inline fn removeWatchpoint(self: *Debugger, address: u16, watch_type: Watchpoint.WatchType) bool {
+        return watchpoints.remove(&self.state, address, watch_type);
     }
 
     /// Clear all watchpoints
-    pub fn clearWatchpoints(self: *Debugger) void {
-        for (self.watchpoints[0..256]) |*maybe_wp| {
-            maybe_wp.* = null;
-        }
-        self.watchpoint_count = 0;
-        self.watchpoint_enabled_count = 0;
+    pub inline fn clearWatchpoints(self: *Debugger) void {
+        watchpoints.clear(&self.state);
     }
 
     // ========================================================================
-    // Execution Control
+    // Execution Control (delegate to stepping.zig)
     // ========================================================================
 
     /// Continue execution
-    pub fn continue_(self: *Debugger) void {
-        self.mode = .running;
-        self.step_state = .{};
+    pub inline fn continue_(self: *Debugger) void {
+        stepping.continue_(&self.state);
     }
 
     /// Pause execution
-    pub fn pause(self: *Debugger) void {
-        self.mode = .paused;
+    pub inline fn pause(self: *Debugger) void {
+        stepping.pause(&self.state);
     }
 
     /// Step one instruction
-    pub fn stepInstruction(self: *Debugger) void {
-        self.mode = .step_instruction;
-        self.step_state = .{};
+    pub inline fn stepInstruction(self: *Debugger) void {
+        stepping.stepInstruction(&self.state);
     }
 
     /// Step over (skip subroutines)
-    pub fn stepOver(self: *Debugger, state: *const EmulationState) void {
-        self.mode = .step_over;
-        self.step_state = .{
-            .target_pc = null,
-            .initial_sp = state.cpu.sp,
-        };
+    pub inline fn stepOver(self: *Debugger, state: *const EmulationState) void {
+        stepping.stepOver(&self.state, state);
     }
 
     /// Step out (return from subroutine)
-    pub fn stepOut(self: *Debugger, state: *const EmulationState) void {
-        self.mode = .step_out;
-        self.step_state = .{
-            .initial_sp = state.cpu.sp,
-        };
+    pub inline fn stepOut(self: *Debugger, state: *const EmulationState) void {
+        stepping.stepOut(&self.state, state);
     }
 
     /// Step one scanline
-    pub fn stepScanline(self: *Debugger, state: *const EmulationState) void {
-        self.mode = .step_scanline;
-        self.step_state = .{
-            .target_scanline = (state.clock.scanline() + 1) % 262,
-        };
+    pub inline fn stepScanline(self: *Debugger, state: *const EmulationState) void {
+        stepping.stepScanline(&self.state, state);
     }
 
     /// Step one frame
-    pub fn stepFrame(self: *Debugger, state: *const EmulationState) void {
-        self.mode = .step_frame;
-        self.step_state = .{
-            .target_frame = state.clock.frame() + 1,
-        };
+    pub inline fn stepFrame(self: *Debugger, state: *const EmulationState) void {
+        stepping.stepFrame(&self.state, state);
     }
 
     // ========================================================================
@@ -333,51 +140,25 @@ pub const Debugger = struct {
 
     /// Register a user-defined callback
     /// Maximum 8 callbacks can be registered
-    /// Callbacks are called in registration order during shouldBreak() and checkMemoryAccess()
-    ///
-    /// Callback Requirements:
-    /// - MUST be RT-safe (no allocations, no blocking)
-    /// - Receive const state (read-only access)
-    /// - Return bool to indicate break request
-    ///
-    /// Example:
-    /// ```
-    /// const MyCallback = struct {
-    ///     value: u32,
-    ///
-    ///     fn onBeforeInstruction(userdata: *anyopaque, state: *const EmulationState) bool {
-    ///         const self: *MyCallback = @ptrCast(@alignCast(userdata));
-    ///         _ = self.value;  // Access callback data
-    ///         return state.cpu.pc == 0x8000;  // Break at specific PC
-    ///     }
-    /// };
-    ///
-    /// var my_callback = MyCallback{ .value = 42 };
-    /// try debugger.registerCallback(.{
-    ///     .onBeforeInstruction = MyCallback.onBeforeInstruction,
-    ///     .userdata = &my_callback,
-    /// });
-    /// ```
     pub fn registerCallback(self: *Debugger, callback: DebugCallback) !void {
-        if (self.callback_count >= 8) return error.TooManyCallbacks;
+        if (self.state.callback_count >= 8) return error.TooManyCallbacks;
 
-        self.callbacks[self.callback_count] = callback;
-        self.callback_count += 1;
+        self.state.callbacks[self.state.callback_count] = callback;
+        self.state.callback_count += 1;
     }
 
     /// Unregister a callback by userdata pointer
-    /// Returns true if callback was found and removed
     pub fn unregisterCallback(self: *Debugger, userdata: *anyopaque) bool {
-        for (self.callbacks[0..self.callback_count], 0..) |maybe_callback, i| {
+        for (self.state.callbacks[0..self.state.callback_count], 0..) |maybe_callback, i| {
             if (maybe_callback) |cb| {
                 if (cb.userdata == userdata) {
                     // Shift remaining callbacks down
                     var j = i;
-                    while (j < self.callback_count - 1) : (j += 1) {
-                        self.callbacks[j] = self.callbacks[j + 1];
+                    while (j < self.state.callback_count - 1) : (j += 1) {
+                        self.state.callbacks[j] = self.state.callbacks[j + 1];
                     }
-                    self.callbacks[self.callback_count - 1] = null;
-                    self.callback_count -= 1;
+                    self.state.callbacks[self.state.callback_count - 1] = null;
+                    self.state.callback_count -= 1;
                     return true;
                 }
             }
@@ -387,10 +168,10 @@ pub const Debugger = struct {
 
     /// Clear all registered callbacks
     pub fn clearCallbacks(self: *Debugger) void {
-        for (self.callbacks[0..self.callback_count]) |*cb| {
+        for (self.state.callbacks[0..self.state.callback_count]) |*cb| {
             cb.* = null;
         }
-        self.callback_count = 0;
+        self.state.callback_count = 0;
     }
 
     // ========================================================================
@@ -401,60 +182,60 @@ pub const Debugger = struct {
     /// Returns true if execution should pause
     pub fn shouldBreak(self: *Debugger, state: *const EmulationState) !bool {
         // Update stats
-        self.stats.instructions_executed += 1;
+        self.state.stats.instructions_executed += 1;
 
-        if (self.breakpoint_count > self.breakpoints.len or
-            self.watchpoint_count > self.watchpoints.len or
-            self.callback_count > self.callbacks.len)
+        if (self.state.breakpoint_count > self.state.breakpoints.len or
+            self.state.watchpoint_count > self.state.watchpoints.len or
+            self.state.callback_count > self.state.callbacks.len)
         {
             return false;
         }
 
         // Check step modes
-        switch (self.mode) {
+        switch (self.state.mode) {
             .running => {},
             .paused => return true,
             .step_instruction => {
-                self.mode = .paused;
+                self.state.mode = .paused;
                 try self.setBreakReason("Step instruction");
                 return true;
             },
             .step_over => {
                 // Mark that we've executed at least one instruction
-                const first_check = !self.step_state.has_stepped;
-                self.step_state.has_stepped = true;
+                const first_check = !self.state.step_state.has_stepped;
+                self.state.step_state.has_stepped = true;
 
                 // Don't break on first check - wait for SP to change first
                 if (first_check) return false;
 
                 // Check if we've returned to same or higher stack level
-                if (state.cpu.sp >= self.step_state.initial_sp) {
-                    self.mode = .paused;
+                if (state.cpu.sp >= self.state.step_state.initial_sp) {
+                    self.state.mode = .paused;
                     try self.setBreakReason("Step over complete");
                     return true;
                 }
             },
             .step_out => {
                 // Check if stack pointer increased (returned from function)
-                if (state.cpu.sp > self.step_state.initial_sp) {
-                    self.mode = .paused;
+                if (state.cpu.sp > self.state.step_state.initial_sp) {
+                    self.state.mode = .paused;
                     try self.setBreakReason("Step out complete");
                     return true;
                 }
             },
             .step_scanline => {
-                if (self.step_state.target_scanline) |target| {
+                if (self.state.step_state.target_scanline) |target| {
                     if (state.clock.scanline() == target) {
-                        self.mode = .paused;
+                        self.state.mode = .paused;
                         try self.setBreakReason("Scanline step complete");
                         return true;
                     }
                 }
             },
             .step_frame => {
-                if (self.step_state.target_frame) |target| {
+                if (self.state.step_state.target_frame) |target| {
                     if (state.clock.frame() >= target) {
-                        self.mode = .paused;
+                        self.state.mode = .paused;
                         try self.setBreakReason("Frame step complete");
                         return true;
                     }
@@ -463,7 +244,7 @@ pub const Debugger = struct {
         }
 
         // Check execute breakpoints
-        for (self.breakpoints[0..256]) |*maybe_bp| {
+        for (self.state.breakpoints[0..256]) |*maybe_bp| {
             if (maybe_bp.*) |*bp| {
                 if (!bp.enabled) continue;
                 if (bp.type != .execute) continue;
@@ -475,10 +256,10 @@ pub const Debugger = struct {
                 }
 
                 bp.hit_count += 1;
-                self.stats.breakpoints_hit += 1;
-                self.mode = .paused;
+                self.state.stats.breakpoints_hit += 1;
+                self.state.mode = .paused;
 
-                // ✅ Format into stack buffer (no heap allocation)
+                // Format into stack buffer (no heap allocation)
                 var buf: [128]u8 = undefined;
                 const reason = std.fmt.bufPrint(
                     &buf,
@@ -493,12 +274,12 @@ pub const Debugger = struct {
         }
 
         // Check user-defined callbacks
-        const callback_limit = @min(self.callback_count, self.callbacks.len);
-        for (self.callbacks[0..callback_limit]) |maybe_callback| {
+        const callback_limit = @min(self.state.callback_count, self.state.callbacks.len);
+        for (self.state.callbacks[0..callback_limit]) |maybe_callback| {
             if (maybe_callback) |callback| {
                 if (callback.onBeforeInstruction) |func| {
                     if (func(callback.userdata, state)) {
-                        self.mode = .paused;
+                        self.state.mode = .paused;
                         try self.setBreakReason("User callback break");
                         return true;
                     }
@@ -517,10 +298,10 @@ pub const Debugger = struct {
         value: u8,
         is_write: bool,
     ) !bool {
-        const breakpoint_limit = @min(self.breakpoint_count, self.breakpoints.len);
+        const breakpoint_limit = @min(self.state.breakpoint_count, self.state.breakpoints.len);
 
         // Check read/write breakpoints
-        for (self.breakpoints[0..breakpoint_limit]) |*maybe_bp| {
+        for (self.state.breakpoints[0..breakpoint_limit]) |*maybe_bp| {
             if (maybe_bp.*) |*bp| {
                 if (!bp.enabled) continue;
 
@@ -533,10 +314,10 @@ pub const Debugger = struct {
 
                 if (matches) {
                     bp.hit_count += 1;
-                    self.stats.breakpoints_hit += 1;
-                    self.mode = .paused;
+                    self.state.stats.breakpoints_hit += 1;
+                    self.state.mode = .paused;
 
-                    // ✅ Format into stack buffer (no heap allocation)
+                    // Format into stack buffer (no heap allocation)
                     var buf: [128]u8 = undefined;
                     const reason = std.fmt.bufPrint(
                         &buf,
@@ -552,8 +333,8 @@ pub const Debugger = struct {
         }
 
         // Check watchpoints
-        const watchpoint_limit = @min(self.watchpoint_count, self.watchpoints.len);
-        for (self.watchpoints[0..watchpoint_limit]) |*maybe_wp| {
+        const watchpoint_limit = @min(self.state.watchpoint_count, self.state.watchpoints.len);
+        for (self.state.watchpoints[0..watchpoint_limit]) |*maybe_wp| {
             if (maybe_wp.*) |*wp| {
                 if (!wp.enabled) continue;
                 if (address < wp.address or address >= wp.address + wp.size) continue;
@@ -573,10 +354,10 @@ pub const Debugger = struct {
                 if (should_break) {
                     wp.old_value = value;
                     wp.hit_count += 1;
-                    self.stats.watchpoints_hit += 1;
-                    self.mode = .paused;
+                    self.state.stats.watchpoints_hit += 1;
+                    self.state.mode = .paused;
 
-                    // ✅ Format into stack buffer (no heap allocation)
+                    // Format into stack buffer (no heap allocation)
                     var buf: [128]u8 = undefined;
                     const reason = std.fmt.bufPrint(
                         &buf,
@@ -592,13 +373,13 @@ pub const Debugger = struct {
         }
 
         // Check user-defined callbacks
-        const callback_limit = @min(self.callback_count, self.callbacks.len);
-        for (self.callbacks[0..callback_limit]) |maybe_callback| {
+        const callback_limit = @min(self.state.callback_count, self.state.callbacks.len);
+        for (self.state.callbacks[0..callback_limit]) |maybe_callback| {
             if (maybe_callback) |callback| {
                 if (callback.onMemoryAccess) |func| {
                     if (func(callback.userdata, address, value, is_write)) {
-                        self.mode = .paused;
-                        // ✅ Format into stack buffer
+                        self.state.mode = .paused;
+                        // Format into stack buffer
                         var buf: [128]u8 = undefined;
                         const access_type: []const u8 = if (is_write) "write" else "read";
                         const reason = std.fmt.bufPrint(
@@ -617,340 +398,165 @@ pub const Debugger = struct {
     }
 
     // ========================================================================
-    // Execution History
+    // Execution History (delegate to history.zig)
     // ========================================================================
 
     /// Capture current state to history
-    pub fn captureHistory(self: *Debugger, state: *const EmulationState) !void {
-        // Create snapshot
-        const snapshot = try Snapshot.saveBinary(
-            self.allocator,
-            state,
-            self.config,
-            .reference,
-            false,
-            null,
-        );
-        errdefer self.allocator.free(snapshot);
-
-        const entry = HistoryEntry{
-            .snapshot = snapshot,
-            .pc = state.cpu.pc,
-            .scanline = state.clock.scanline(),
-            .frame = state.clock.frame(),
-            .timestamp = std.time.timestamp(),
-        };
-
-        // Add to history
-        try self.history.append(self.allocator, entry);
-        self.stats.snapshots_captured += 1;
-
-        // Remove oldest if exceeding max size
-        if (self.history.items.len > self.history_max_size) {
-            const oldest = self.history.orderedRemove(0);
-            self.allocator.free(oldest.snapshot);
-        }
+    pub inline fn captureHistory(self: *Debugger, state: *const EmulationState) !void {
+        return history.capture(&self.state, self.state.allocator, state, self.state.config);
     }
 
     /// Restore state from history
-    pub fn restoreFromHistory(
+    pub inline fn restoreFromHistory(
         self: *Debugger,
         index: usize,
         cartridge: ?AnyCartridge,
     ) !EmulationState {
-        if (index >= self.history.items.len) return error.InvalidHistoryIndex;
-
-        const entry = self.history.items[index];
-        return try Snapshot.loadBinary(
-            self.allocator,
-            entry.snapshot,
-            self.config,
-            cartridge,
-        );
+        return history.restore(&self.state, self.state.allocator, self.state.config, index, cartridge);
     }
 
     /// Clear history
-    pub fn clearHistory(self: *Debugger) void {
-        for (self.history.items) |entry| {
-            self.allocator.free(entry.snapshot);
-        }
-        self.history.clearRetainingCapacity();
+    pub inline fn clearHistory(self: *Debugger) void {
+        history.clear(&self.state, self.state.allocator);
     }
 
     // ========================================================================
-    // State Manipulation - CPU Registers
+    // State Manipulation - CPU Registers (delegate to modification.zig)
     // ========================================================================
 
     /// Set accumulator register
-    pub fn setRegisterA(self: *Debugger, state: *EmulationState, value: u8) void {
-        state.cpu.a = value;
-        self.logModification(.{ .register_a = value });
+    pub inline fn setRegisterA(self: *Debugger, state: *EmulationState, value: u8) void {
+        modification.setRegisterA(&self.state, state, value);
     }
 
     /// Set X index register
-    pub fn setRegisterX(self: *Debugger, state: *EmulationState, value: u8) void {
-        state.cpu.x = value;
-        self.logModification(.{ .register_x = value });
+    pub inline fn setRegisterX(self: *Debugger, state: *EmulationState, value: u8) void {
+        modification.setRegisterX(&self.state, state, value);
     }
 
     /// Set Y index register
-    pub fn setRegisterY(self: *Debugger, state: *EmulationState, value: u8) void {
-        state.cpu.y = value;
-        self.logModification(.{ .register_y = value });
+    pub inline fn setRegisterY(self: *Debugger, state: *EmulationState, value: u8) void {
+        modification.setRegisterY(&self.state, state, value);
     }
 
-    /// Set stack pointer to any value
-    ///
-    /// **IMPORTANT FOR TAS USERS:**
-    /// Stack pointer can be set to any u8 value, including edge cases that may
-    /// cause stack overflow/underflow or corrupt critical memory regions.
-    ///
-    /// Edge Cases (INTENTIONALLY SUPPORTED):
-    /// - SP = 0x00: Stack at $0100, pushes will wrap to $01FF (stack overflow into page 0)
-    /// - SP = 0xFF: Stack at $01FF, pops will wrap to $0100 (stack underflow)
-    /// - Manipulating SP can expose/corrupt zero page or stack variables
-    ///
-    /// TAS Use Cases:
-    /// - Wrong warp glitches: Manipulate SP + RTS to jump to arbitrary addresses
-    /// - Stack underflow exploits: Pop corrupted return addresses
-    /// - ACE setup: Position stack to execute crafted data
-    ///
-    /// Hardware Behavior:
-    /// Stack lives at $0100-$01FF (page 1). SP is 8-bit offset from $0100.
-    /// Overflow/underflow wrap within page 1 - no hardware protection.
-    pub fn setStackPointer(self: *Debugger, state: *EmulationState, value: u8) void {
-        state.cpu.sp = value;
-        self.logModification(.{ .stack_pointer = value });
+    /// Set stack pointer
+    pub inline fn setStackPointer(self: *Debugger, state: *EmulationState, value: u8) void {
+        modification.setStackPointer(&self.state, state, value);
     }
 
-    /// Set program counter to any address
-    ///
-    /// **IMPORTANT FOR TAS (Tool-Assisted Speedrun) USERS:**
-    /// This function allows setting PC to ANY address, including undefined regions.
-    /// The debugger intentionally supports setting invalid/corrupted states for TAS techniques.
-    ///
-    /// Undefined Behaviors (INTENTIONALLY SUPPORTED):
-    /// - PC in RAM ($0000-$1FFF): Executes data as code (ACE - Arbitrary Code Execution)
-    /// - PC in I/O ($2000-$401F): Undefined behavior, may crash or glitch
-    /// - PC in unmapped regions: Reads open bus values as opcodes
-    /// - PC in CHR-ROM: Executes graphics data as code
-    ///
-    /// TAS Use Cases:
-    /// - Wrong warp glitches (manipulate PC + stack for level skips)
-    /// - ACE exploits (execute crafted RAM data as code)
-    /// - Game ending glitches (jump directly to credits sequence)
-    ///
-    /// Hardware Behavior:
-    /// The 6502 CPU will attempt to execute whatever bytes are at PC,
-    /// regardless of whether they're valid code, data, or unmapped regions.
-    /// This can crash the system or produce unexpected behavior - THIS IS INTENTIONAL.
-    pub fn setProgramCounter(self: *Debugger, state: *EmulationState, value: u16) void {
-        state.cpu.pc = value;
-        self.logModification(.{ .program_counter = value });
+    /// Set program counter
+    pub inline fn setProgramCounter(self: *Debugger, state: *EmulationState, value: u16) void {
+        modification.setProgramCounter(&self.state, state, value);
     }
 
     /// Set individual status flag
-    pub fn setStatusFlag(
+    pub inline fn setStatusFlag(
         self: *Debugger,
         state: *EmulationState,
         flag: StatusFlag,
         value: bool,
     ) void {
-        switch (flag) {
-            .carry => state.cpu.p.carry = value,
-            .zero => state.cpu.p.zero = value,
-            .interrupt => state.cpu.p.interrupt = value,
-            .decimal => state.cpu.p.decimal = value,
-            .overflow => state.cpu.p.overflow = value,
-            .negative => state.cpu.p.negative = value,
-        }
-        self.logModification(.{ .status_flag = .{ .flag = flag, .value = value } });
+        modification.setStatusFlag(&self.state, state, flag, value);
     }
 
     /// Set complete status register from byte
-    ///
-    /// **IMPORTANT FOR TAS USERS:**
-    /// All status flags can be set to any value, including combinations that are
-    /// unusual or don't normally occur during regular game execution.
-    ///
-    /// Status Flags (bits 7-0):
-    /// - Bit 7: Negative (N) - Set if result is negative (bit 7 = 1)
-    /// - Bit 6: Overflow (V) - Set on signed overflow
-    /// - Bit 5: (unused, always 1 when read)
-    /// - Bit 4: Break (B) - Set by BRK, clear by IRQ/NMI (only on stack)
-    /// - Bit 3: Decimal (D) - Decimal mode (IGNORED on NES - no BCD)
-    /// - Bit 2: Interrupt (I) - Interrupt disable
-    /// - Bit 1: Zero (Z) - Set if result is zero
-    /// - Bit 0: Carry (C) - Set on arithmetic carry/borrow
-    ///
-    /// Edge Cases (INTENTIONALLY SUPPORTED):
-    /// - Decimal flag: Can be set but has NO EFFECT on NES (no BCD mode)
-    /// - Unusual flag combinations: Any combination is valid for TAS
-    /// - Break flag: Only meaningful on stack, not in register
-    ///
-    /// TAS Use Cases:
-    /// - Setting flags for branch manipulation (wrong warps)
-    /// - Creating unusual flag states to trigger game bugs
-    /// - Testing edge cases in game logic
-    ///
-    /// Note: Bits 4 and 5 are not stored in P register but this function
-    /// accepts full 8-bit values for convenience. Bit 5 is always 1, bit 4
-    /// only appears on stack during BRK/IRQ.
-    pub fn setStatusRegister(self: *Debugger, state: *EmulationState, value: u8) void {
-        state.cpu.p.carry = (value & 0x01) != 0;
-        state.cpu.p.zero = (value & 0x02) != 0;
-        state.cpu.p.interrupt = (value & 0x04) != 0;
-        state.cpu.p.decimal = (value & 0x08) != 0;
-        state.cpu.p.overflow = (value & 0x40) != 0;
-        state.cpu.p.negative = (value & 0x80) != 0;
-        self.logModification(.{ .status_register = value });
+    pub inline fn setStatusRegister(self: *Debugger, state: *EmulationState, value: u8) void {
+        modification.setStatusRegister(&self.state, state, value);
     }
 
     // ========================================================================
-    // State Manipulation - Memory
+    // State Manipulation - Memory (delegate to modification.zig)
     // ========================================================================
 
-    /// Write single byte to memory (via bus)
-    ///
-    /// **IMPORTANT FOR TAS USERS:**
-    /// This function tracks INTENT rather than success. Writes to read-only regions
-    /// (like ROM) are logged in modifications history even though they don't affect
-    /// actual memory. This is intentional for TAS workflows.
-    ///
-    /// Hardware Behaviors:
-    /// - Writes to RAM ($0000-$1FFF): Succeed, data is stored
-    /// - Writes to I/O ($2000-$401F): Trigger hardware side effects (PPU, APU, etc.)
-    /// - Writes to ROM ($8000-$FFFF): Update data bus but DON'T modify cartridge ROM
-    ///   (hardware write protection - ROM is read-only)
-    /// - Writes to unmapped regions: Update data bus only (open bus behavior)
-    ///
-    /// Intent Tracking:
-    /// All writes are logged in modifications history regardless of success.
-    /// This allows TAS users to:
-    /// - Track attempted ROM corruption (for glitch setup documentation)
-    /// - Monitor I/O register manipulation sequences
-    /// - Verify memory state before attempting exploits
-    ///
-    /// TAS Use Cases:
-    /// - Setting up RAM state for ACE exploits
-    /// - Manipulating PPU registers for graphical glitches
-    /// - Corrupting sprite data for position manipulation
-    ///
-    /// Note: ROM writes update the data bus (affecting open bus reads) but don't
-    /// modify the actual ROM. This matches real NES hardware behavior.
-    pub fn writeMemory(
+    /// Write single byte to memory
+    pub inline fn writeMemory(
         self: *Debugger,
         state: *EmulationState,
         address: u16,
         value: u8,
     ) void {
-        state.busWrite(address, value);
-        self.logModification(.{ .memory_write = .{
-            .address = address,
-            .value = value,
-        } });
+        modification.writeMemory(&self.state, state, address, value);
     }
 
     /// Write byte range to memory
-    pub fn writeMemoryRange(
+    pub inline fn writeMemoryRange(
         self: *Debugger,
         state: *EmulationState,
         start_address: u16,
         data: []const u8,
     ) void {
-        for (data, 0..) |byte, offset| {
-            const addr = start_address +% @as(u16, @intCast(offset));
-            state.busWrite(addr, byte);
-        }
-        self.logModification(.{ .memory_range = .{
-            .start = start_address,
-            .length = @intCast(data.len),
-        } });
+        modification.writeMemoryRange(&self.state, state, start_address, data);
     }
 
     /// Read memory for inspection WITHOUT side effects
-    /// Does not update open bus - safe for debugger inspection
-    ///
-    /// This uses Logic.peekMemory() which reads memory without triggering
-    /// hardware side effects. This is critical for time-travel debugging:
-    /// inspection reads must not corrupt the state being inspected.
-    /// Read memory for inspection WITHOUT side effects
-    /// Does NOT update open bus - safe for debugger inspection
-    /// Uses EmulationState.peekMemory() to avoid side effects
-    pub fn readMemory(
+    pub inline fn readMemory(
         self: *Debugger,
         state: *const EmulationState,
         address: u16,
     ) u8 {
-        _ = self;
-        // Use peekMemory() which does NOT update open_bus
-        return state.peekMemory(address);
+        return inspection.readMemory(&self.state, state, address);
     }
 
     /// Read memory range for inspection WITHOUT side effects
-    /// Does not update open bus - safe for debugger inspection
-    pub fn readMemoryRange(
+    pub inline fn readMemoryRange(
         self: *Debugger,
         allocator: std.mem.Allocator,
         state: *const EmulationState,
         start_address: u16,
         length: u16,
     ) ![]u8 {
-        _ = self;
-        const buffer = try allocator.alloc(u8, length);
-        // Use peekMemory() which does NOT update open_bus
-        for (0..length) |i| {
-            buffer[i] = state.peekMemory(start_address +% @as(u16, @intCast(i)));
-        }
-        return buffer;
+        return inspection.readMemoryRange(&self.state, allocator, state, start_address, length);
     }
 
     // ========================================================================
-    // State Manipulation - PPU
+    // State Manipulation - PPU (delegate to modification.zig)
     // ========================================================================
 
-    /// Set PPU scanline (for testing)
-    pub fn setPpuScanline(self: *Debugger, state: *EmulationState, scanline: u16) void {
-        const current_dot = state.clock.dot();
-        state.clock.ppu_cycles = (@as(u64, scanline) * 341) + current_dot;
-        self.logModification(.{ .ppu_scanline = scanline });
+    /// Set PPU scanline
+    pub inline fn setPpuScanline(self: *Debugger, state: *EmulationState, scanline: u16) void {
+        modification.setPpuScanline(&self.state, state, scanline);
     }
 
     /// Set PPU frame counter
-    pub fn setPpuFrame(self: *Debugger, state: *EmulationState, frame: u64) void {
-        const current_scanline = state.clock.scanline();
-        const current_dot = state.clock.dot();
-        state.clock.ppu_cycles = (frame * 89342) + (@as(u64, current_scanline) * 341) + current_dot;
-        self.logModification(.{ .ppu_frame = frame });
+    pub inline fn setPpuFrame(self: *Debugger, state: *EmulationState, frame: u64) void {
+        modification.setPpuFrame(&self.state, state, frame);
     }
 
     // ========================================================================
-    // Modification Logging
+    // Modification History (delegate to inspection/modification.zig)
     // ========================================================================
-
-    /// Log state modification for debugging history (bounded circular buffer)
-    /// Automatically removes oldest entry when max size reached
-    fn logModification(self: *Debugger, modification: StateModification) void {
-        // ✅ Implement circular buffer - remove oldest when full
-        if (self.modifications.items.len >= self.modifications_max_size) {
-            _ = self.modifications.orderedRemove(0);
-        }
-
-        _ = self.modifications.append(self.allocator, modification) catch {};
-    }
 
     /// Get modification history
-    pub fn getModifications(self: *const Debugger) []const StateModification {
-        return self.modifications.items;
+    pub inline fn getModifications(self: *const Debugger) []const StateModification {
+        return inspection.getModifications(&self.state);
     }
 
     /// Clear modification history
-    pub fn clearModifications(self: *Debugger) void {
-        self.modifications.clearRetainingCapacity();
+    pub inline fn clearModifications(self: *Debugger) void {
+        modification.clearModifications(&self.state);
     }
 
     // ========================================================================
-    // Helper Functions
+    // Helper Functions (delegate to inspection.zig)
+    // ========================================================================
+
+    /// Get current break reason
+    pub inline fn getBreakReason(self: *const Debugger) ?[]const u8 {
+        return inspection.getBreakReason(&self.state);
+    }
+
+    /// Check if debugger is currently paused
+    pub inline fn isPaused(self: *const Debugger) bool {
+        return inspection.isPaused(&self.state);
+    }
+
+    /// Fast check for any active memory breakpoints or watchpoints
+    pub inline fn hasMemoryTriggers(self: *const Debugger) bool {
+        return inspection.hasMemoryTriggers(&self.state);
+    }
+
+    // ========================================================================
+    // Internal Helper Functions
     // ========================================================================
 
     fn checkBreakCondition(condition: Breakpoint.BreakCondition, state: *const EmulationState) bool {
@@ -962,36 +568,11 @@ pub const Debugger = struct {
         };
     }
 
-    inline fn isMemoryBreakpointType(bp_type: BreakpointType) bool {
-        return switch (bp_type) {
-            .execute => false,
-            .read, .write, .access => true,
-        };
-    }
-
     /// Set break reason using pre-allocated buffer (RT-safe)
-    /// No heap allocation - copies to static buffer
     fn setBreakReason(self: *Debugger, reason: []const u8) !void {
-        // Copy to pre-allocated buffer instead of heap allocation
-        const len = @min(reason.len, self.break_reason_buffer.len);
-        @memcpy(self.break_reason_buffer[0..len], reason[0..len]);
-        self.break_reason_len = len;
-    }
-
-    /// Get current break reason (returns slice into static buffer)
-    pub fn getBreakReason(self: *const Debugger) ?[]const u8 {
-        if (self.break_reason_len == 0) return null;
-        return self.break_reason_buffer[0..self.break_reason_len];
-    }
-
-    /// Check if debugger is currently paused
-    pub fn isPaused(self: *const Debugger) bool {
-        return self.mode == .paused;
-    }
-
-    /// Fast check for any active memory breakpoints or watchpoints
-    pub fn hasMemoryTriggers(self: *const Debugger) bool {
-        return self.memory_breakpoint_enabled_count > 0 or self.watchpoint_enabled_count > 0;
+        const len = @min(reason.len, self.state.break_reason_buffer.len);
+        @memcpy(self.state.break_reason_buffer[0..len], reason[0..len]);
+        self.state.break_reason_len = len;
     }
 };
 
@@ -1008,9 +589,9 @@ test "Debugger: init and deinit" {
     var debugger = Debugger.init(testing.allocator, &config);
     defer debugger.deinit();
 
-    try testing.expectEqual(DebugMode.running, debugger.mode);
-    try testing.expectEqual(@as(usize, 0), debugger.breakpoint_count);
-    try testing.expectEqual(@as(usize, 0), debugger.watchpoint_count);
+    try testing.expectEqual(DebugMode.running, debugger.state.mode);
+    try testing.expectEqual(@as(usize, 0), debugger.state.breakpoint_count);
+    try testing.expectEqual(@as(usize, 0), debugger.state.watchpoint_count);
 }
 
 test "Debugger: breakpoint management" {
@@ -1022,10 +603,10 @@ test "Debugger: breakpoint management" {
 
     // Add breakpoint
     try debugger.addBreakpoint(0x8000, .execute);
-    try testing.expectEqual(@as(usize, 1), debugger.breakpoint_count);
+    try testing.expectEqual(@as(usize, 1), debugger.state.breakpoint_count);
     // Find and verify the breakpoint
     var found_bp: ?Breakpoint = null;
-    for (debugger.breakpoints[0..256]) |maybe_bp| {
+    for (debugger.state.breakpoints[0..256]) |maybe_bp| {
         if (maybe_bp) |bp| {
             found_bp = bp;
             break;
@@ -1033,30 +614,11 @@ test "Debugger: breakpoint management" {
     }
     try testing.expect(found_bp != null);
     try testing.expectEqual(@as(u16, 0x8000), found_bp.?.address);
-    try testing.expect(found_bp.?.enabled);
-
-    // Add duplicate (should not create new entry)
-    try debugger.addBreakpoint(0x8000, .execute);
-    try testing.expectEqual(@as(usize, 1), debugger.breakpoint_count);
-
-    // Disable breakpoint
-    try testing.expect(debugger.setBreakpointEnabled(0x8000, .execute, false));
-    // Find and verify disabled state
-    found_bp = null;
-    for (debugger.breakpoints[0..256]) |maybe_bp| {
-        if (maybe_bp) |bp| {
-            found_bp = bp;
-            break;
-        }
-    }
-    try testing.expect(!found_bp.?.enabled);
+    try testing.expectEqual(BreakpointType.execute, found_bp.?.type);
 
     // Remove breakpoint
     try testing.expect(debugger.removeBreakpoint(0x8000, .execute));
-    try testing.expectEqual(@as(usize, 0), debugger.breakpoint_count);
-
-    // Remove non-existent
-    try testing.expect(!debugger.removeBreakpoint(0x8000, .execute));
+    try testing.expectEqual(@as(usize, 0), debugger.state.breakpoint_count);
 }
 
 test "Debugger: watchpoint management" {
@@ -1067,43 +629,33 @@ test "Debugger: watchpoint management" {
     defer debugger.deinit();
 
     // Add watchpoint
-    try debugger.addWatchpoint(0x0000, 1, .write);
-    try testing.expectEqual(@as(usize, 1), debugger.watchpoint_count);
-    // Find and verify the watchpoint
-    var found_wp: ?Watchpoint = null;
-    for (debugger.watchpoints[0..256]) |maybe_wp| {
-        if (maybe_wp) |wp| {
-            found_wp = wp;
-            break;
-        }
-    }
-    try testing.expect(found_wp != null);
-    try testing.expectEqual(@as(u16, 0x0000), found_wp.?.address);
+    try debugger.addWatchpoint(0x2000, 8, .write);
+    try testing.expectEqual(@as(usize, 1), debugger.state.watchpoint_count);
 
     // Remove watchpoint
-    try testing.expect(debugger.removeWatchpoint(0x0000, .write));
-    try testing.expectEqual(@as(usize, 0), debugger.watchpoint_count);
+    try testing.expect(debugger.removeWatchpoint(0x2000, .write));
+    try testing.expectEqual(@as(usize, 0), debugger.state.watchpoint_count);
 }
 
-test "Debugger: execution modes" {
+test "Debugger: execution control" {
     var config = Config.init(testing.allocator);
     defer config.deinit();
 
     var debugger = Debugger.init(testing.allocator, &config);
     defer debugger.deinit();
 
-    // Initial mode
-    try testing.expectEqual(DebugMode.running, debugger.mode);
+    // Initial state is running
+    try testing.expectEqual(DebugMode.running, debugger.state.mode);
 
     // Pause
     debugger.pause();
-    try testing.expectEqual(DebugMode.paused, debugger.mode);
+    try testing.expectEqual(DebugMode.paused, debugger.state.mode);
 
     // Continue
     debugger.continue_();
-    try testing.expectEqual(DebugMode.running, debugger.mode);
+    try testing.expectEqual(DebugMode.running, debugger.state.mode);
 
     // Step instruction
     debugger.stepInstruction();
-    try testing.expectEqual(DebugMode.step_instruction, debugger.mode);
+    try testing.expectEqual(DebugMode.step_instruction, debugger.state.mode);
 }

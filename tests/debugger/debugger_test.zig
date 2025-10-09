@@ -53,8 +53,8 @@ test "Debugger: execute breakpoint triggers" {
     // Should break
     const should_break = try debugger.shouldBreak(&state);
     try testing.expect(should_break);
-    try testing.expectEqual(DebugMode.paused, debugger.mode);
-    try testing.expectEqual(@as(u64, 1), debugger.stats.breakpoints_hit);
+    try testing.expectEqual(DebugMode.paused, debugger.state.mode);
+    try testing.expectEqual(@as(u64, 1), debugger.state.stats.breakpoints_hit);
 }
 
 test "Debugger: execute breakpoint with condition" {
@@ -70,7 +70,7 @@ test "Debugger: execute breakpoint with condition" {
     // Add conditional breakpoint
     try debugger.addBreakpoint(0x8000, .execute);
     // Find the breakpoint we just added and set condition
-    for (debugger.breakpoints[0..256]) |*maybe_bp| {
+    for (debugger.state.breakpoints[0..256]) |*maybe_bp| {
         if (maybe_bp.*) |*bp| {
             bp.condition = .{ .a_equals = 0x42 };
             break;
@@ -102,7 +102,7 @@ test "Debugger: read/write breakpoints" {
 
     // Should break on read
     try testing.expect(try debugger.checkMemoryAccess(&state, 0x0100, 0x42, false));
-    try testing.expectEqual(DebugMode.paused, debugger.mode);
+    try testing.expectEqual(DebugMode.paused, debugger.state.mode);
 
     // Reset
     debugger.continue_();
@@ -169,7 +169,7 @@ test "Debugger: breakpoint hit count" {
     _ = try debugger.shouldBreak(&state);
     // Find the breakpoint and check hit count
     var hit_count: u64 = 0;
-    for (debugger.breakpoints[0..256]) |maybe_bp| {
+    for (debugger.state.breakpoints[0..256]) |maybe_bp| {
         if (maybe_bp) |bp| {
             hit_count = bp.hit_count;
             break;
@@ -179,7 +179,7 @@ test "Debugger: breakpoint hit count" {
 
     debugger.continue_();
     _ = try debugger.shouldBreak(&state);
-    for (debugger.breakpoints[0..256]) |maybe_bp| {
+    for (debugger.state.breakpoints[0..256]) |maybe_bp| {
         if (maybe_bp) |bp| {
             hit_count = bp.hit_count;
             break;
@@ -206,7 +206,7 @@ test "Debugger: write watchpoint" {
 
     // Should break on write
     try testing.expect(try debugger.checkMemoryAccess(&state, 0x0000, 0xFF, true));
-    try testing.expectEqual(DebugMode.paused, debugger.mode);
+    try testing.expectEqual(DebugMode.paused, debugger.state.mode);
 
     debugger.continue_();
 
@@ -290,11 +290,11 @@ test "Debugger: step instruction" {
 
     // Enable step mode
     debugger.stepInstruction();
-    try testing.expectEqual(DebugMode.step_instruction, debugger.mode);
+    try testing.expectEqual(DebugMode.step_instruction, debugger.state.mode);
 
     // Should break immediately
     try testing.expect(try debugger.shouldBreak(&state));
-    try testing.expectEqual(DebugMode.paused, debugger.mode);
+    try testing.expectEqual(DebugMode.paused, debugger.state.mode);
 }
 
 test "Debugger: step over (same stack level)" {
@@ -308,8 +308,8 @@ test "Debugger: step over (same stack level)" {
     state.cpu.sp = 0xFD;
 
     debugger.stepOver(&state);
-    try testing.expectEqual(DebugMode.step_over, debugger.mode);
-    try testing.expectEqual(@as(u8, 0xFD), debugger.step_state.initial_sp);
+    try testing.expectEqual(DebugMode.step_over, debugger.state.mode);
+    try testing.expectEqual(@as(u8, 0xFD), debugger.state.step_state.initial_sp);
 
     // Should not break yet
     try testing.expect(!try debugger.shouldBreak(&state));
@@ -321,7 +321,7 @@ test "Debugger: step over (same stack level)" {
     // Simulate RTS (increment SP back)
     state.cpu.sp = 0xFD;
     try testing.expect(try debugger.shouldBreak(&state));
-    try testing.expectEqual(DebugMode.paused, debugger.mode);
+    try testing.expectEqual(DebugMode.paused, debugger.state.mode);
 }
 
 test "Debugger: step out (return from subroutine)" {
@@ -335,7 +335,7 @@ test "Debugger: step out (return from subroutine)" {
     state.cpu.sp = 0xFB; // Inside subroutine
 
     debugger.stepOut(&state);
-    try testing.expectEqual(DebugMode.step_out, debugger.mode);
+    try testing.expectEqual(DebugMode.step_out, debugger.state.mode);
 
     // Should not break at same level
     try testing.expect(!try debugger.shouldBreak(&state));
@@ -356,8 +356,8 @@ test "Debugger: step scanline" {
     state.clock.ppu_cycles = 100 * 341; // Scanline 100
 
     debugger.stepScanline(&state);
-    try testing.expectEqual(DebugMode.step_scanline, debugger.mode);
-    try testing.expectEqual(@as(u16, 101), debugger.step_state.target_scanline.?);
+    try testing.expectEqual(DebugMode.step_scanline, debugger.state.mode);
+    try testing.expectEqual(@as(u16, 101), debugger.state.step_state.target_scanline.?);
 
     // Should not break yet
     try testing.expect(!try debugger.shouldBreak(&state));
@@ -378,8 +378,8 @@ test "Debugger: step frame" {
     state.clock.ppu_cycles = 10 * 89342; // Frame 10
 
     debugger.stepFrame(&state);
-    try testing.expectEqual(DebugMode.step_frame, debugger.mode);
-    try testing.expectEqual(@as(u64, 11), debugger.step_state.target_frame.?);
+    try testing.expectEqual(DebugMode.step_frame, debugger.state.mode);
+    try testing.expectEqual(@as(u64, 11), debugger.state.step_state.target_frame.?);
 
     // Should not break yet
     try testing.expect(!try debugger.shouldBreak(&state));
@@ -406,8 +406,8 @@ test "Debugger: capture and restore history" {
 
     // Capture state
     try debugger.captureHistory(&state);
-    try testing.expectEqual(@as(usize, 1), debugger.history.items.len);
-    try testing.expectEqual(@as(u16, 0x8000), debugger.history.items[0].pc);
+    try testing.expectEqual(@as(usize, 1), debugger.state.history.items.len);
+    try testing.expectEqual(@as(u16, 0x8000), debugger.state.history.items[0].pc);
 
     // Modify state
     state.cpu.pc = 0x8100;
@@ -425,7 +425,7 @@ test "Debugger: history circular buffer" {
 
     var debugger = Debugger.init(testing.allocator, &config);
     defer debugger.deinit();
-    debugger.history_max_size = 3;
+    debugger.state.history_max_size = 3;
 
     var state = createTestState(&config);
 
@@ -436,10 +436,10 @@ test "Debugger: history circular buffer" {
     }
 
     // Should only have 3 entries
-    try testing.expectEqual(@as(usize, 3), debugger.history.items.len);
+    try testing.expectEqual(@as(usize, 3), debugger.state.history.items.len);
 
     // First entry should be PC=0x8001 (oldest removed)
-    try testing.expectEqual(@as(u16, 0x8001), debugger.history.items[0].pc);
+    try testing.expectEqual(@as(u16, 0x8001), debugger.state.history.items[0].pc);
 }
 
 test "Debugger: clear history" {
@@ -452,10 +452,10 @@ test "Debugger: clear history" {
     var state = createTestState(&config);
 
     try debugger.captureHistory(&state);
-    try testing.expectEqual(@as(usize, 1), debugger.history.items.len);
+    try testing.expectEqual(@as(usize, 1), debugger.state.history.items.len);
 
     debugger.clearHistory();
-    try testing.expectEqual(@as(usize, 0), debugger.history.items.len);
+    try testing.expectEqual(@as(usize, 0), debugger.state.history.items.len);
 }
 
 // ============================================================================
@@ -474,21 +474,21 @@ test "Debugger: statistics tracking" {
     // Track instructions
     _ = try debugger.shouldBreak(&state);
     _ = try debugger.shouldBreak(&state);
-    try testing.expectEqual(@as(u64, 2), debugger.stats.instructions_executed);
+    try testing.expectEqual(@as(u64, 2), debugger.state.stats.instructions_executed);
 
     // Track breakpoints
     try debugger.addBreakpoint(0x8000, .execute);
     _ = try debugger.shouldBreak(&state);
-    try testing.expectEqual(@as(u64, 1), debugger.stats.breakpoints_hit);
+    try testing.expectEqual(@as(u64, 1), debugger.state.stats.breakpoints_hit);
 
     // Track watchpoints
     try debugger.addWatchpoint(0x0000, 1, .write);
     _ = try debugger.checkMemoryAccess(&state, 0x0000, 0xFF, true);
-    try testing.expectEqual(@as(u64, 1), debugger.stats.watchpoints_hit);
+    try testing.expectEqual(@as(u64, 1), debugger.state.stats.watchpoints_hit);
 
     // Track snapshots
     try debugger.captureHistory(&state);
-    try testing.expectEqual(@as(u64, 1), debugger.stats.snapshots_captured);
+    try testing.expectEqual(@as(u64, 1), debugger.state.stats.snapshots_captured);
 }
 
 // ============================================================================
@@ -528,15 +528,15 @@ test "Debugger: clear all breakpoints and watchpoints" {
     try debugger.addBreakpoint(0x8100, .read);
     try debugger.addWatchpoint(0x0000, 1, .write);
 
-    try testing.expectEqual(@as(usize, 2), debugger.breakpoint_count);
-    try testing.expectEqual(@as(usize, 1), debugger.watchpoint_count);
+    try testing.expectEqual(@as(usize, 2), debugger.state.breakpoint_count);
+    try testing.expectEqual(@as(usize, 1), debugger.state.watchpoint_count);
 
     // Clear all
     debugger.clearBreakpoints();
     debugger.clearWatchpoints();
 
-    try testing.expectEqual(@as(usize, 0), debugger.breakpoint_count);
-    try testing.expectEqual(@as(usize, 0), debugger.watchpoint_count);
+    try testing.expectEqual(@as(usize, 0), debugger.state.breakpoint_count);
+    try testing.expectEqual(@as(usize, 0), debugger.state.watchpoint_count);
 }
 
 // ============================================================================
@@ -1054,7 +1054,7 @@ test "Modification History: bounded to max size" {
     defer debugger.deinit();
 
     // Set small max size for testing
-    debugger.modifications_max_size = 10;
+    debugger.state.modifications_max_size = 10;
 
     var state = createTestState(&config);
 
@@ -1079,7 +1079,7 @@ test "Modification History: circular buffer behavior" {
     var debugger = Debugger.init(testing.allocator, &config);
     defer debugger.deinit();
 
-    debugger.modifications_max_size = 5;
+    debugger.state.modifications_max_size = 5;
 
     var state = createTestState(&config);
 
@@ -1285,7 +1285,7 @@ test "Isolation: Debugger state changes don't affect runtime" {
     // Perform debugger operations (should NOT affect runtime)
     try debugger.addBreakpoint(0x8100, .execute);
     try debugger.addWatchpoint(0x0200, 1, .write);
-    debugger.mode = .paused;
+    debugger.state.mode = .paused;
     debugger.clearHistory();
 
     // ✅ Verify runtime state UNCHANGED
@@ -1321,11 +1321,11 @@ test "Isolation: Runtime execution doesn't corrupt debugger state" {
     state.clock.ppu_cycles = 200 * 341; // Scanline 200
 
     // ✅ Verify debugger state UNCHANGED
-    try testing.expectEqual(@as(usize, 1), debugger.breakpoint_count);
-    try testing.expectEqual(@as(usize, 1), debugger.watchpoint_count);
+    try testing.expectEqual(@as(usize, 1), debugger.state.breakpoint_count);
+    try testing.expectEqual(@as(usize, 1), debugger.state.watchpoint_count);
     // Find and verify breakpoint address
     var found_bp_addr: u16 = 0;
-    for (debugger.breakpoints[0..256]) |maybe_bp| {
+    for (debugger.state.breakpoints[0..256]) |maybe_bp| {
         if (maybe_bp) |bp| {
             found_bp_addr = bp.address;
             break;
@@ -1334,7 +1334,7 @@ test "Isolation: Runtime execution doesn't corrupt debugger state" {
     try testing.expectEqual(@as(u16, 0x8000), found_bp_addr);
     // Find and verify watchpoint address
     var found_wp_addr: u16 = 0;
-    for (debugger.watchpoints[0..256]) |maybe_wp| {
+    for (debugger.state.watchpoints[0..256]) |maybe_wp| {
         if (maybe_wp) |wp| {
             found_wp_addr = wp.address;
             break;
@@ -1363,7 +1363,7 @@ test "Isolation: Breakpoint state isolation from runtime" {
     try debugger.addBreakpoint(0x8020, .read);
 
     // Capture breakpoint count
-    const bp_count = debugger.breakpoint_count;
+    const bp_count = debugger.state.breakpoint_count;
 
     // Simulate runtime operations that MIGHT affect breakpoints (if shared)
     state.cpu.pc = 0x8000; // PC at breakpoint address
@@ -1376,12 +1376,12 @@ test "Isolation: Breakpoint state isolation from runtime" {
     }
 
     // ✅ Breakpoint count UNCHANGED (runtime doesn't modify breakpoints)
-    try testing.expectEqual(bp_count, debugger.breakpoint_count);
+    try testing.expectEqual(bp_count, debugger.state.breakpoint_count);
 
     // ✅ Breakpoints still at correct addresses
     var found_addresses = [_]u16{ 0, 0, 0 };
     var found_count: usize = 0;
-    for (debugger.breakpoints[0..256]) |maybe_bp| {
+    for (debugger.state.breakpoints[0..256]) |maybe_bp| {
         if (maybe_bp) |bp| {
             found_addresses[found_count] = bp.address;
             found_count += 1;
@@ -1768,11 +1768,11 @@ test "Debugger: Breakpoint limit enforcement (256 max)" {
     for (0..256) |i| {
         try debugger.addBreakpoint(@intCast(i), .execute);
     }
-    try testing.expectEqual(@as(usize, 256), debugger.breakpoint_count);
+    try testing.expectEqual(@as(usize, 256), debugger.state.breakpoint_count);
 
     // 257th breakpoint should fail
     try testing.expectError(error.BreakpointLimitReached, debugger.addBreakpoint(256, .execute));
-    try testing.expectEqual(@as(usize, 256), debugger.breakpoint_count); // Count unchanged
+    try testing.expectEqual(@as(usize, 256), debugger.state.breakpoint_count); // Count unchanged
 }
 
 test "Debugger: Watchpoint limit enforcement (256 max)" {
@@ -1786,11 +1786,11 @@ test "Debugger: Watchpoint limit enforcement (256 max)" {
     for (0..256) |i| {
         try debugger.addWatchpoint(@intCast(i), 1, .write);
     }
-    try testing.expectEqual(@as(usize, 256), debugger.watchpoint_count);
+    try testing.expectEqual(@as(usize, 256), debugger.state.watchpoint_count);
 
     // 257th watchpoint should fail
     try testing.expectError(error.WatchpointLimitReached, debugger.addWatchpoint(256, 1, .write));
-    try testing.expectEqual(@as(usize, 256), debugger.watchpoint_count); // Count unchanged
+    try testing.expectEqual(@as(usize, 256), debugger.state.watchpoint_count); // Count unchanged
 }
 
 test "Debugger: memory trigger tracking" {

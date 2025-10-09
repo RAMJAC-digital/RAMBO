@@ -55,8 +55,8 @@ pub const DebuggerState = struct {
             .allocator = allocator,
             .config = config,
             // breakpoints/watchpoints auto-initialize from struct defaults
-            .history = std.ArrayList(types.HistoryEntry).init(allocator),
-            .modifications = std.ArrayList(types.StateModification).init(allocator),
+            .history = std.ArrayList(types.HistoryEntry){},
+            .modifications = std.ArrayList(types.StateModification){},
         };
     }
 
@@ -67,10 +67,10 @@ pub const DebuggerState = struct {
         for (self.history.items) |entry| {
             self.allocator.free(entry.snapshot);
         }
-        self.history.deinit();
+        self.history.deinit(self.allocator);
 
         // Free modifications
-        self.modifications.deinit();
+        self.modifications.deinit(self.allocator);
 
         // Note: break_reason_buffer is a fixed array (no cleanup needed)
     }
