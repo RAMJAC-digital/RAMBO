@@ -94,8 +94,14 @@ pub fn fetchBackgroundTile(state: *PpuState, cart: ?*AnyCartridge, dot: u16) voi
 
 /// Get background pixel from shift registers
 /// Returns palette index (0-31), or 0 for transparent
-pub fn getBackgroundPixel(state: *PpuState) u8 {
+pub fn getBackgroundPixel(state: *PpuState, pixel_x: u16) u8 {
     if (!state.mask.show_bg) return 0;
+
+    // Left-column clipping (hardware accurate)
+    // When show_bg_left is false, background is transparent in columns 0-7
+    if (pixel_x < 8 and !state.mask.show_bg_left) {
+        return 0;
+    }
 
     // Apply fine X scroll (0-7)
     // Shift amount is 15 - fine_x (range: 8-15)

@@ -3,6 +3,7 @@
 //! Handles reading and writing APU registers ($4000-$4017).
 //! Implements register side effects and state updates.
 
+const std = @import("std");
 const ApuState = @import("../State.zig").ApuState;
 const Dmc = @import("../Dmc.zig");
 const Envelope = @import("../Envelope.zig");

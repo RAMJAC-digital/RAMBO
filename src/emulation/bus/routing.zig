@@ -2,6 +2,7 @@
 //! Handles memory-mapped I/O for CPU read/write operations
 //! Implements complete NES memory map with proper mirroring and open bus behavior
 
+const std = @import("std");
 const PpuLogic = @import("../../ppu/Logic.zig");
 const ApuLogic = @import("../../apu/Logic.zig");
 const AnyCartridge = @import("../../cartridge/mappers/registry.zig").AnyCartridge;

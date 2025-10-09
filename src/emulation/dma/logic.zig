@@ -52,11 +52,13 @@ pub fn tickOamDma(state: anytype) void {
         const source_addr = (@as(u16, state.dma.source_page) << 8) | @as(u16, state.dma.current_offset);
         state.dma.temp_value = state.busRead(source_addr);
     } else {
-        // Odd cycle: Write to PPU OAM
-        // PPU OAM is 256 bytes at $2004 (auto-incremented by PPU)
-        state.ppu.oam[state.dma.current_offset] = state.dma.temp_value;
+        // Odd cycle: Write to PPU OAM via $2004 (respects oam_addr)
+        // Hardware behavior: DMA writes through $2004, which auto-increments oam_addr
+        // This allows games to set oam_addr before DMA for custom sprite ordering
+        state.ppu.oam[state.ppu.oam_addr] = state.dma.temp_value;
+        state.ppu.oam_addr +%= 1; // Auto-increment (wraps at 256)
 
-        // Increment offset for next byte
+        // Increment source offset for next byte
         state.dma.current_offset +%= 1;
     }
 }

@@ -438,7 +438,10 @@ pub const EmulationState = struct {
 
         // Process PPU at the POST-advance position (current clock state)
         // VBlank/frame events happen at specific scanline/dot coordinates
-        var ppu_result = self.stepPpuCycle(self.clock.scanline(), self.clock.dot());
+        const scanline = self.clock.scanline();
+        const dot = self.clock.dot();
+
+        var ppu_result = self.stepPpuCycle(scanline, dot);
 
         // Special handling for odd frame skip:
         // Frame completion happened at (261, 340) but we skipped to (0, 1)
@@ -460,14 +463,14 @@ pub const EmulationState = struct {
         if (step.cpu_tick) {
             // Update IRQ line from all sources (level-triggered, reflects current state)
             // IRQ line is HIGH when ANY source is active
-            // Note: mapper_irq is checked in pollMapperIrq() called from stepCpuCycle()
+            // Note: mapper_irq is polled AFTER CPU execution and updates IRQ state for next cycle
             const apu_frame_irq = self.apu.frame_irq_flag;
             const apu_dmc_irq = self.apu.dmc_irq_flag;
 
             self.cpu.irq_line = apu_frame_irq or apu_dmc_irq;
 
             const cpu_result = self.stepCpuCycle();
-            // Mapper IRQ is checked after CPU tick
+            // Mapper IRQ is polled after CPU tick and updates IRQ line for next cycle
             if (cpu_result.mapper_irq) {
                 self.cpu.irq_line = true;
             }

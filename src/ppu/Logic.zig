@@ -103,8 +103,8 @@ pub inline fn fetchBackgroundTile(state: *PpuState, cart: ?*AnyCartridge, dot: u
 }
 
 /// Get background pixel from shift registers
-pub inline fn getBackgroundPixel(state: *PpuState) u8 {
-    return background.getBackgroundPixel(state);
+pub inline fn getBackgroundPixel(state: *PpuState, pixel_x: u16) u8 {
+    return background.getBackgroundPixel(state, pixel_x);
 }
 
 /// Get final pixel color from palette

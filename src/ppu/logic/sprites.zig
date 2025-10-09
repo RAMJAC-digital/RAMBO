@@ -58,6 +58,7 @@ pub fn fetchSprites(state: *PpuState, cart: ?*AnyCartridge, scanline: u16, dot: 
             state.sprite_state.pattern_shift_hi[i] = 0;
             state.sprite_state.attributes[i] = 0;
             state.sprite_state.x_counters[i] = 0xFF;
+            state.sprite_state.oam_source_index[i] = 0xFF;
         }
     }
 
@@ -124,11 +125,12 @@ pub fn fetchSprites(state: *PpuState, cart: ?*AnyCartridge, scanline: u16, dot: 
                     state.sprite_state.x_counters[sprite_index] = sprite_x;
                     state.sprite_state.sprite_count = @intCast(sprite_index + 1);
 
-                    // Check if sprite 0 is present (OAM index 0 copied to secondary OAM)
-                    // This is a simplification - proper implementation would track OAM source index
-                    if (sprite_index == 0) {
+                    // Check if sprite 0 is present using source index tracking
+                    // Sprite 0 is OAM index 0, which can be in ANY secondary OAM slot (0-7)
+                    const oam_source = state.sprite_state.oam_source_index[sprite_index];
+                    if (oam_source == 0) {
                         state.sprite_state.sprite_0_present = true;
-                        state.sprite_state.sprite_0_index = 0;
+                        state.sprite_state.sprite_0_index = @intCast(sprite_index);
                     }
                 }
             }
@@ -208,6 +210,11 @@ pub fn evaluateSprites(state: *PpuState, scanline: u16) void {
     // Clear sprite overflow flag at start of evaluation
     state.status.sprite_overflow = false;
 
+    // Clear sprite source indices (mark all slots as empty)
+    for (0..8) |i| {
+        state.sprite_state.oam_source_index[i] = 0xFF;
+    }
+
     // Evaluate all 64 sprites in OAM
     for (0..64) |sprite_index| {
         const oam_offset = sprite_index * 4;
@@ -226,6 +233,11 @@ pub fn evaluateSprites(state: *PpuState, scanline: u16) void {
                 state.secondary_oam[secondary_oam_index + 1] = state.oam[oam_offset + 1]; // Tile
                 state.secondary_oam[secondary_oam_index + 2] = state.oam[oam_offset + 2]; // Attr
                 state.secondary_oam[secondary_oam_index + 3] = state.oam[oam_offset + 3]; // X
+
+                // Track which OAM sprite (0-63) went into this secondary OAM slot (0-7)
+                // This is CRITICAL for sprite 0 hit detection
+                state.sprite_state.oam_source_index[sprites_found] = @intCast(sprite_index);
+
                 secondary_oam_index += 4;
                 sprites_found += 1;
             } else {

@@ -223,6 +223,11 @@ pub const SpriteState = struct {
     /// Counts down from X position, sprite becomes active when counter reaches 0
     x_counters: [8]u8 = [_]u8{0} ** 8,
 
+    /// OAM source indices for each secondary OAM slot (0-63, or 0xFF if empty)
+    /// Tracks which primary OAM sprite (0-63) is in each secondary OAM slot (0-7)
+    /// This is critical for sprite 0 hit detection - sprite 0 can be in ANY slot
+    oam_source_index: [8]u8 = [_]u8{0xFF} ** 8,
+
     /// Number of sprites loaded for current scanline (0-8)
     sprite_count: u8 = 0,
 

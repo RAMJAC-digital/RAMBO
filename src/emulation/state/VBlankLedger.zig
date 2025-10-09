@@ -81,9 +81,22 @@ pub const VBlankLedger = struct {
     }
 
     /// Record $2002 (PPUSTATUS) read
-    /// Clears readable VBlank flag but NOT latched NMI
+    /// This clears the readable VBlank flag (updates last_clear_cycle)
+    /// but does NOT end the VBlank span (span_active remains true until 261.1)
+    ///
+    /// Hardware correspondence:
+    /// - Reading $2002 clears bit 7 immediately (nesdev.org/wiki/PPU_registers)
+    /// - But VBlank period continues until scanline 261.1
+    /// - NMI edge already latched is NOT cleared by $2002 read
     pub fn recordStatusRead(self: *VBlankLedger, cycle: u64) void {
         self.last_status_read_cycle = cycle;
+
+        // Reading $2002 clears the readable VBlank flag
+        // Update clear timestamp so future reads work correctly
+        self.last_clear_cycle = cycle;
+
+        // Note: span_active remains true until scanline 261.1
+        // Note: nmi_edge_pending is NOT cleared (NMI already latched)
     }
 
     /// Record PPUCTRL write (may toggle NMI enable)
@@ -102,20 +115,20 @@ pub const VBlankLedger = struct {
     /// Pure function - no side effects
     ///
     /// NMI edge occurs when:
-    /// 1. VBlank span is active (between 241.1 and 261.1)
-    /// 2. PPUCTRL.7 (NMI enable) is set (passed as parameter)
-    /// 3. Edge hasn't been acknowledged yet
-    /// 4. No race condition from $2002 read on exact set cycle
+    /// 1. PPUCTRL.7 (NMI enable) is set (passed as parameter)
+    /// 2. Edge hasn't been acknowledged yet
+    /// 3. No race condition from $2002 read on exact set cycle
+    ///
+    /// CRITICAL: Once an NMI edge is latched (`nmi_edge_pending = true`), it persists
+    /// until the CPU acknowledges it, **even after VBlank span ends** (scanline 261.1).
+    /// This matches hardware behavior where NMI remains asserted until serviced.
     ///
     /// Returns: true if NMI should latch this cycle
     pub fn shouldNmiEdge(self: *const VBlankLedger, _: u64, nmi_enabled: bool) bool {
-        // Must be within VBlank window
-        if (!self.span_active) return false;
-
         // NMI output must be enabled
         if (!nmi_enabled) return false;
 
-        // Check if edge is pending
+        // Check if edge is pending (latched edge persists until CPU acknowledges)
         if (!self.nmi_edge_pending) return false;
 
         // Race condition check: If $2002 read happened on exact VBlank set cycle,
@@ -129,10 +142,20 @@ pub const VBlankLedger = struct {
     /// Query if CPU NMI line should be asserted this cycle
     /// Combines edge (latched) and level (active) logic into single source of truth
     ///
-    /// Hardware behavior:
-    /// - NMI line is HIGH when (VBlank flag AND NMI enable) are both true (LEVEL signal)
-    /// - CPU latches falling edge (1→0 transition) to trigger interrupt (EDGE detection)
-    /// - Once edge is latched, NMI fires even if $2002 read clears VBlank flag
+    /// Hardware behavior (nesdev.org/wiki/NMI):
+    /// - NMI is **EDGE-triggered** (triggers on 0→1 transition)
+    /// - Once CPU latches the edge and starts interrupt sequence (7 cycles),
+    ///   the NMI line going low does NOT affect the interrupt
+    /// - The "NMI line" from PPU to CPU is actually (VBlank flag AND NMI enable)
+    /// - When this signal goes 0→1, CPU latches an internal NMI pending flag
+    /// - CPU checks NMI pending flag between instructions, starts 7-cycle sequence
+    /// - Once sequence starts, NMI line state doesn't matter
+    ///
+    /// Implementation:
+    /// - `nmi_edge_pending` represents the CPU's internal NMI latch
+    /// - We assert cpu.nmi_line ONLY while edge is pending (not yet acknowledged)
+    /// - Once CPU acknowledges (clears nmi_edge_pending), line goes low immediately
+    /// - The level signal (vblank_flag && nmi_enabled) is NOT used for NMI after edge detection
     ///
     /// Returns: true if cpu.nmi_line should be asserted
     pub fn shouldAssertNmiLine(
@@ -141,13 +164,9 @@ pub const VBlankLedger = struct {
         nmi_enabled: bool,
         vblank_flag: bool,
     ) bool {
-        // If edge is pending (latched), NMI line stays asserted
-        if (self.shouldNmiEdge(cycle, nmi_enabled)) {
-            return true;
-        }
-
-        // Otherwise, reflect current level state (readable flags)
-        return vblank_flag and nmi_enabled;
+        _ = vblank_flag; // Unused after edge detection
+        // NMI line is asserted ONLY when edge is pending (latched but not yet acknowledged)
+        return self.shouldNmiEdge(cycle, nmi_enabled);
     }
 
     /// CPU acknowledged NMI (during interrupt sequence cycle 6)
