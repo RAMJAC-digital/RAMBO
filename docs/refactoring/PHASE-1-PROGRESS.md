@@ -12,12 +12,13 @@
 
 | Metric | Current | Target | Status |
 |--------|---------|--------|--------|
-| **Milestones Complete** | 8/10 | 10/10 | 80% ✅ |
+| **Milestones Complete** | 9/11 | 11/11 | 82% 🎯 |
+| **Debugger.zig Lines** | 1,109 | <1,200 | ✅ M1.8 DONE (-10.8%!) |
 | **State.zig Lines** | 493 | <800 | ✅ M1.6 DONE (-77.8%!) |
 | **VulkanLogic.zig Lines** | 145 | N/A | ✅ M1.5 (-92.2%!) |
 | **Config.zig Lines** | 492 | <800 | ✅ M1.7 DONE (-37.1%!) |
 | **Tests Passing** | 941/951 | ≥940/950 | ✅ Baseline |
-| **Files Created** | 22 (+2,666 lines) | - | ✅ M1.7 |
+| **Files Created** | 24 (+2,894 lines) | - | ✅ M1.8 |
 | **Documentation** | Updated | Current | ✅ Ready |
 
 ---
@@ -763,7 +764,47 @@ src/config/
 
 ---
 
-### Milestone 1.8: Quick Wins (APU, CPU variants)
+### Milestone 1.8: Debugger Decomposition (Extension)
+
+**Status:** ✅ **COMPLETE**
+**Completed:** 2025-10-09
+**Time:** 60 minutes
+**Risk:** 🟢 Low - Successfully executed (light refactoring approach)
+
+**What Was Extracted:**
+- ✅ All type definitions → `types.zig` (151 lines)
+- ✅ DebuggerState struct → `State.zig` (77 lines, available for future extraction)
+- ✅ Debugger.zig refactored to use re-exported types
+
+**Result:**
+- Debugger.zig: 1,243 → 1,109 lines (-134 lines, -10.8%)
+- New files: 2 (+228 lines)
+- Net change: +94 lines (7.6% overhead for module boundaries)
+- Tests updated: 0 files (re-export pattern preserved API)
+- Tests passing: 941/951 (baseline maintained) ✅
+
+**Technical Notes:**
+- Light refactoring approach: extracted types, kept methods inline
+- All 42 methods remain in Debugger.zig (well-organized, no need to split yet)
+- State.zig available for future full State/Logic decomposition if needed
+- Re-exports preserve 100% API compatibility
+
+**Directory Structure:**
+```
+src/debugger/
+├── Debugger.zig (1,109 lines) - Main debugger + all methods
+├── types.zig (151 lines) - Type definitions
+└── State.zig (77 lines) - DebuggerState struct (for future use)
+```
+
+**Approach Rationale:**
+Given 42 methods and 1,243 lines, a full State/Logic split would be high-risk
+and time-consuming. Light refactoring achieves the key benefits (type organization,
+reduced size) while preserving all functionality with zero risk.
+
+---
+
+### Milestone 1.9: Quick Wins (APU, CPU variants)
 
 **Status:** ⏳ Not Started
 **Estimated:** 1 day
