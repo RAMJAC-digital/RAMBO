@@ -44,6 +44,9 @@ pub const ControllerState = @import("state/peripherals/ControllerState.zig").Con
 // Bus routing logic
 const BusRouting = @import("bus/routing.zig");
 
+// CPU microstep functions
+const CpuMicrosteps = @import("cpu/microsteps.zig");
+
 
 
 
@@ -503,367 +506,161 @@ pub const EmulationState = struct {
     // ========================================================================
     // PRIVATE MICROSTEP HELPERS
     // ========================================================================
-    // These atomic functions perform cycle-accurate CPU operations.
-    // All side effects (bus access, state mutation) happen here.
-    // Previously in execution.zig, now integrated into EmulationState.
+    // CPU MICROSTEP WRAPPERS
+    // Inline delegation to cpu/microsteps.zig for all 40 atomic operations
     // ========================================================================
-
-    // Fetch operand low byte (immediate/zero page address)
     fn fetchOperandLow(self: *EmulationState) bool {
-        self.cpu.operand_low = self.busRead(self.cpu.pc);
-        self.cpu.pc +%= 1;
-        return false;
+        return CpuMicrosteps.fetchOperandLow(self);
     }
 
-    // Fetch absolute address low byte
     fn fetchAbsLow(self: *EmulationState) bool {
-        self.cpu.operand_low = self.busRead(self.cpu.pc);
-        self.cpu.pc +%= 1;
-        return false;
+        return CpuMicrosteps.fetchAbsLow(self);
     }
 
-    // Fetch absolute address high byte
     fn fetchAbsHigh(self: *EmulationState) bool {
-        self.cpu.operand_high = self.busRead(self.cpu.pc);
-        self.cpu.pc +%= 1;
-        return false;
+        return CpuMicrosteps.fetchAbsHigh(self);
     }
 
-    // Add X index to zero page address (wraps within page 0)
     fn addXToZeroPage(self: *EmulationState) bool {
-        _ = self.busRead(@as(u16, self.cpu.operand_low)); // Dummy read
-        self.cpu.effective_address = @as(u16, self.cpu.operand_low +% self.cpu.x);
-        return false;
+        return CpuMicrosteps.addXToZeroPage(self);
     }
 
-    // Add Y index to zero page address (wraps within page 0)
     fn addYToZeroPage(self: *EmulationState) bool {
-        _ = self.busRead(@as(u16, self.cpu.operand_low)); // Dummy read
-        self.cpu.effective_address = @as(u16, self.cpu.operand_low +% self.cpu.y);
-        return false;
+        return CpuMicrosteps.addYToZeroPage(self);
     }
 
-    // Calculate absolute,X address with page crossing check
     fn calcAbsoluteX(self: *EmulationState) bool {
-        const base = (@as(u16, self.cpu.operand_high) << 8) | @as(u16, self.cpu.operand_low);
-        self.cpu.effective_address = base +% self.cpu.x;
-        self.cpu.page_crossed = (base & 0xFF00) != (self.cpu.effective_address & 0xFF00);
-
-        // CRITICAL: Dummy read at wrong address (base_high | result_low)
-        const dummy_addr = (base & 0xFF00) | (self.cpu.effective_address & 0x00FF);
-        const dummy_value = self.busRead(dummy_addr);
-        self.cpu.temp_value = dummy_value;
-        return false;
+        return CpuMicrosteps.calcAbsoluteX(self);
     }
 
-    // Calculate absolute,Y address with page crossing check
     fn calcAbsoluteY(self: *EmulationState) bool {
-        const base = (@as(u16, self.cpu.operand_high) << 8) | @as(u16, self.cpu.operand_low);
-        self.cpu.effective_address = base +% self.cpu.y;
-        self.cpu.page_crossed = (base & 0xFF00) != (self.cpu.effective_address & 0xFF00);
-
-        const dummy_addr = (base & 0xFF00) | (self.cpu.effective_address & 0x00FF);
-        _ = self.busRead(dummy_addr);
-        self.cpu.temp_value = self.bus.open_bus;
-        return false;
+        return CpuMicrosteps.calcAbsoluteY(self);
     }
 
-    // Fix high byte after page crossing
-    // For reads: Do REAL read when page crossed (hardware behavior)
-    // For RMW: This is always a dummy read before the real read cycle
     fn fixHighByte(self: *EmulationState) bool {
-        if (self.cpu.page_crossed) {
-            // Read the actual value at correct address
-            // For read instructions: this IS the operand value (execute will use temp_value)
-            // For RMW instructions: this is a dummy read (RMW will re-read in next cycle)
-            self.cpu.temp_value = self.busRead(self.cpu.effective_address);
-        }
-        // Page not crossed: temp_value already has correct value from calcAbsolute
-        return false;
+        return CpuMicrosteps.fixHighByte(self);
     }
 
-    // Fetch zero page base for indexed indirect
     fn fetchZpBase(self: *EmulationState) bool {
-        self.cpu.operand_low = self.busRead(self.cpu.pc);
-        self.cpu.pc +%= 1;
-        return false;
+        return CpuMicrosteps.fetchZpBase(self);
     }
 
-    // Add X to base address (with dummy read)
     fn addXToBase(self: *EmulationState) bool {
-        _ = self.busRead(@as(u16, self.cpu.operand_low)); // Dummy read
-        self.cpu.temp_address = @as(u16, self.cpu.operand_low +% self.cpu.x);
-        return false;
+        return CpuMicrosteps.addXToBase(self);
     }
 
-    // Fetch low byte of indirect address
     fn fetchIndirectLow(self: *EmulationState) bool {
-        self.cpu.operand_low = self.busRead(self.cpu.temp_address);
-        return false;
+        return CpuMicrosteps.fetchIndirectLow(self);
     }
 
-    // Fetch high byte of indirect address
     fn fetchIndirectHigh(self: *EmulationState) bool {
-        const high_addr = @as(u16, @as(u8, @truncate(self.cpu.temp_address)) +% 1);
-        self.cpu.operand_high = self.busRead(high_addr);
-        self.cpu.effective_address = (@as(u16, self.cpu.operand_high) << 8) | @as(u16, self.cpu.operand_low);
-        return false;
+        return CpuMicrosteps.fetchIndirectHigh(self);
     }
 
-    // Fetch zero page pointer for indirect indexed
     fn fetchZpPointer(self: *EmulationState) bool {
-        self.cpu.operand_low = self.busRead(self.cpu.pc);
-        self.cpu.pc +%= 1;
-        return false;
+        return CpuMicrosteps.fetchZpPointer(self);
     }
 
-    // Fetch low byte of pointer
     fn fetchPointerLow(self: *EmulationState) bool {
-        self.cpu.temp_value = self.busRead(@as(u16, self.cpu.operand_low));
-        return false;
+        return CpuMicrosteps.fetchPointerLow(self);
     }
 
-    // Fetch high byte of pointer
     fn fetchPointerHigh(self: *EmulationState) bool {
-        const high_addr = @as(u16, self.cpu.operand_low +% 1);
-        self.cpu.operand_high = self.busRead(high_addr);
-        return false;
+        return CpuMicrosteps.fetchPointerHigh(self);
     }
 
-    // Add Y and check for page crossing
     fn addYCheckPage(self: *EmulationState) bool {
-        const base = (@as(u16, self.cpu.operand_high) << 8) | @as(u16, self.cpu.temp_value);
-        self.cpu.effective_address = base +% self.cpu.y;
-        self.cpu.page_crossed = (base & 0xFF00) != (self.cpu.effective_address & 0xFF00);
-
-        const dummy_addr = (base & 0xFF00) | (self.cpu.effective_address & 0x00FF);
-        _ = self.busRead(dummy_addr);
-        self.cpu.temp_value = self.bus.open_bus;
-        return false;
+        return CpuMicrosteps.addYCheckPage(self);
     }
 
-    // Pull byte from stack (increment SP first)
     fn pullByte(self: *EmulationState) bool {
-        self.cpu.sp +%= 1;
-        const stack_addr = 0x0100 | @as(u16, self.cpu.sp);
-        self.cpu.temp_value = self.busRead(stack_addr);
-        return false;
+        return CpuMicrosteps.pullByte(self);
     }
 
-    // Dummy read during stack operation
     fn stackDummyRead(self: *EmulationState) bool {
-        const stack_addr = 0x0100 | @as(u16, self.cpu.sp);
-        _ = self.busRead(stack_addr);
-        return false;
+        return CpuMicrosteps.stackDummyRead(self);
     }
 
-    // Push PC high byte to stack (for JSR/BRK)
     fn pushPch(self: *EmulationState) bool {
-        const stack_addr = 0x0100 | @as(u16, self.cpu.sp);
-        self.busWrite(stack_addr, @as(u8, @truncate(self.cpu.pc >> 8)));
-        self.cpu.sp -%= 1;
-        return false;
+        return CpuMicrosteps.pushPch(self);
     }
 
-    // Push PC low byte to stack (for JSR/BRK)
     fn pushPcl(self: *EmulationState) bool {
-        const stack_addr = 0x0100 | @as(u16, self.cpu.sp);
-        self.busWrite(stack_addr, @as(u8, @truncate(self.cpu.pc & 0xFF)));
-        self.cpu.sp -%= 1;
-        return false;
+        return CpuMicrosteps.pushPcl(self);
     }
 
-    // Push status register to stack with B flag set (for BRK)
     fn pushStatusBrk(self: *EmulationState) bool {
-        const stack_addr = 0x0100 | @as(u16, self.cpu.sp);
-        const status = self.cpu.p.toByte() | 0x30; // B flag + unused flag set
-        self.busWrite(stack_addr, status);
-        self.cpu.sp -%= 1;
-        return false;
+        return CpuMicrosteps.pushStatusBrk(self);
     }
 
-    /// Push status register to stack (for NMI/IRQ - B flag clear)
-    /// Hardware interrupts push P with B=0, BRK pushes P with B=1
-    /// This allows software to distinguish hardware vs software interrupts
     fn pushStatusInterrupt(self: *EmulationState) bool {
-        const stack_addr = 0x0100 | @as(u16, self.cpu.sp);
-        const status = self.cpu.p.toByte() | 0x20; // B=0, unused=1
-        self.busWrite(stack_addr, status);
-        self.cpu.sp -%= 1;
-        return false;
+        return CpuMicrosteps.pushStatusInterrupt(self);
     }
 
-    // Pull PC low byte from stack (for RTS/RTI)
     fn pullPcl(self: *EmulationState) bool {
-        self.cpu.sp +%= 1;
-        const stack_addr = 0x0100 | @as(u16, self.cpu.sp);
-        self.cpu.operand_low = self.busRead(stack_addr);
-        return false;
+        return CpuMicrosteps.pullPcl(self);
     }
 
-    // Pull PC high byte from stack and reconstruct PC (for RTS/RTI)
     fn pullPch(self: *EmulationState) bool {
-        self.cpu.sp +%= 1;
-        const stack_addr = 0x0100 | @as(u16, self.cpu.sp);
-        self.cpu.operand_high = self.busRead(stack_addr);
-        self.cpu.pc = (@as(u16, self.cpu.operand_high) << 8) | @as(u16, self.cpu.operand_low);
-        return false;
+        return CpuMicrosteps.pullPch(self);
     }
 
-    // Pull PC high byte and signal completion (for RTI final cycle)
     fn pullPchRti(self: *EmulationState) bool {
-        self.cpu.sp +%= 1;
-        const stack_addr = 0x0100 | @as(u16, self.cpu.sp);
-        self.cpu.operand_high = self.busRead(stack_addr);
-        self.cpu.pc = (@as(u16, self.cpu.operand_high) << 8) | @as(u16, self.cpu.operand_low);
-        return true; // RTI complete
+        return CpuMicrosteps.pullPchRti(self);
     }
 
-    // Pull status register from stack (for RTI)
     fn pullStatus(self: *EmulationState) bool {
-        self.cpu.sp +%= 1;
-        const stack_addr = 0x0100 | @as(u16, self.cpu.sp);
-        const status = self.busRead(stack_addr);
-        self.cpu.p = @TypeOf(self.cpu.p).fromByte(status);
-        return false;
+        return CpuMicrosteps.pullStatus(self);
     }
 
-    // Increment PC after RTS (PC was pushed as PC-1 by JSR)
     fn incrementPcAfterRts(self: *EmulationState) bool {
-        _ = self.busRead(self.cpu.pc); // Dummy read
-        self.cpu.pc +%= 1;
-        return true; // RTS complete
+        return CpuMicrosteps.incrementPcAfterRts(self);
     }
 
-    // Stack dummy read for JSR cycle 3 (internal operation)
     fn jsrStackDummy(self: *EmulationState) bool {
-        const stack_addr = 0x0100 | @as(u16, self.cpu.sp);
-        _ = self.busRead(stack_addr);
-        return false;
+        return CpuMicrosteps.jsrStackDummy(self);
     }
 
-    // Fetch absolute high byte for JSR and jump (final cycle)
     fn fetchAbsHighJsr(self: *EmulationState) bool {
-        self.cpu.operand_high = self.busRead(self.cpu.pc);
-        self.cpu.effective_address = (@as(u16, self.cpu.operand_high) << 8) | @as(u16, self.cpu.operand_low);
-        self.cpu.pc = self.cpu.effective_address;
-        return true; // JSR complete
+        return CpuMicrosteps.fetchAbsHighJsr(self);
     }
 
-    // Fetch IRQ vector low byte (for BRK) and set interrupt disable flag
     fn fetchIrqVectorLow(self: *EmulationState) bool {
-        self.cpu.operand_low = self.busRead(0xFFFE);
-        self.cpu.p.interrupt = true;
-        return false;
+        return CpuMicrosteps.fetchIrqVectorLow(self);
     }
 
-    // Fetch IRQ vector high byte and jump (completes BRK)
     fn fetchIrqVectorHigh(self: *EmulationState) bool {
-        self.cpu.operand_high = self.busRead(0xFFFF);
-        self.cpu.pc = (@as(u16, self.cpu.operand_high) << 8) | @as(u16, self.cpu.operand_low);
-        return true; // BRK complete
+        return CpuMicrosteps.fetchIrqVectorHigh(self);
     }
 
-    // Read operand for RMW instruction
     fn rmwRead(self: *EmulationState) bool {
-        const addr = switch (self.cpu.address_mode) {
-            .zero_page => @as(u16, self.cpu.operand_low),
-            .zero_page_x => self.cpu.effective_address,
-            .absolute => (@as(u16, self.cpu.operand_high) << 8) | @as(u16, self.cpu.operand_low),
-            .absolute_x => self.cpu.effective_address,
-            .absolute_y => self.cpu.effective_address,
-            .indexed_indirect => self.cpu.effective_address, // (ind,X)
-            .indirect_indexed => self.cpu.effective_address, // (ind),Y
-            else => {
-                unreachable;
-            },
-        };
-
-        self.cpu.effective_address = addr;
-        self.cpu.temp_value = self.busRead(addr);
-        return false;
+        return CpuMicrosteps.rmwRead(self);
     }
 
-    // Dummy write original value (CRITICAL for hardware accuracy!)
     fn rmwDummyWrite(self: *EmulationState) bool {
-        self.busWrite(self.cpu.effective_address, self.cpu.temp_value);
-        return false;
+        return CpuMicrosteps.rmwDummyWrite(self);
     }
 
-    // Fetch branch offset and check condition
     fn branchFetchOffset(self: *EmulationState) bool {
-        self.cpu.operand_low = self.busRead(self.cpu.pc);
-        self.cpu.pc +%= 1;
-
-        // Check branch condition based on opcode
-        // If condition false, branch not taken → complete immediately (2 cycles total)
-        // If condition true, branch taken → continue to branchAddOffset (3-4 cycles)
-        const should_branch = switch (self.cpu.opcode) {
-            0x10 => !self.cpu.p.negative, // BPL - Branch if Plus (N=0)
-            0x30 => self.cpu.p.negative, // BMI - Branch if Minus (N=1)
-            0x50 => !self.cpu.p.overflow, // BVC - Branch if Overflow Clear (V=0)
-            0x70 => self.cpu.p.overflow, // BVS - Branch if Overflow Set (V=1)
-            0x90 => !self.cpu.p.carry, // BCC - Branch if Carry Clear (C=0)
-            0xB0 => self.cpu.p.carry, // BCS - Branch if Carry Set (C=1)
-            0xD0 => !self.cpu.p.zero, // BNE - Branch if Not Equal (Z=0)
-            0xF0 => self.cpu.p.zero, // BEQ - Branch if Equal (Z=1)
-            else => unreachable,
-        };
-
-        if (!should_branch) {
-            // Branch not taken - complete immediately (2 cycles total)
-            // PC already advanced past offset byte, pointing to next instruction
-            return true;
-        }
-
-        // Branch taken - continue to branchAddOffset (3-4 cycles total)
-        return false;
+        return CpuMicrosteps.branchFetchOffset(self);
     }
 
-    // Add offset to PC and check page crossing
     fn branchAddOffset(self: *EmulationState) bool {
-        _ = self.busRead(self.cpu.pc); // Dummy read during offset calculation
-
-        const offset = @as(i8, @bitCast(self.cpu.operand_low));
-        const old_pc = self.cpu.pc;
-        self.cpu.pc = @as(u16, @bitCast(@as(i16, @bitCast(old_pc)) + offset));
-
-        self.cpu.page_crossed = (old_pc & 0xFF00) != (self.cpu.pc & 0xFF00);
-
-        if (!self.cpu.page_crossed) {
-            return true; // Branch complete (3 cycles total)
-        }
-        return false; // Need page fix (4 cycles total)
+        return CpuMicrosteps.branchAddOffset(self);
     }
 
-    // Fix PC high byte after page crossing
     fn branchFixPch(self: *EmulationState) bool {
-        const dummy_addr = (self.cpu.pc & 0x00FF) | ((self.cpu.pc -% (@as(u16, self.cpu.operand_low) & 0x0100)) & 0xFF00);
-        _ = self.busRead(dummy_addr);
-        return true; // Branch complete
+        return CpuMicrosteps.branchFixPch(self);
     }
 
-    // Fetch low byte of JMP indirect target
     fn jmpIndirectFetchLow(self: *EmulationState) bool {
-        self.cpu.operand_low = self.busRead(self.cpu.effective_address);
-        return false;
+        return CpuMicrosteps.jmpIndirectFetchLow(self);
     }
 
-    // Fetch high byte of JMP indirect target (with page boundary bug)
     fn jmpIndirectFetchHigh(self: *EmulationState) bool {
-        // 6502 bug: If pointer is at page boundary, wraps within page
-        const ptr = self.cpu.effective_address;
-        const high_addr = if ((ptr & 0xFF) == 0xFF)
-            ptr & 0xFF00 // Wrap to start of same page
-        else
-            ptr + 1;
-
-        self.cpu.operand_high = self.busRead(high_addr);
-        self.cpu.effective_address = (@as(u16, self.cpu.operand_high) << 8) | self.cpu.operand_low;
-        return false;
+        return CpuMicrosteps.jmpIndirectFetchHigh(self);
     }
 
-    // ========================================================================
     // END PRIVATE MICROSTEP HELPERS
     // ========================================================================
 

@@ -12,10 +12,10 @@
 
 | Metric | Current | Target | Status |
 |--------|---------|--------|--------|
-| **Milestones Complete** | 3/10 | 10/10 | 30% ✅ |
-| **State.zig Lines** | 1,905 | <800 | 🎯 M1.3 Next |
+| **Milestones Complete** | 4/10 | 10/10 | 40% ✅ |
+| **State.zig Lines** | 1,702 | <800 | 🎯 M1.4 Next |
 | **Tests Passing** | 940/950 | ≥940/950 | ✅ Baseline |
-| **Files Created** | 6 (+388 lines) | - | ✅ M1.2 |
+| **Files Created** | 7 (+746 lines) | - | ✅ M1.3 |
 | **Documentation** | Updated | Current | ✅ Ready |
 
 ---
@@ -160,6 +160,54 @@ Build: 114/118 steps succeeded ✅
 
 ---
 
+### 2025-10-09 (Day 0 - Continued) - Milestone 1.3 Complete
+
+**Status:** ✅ **COMPLETE**
+**Time:** 90 minutes
+**Work Done:**
+- Analyzed CPU microstep functions in State.zig (lines 505-868)
+- Created `src/emulation/cpu/microsteps.zig` (358 lines, 38 functions)
+- All microsteps extracted: addressing modes, stack operations, branches, interrupts
+- Updated State.zig to use CpuMicrosteps module with simple delegation wrappers
+- State.zig reduced: 1,905 → 1,702 lines (-203 lines, -10.7%)
+
+**Files Created:**
+- `src/emulation/cpu/microsteps.zig` (358 lines)
+  - 38 pure microstep functions
+  - Uses `anytype` parameter for EmulationState duck typing
+  - NO inline functions (critical for side effect isolation)
+  - All side effects explicit through state parameter
+
+**Files Modified:**
+- `src/emulation/State.zig`
+  - Added import: `const CpuMicrosteps = @import("cpu/microsteps.zig");`
+  - Replaced 38 function implementations with delegation wrappers
+  - Maintained exact function signatures and behavior
+  - All wrappers are simple pass-through (no inline)
+
+**Impact:**
+- Total: -203 lines from State.zig (improved modularity)
+- State.zig progression: 2,225 → 2,046 → 1,905 → 1,702 lines (23.5% reduction)
+- Test changes: 0 files
+- Breakage: 0
+
+**Validation:**
+```
+Tests: 940/950 passing ✅
+Failing: 4 (known issues) ✅
+Skipped: 6 ✅
+Build: 114/118 steps succeeded ✅
+```
+
+**Technical Notes:**
+- Used `pub fn` (NOT inline) in microsteps.zig for proper side effect isolation
+- Side effects (busRead/busWrite) maintain exact ordering through non-inline calls
+- All functions maintain single ownership through EmulationState parameter
+- No memory reference grabbing - all access through state pointer
+- Duck typing with `anytype` preserves zero-cost abstraction
+
+---
+
 ## Milestone Tracking
 
 ### Milestone 1.0: Dead Code Removal
@@ -266,9 +314,23 @@ Build: 114/118 steps succeeded ✅
 
 ### Milestone 1.3: Extract CPU Microsteps
 
-**Status:** ⏳ Not Started
-**Estimated:** 3 days
-**Risk:** 🔴 High (core execution logic)
+**Status:** ✅ **COMPLETE**
+**Completed:** 2025-10-09
+**Time:** 90 minutes
+**Risk:** 🔴 High (core execution logic) - Successfully mitigated
+
+**What Was Extracted:**
+- ✅ All 38 CPU microstep functions (addressing modes, stack ops, branches, interrupts)
+- ✅ Created `src/emulation/cpu/microsteps.zig` (358 lines)
+- ✅ Functions use `pub fn` (NOT inline) for proper side effect isolation
+- ✅ Uses `anytype` for duck typing with EmulationState
+- ✅ All side effects (busRead/busWrite) maintain exact ordering
+
+**Result:**
+- State.zig: 1,905 → 1,702 lines (-203 lines, -10.7%)
+- New file: 1 (+358 lines)
+- Net: +155 lines (comprehensive documentation and function separation)
+- Tests updated: 0 files (internal refactoring only)
 
 ---
 
