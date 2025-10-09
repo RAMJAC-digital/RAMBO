@@ -225,6 +225,56 @@ test "PPUSTATUS Polling: Can detect VBlank even with frequent reads" {
     try testing.expect(iterations < max_iterations);
 }
 
+test "Simple VBlank: LDA $2002 clears flag" {
+    // Clean test without seekToScanlineDot to verify basic functionality
+    var harness = try Harness.init();
+    defer harness.deinit();
+
+    // Load LDA $2002 instruction at $8000
+    var test_ram = [_]u8{0} ** 0x8000;
+    test_ram[0] = 0xAD; // LDA absolute
+    test_ram[1] = 0x02; // Low byte ($2002)
+    test_ram[2] = 0x20; // High byte
+    test_ram[3] = 0xEA; // NOP
+    harness.state.bus.test_ram = &test_ram;
+
+    harness.state.reset();
+    harness.state.ppu.warmup_complete = true;
+
+    std.debug.print("\n=== Simple VBlank LDA Test ===\n", .{});
+
+    // Run until we hit scanline 241 dot 0
+    var iterations: usize = 0;
+    while (iterations < 100_000) : (iterations += 1) {
+        if (harness.getScanline() == 241 and harness.getDot() == 0) {
+            std.debug.print("At scanline 241 dot 0, VBlank={}\n", .{harness.state.ppu.status.vblank});
+            try testing.expect(!harness.state.ppu.status.vblank);
+
+            // Tick to 241.1 - VBlank sets
+            harness.state.tick();
+            std.debug.print("After tick to 241.1, VBlank={}\n", .{harness.state.ppu.status.vblank});
+            try testing.expect(harness.state.ppu.status.vblank);
+            break;
+        }
+        harness.state.tick();
+    }
+
+    // Execute LDA $2002 (4 CPU cycles = 12 PPU ticks)
+    std.debug.print("Executing LDA $2002...\n", .{});
+    var ticks: usize = 0;
+    while (ticks < 12) : (ticks += 1) {
+        harness.state.tick();
+    }
+
+    std.debug.print("After LDA, VBlank={}, A=0x{X:0>2}\n", .{harness.state.ppu.status.vblank, harness.state.cpu.a});
+
+    // VBlank should be cleared
+    try testing.expect(!harness.state.ppu.status.vblank);
+
+    // A register should have VBlank bit set (>= 0x80)
+    try testing.expect(harness.state.cpu.a >= 0x80);
+}
+
 test "PPUSTATUS Polling: BIT instruction timing - when does read occur?" {
     // This test verifies EXACTLY when the bus read of $2002 happens during BIT $2002 execution
     // BIT $2002 takes 4 CPU cycles = 12 PPU cycles

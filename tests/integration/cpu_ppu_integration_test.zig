@@ -55,12 +55,17 @@ test "CPU-PPU Integration: NMI triggered when VBlank flag set and NMI enabled" {
     // Enable NMI in PPUCTRL
     state.busWrite(0x2000, 0x80); // Bit 7 = NMI enable
 
-    // Simulate VBlank start (as PPU tick would do)
+    // Simulate VBlank start (as PPU tick would do) using the ledger API
     state.ppu.status.vblank = true;
-    state.syncDerivedSignals();
+    state.vblank_ledger.recordVBlankSet(state.clock.ppu_cycles, state.ppu.ctrl.nmi_enable);
 
-    // CPU NMI line should now be asserted
-    try testing.expect(state.cpu.nmi_line);
+    // Verify the ledger indicates NMI should be asserted
+    const should_assert_nmi = state.vblank_ledger.shouldAssertNmiLine(
+        state.clock.ppu_cycles,
+        state.ppu.ctrl.nmi_enable,
+        state.ppu.status.vblank,
+    );
+    try testing.expect(should_assert_nmi);
 }
 
 test "CPU-PPU Integration: NMI not triggered when VBlank set but NMI disabled" {
@@ -71,12 +76,17 @@ test "CPU-PPU Integration: NMI not triggered when VBlank set but NMI disabled" {
     // Disable NMI in PPUCTRL
     state.busWrite(0x2000, 0x00); // Bit 7 = 0
 
-    // Set VBlank flag
+    // Set VBlank flag using the ledger API
     state.ppu.status.vblank = true;
-    state.syncDerivedSignals();
+    state.vblank_ledger.recordVBlankSet(state.clock.ppu_cycles, state.ppu.ctrl.nmi_enable);
 
-    // CPU NMI line should remain deasserted
-    try testing.expect(!state.cpu.nmi_line);
+    // Verify the ledger indicates NMI should NOT be asserted (NMI disabled)
+    const should_assert_nmi = state.vblank_ledger.shouldAssertNmiLine(
+        state.clock.ppu_cycles,
+        state.ppu.ctrl.nmi_enable,
+        state.ppu.status.vblank,
+    );
+    try testing.expect(!should_assert_nmi);
 }
 
 test "CPU-PPU Integration: Reading PPUSTATUS clears VBlank but preserves latched NMI" {
@@ -112,9 +122,9 @@ test "CPU-PPU Integration: Reading PPUSTATUS clears VBlank flag" {
     const state = harness.statePtr();
     const ppu = &state.ppu;
 
-    // Set VBlank flag and resync
+    // Set VBlank flag using the ledger API
     ppu.status.vblank = true;
-    state.syncDerivedSignals();
+    state.vblank_ledger.recordVBlankSet(state.clock.ppu_cycles, state.ppu.ctrl.nmi_enable);
 
     // Read PPUSTATUS
     const status = state.busRead(0x2002);
@@ -132,9 +142,9 @@ test "CPU-PPU Integration: VBlank flag race condition (read during setting)" {
     const state = harness.statePtr();
     const ppu = &state.ppu;
 
-    // Simulate race condition: VBlank just set
+    // Simulate race condition: VBlank just set using ledger API
     ppu.status.vblank = true;
-    state.syncDerivedSignals();
+    state.vblank_ledger.recordVBlankSet(state.clock.ppu_cycles, state.ppu.ctrl.nmi_enable);
 
     // Immediate read should see VBlank flag
     const status = state.busRead(0x2002);
@@ -154,16 +164,29 @@ test "CPU-PPU Integration: NMI edge detection (enabling NMI during VBlank)" {
     const state = harness.statePtr();
     const ppu = &state.ppu;
 
-    // Set VBlank first (without NMI enable)
+    // Set VBlank first (without NMI enable) using ledger API
     ppu.status.vblank = true;
-    state.syncDerivedSignals();
-    try testing.expect(!state.cpu.nmi_line);
+    state.vblank_ledger.recordVBlankSet(state.clock.ppu_cycles, state.ppu.ctrl.nmi_enable);
+
+    // Verify NMI should NOT be asserted (NMI disabled)
+    var should_assert_nmi = state.vblank_ledger.shouldAssertNmiLine(
+        state.clock.ppu_cycles,
+        state.ppu.ctrl.nmi_enable,
+        state.ppu.status.vblank,
+    );
+    try testing.expect(!should_assert_nmi);
 
     // Now enable NMI - in real hardware, enabling NMI during VBlank triggers NMI
+    // This will call recordCtrlToggle via busWrite
     state.busWrite(0x2000, 0x80);
 
-    // CPU NMI line should assert immediately because VBlank is still active
-    try testing.expect(state.cpu.nmi_line);
+    // Verify NMI should now be asserted (edge detected on 0→1 transition)
+    should_assert_nmi = state.vblank_ledger.shouldAssertNmiLine(
+        state.clock.ppu_cycles,
+        state.ppu.ctrl.nmi_enable,
+        state.ppu.status.vblank,
+    );
+    try testing.expect(should_assert_nmi);
 }
 
 // ============================================================================

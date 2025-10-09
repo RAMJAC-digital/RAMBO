@@ -218,9 +218,14 @@ pub const EmulationState = struct {
         self.cpu.nmi_line = false;
     }
 
-    /// Recompute derived signal lines after manual state mutation (testing/debug)
+    /// DEPRECATED: Legacy function removed - use VBlankLedger API directly
+    /// Tests should use ledger methods instead of manually setting flags
     pub fn syncDerivedSignals(self: *EmulationState) void {
-        self.refreshPpuNmiLevel();
+        // NO-OP: This function is deprecated. The VBlankLedger is the single source
+        // of truth for NMI state. Tests should use:
+        // - state.vblank_ledger.recordVBlankSet() instead of setting ppu.status.vblank
+        // - state.vblank_ledger.recordCtrlToggle() instead of setting ppu.ctrl.nmi_enable
+        _ = self;
     }
 
     // =========================================================================
@@ -264,16 +269,20 @@ pub const EmulationState = struct {
     /// Write to NES memory bus
     /// Routes to appropriate component and updates open bus
     pub inline fn busWrite(self: *EmulationState, address: u16, value: u8) void {
-        BusRouting.busWrite(self, address, value);
-
         // Track PPUCTRL writes for VBlank ledger
+        // CRITICAL: Must capture old value BEFORE BusRouting.busWrite() updates ppu.ctrl
         // Writing to $2000 can change nmi_enable, which affects NMI generation
         // per nesdev.org: toggling NMI enable during VBlank can trigger NMI
-        if (address >= 0x2000 and address <= 0x3FFF and (address & 0x07) == 0x00) {
-            const old_enabled = self.ppu.ctrl.nmi_enable;
-            const new_enabled = (value & 0x80) != 0;
-            self.vblank_ledger.recordCtrlToggle(self.clock.ppu_cycles, old_enabled, new_enabled);
-            self.refreshPpuNmiLevel();
+        const is_ppuctrl_write = (address >= 0x2000 and address <= 0x3FFF and (address & 0x07) == 0x00);
+        const old_nmi_enabled = if (is_ppuctrl_write) self.ppu.ctrl.nmi_enable else false;
+
+        BusRouting.busWrite(self, address, value);
+
+        if (is_ppuctrl_write) {
+            const new_nmi_enabled = (value & 0x80) != 0;
+            self.vblank_ledger.recordCtrlToggle(self.clock.ppu_cycles, old_nmi_enabled, new_nmi_enabled);
+            // NOTE: Do NOT call refreshPpuNmiLevel() - ledger is single source of truth
+            // stepCycle() will query ledger on next CPU cycle
         }
 
         self.debuggerCheckMemoryAccess(address, value, true);
@@ -458,7 +467,8 @@ pub const EmulationState = struct {
         if (result.vblank_clear) {
             // VBlank span ends at scanline 261 dot 1 (pre-render)
             self.vblank_ledger.recordVBlankSpanEnd(self.clock.ppu_cycles);
-            self.refreshPpuNmiLevel();
+            // NOTE: Do NOT call refreshPpuNmiLevel() - ledger is single source of truth
+            // stepCycle() will query ledger on next CPU cycle
         }
     }
 
@@ -548,18 +558,14 @@ pub const EmulationState = struct {
         Helpers.tickCpuWithClock(self);
     }
 
-    /// Synchronize CPU NMI input with current PPU status/CTRL configuration
-    /// Hardware: NMI line is a LEVEL signal (high when vblank AND nmi_enable)
-    /// The CPU latches the falling EDGE separately (handled by nmi_latched flag)
-    fn refreshPpuNmiLevel(self: *EmulationState) void {
-        // NMI line reflects current hardware state (level signal)
-        const active = self.ppu.status.vblank and self.ppu.ctrl.nmi_enable;
-        self.ppu_nmi_active = active;
-        self.cpu.nmi_line = active;
-
-        // Edge detection is handled separately by VBlankLedger and nmi_latched flag
-        // Reading $2002 clears the level but not the latched edge
-    }
+    /// REMOVED: Legacy function that bypassed VBlankLedger
+    ///
+    /// This function was setting cpu.nmi_line directly, bypassing the VBlankLedger's
+    /// edge detection logic. This caused ROMs to never see VBlank because the level
+    /// signal would overwrite the latched edge.
+    ///
+    /// The VBlankLedger is now the ONLY source of truth for NMI state.
+    /// Only stepCycle() (via VBlankLedger.shouldAssertNmiLine()) should set cpu.nmi_line.
 
     /// Tick DMA state machine (called every 3 PPU cycles, same as CPU)
     /// Delegates to DmaLogic.tickOamDma()
