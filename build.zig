@@ -754,20 +754,6 @@ pub fn build(b: *std.Build) void {
 
     const run_ppustatus_polling_tests = b.addRunArtifact(ppustatus_polling_tests);
 
-    // VBlank polling simple tests
-    const vblank_polling_simple_tests = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("tests/ppu/vblank_polling_simple_test.zig"),
-            .target = target,
-            .optimize = optimize,
-            .imports = &.{
-                .{ .name = "RAMBO", .module = mod },
-            },
-        }),
-    });
-
-    const run_vblank_polling_simple_tests = b.addRunArtifact(vblank_polling_simple_tests);
-
     // Seek behavior tests
     const seek_behavior_tests = b.addTest(.{
         .root_module = b.createModule(.{
@@ -782,10 +768,10 @@ pub fn build(b: *std.Build) void {
 
     const run_seek_behavior_tests = b.addRunArtifact(seek_behavior_tests);
 
-    // VBlank persistence tests
-    const vblank_persistence_tests = b.addTest(.{
+    // VBlank behavior tests (consolidated)
+    const vblank_behavior_tests = b.addTest(.{
         .root_module = b.createModule(.{
-            .root_source_file = b.path("tests/ppu/vblank_persistence_test.zig"),
+            .root_source_file = b.path("tests/ppu/vblank_behavior_test.zig"),
             .target = target,
             .optimize = optimize,
             .imports = &.{
@@ -794,7 +780,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
-    const run_vblank_persistence_tests = b.addRunArtifact(vblank_persistence_tests);
+    const run_vblank_behavior_tests = b.addRunArtifact(vblank_behavior_tests);
 
     // Snapshot integration tests
     const snapshot_integration_tests = b.addTest(.{
@@ -1091,9 +1077,8 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_sprite_edge_cases_tests.step);
     test_step.dependOn(&run_vblank_nmi_timing_tests.step);
     test_step.dependOn(&run_ppustatus_polling_tests.step);
-    test_step.dependOn(&run_vblank_polling_simple_tests.step);
     test_step.dependOn(&run_seek_behavior_tests.step);
-    test_step.dependOn(&run_vblank_persistence_tests.step);
+    test_step.dependOn(&run_vblank_behavior_tests.step);
     test_step.dependOn(&run_snapshot_integration_tests.step);
     test_step.dependOn(&run_debugger_integration_tests.step);
     test_step.dependOn(&run_apu_tests.step);
