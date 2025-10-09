@@ -48,8 +48,17 @@ const BusRouting = @import("bus/routing.zig");
 // CPU microstep functions
 const CpuMicrosteps = @import("cpu/microsteps.zig");
 
+// DMA logic
+const DmaLogic = @import("dma/logic.zig");
 
+// Bus inspection (debugger-safe memory reads)
+const BusInspection = @import("bus/inspection.zig");
 
+// Debugger integration (breakpoints, watchpoints, pause management)
+const DebugIntegration = @import("debug/integration.zig");
+
+// Emulation helpers (convenience wrappers for testing/benchmarking)
+const Helpers = @import("helpers.zig");
 
 /// Complete emulation state (pure data, no hidden state)
 /// This is the core of the RT emulation loop
@@ -221,29 +230,21 @@ pub const EmulationState = struct {
     }
 
     /// Determine if debugger is attached and currently holding execution
+    /// Delegates to DebugIntegration.shouldHalt()
     pub fn debuggerShouldHalt(self: *const EmulationState) bool {
-        if (self.debugger) |*debugger| {
-            return debugger.isPaused();
-        }
-        return false;
+        return DebugIntegration.shouldHalt(self);
     }
 
     /// Public helper for external threads to query pause state
+    /// Delegates to DebugIntegration.isPaused()
     pub fn debuggerIsPaused(self: *const EmulationState) bool {
-        return self.debuggerShouldHalt();
+        return DebugIntegration.isPaused(self);
     }
 
     /// Notify debugger about memory accesses (breakpoint/watchpoint handling)
+    /// Delegates to DebugIntegration.checkMemoryAccess()
     fn debuggerCheckMemoryAccess(self: *EmulationState, address: u16, value: u8, is_write: bool) void {
-        if (self.debugger) |*debugger| {
-            if (!debugger.hasMemoryTriggers()) {
-                return;
-            }
-            const should_break = debugger.checkMemoryAccess(self, address, value, is_write) catch false;
-            if (should_break) {
-                self.debug_break_occurred = true;
-            }
-        }
+        DebugIntegration.checkMemoryAccess(self, address, value, is_write);
     }
 
     /// Write to NES memory bus
@@ -281,55 +282,10 @@ pub const EmulationState = struct {
     ///   - address: 16-bit CPU address to read from
     ///
     /// Returns: Byte value at address (or open bus value if unmapped)
+    ///
+    /// Delegates to BusInspection.peekMemory()
     pub inline fn peekMemory(self: *const EmulationState, address: u16) u8 {
-        return switch (address) {
-            // RAM + mirrors ($0000-$1FFF)
-            0x0000...0x1FFF => self.bus.ram[address & 0x7FF],
-
-            // PPU registers + mirrors ($2000-$3FFF)
-            // Note: PPU register reads have side effects, but for debugging we return the raw value
-            0x2000...0x3FFF => blk: {
-                // For debugging, return raw PPU state without side effects
-                // This is safe because we're not triggering PPU read logic
-                break :blk switch (address & 0x07) {
-                    0 => @as(u8, @bitCast(self.ppu.ctrl)), // PPUCTRL
-                    1 => @as(u8, @bitCast(self.ppu.mask)), // PPUMASK
-                    2 => @as(u8, @bitCast(self.ppu.status)), // PPUSTATUS
-                    3 => self.ppu.oam_addr, // OAMADDR
-                    4 => self.ppu.oam[self.ppu.oam_addr], // OAMDATA
-                    5 => self.bus.open_bus, // PPUSCROLL (write-only)
-                    6 => self.bus.open_bus, // PPUADDR (write-only)
-                    7 => self.ppu.internal.read_buffer, // PPUDATA (return buffer, not live read)
-                    else => unreachable,
-                };
-            },
-
-            // APU and I/O registers ($4000-$4017)
-            0x4000...0x4013 => self.bus.open_bus, // APU not implemented
-            0x4014 => self.bus.open_bus, // OAMDMA write-only
-            0x4015 => self.bus.open_bus, // APU status not implemented
-            0x4016 => (self.controller.shift1 & 0x01) | (self.bus.open_bus & 0xE0), // Controller 1 peek (no shift)
-            0x4017 => (self.controller.shift2 & 0x01) | (self.bus.open_bus & 0xE0), // Controller 2 peek (no shift)
-
-            // Cartridge space ($4020-$FFFF)
-            0x4020...0xFFFF => blk: {
-                if (self.cart) |cart| {
-                    break :blk cart.cpuRead(address);
-                }
-                // No cartridge - check test RAM
-                if (self.bus.test_ram) |test_ram| {
-                    if (address >= 0x8000) {
-                        break :blk test_ram[address - 0x8000];
-                    }
-                }
-                // No cartridge or test RAM - open bus
-                break :blk self.bus.open_bus;
-            },
-
-            // Unmapped regions - return open bus
-            else => self.bus.open_bus,
-        };
-        // NO open_bus update - this is the key difference from busRead()
+        return BusInspection.peekMemory(self, address);
     }
 
     /// RT emulation loop - advances state by exactly 1 PPU cycle
@@ -481,167 +437,6 @@ pub const EmulationState = struct {
         return result;
     }
 
-    // ========================================================================
-    // PRIVATE MICROSTEP HELPERS
-    // ========================================================================
-    // CPU MICROSTEP WRAPPERS
-    // Inline delegation to cpu/microsteps.zig for all 40 atomic operations
-    // ========================================================================
-    pub fn fetchOperandLow(self: *EmulationState) bool {
-        return CpuMicrosteps.fetchOperandLow(self);
-    }
-
-    pub fn fetchAbsLow(self: *EmulationState) bool {
-        return CpuMicrosteps.fetchAbsLow(self);
-    }
-
-    pub fn fetchAbsHigh(self: *EmulationState) bool {
-        return CpuMicrosteps.fetchAbsHigh(self);
-    }
-
-    pub fn addXToZeroPage(self: *EmulationState) bool {
-        return CpuMicrosteps.addXToZeroPage(self);
-    }
-
-    pub fn addYToZeroPage(self: *EmulationState) bool {
-        return CpuMicrosteps.addYToZeroPage(self);
-    }
-
-    pub fn calcAbsoluteX(self: *EmulationState) bool {
-        return CpuMicrosteps.calcAbsoluteX(self);
-    }
-
-    pub fn calcAbsoluteY(self: *EmulationState) bool {
-        return CpuMicrosteps.calcAbsoluteY(self);
-    }
-
-    pub fn fixHighByte(self: *EmulationState) bool {
-        return CpuMicrosteps.fixHighByte(self);
-    }
-
-    pub fn fetchZpBase(self: *EmulationState) bool {
-        return CpuMicrosteps.fetchZpBase(self);
-    }
-
-    pub fn addXToBase(self: *EmulationState) bool {
-        return CpuMicrosteps.addXToBase(self);
-    }
-
-    pub fn fetchIndirectLow(self: *EmulationState) bool {
-        return CpuMicrosteps.fetchIndirectLow(self);
-    }
-
-    pub fn fetchIndirectHigh(self: *EmulationState) bool {
-        return CpuMicrosteps.fetchIndirectHigh(self);
-    }
-
-    pub fn fetchZpPointer(self: *EmulationState) bool {
-        return CpuMicrosteps.fetchZpPointer(self);
-    }
-
-    pub fn fetchPointerLow(self: *EmulationState) bool {
-        return CpuMicrosteps.fetchPointerLow(self);
-    }
-
-    pub fn fetchPointerHigh(self: *EmulationState) bool {
-        return CpuMicrosteps.fetchPointerHigh(self);
-    }
-
-    pub fn addYCheckPage(self: *EmulationState) bool {
-        return CpuMicrosteps.addYCheckPage(self);
-    }
-
-    pub fn pullByte(self: *EmulationState) bool {
-        return CpuMicrosteps.pullByte(self);
-    }
-
-    pub fn stackDummyRead(self: *EmulationState) bool {
-        return CpuMicrosteps.stackDummyRead(self);
-    }
-
-    pub fn pushPch(self: *EmulationState) bool {
-        return CpuMicrosteps.pushPch(self);
-    }
-
-    pub fn pushPcl(self: *EmulationState) bool {
-        return CpuMicrosteps.pushPcl(self);
-    }
-
-    pub fn pushStatusBrk(self: *EmulationState) bool {
-        return CpuMicrosteps.pushStatusBrk(self);
-    }
-
-    pub fn pushStatusInterrupt(self: *EmulationState) bool {
-        return CpuMicrosteps.pushStatusInterrupt(self);
-    }
-
-    pub fn pullPcl(self: *EmulationState) bool {
-        return CpuMicrosteps.pullPcl(self);
-    }
-
-    pub fn pullPch(self: *EmulationState) bool {
-        return CpuMicrosteps.pullPch(self);
-    }
-
-    pub fn pullPchRti(self: *EmulationState) bool {
-        return CpuMicrosteps.pullPchRti(self);
-    }
-
-    pub fn pullStatus(self: *EmulationState) bool {
-        return CpuMicrosteps.pullStatus(self);
-    }
-
-    pub fn incrementPcAfterRts(self: *EmulationState) bool {
-        return CpuMicrosteps.incrementPcAfterRts(self);
-    }
-
-    pub fn jsrStackDummy(self: *EmulationState) bool {
-        return CpuMicrosteps.jsrStackDummy(self);
-    }
-
-    pub fn fetchAbsHighJsr(self: *EmulationState) bool {
-        return CpuMicrosteps.fetchAbsHighJsr(self);
-    }
-
-    pub fn fetchIrqVectorLow(self: *EmulationState) bool {
-        return CpuMicrosteps.fetchIrqVectorLow(self);
-    }
-
-    pub fn fetchIrqVectorHigh(self: *EmulationState) bool {
-        return CpuMicrosteps.fetchIrqVectorHigh(self);
-    }
-
-    pub fn rmwRead(self: *EmulationState) bool {
-        return CpuMicrosteps.rmwRead(self);
-    }
-
-    pub fn rmwDummyWrite(self: *EmulationState) bool {
-        return CpuMicrosteps.rmwDummyWrite(self);
-    }
-
-    pub fn branchFetchOffset(self: *EmulationState) bool {
-        return CpuMicrosteps.branchFetchOffset(self);
-    }
-
-    pub fn branchAddOffset(self: *EmulationState) bool {
-        return CpuMicrosteps.branchAddOffset(self);
-    }
-
-    pub fn branchFixPch(self: *EmulationState) bool {
-        return CpuMicrosteps.branchFixPch(self);
-    }
-
-    pub fn jmpIndirectFetchLow(self: *EmulationState) bool {
-        return CpuMicrosteps.jmpIndirectFetchLow(self);
-    }
-
-    pub fn jmpIndirectFetchHigh(self: *EmulationState) bool {
-        return CpuMicrosteps.jmpIndirectFetchHigh(self);
-    }
-
-    // END PRIVATE MICROSTEP HELPERS
-    // ========================================================================
-
     /// Execute CPU micro-operations for the current cycle.
     /// Caller is responsible for clock management.
     fn executeCpuCycle(self: *EmulationState) void {
@@ -651,9 +446,9 @@ pub const EmulationState = struct {
     /// Test helper: Tick CPU with clock advancement
     /// Advances master clock by 3 PPU cycles (1 CPU cycle) then ticks CPU
     /// Use this in CPU-only tests instead of calling tickCpu() directly
+    /// Delegates to Helpers.tickCpuWithClock()
     pub fn tickCpuWithClock(self: *EmulationState) void {
-        self.clock.advance(3); // 1 CPU cycle = 3 PPU cycles
-        self.tickCpu();
+        Helpers.tickCpuWithClock(self);
     }
 
     /// Synchronize CPU NMI input with current PPU status/CTRL configuration
@@ -664,460 +459,35 @@ pub const EmulationState = struct {
     }
 
     /// Tick DMA state machine (called every 3 PPU cycles, same as CPU)
-    /// Executes OAM DMA transfer from CPU RAM ($XX00-$XXFF) to PPU OAM ($2004)
-    ///
-    /// Timing (hardware-accurate):
-    /// - Cycle 0 (if needed): Alignment wait (odd CPU cycle start)
-    /// - Cycles 1-512: 256 read/write pairs
-    ///   * Even cycles: Read byte from CPU RAM
-    ///   * Odd cycles: Write byte to PPU OAM
-    /// - Total: 513 cycles (even start) or 514 cycles (odd start)
-    ///
-    /// Hardware behavior:
-    /// - CPU is stalled (no instruction execution)
-    /// - PPU continues running normally
-    /// - Bus is monopolized by DMA controller
+    /// Delegates to DmaLogic.tickOamDma()
     pub fn tickDma(self: *EmulationState) void {
-        // CPU cycle count removed - time tracked by MasterClock
-        // No increment needed - clock is advanced in tick()
-
-        // Increment DMA cycle counter
-        const cycle = self.dma.current_cycle;
-        self.dma.current_cycle += 1;
-
-        // Alignment wait cycle (if needed)
-        if (self.dma.needs_alignment and cycle == 0) {
-            // Wait one cycle for alignment
-            // This happens when DMA is triggered on an odd CPU cycle
-            return;
-        }
-
-        // Calculate effective cycle (after alignment)
-        const effective_cycle = if (self.dma.needs_alignment) cycle - 1 else cycle;
-
-        // Check if DMA is complete (512 cycles = 256 read/write pairs)
-        if (effective_cycle >= 512) {
-            self.dma.reset();
-            return;
-        }
-
-        // DMA transfer: Alternate between read and write
-        if (effective_cycle % 2 == 0) {
-            // Even cycle: Read from CPU RAM
-            const source_addr = (@as(u16, self.dma.source_page) << 8) | @as(u16, self.dma.current_offset);
-            self.dma.temp_value = self.busRead(source_addr);
-        } else {
-            // Odd cycle: Write to PPU OAM
-            // PPU OAM is 256 bytes at $2004 (auto-incremented by PPU)
-            self.ppu.oam[self.dma.current_offset] = self.dma.temp_value;
-
-            // Increment offset for next byte
-            self.dma.current_offset +%= 1;
-        }
+        DmaLogic.tickOamDma(self);
     }
 
     /// Tick DMC DMA state machine (called every CPU cycle when active)
-    ///
-    /// Hardware behavior (NTSC 2A03 only):
-    /// - CPU is stalled via RDY line for 4 cycles (3 idle + 1 fetch)
-    /// - During stall, CPU repeats last read cycle
-    /// - If last read was $4016/$4017 (controller), corruption occurs
-    /// - If last read was $2002/$2007 (PPU), side effects repeat
-    ///
-    /// PAL 2A07: Bug fixed, DMA is clean (no corruption)
+    /// Delegates to DmaLogic.tickDmcDma()
     ///
     /// Note: Public for testing purposes
     pub fn tickDmcDma(self: *EmulationState) void {
-        // CPU cycle count removed - time tracked by MasterClock
-        // No increment needed - clock is advanced in tick()
-
-        const cycle = self.dmc_dma.stall_cycles_remaining;
-
-        if (cycle == 0) {
-            // DMA complete
-            self.dmc_dma.rdy_low = false;
-            return;
-        }
-
-        self.dmc_dma.stall_cycles_remaining -= 1;
-
-        if (cycle == 1) {
-            // Final cycle: Fetch sample byte
-            const address = self.dmc_dma.sample_address;
-            self.dmc_dma.sample_byte = self.busRead(address);
-
-            // Load into APU
-            ApuLogic.loadSampleByte(&self.apu, self.dmc_dma.sample_byte);
-
-            // DMA complete - clear RDY line
-            self.dmc_dma.rdy_low = false;
-        } else {
-            // Idle cycles (1-3): CPU repeats last read
-            // This is where corruption happens on NTSC
-            const has_dpcm_bug = switch (self.config.cpu.variant) {
-                .rp2a03e, .rp2a03g, .rp2a03h => true, // NTSC - has bug
-                .rp2a07 => false, // PAL - bug fixed
-            };
-
-            if (has_dpcm_bug) {
-                // NTSC: Repeat last read (can cause corruption)
-                const last_addr = self.dmc_dma.last_read_address;
-
-                // If last read was controller, this extra read corrupts shift register
-                if (last_addr == 0x4016 or last_addr == 0x4017) {
-                    // Extra read advances shift register -> corruption
-                    _ = self.busRead(last_addr);
-                }
-
-                // If last read was PPU status/data, side effects occur again
-                if (last_addr == 0x2002 or last_addr == 0x2007) {
-                    _ = self.busRead(last_addr);
-                }
-            }
-            // PAL: Clean DMA, no repeat reads
-        }
+        DmaLogic.tickDmcDma(self);
     }
 
     /// Emulate a complete frame (convenience wrapper)
     /// Advances emulation until frame_complete flag is set
     /// Returns number of PPU cycles elapsed
+    /// Delegates to Helpers.emulateFrame()
     pub fn emulateFrame(self: *EmulationState) u64 {
-        const start_cycle = self.clock.ppu_cycles;
-        self.frame_complete = false;
-
-        if (self.debuggerShouldHalt()) {
-            return 0;
-        }
-
-        // Advance until VBlank (scanline 241, dot 1)
-        // NTSC: 89,342 PPU cycles per frame
-        // PAL: 106,392 PPU cycles per frame
-        while (!self.frame_complete) {
-            self.tick();
-            if (self.debuggerShouldHalt()) {
-                break;
-            }
-
-            // Safety: Prevent infinite loop if something goes wrong
-            // Maximum frame cycles + 1000 cycle buffer
-            // This check is RT-safe: unreachable is optimized out in ReleaseFast
-            const max_cycles: u64 = 110_000;
-            const current_cycles = self.clock.ppu_cycles;
-            const elapsed = if (current_cycles >= start_cycle)
-                current_cycles - start_cycle
-            else
-                0;
-            if (elapsed > max_cycles) {
-                if (comptime std.debug.runtime_safety) {
-                    unreachable; // Debug mode only, no allocation
-                }
-                break; // Release mode: exit gracefully
-            }
-        }
-
-        return self.clock.ppu_cycles - start_cycle;
+        return Helpers.emulateFrame(self);
     }
 
     /// Emulate N CPU cycles (convenience wrapper)
     /// Returns actual PPU cycles elapsed (N × 3)
+    /// Delegates to Helpers.emulateCpuCycles()
     pub fn emulateCpuCycles(self: *EmulationState, cpu_cycles: u64) u64 {
-        const start_cycle = self.clock.ppu_cycles;
-        const target_cpu_cycle = self.clock.cpuCycles() + cpu_cycles;
-
-        while (self.clock.cpuCycles() < target_cpu_cycle) {
-            self.tick();
-        }
-
-        return self.clock.ppu_cycles - start_cycle;
+        return Helpers.emulateCpuCycles(self, cpu_cycles);
     }
 };
 
-// ============================================================================
-// Tests
-// ============================================================================
-
-const testing = std.testing;
-
-test "MasterClock: PPU to CPU cycle conversion" {
-    var clock = MasterClock{};
-
-    clock.ppu_cycles = 0;
-    try testing.expectEqual(@as(u64, 0), clock.cpuCycles());
-
-    clock.ppu_cycles = 3;
-    try testing.expectEqual(@as(u64, 1), clock.cpuCycles());
-
-    clock.ppu_cycles = 6;
-    try testing.expectEqual(@as(u64, 2), clock.cpuCycles());
-
-    clock.ppu_cycles = 100;
-    try testing.expectEqual(@as(u64, 33), clock.cpuCycles());
-}
-
-test "MasterClock: scanline calculation NTSC" {
-    var clock = MasterClock{};
-    var config = Config.Config.init(testing.allocator);
-    defer config.deinit();
-
-    config.ppu.variant = .rp2c02g_ntsc;
-
-    // Scanline 0, dot 0
-    clock.ppu_cycles = 0;
-    try testing.expectEqual(@as(u16, 0), clock.scanline());
-    try testing.expectEqual(@as(u16, 0), clock.dot());
-
-    // Scanline 0, dot 100
-    clock.ppu_cycles = 100;
-    try testing.expectEqual(@as(u16, 0), clock.scanline());
-    try testing.expectEqual(@as(u16, 100), clock.dot());
-
-    // Scanline 1, dot 0 (after 341 cycles)
-    clock.ppu_cycles = 341;
-    try testing.expectEqual(@as(u16, 1), clock.scanline());
-    try testing.expectEqual(@as(u16, 0), clock.dot());
-
-    // Scanline 10, dot 50
-    clock.ppu_cycles = (10 * 341) + 50;
-    try testing.expectEqual(@as(u16, 10), clock.scanline());
-    try testing.expectEqual(@as(u16, 50), clock.dot());
-
-    // VBlank start: Scanline 241, dot 1
-    clock.ppu_cycles = (241 * 341) + 1;
-    try testing.expectEqual(@as(u16, 241), clock.scanline());
-    try testing.expectEqual(@as(u16, 1), clock.dot());
-}
-
-test "MasterClock: frame calculation NTSC" {
-    var clock = MasterClock{};
-    var config = Config.Config.init(testing.allocator);
-    defer config.deinit();
-
-    config.ppu.variant = .rp2c02g_ntsc;
-
-    // Frame 0
-    clock.ppu_cycles = 0;
-    try testing.expectEqual(@as(u64, 0), clock.frame());
-
-    // Still frame 0 (one cycle before frame boundary)
-    clock.ppu_cycles = 89_341;
-    try testing.expectEqual(@as(u64, 0), clock.frame());
-
-    // Frame 1 (262 scanlines × 341 cycles = 89,342 cycles)
-    clock.ppu_cycles = 89_342;
-    try testing.expectEqual(@as(u64, 1), clock.frame());
-
-    // Frame 10
-    clock.ppu_cycles = 89_342 * 10;
-    try testing.expectEqual(@as(u64, 10), clock.frame());
-}
-
-test "EmulationState: initialization" {
-    var config = Config.Config.init(testing.allocator);
-    defer config.deinit();
-
-    const state = EmulationState.init(&config);
-
-    try testing.expectEqual(@as(u64, 0), state.clock.ppu_cycles);
-    try testing.expect(!state.frame_complete);
-    try testing.expectEqual(@as(u8, 0), state.bus.open_bus);
-    try testing.expect(!state.dma.active);
-}
-
-test "EmulationState: tick advances PPU clock" {
-    var config = Config.Config.init(testing.allocator);
-    defer config.deinit();
-
-    var state = EmulationState.init(&config);
-    state.reset();
-
-    // Initial state
-    try testing.expectEqual(@as(u64, 0), state.clock.ppu_cycles);
-
-    // Tick once
-    state.tick();
-    try testing.expectEqual(@as(u64, 1), state.clock.ppu_cycles);
-
-    // Tick 10 times
-    for (0..10) |_| {
-        state.tick();
-    }
-    try testing.expectEqual(@as(u64, 11), state.clock.ppu_cycles);
-}
-
-test "EmulationState: CPU ticks every 3 PPU cycles" {
-    var config = Config.Config.init(testing.allocator);
-    defer config.deinit();
-
-    var state = EmulationState.init(&config);
-    state.reset();
-
-    const initial_cpu_cycles = state.clock.cpuCycles();
-
-    // Tick 2 PPU cycles (CPU should NOT tick)
-    state.tick();
-    state.tick();
-    try testing.expectEqual(@as(u64, 2), state.clock.ppu_cycles);
-    try testing.expectEqual(initial_cpu_cycles, state.clock.cpuCycles());
-
-    // Tick 3rd PPU cycle (CPU SHOULD tick)
-    state.tick();
-    try testing.expectEqual(@as(u64, 3), state.clock.ppu_cycles);
-    try testing.expectEqual(initial_cpu_cycles + 1, state.clock.cpuCycles());
-
-    // Tick 3 more PPU cycles (CPU should tick once more)
-    state.tick();
-    state.tick();
-    state.tick();
-    try testing.expectEqual(@as(u64, 6), state.clock.ppu_cycles);
-    try testing.expectEqual(initial_cpu_cycles + 2, state.clock.cpuCycles());
-}
-
-test "EmulationState: emulateCpuCycles advances correctly" {
-    var config = Config.Config.init(testing.allocator);
-    defer config.deinit();
-
-    var state = EmulationState.init(&config);
-    state.reset();
-
-    // Emulate 10 CPU cycles (should be 30 PPU cycles)
-    const ppu_cycles = state.emulateCpuCycles(10);
-    try testing.expectEqual(@as(u64, 30), ppu_cycles);
-    try testing.expectEqual(@as(u64, 30), state.clock.ppu_cycles);
-    try testing.expectEqual(@as(u64, 10), state.clock.cpuCycles());
-}
-
-test "EmulationState: VBlank timing at scanline 241, dot 1" {
-    var config = Config.Config.init(testing.allocator);
-    defer config.deinit();
-
-    config.ppu.variant = .rp2c02g_ntsc;
-
-    var state = EmulationState.init(&config);
-    state.reset();
-
-    // Advance to scanline 241, dot 0 (just before VBlank)
-    // MasterClock: scanline 241, dot 0 = (241 * 341) + 0 PPU cycles
-    state.clock.ppu_cycles = (241 * 341);
-    try testing.expect(!state.frame_complete);
-
-    // Tick once to reach scanline 241, dot 1 (VBlank start)
-    state.tick();
-    try testing.expectEqual(@as(u16, 241), state.clock.scanline());
-    try testing.expectEqual(@as(u16, 1), state.clock.dot());
-    try testing.expect(state.ppu.status.vblank); // VBlank flag set at 241.1 (NOT frame_complete)
-}
-
-test "EmulationState: odd frame skip when rendering enabled" {
-    var config = Config.Config.init(testing.allocator);
-    defer config.deinit();
-
-    config.ppu.variant = .rp2c02g_ntsc;
-
-    var state = EmulationState.init(&config);
-    state.reset();
-
-    // Set up odd frame with rendering enabled
-    state.odd_frame = true;
-    state.rendering_enabled = true;
-
-    // Advance to scanline 261, dot 340 (last dot of pre-render scanline on odd frame)
-    const target_cycle = (261 * 341) + 340;
-    state.clock.ppu_cycles = target_cycle;
-
-    // Current position: scanline 261, dot 340
-    try testing.expectEqual(@as(u16, 261), state.clock.scanline());
-    try testing.expectEqual(@as(u16, 340), state.clock.dot());
-
-    // Tick should skip dot 0 of scanline 0, advancing by 2 PPU cycles instead of 1
-    state.tick();
-
-    // After tick: Should be at scanline 0, dot 1 (skipped dot 0)
-    try testing.expectEqual(@as(u16, 0), state.clock.scanline());
-    try testing.expectEqual(@as(u16, 1), state.clock.dot());
-
-    // Odd frame should be cleared (next frame is even)
-    try testing.expect(!state.odd_frame);
-}
-
-test "EmulationState: even frame does not skip dot" {
-    var config = Config.Config.init(testing.allocator);
-    defer config.deinit();
-
-    config.ppu.variant = .rp2c02g_ntsc;
-
-    var state = EmulationState.init(&config);
-    state.reset();
-
-    // Set up even frame with rendering enabled
-    state.odd_frame = false; // Even frame
-    state.rendering_enabled = true;
-
-    // Advance to scanline 261, dot 340
-    const target_cycle = (261 * 341) + 340;
-    state.clock.ppu_cycles = target_cycle;
-
-    // Tick should NOT skip, advancing by 1 PPU cycle normally
-    state.tick();
-
-    // After tick: Should be at scanline 0, dot 0 (normal progression)
-    try testing.expectEqual(@as(u16, 0), state.clock.scanline());
-    try testing.expectEqual(@as(u16, 0), state.clock.dot());
-}
-
-test "EmulationState: odd frame without rendering does not skip" {
-    var config = Config.Config.init(testing.allocator);
-    defer config.deinit();
-
-    config.ppu.variant = .rp2c02g_ntsc;
-
-    var state = EmulationState.init(&config);
-    state.reset();
-
-    // Set up odd frame WITHOUT rendering enabled
-    state.odd_frame = true;
-    state.rendering_enabled = false; // Rendering disabled
-
-    // Advance to scanline 261, dot 340
-    const target_cycle = (261 * 341) + 340;
-    state.clock.ppu_cycles = target_cycle;
-
-    // Tick should NOT skip (rendering disabled), advancing by 1 PPU cycle
-    state.tick();
-
-    // After tick: Should be at scanline 0, dot 0 (normal progression)
-    try testing.expectEqual(@as(u16, 0), state.clock.scanline());
-    try testing.expectEqual(@as(u16, 0), state.clock.dot());
-}
-
-test "EmulationState: frame toggle at scanline boundary" {
-    var config = Config.Config.init(testing.allocator);
-    defer config.deinit();
-
-    config.ppu.variant = .rp2c02g_ntsc;
-
-    var state = EmulationState.init(&config);
-    state.reset();
-
-    // Start with even frame (odd_frame = false)
-    try testing.expect(!state.odd_frame);
-    try testing.expectEqual(@as(u64, 0), state.clock.frame());
-
-    // Advance to end of scanline 261 (last scanline of frame)
-    state.clock.ppu_cycles = (261 * 341) + 340;
-
-    // Tick to cross into scanline 0 of next frame
-    state.tick();
-
-    // Frame should have incremented
-    try testing.expectEqual(@as(u64, 1), state.clock.frame());
-    // Should now be odd frame
-    try testing.expect(state.odd_frame);
-
-    // Advance to next frame boundary
-    state.clock.ppu_cycles = (261 * 341) + 340 + 89342;
-
-    state.tick();
-
-    // Should be back to even frame
-    try testing.expect(!state.odd_frame);
+test {
+    std.testing.refAllDeclsRecursive(@This());
 }

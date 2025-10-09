@@ -150,9 +150,9 @@ pub fn executeCycle(state: anytype) void {
                 _ = state.busRead(state.cpu.pc);
                 break :blk false;
             },
-            1 => state.pushPch(), // Cycle 2: Push PC high byte
-            2 => state.pushPcl(), // Cycle 3: Push PC low byte
-            3 => state.pushStatusInterrupt(), // Cycle 4: Push P (B=0)
+            1 => CpuMicrosteps.pushPch(state), // Cycle 2: Push PC high byte
+            2 => CpuMicrosteps.pushPcl(state), // Cycle 3: Push PC low byte
+            3 => CpuMicrosteps.pushStatusInterrupt(state), // Cycle 4: Push P (B=0)
             4 => blk: {
                 // Cycle 5: Fetch vector low byte
                 state.cpu.operand_low = switch (state.cpu.pending_interrupt) {
@@ -240,28 +240,28 @@ pub fn executeCycle(state: anytype) void {
             break :blk switch (state.cpu.opcode) {
                 // JSR - 6 cycles
                 0x20 => switch (state.cpu.instruction_cycle) {
-                    0 => state.fetchAbsLow(),
-                    1 => state.jsrStackDummy(),
-                    2 => state.pushPch(),
-                    3 => state.pushPcl(),
-                    4 => state.fetchAbsHighJsr(),
+                    0 => CpuMicrosteps.fetchAbsLow(state),
+                    1 => CpuMicrosteps.jsrStackDummy(state),
+                    2 => CpuMicrosteps.pushPch(state),
+                    3 => CpuMicrosteps.pushPcl(state),
+                    4 => CpuMicrosteps.fetchAbsHighJsr(state),
                     else => unreachable,
                 },
                 // RTS - 6 cycles
                 0x60 => switch (state.cpu.instruction_cycle) {
-                    0 => state.stackDummyRead(),
-                    1 => state.stackDummyRead(),
-                    2 => state.pullPcl(),
-                    3 => state.pullPch(),
-                    4 => state.incrementPcAfterRts(),
+                    0 => CpuMicrosteps.stackDummyRead(state),
+                    1 => CpuMicrosteps.stackDummyRead(state),
+                    2 => CpuMicrosteps.pullPcl(state),
+                    3 => CpuMicrosteps.pullPch(state),
+                    4 => CpuMicrosteps.incrementPcAfterRts(state),
                     else => unreachable,
                 },
                 // RTI - 6 cycles
                 0x40 => switch (state.cpu.instruction_cycle) {
-                    0 => state.stackDummyRead(),
-                    1 => state.pullStatus(),
-                    2 => state.pullPcl(),
-                    3 => state.pullPch(), // Pull PC high
+                    0 => CpuMicrosteps.stackDummyRead(state),
+                    1 => CpuMicrosteps.pullStatus(state),
+                    2 => CpuMicrosteps.pullPcl(state),
+                    3 => CpuMicrosteps.pullPch(state), // Pull PC high
                     4 => blk2: { // Dummy read at new PC before completing
                         _ = state.busRead(state.cpu.pc);
                         break :blk2 true; // RTI complete
@@ -270,34 +270,34 @@ pub fn executeCycle(state: anytype) void {
                 },
                 // BRK - 7 cycles
                 0x00 => switch (state.cpu.instruction_cycle) {
-                    0 => state.fetchOperandLow(),
-                    1 => state.pushPch(),
-                    2 => state.pushPcl(),
-                    3 => state.pushStatusBrk(),
-                    4 => state.fetchIrqVectorLow(),
-                    5 => state.fetchIrqVectorHigh(),
+                    0 => CpuMicrosteps.fetchOperandLow(state),
+                    1 => CpuMicrosteps.pushPch(state),
+                    2 => CpuMicrosteps.pushPcl(state),
+                    3 => CpuMicrosteps.pushStatusBrk(state),
+                    4 => CpuMicrosteps.fetchIrqVectorLow(state),
+                    5 => CpuMicrosteps.fetchIrqVectorHigh(state),
                     else => unreachable,
                 },
                 // PHA - 3 cycles (dummy read, then execute pushes)
                 0x48 => switch (state.cpu.instruction_cycle) {
-                    0 => state.stackDummyRead(),
+                    0 => CpuMicrosteps.stackDummyRead(state),
                     else => unreachable,
                 },
                 // PHP - 3 cycles (dummy read, then execute pushes)
                 0x08 => switch (state.cpu.instruction_cycle) {
-                    0 => state.stackDummyRead(),
+                    0 => CpuMicrosteps.stackDummyRead(state),
                     else => unreachable,
                 },
                 // PLA - 4 cycles (dummy read twice, then pull)
                 0x68 => switch (state.cpu.instruction_cycle) {
-                    0 => state.stackDummyRead(),
-                    1 => state.pullByte(),
+                    0 => CpuMicrosteps.stackDummyRead(state),
+                    1 => CpuMicrosteps.pullByte(state),
                     else => unreachable,
                 },
                 // PLP - 4 cycles
                 0x28 => switch (state.cpu.instruction_cycle) {
-                    0 => state.stackDummyRead(),
-                    1 => state.pullStatus(),
+                    0 => CpuMicrosteps.stackDummyRead(state),
+                    1 => CpuMicrosteps.pullStatus(state),
                     else => unreachable,
                 },
                 else => unreachable,
@@ -307,14 +307,14 @@ pub fn executeCycle(state: anytype) void {
                 if (entry.is_rmw) {
                     // RMW: 5 cycles (fetch, read, dummy write, execute)
                     break :blk switch (state.cpu.instruction_cycle) {
-                        0 => state.fetchOperandLow(),
-                        1 => state.rmwRead(),
-                        2 => state.rmwDummyWrite(),
+                        0 => CpuMicrosteps.fetchOperandLow(state),
+                        1 => CpuMicrosteps.rmwRead(state),
+                        2 => CpuMicrosteps.rmwDummyWrite(state),
                         else => unreachable,
                     };
                 } else {
                     break :blk switch (state.cpu.instruction_cycle) {
-                        0 => state.fetchOperandLow(),
+                        0 => CpuMicrosteps.fetchOperandLow(state),
                         else => unreachable,
                     };
                 }
@@ -323,39 +323,39 @@ pub fn executeCycle(state: anytype) void {
                 if (entry.is_rmw) {
                     // RMW: 6 cycles (fetch, add X, read, dummy write, execute)
                     break :blk switch (state.cpu.instruction_cycle) {
-                        0 => state.fetchOperandLow(),
-                        1 => state.addXToZeroPage(),
-                        2 => state.rmwRead(),
-                        3 => state.rmwDummyWrite(),
+                        0 => CpuMicrosteps.fetchOperandLow(state),
+                        1 => CpuMicrosteps.addXToZeroPage(state),
+                        2 => CpuMicrosteps.rmwRead(state),
+                        3 => CpuMicrosteps.rmwDummyWrite(state),
                         else => unreachable,
                     };
                 } else {
                     break :blk switch (state.cpu.instruction_cycle) {
-                        0 => state.fetchOperandLow(),
-                        1 => state.addXToZeroPage(),
+                        0 => CpuMicrosteps.fetchOperandLow(state),
+                        1 => CpuMicrosteps.addXToZeroPage(state),
                         else => unreachable,
                     };
                 }
             },
             .zero_page_y => switch (state.cpu.instruction_cycle) {
-                0 => state.fetchOperandLow(),
-                1 => state.addYToZeroPage(),
+                0 => CpuMicrosteps.fetchOperandLow(state),
+                1 => CpuMicrosteps.addYToZeroPage(state),
                 else => unreachable,
             },
             .absolute => blk: {
                 if (entry.is_rmw) {
                     // RMW: 6 cycles (fetch low, high, read, dummy write, execute)
                     break :blk switch (state.cpu.instruction_cycle) {
-                        0 => state.fetchAbsLow(),
-                        1 => state.fetchAbsHigh(),
-                        2 => state.rmwRead(),
-                        3 => state.rmwDummyWrite(),
+                        0 => CpuMicrosteps.fetchAbsLow(state),
+                        1 => CpuMicrosteps.fetchAbsHigh(state),
+                        2 => CpuMicrosteps.rmwRead(state),
+                        3 => CpuMicrosteps.rmwDummyWrite(state),
                         else => unreachable,
                     };
                 } else {
                     break :blk switch (state.cpu.instruction_cycle) {
-                        0 => state.fetchAbsLow(),
-                        1 => state.fetchAbsHigh(),
+                        0 => CpuMicrosteps.fetchAbsLow(state),
+                        1 => CpuMicrosteps.fetchAbsHigh(state),
                         else => unreachable,
                     };
                 }
@@ -365,20 +365,20 @@ pub fn executeCycle(state: anytype) void {
                 if (entry.is_rmw) {
                     // RMW: 7 cycles (fetch low, high, calc+dummy, read, dummy write, execute)
                     break :blk switch (state.cpu.instruction_cycle) {
-                        0 => state.fetchAbsLow(),
-                        1 => state.fetchAbsHigh(),
-                        2 => state.calcAbsoluteX(),
-                        3 => state.rmwRead(),
-                        4 => state.rmwDummyWrite(),
+                        0 => CpuMicrosteps.fetchAbsLow(state),
+                        1 => CpuMicrosteps.fetchAbsHigh(state),
+                        2 => CpuMicrosteps.calcAbsoluteX(state),
+                        3 => CpuMicrosteps.rmwRead(state),
+                        4 => CpuMicrosteps.rmwDummyWrite(state),
                         else => unreachable,
                     };
                 } else {
                     // Regular read: 4-5 cycles (4 if no page cross, 5 if page cross)
                     break :blk switch (state.cpu.instruction_cycle) {
-                        0 => state.fetchAbsLow(),
-                        1 => state.fetchAbsHigh(),
-                        2 => state.calcAbsoluteX(),
-                        3 => state.fixHighByte(),
+                        0 => CpuMicrosteps.fetchAbsLow(state),
+                        1 => CpuMicrosteps.fetchAbsHigh(state),
+                        2 => CpuMicrosteps.calcAbsoluteX(state),
+                        3 => CpuMicrosteps.fixHighByte(state),
                         else => unreachable,
                     };
                 }
@@ -387,20 +387,20 @@ pub fn executeCycle(state: anytype) void {
                 if (entry.is_rmw) {
                     // RMW not used with absolute_y, but handle for completeness
                     break :blk switch (state.cpu.instruction_cycle) {
-                        0 => state.fetchAbsLow(),
-                        1 => state.fetchAbsHigh(),
-                        2 => state.calcAbsoluteY(),
-                        3 => state.rmwRead(),
-                        4 => state.rmwDummyWrite(),
+                        0 => CpuMicrosteps.fetchAbsLow(state),
+                        1 => CpuMicrosteps.fetchAbsHigh(state),
+                        2 => CpuMicrosteps.calcAbsoluteY(state),
+                        3 => CpuMicrosteps.rmwRead(state),
+                        4 => CpuMicrosteps.rmwDummyWrite(state),
                         else => unreachable,
                     };
                 } else {
                     // Regular read: 4-5 cycles (4 if no page cross, 5 if page cross)
                     break :blk switch (state.cpu.instruction_cycle) {
-                        0 => state.fetchAbsLow(),
-                        1 => state.fetchAbsHigh(),
-                        2 => state.calcAbsoluteY(),
-                        3 => state.fixHighByte(),
+                        0 => CpuMicrosteps.fetchAbsLow(state),
+                        1 => CpuMicrosteps.fetchAbsHigh(state),
+                        2 => CpuMicrosteps.calcAbsoluteY(state),
+                        3 => CpuMicrosteps.fixHighByte(state),
                         else => unreachable,
                     };
                 }
@@ -409,21 +409,21 @@ pub fn executeCycle(state: anytype) void {
                 if (entry.is_rmw) {
                     // RMW: 8 cycles
                     break :blk switch (state.cpu.instruction_cycle) {
-                        0 => state.fetchZpBase(),
-                        1 => state.addXToBase(),
-                        2 => state.fetchIndirectLow(),
-                        3 => state.fetchIndirectHigh(),
-                        4 => state.rmwRead(),
-                        5 => state.rmwDummyWrite(),
+                        0 => CpuMicrosteps.fetchZpBase(state),
+                        1 => CpuMicrosteps.addXToBase(state),
+                        2 => CpuMicrosteps.fetchIndirectLow(state),
+                        3 => CpuMicrosteps.fetchIndirectHigh(state),
+                        4 => CpuMicrosteps.rmwRead(state),
+                        5 => CpuMicrosteps.rmwDummyWrite(state),
                         else => unreachable,
                     };
                 } else {
                     // Regular: 6 cycles
                     break :blk switch (state.cpu.instruction_cycle) {
-                        0 => state.fetchZpBase(),
-                        1 => state.addXToBase(),
-                        2 => state.fetchIndirectLow(),
-                        3 => state.fetchIndirectHigh(),
+                        0 => CpuMicrosteps.fetchZpBase(state),
+                        1 => CpuMicrosteps.addXToBase(state),
+                        2 => CpuMicrosteps.fetchIndirectLow(state),
+                        3 => CpuMicrosteps.fetchIndirectHigh(state),
                         else => unreachable,
                     };
                 }
@@ -432,37 +432,37 @@ pub fn executeCycle(state: anytype) void {
                 if (entry.is_rmw) {
                     // RMW: 8 cycles
                     break :blk switch (state.cpu.instruction_cycle) {
-                        0 => state.fetchZpPointer(),
-                        1 => state.fetchPointerLow(),
-                        2 => state.fetchPointerHigh(),
-                        3 => state.addYCheckPage(),
-                        4 => state.rmwRead(),
-                        5 => state.rmwDummyWrite(),
+                        0 => CpuMicrosteps.fetchZpPointer(state),
+                        1 => CpuMicrosteps.fetchPointerLow(state),
+                        2 => CpuMicrosteps.fetchPointerHigh(state),
+                        3 => CpuMicrosteps.addYCheckPage(state),
+                        4 => CpuMicrosteps.rmwRead(state),
+                        5 => CpuMicrosteps.rmwDummyWrite(state),
                         else => unreachable,
                     };
                 } else {
                     // Regular read: 5-6 cycles (5 if no page cross, 6 if page cross)
                     break :blk switch (state.cpu.instruction_cycle) {
-                        0 => state.fetchZpPointer(),
-                        1 => state.fetchPointerLow(),
-                        2 => state.fetchPointerHigh(),
-                        3 => state.addYCheckPage(),
-                        4 => state.fixHighByte(),
+                        0 => CpuMicrosteps.fetchZpPointer(state),
+                        1 => CpuMicrosteps.fetchPointerLow(state),
+                        2 => CpuMicrosteps.fetchPointerHigh(state),
+                        3 => CpuMicrosteps.addYCheckPage(state),
+                        4 => CpuMicrosteps.fixHighByte(state),
                         else => unreachable,
                     };
                 }
             },
             .relative => switch (state.cpu.instruction_cycle) {
-                0 => state.branchFetchOffset(),
-                1 => state.branchAddOffset(),
-                2 => state.branchFixPch(),
+                0 => CpuMicrosteps.branchFetchOffset(state),
+                1 => CpuMicrosteps.branchAddOffset(state),
+                2 => CpuMicrosteps.branchFixPch(state),
                 else => unreachable,
             },
             .indirect => switch (state.cpu.instruction_cycle) {
-                0 => state.fetchAbsLow(),
-                1 => state.fetchAbsHigh(),
-                2 => state.jmpIndirectFetchLow(),
-                3 => state.jmpIndirectFetchHigh(),
+                0 => CpuMicrosteps.fetchAbsLow(state),
+                1 => CpuMicrosteps.fetchAbsHigh(state),
+                2 => CpuMicrosteps.jmpIndirectFetchLow(state),
+                3 => CpuMicrosteps.jmpIndirectFetchHigh(state),
                 else => unreachable,
             },
             else => unreachable, // All addressing modes should be handled above

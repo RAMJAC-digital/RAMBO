@@ -162,7 +162,7 @@ Odd frame with rendering enabled:
 **Functional Impact:** ✅ Minimal - ROMs work correctly, only timing off by 1 cycle per frame
 **Timing Impact:** ⚠️ Odd frames are 1 cycle too long (89,342 instead of 89,341)
 **Test Failures:**
-- `src/emulation/State.zig:2138` - "odd frame skip when rendering enabled"
+- `tests/emulation/state_test.zig:191` - "odd frame skip when rendering enabled"
 
 ### Root Cause
 
@@ -217,7 +217,7 @@ pub fn tick(self: *EmulationState) void {
 
 ### Failing Test (PRESERVED)
 
-**File:** `src/emulation/State.zig:2138`
+**File:** `tests/emulation/state_test.zig:191`
 **Purpose:** Validates odd frame skip behavior
 **Expected:** After tick from 261.340 → should be at 0.1
 **Actual:** After tick from 261.340 → at 0.0
