@@ -147,11 +147,12 @@ pub fn writeRegister(state: *PpuState, cart: ?*AnyCartridge, address: u16, value
                 return;
             }
 
-            if (DEBUG_PPU_WRITES) {
-                const old_mask = state.mask;
-                const new_mask = PpuMask.fromByte(value);
-                std.debug.print("[PPUMASK] Write 0x{X:0>2}, show_bg: {} -> {}, show_sprites: {} -> {}\n", .{value, old_mask.show_bg, new_mask.show_bg, old_mask.show_sprites, new_mask.show_sprites});
-            }
+            // TEMPORARY: Always log PPUMASK writes to debug SMB blank screen
+            const old_mask = state.mask;
+            const new_mask = PpuMask.fromByte(value);
+            std.debug.print("[PPUMASK] Write 0x{X:0>2}, show_bg: {} -> {}, show_sprites: {} -> {}\n", .{
+                value, old_mask.show_bg, new_mask.show_bg, old_mask.show_sprites, new_mask.show_sprites
+            });
 
             state.mask = PpuMask.fromByte(value);
         },

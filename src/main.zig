@@ -22,8 +22,32 @@ const DebugFlags = struct {
     }
 };
 
-/// Observe CPU state snapshot for future integrations (currently no-op)
-fn handleCpuSnapshot(_: RAMBO.Mailboxes.CpuSnapshot) void {}
+/// Print CPU state snapshot for debugging
+fn handleCpuSnapshot(snapshot: RAMBO.Mailboxes.CpuSnapshot) void {
+    std.debug.print("\n=== CPU Snapshot ===\n", .{});
+    std.debug.print("  PC: ${X:0>4}  A: ${X:0>2}  X: ${X:0>2}  Y: ${X:0>2}\n", .{
+        snapshot.pc, snapshot.a, snapshot.x, snapshot.y
+    });
+    std.debug.print("  SP: ${X:0>2}   P: ${X:0>2}  ", .{ snapshot.sp, snapshot.p });
+
+    // Decode status flags
+    const n = (snapshot.p & 0x80) != 0;
+    const v = (snapshot.p & 0x40) != 0;
+    const d = (snapshot.p & 0x08) != 0;
+    const i = (snapshot.p & 0x04) != 0;
+    const z = (snapshot.p & 0x02) != 0;
+    const c = (snapshot.p & 0x01) != 0;
+    std.debug.print("[{s}{s}--{s}{s}{s}{s}]\n", .{
+        if (n) "N" else "-",
+        if (v) "V" else "-",
+        if (d) "D" else "-",
+        if (i) "I" else "-",
+        if (z) "Z" else "-",
+        if (c) "C" else "-",
+    });
+    std.debug.print("  Cycle: {}  Frame: {}\n", .{ snapshot.cycle, snapshot.frame });
+    std.debug.print("====================\n\n", .{});
+}
 
 /// Parse comma-separated hex addresses (e.g., "0x8000,0xFFFA")
 fn parseHexArray(allocator: std.mem.Allocator, input: ?[]const u8) !?[]const u16 {
@@ -217,18 +241,18 @@ fn mainExec(ctx: zli.CommandContext) !void {
             for (debug_events[0..debug_count]) |event| {
                 switch (event) {
                     .breakpoint_hit => |bp| {
-                        // TODO: Display reason in GUI/TUI
-                        _ = bp.reason;
-                        _ = bp.reason_len;
+                        const reason = bp.reason[0..bp.reason_len];
+                        std.debug.print("\n=== BREAKPOINT HIT ===\n", .{});
+                        std.debug.print("Reason: {s}\n", .{reason});
 
                         if (debug_flags.inspect) {
                             handleCpuSnapshot(bp.snapshot);
                         }
                     },
                     .watchpoint_hit => |wp| {
-                        // TODO: Display reason in GUI/TUI
-                        _ = wp.reason;
-                        _ = wp.reason_len;
+                        const reason = wp.reason[0..wp.reason_len];
+                        std.debug.print("\n=== WATCHPOINT HIT ===\n", .{});
+                        std.debug.print("Reason: {s}\n", .{reason});
 
                         if (debug_flags.inspect) {
                             handleCpuSnapshot(wp.snapshot);
