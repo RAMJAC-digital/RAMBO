@@ -59,6 +59,9 @@ const CpuMicrosteps = @import("microsteps.zig");
 const CycleResults = @import("../state/CycleResults.zig");
 const CpuCycleResult = CycleResults.CpuCycleResult;
 
+const DEBUG_NMI = false;
+const DEBUG_IRQ = false;
+
 /// Execute one CPU cycle with DMA and debugger checks.
 /// Entry point called from EmulationState.tick() via stepCpuCycle wrapper.
 ///
@@ -81,6 +84,20 @@ pub fn stepCycle(state: anytype) CpuCycleResult {
         state.ppu.ctrl.nmi_enable,
         state.ppu.status.vblank,
     );
+
+    // DEBUG: Track NMI line changes
+    if (DEBUG_NMI and nmi_line != state.cpu.nmi_line) {
+        const scanline = state.clock.scanline();
+        const dot = state.clock.dot();
+        std.debug.print("[NMI LINE] changed {} -> {} at scanline={}, dot={}, ppu_cycle={}, PC=0x{X:0>4}, vblank_flag={}, nmi_enable={}, ledger.span_active={}, ledger.nmi_edge_pending={}\n",
+            .{ state.cpu.nmi_line, nmi_line, scanline, dot, state.clock.ppu_cycles, state.cpu.pc, state.ppu.status.vblank, state.ppu.ctrl.nmi_enable, state.vblank_ledger.span_active, state.vblank_ledger.nmi_edge_pending });
+    }
+
+    // DEBUG: Track when NMI interrupt starts
+    if (DEBUG_NMI and state.cpu.pending_interrupt == .nmi and state.cpu.state == .fetch_opcode) {
+        std.debug.print("[NMI] Starting NMI sequence at PC=0x{X:0>4}\n", .{state.cpu.pc});
+    }
+
     state.cpu.nmi_line = nmi_line;
 
     // Check PPU warmup period completion (29,658 CPU cycles)
@@ -137,6 +154,9 @@ pub fn executeCycle(state: anytype) void {
     if (state.cpu.state == .fetch_opcode) {
         CpuLogic.checkInterrupts(&state.cpu);
         if (state.cpu.pending_interrupt != .none and state.cpu.pending_interrupt != .reset) {
+            if (DEBUG_IRQ and state.cpu.pending_interrupt == .irq) {
+                std.debug.print("[IRQ] Starting IRQ sequence at PC=0x{X:0>4}\n", .{state.cpu.pc});
+            }
             CpuLogic.startInterruptSequence(&state.cpu);
             return;
         }
@@ -628,7 +648,8 @@ pub fn executeCycle(state: anytype) void {
             // Page cross: fixHighByte read it
             .absolute_x, .absolute_y, .indirect_indexed => state.cpu.temp_value,
             .indexed_indirect => state.busRead(state.cpu.effective_address),
-            .indirect => unreachable,
+            // Indirect: JMP ($nnnn) doesn't use operand, effective_address set during addressing
+            .indirect => 0, // Dummy value, not used by JMP
             .relative => state.cpu.operand_low,
         };
 
