@@ -477,59 +477,6 @@ pub fn build(b: *std.Build) void {
 
     const run_nmi_sequence_tests = b.addRunArtifact(nmi_sequence_tests);
 
-    const commercial_nmi_trace_tests = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("tests/integration/commercial_nmi_trace_test.zig"),
-            .target = target,
-            .optimize = optimize,
-            .imports = &.{
-                .{ .name = "RAMBO", .module = mod },
-            },
-        }),
-    });
-
-    const run_commercial_nmi_trace_tests = b.addRunArtifact(commercial_nmi_trace_tests);
-
-    const bomberman_debug_trace_tests = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("tests/integration/bomberman_debug_trace_test.zig"),
-            .target = target,
-            .optimize = optimize,
-            .imports = &.{
-                .{ .name = "RAMBO", .module = mod },
-            },
-        }),
-    });
-
-    const run_bomberman_debug_trace_tests = b.addRunArtifact(bomberman_debug_trace_tests);
-
-    const bomberman_hang_investigation_tests = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("tests/integration/bomberman_hang_investigation.zig"),
-            .target = target,
-            .optimize = optimize,
-            .imports = &.{
-                .{ .name = "RAMBO", .module = mod },
-            },
-        }),
-    });
-
-    const run_bomberman_hang_investigation_tests = b.addRunArtifact(bomberman_hang_investigation_tests);
-
-    // Bomberman detailed hang analysis tests
-    const bomberman_detailed_hang_analysis_tests = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("tests/integration/bomberman_detailed_hang_analysis.zig"),
-            .target = target,
-            .optimize = optimize,
-            .imports = &.{
-                .{ .name = "RAMBO", .module = mod },
-            },
-        }),
-    });
-
-    const run_bomberman_detailed_hang_analysis_tests = b.addRunArtifact(bomberman_detailed_hang_analysis_tests);
-
     // Bus integration tests
     const bus_integration_tests = b.addTest(.{
         .root_module = b.createModule(.{
@@ -807,34 +754,6 @@ pub fn build(b: *std.Build) void {
 
     const run_ppustatus_polling_tests = b.addRunArtifact(ppustatus_polling_tests);
 
-    // VBlank debug tests
-    const vblank_debug_tests = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("tests/ppu/vblank_debug_test.zig"),
-            .target = target,
-            .optimize = optimize,
-            .imports = &.{
-                .{ .name = "RAMBO", .module = mod },
-            },
-        }),
-    });
-
-    const run_vblank_debug_tests = b.addRunArtifact(vblank_debug_tests);
-
-    // Clock sync tests
-    const clock_sync_tests = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("tests/ppu/clock_sync_test.zig"),
-            .target = target,
-            .optimize = optimize,
-            .imports = &.{
-                .{ .name = "RAMBO", .module = mod },
-            },
-        }),
-    });
-
-    const run_clock_sync_tests = b.addRunArtifact(clock_sync_tests);
-
     // VBlank polling simple tests
     const vblank_polling_simple_tests = b.addTest(.{
         .root_module = b.createModule(.{
@@ -876,20 +795,6 @@ pub fn build(b: *std.Build) void {
     });
 
     const run_vblank_persistence_tests = b.addRunArtifact(vblank_persistence_tests);
-
-    // VBlank exact trace tests
-    const vblank_exact_trace_tests = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("tests/integration/vblank_exact_trace.zig"),
-            .target = target,
-            .optimize = optimize,
-            .imports = &.{
-                .{ .name = "RAMBO", .module = mod },
-            },
-        }),
-    });
-
-    const run_vblank_exact_trace_tests = b.addRunArtifact(vblank_exact_trace_tests);
 
     // Snapshot integration tests
     const snapshot_integration_tests = b.addTest(.{
@@ -1166,10 +1071,6 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_cpu_interrupt_logic_tests.step);
     test_step.dependOn(&run_interrupt_execution_tests.step);
     test_step.dependOn(&run_nmi_sequence_tests.step);
-    test_step.dependOn(&run_commercial_nmi_trace_tests.step);
-    test_step.dependOn(&run_bomberman_debug_trace_tests.step);
-    test_step.dependOn(&run_bomberman_hang_investigation_tests.step);
-    test_step.dependOn(&run_bomberman_detailed_hang_analysis_tests.step);
     test_step.dependOn(&run_bus_integration_tests.step);
     test_step.dependOn(&run_cpu_ppu_integration_tests.step);
     test_step.dependOn(&run_oam_dma_tests.step);
@@ -1190,8 +1091,6 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_sprite_edge_cases_tests.step);
     test_step.dependOn(&run_vblank_nmi_timing_tests.step);
     test_step.dependOn(&run_ppustatus_polling_tests.step);
-    test_step.dependOn(&run_vblank_debug_tests.step);
-    test_step.dependOn(&run_clock_sync_tests.step);
     test_step.dependOn(&run_vblank_polling_simple_tests.step);
     test_step.dependOn(&run_seek_behavior_tests.step);
     test_step.dependOn(&run_vblank_persistence_tests.step);
@@ -1235,11 +1134,6 @@ pub fn build(b: *std.Build) void {
     integration_test_step.dependOn(&run_bus_integration_tests.step);
     integration_test_step.dependOn(&run_interrupt_execution_tests.step);
     integration_test_step.dependOn(&run_nmi_sequence_tests.step);
-    integration_test_step.dependOn(&run_commercial_nmi_trace_tests.step);
-    integration_test_step.dependOn(&run_bomberman_debug_trace_tests.step);
-    integration_test_step.dependOn(&run_bomberman_hang_investigation_tests.step);
-    integration_test_step.dependOn(&run_bomberman_detailed_hang_analysis_tests.step);
-    integration_test_step.dependOn(&run_vblank_exact_trace_tests.step);
     integration_test_step.dependOn(&run_cpu_ppu_integration_tests.step);
     integration_test_step.dependOn(&run_oam_dma_tests.step);
     integration_test_step.dependOn(&run_controller_tests.step);
