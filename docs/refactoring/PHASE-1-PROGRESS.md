@@ -13,7 +13,7 @@
 | Metric | Current | Target | Status |
 |--------|---------|--------|--------|
 | **Milestones Complete** | 9/11 | 11/11 | 82% 🎯 |
-| **Debugger.zig Lines** | 1,109 | <1,200 | ✅ M1.8 DONE (-10.8%!) |
+| **Debugger.zig Lines** | 661 | <1,200 | ✅ M1.8 DONE (-46.8%!) |
 | **State.zig Lines** | 493 | <800 | ✅ M1.6 DONE (-77.8%!) |
 | **VulkanLogic.zig Lines** | 145 | N/A | ✅ M1.5 (-92.2%!) |
 | **Config.zig Lines** | 492 | <800 | ✅ M1.7 DONE (-37.1%!) |
@@ -766,41 +766,55 @@ src/config/
 
 ### Milestone 1.8: Debugger Decomposition (Extension)
 
-**Status:** ✅ **COMPLETE**
+**Status:** ✅ **COMPLETE** (FULL State/Logic Decomposition)
 **Completed:** 2025-10-09
-**Time:** 60 minutes
-**Risk:** 🟢 Low - Successfully executed (light refactoring approach)
+**Time:** 2 hours (complete refactoring)
+**Risk:** 🟡 Medium - Successfully executed (full State/Logic pattern)
 
 **What Was Extracted:**
 - ✅ All type definitions → `types.zig` (151 lines)
-- ✅ DebuggerState struct → `State.zig` (77 lines, available for future extraction)
-- ✅ Debugger.zig refactored to use re-exported types
+- ✅ DebuggerState struct → `State.zig` (77 lines)
+- ✅ Breakpoint management → `breakpoints.zig` (110 lines)
+- ✅ Watchpoint management → `watchpoints.zig` (75 lines)
+- ✅ Execution control → `stepping.zig` (57 lines)
+- ✅ History management → `history.zig` (72 lines)
+- ✅ State inspection → `inspection.zig` (59 lines)
+- ✅ State modification → `modification.zig` (274 lines)
+- ✅ Debugger.zig refactored to facade pattern with inline delegation
 
 **Result:**
-- Debugger.zig: 1,243 → 1,109 lines (-134 lines, -10.8%)
-- New files: 2 (+228 lines)
-- Net change: +94 lines (7.6% overhead for module boundaries)
-- Tests updated: 0 files (re-export pattern preserved API)
+- Debugger.zig: 1,243 → 661 lines (-582 lines, -46.8%)
+- New files: 8 (+875 lines)
+- Net change: +293 lines (comprehensive modularity)
+- Tests updated: 1 file (debugger_test.zig - field access through .state)
 - Tests passing: 941/951 (baseline maintained) ✅
 
 **Technical Notes:**
-- Light refactoring approach: extracted types, kept methods inline
-- All 42 methods remain in Debugger.zig (well-organized, no need to split yet)
-- State.zig available for future full State/Logic decomposition if needed
+- Full State/Logic separation following Phase 1 patterns
+- Inline delegation creates zero-cost facade
+- Complex orchestration (shouldBreak, checkMemoryAccess) kept in facade
+- Pure functions in logic modules using `anytype` parameters
+- All 42 methods properly decomposed across 6 logic modules
 - Re-exports preserve 100% API compatibility
 
 **Directory Structure:**
 ```
 src/debugger/
-├── Debugger.zig (1,109 lines) - Main debugger + all methods
+├── Debugger.zig (661 lines) - Facade with inline delegation
+├── State.zig (77 lines) - DebuggerState struct
 ├── types.zig (151 lines) - Type definitions
-└── State.zig (77 lines) - DebuggerState struct (for future use)
+├── breakpoints.zig (110 lines) - Breakpoint management
+├── watchpoints.zig (75 lines) - Watchpoint management
+├── stepping.zig (57 lines) - Execution control
+├── history.zig (72 lines) - Snapshot management
+├── inspection.zig (59 lines) - Read-only inspection
+└── modification.zig (274 lines) - State mutations
 ```
 
-**Approach Rationale:**
-Given 42 methods and 1,243 lines, a full State/Logic split would be high-risk
-and time-consuming. Light refactoring achieves the key benefits (type organization,
-reduced size) while preserving all functionality with zero risk.
+**Approach Evolution:**
+Initial approach was light refactoring (types only), but full State/Logic
+decomposition was completed to maintain consistency with Phase 1 patterns
+established in State.zig and VulkanLogic.zig refactorings.
 
 ---
 

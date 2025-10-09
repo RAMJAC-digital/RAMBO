@@ -188,6 +188,14 @@ pub const InternalRegisters = struct {
     }
 };
 
+/// Result from sprite pixel lookup
+/// Used by sprite rendering logic to communicate pixel data
+pub const SpritePixel = struct {
+    pixel: u8,
+    priority: bool,
+    sprite_0: bool,
+};
+
 /// Sprite rendering state
 /// Contains shift registers and latches for sprite rendering
 ///
