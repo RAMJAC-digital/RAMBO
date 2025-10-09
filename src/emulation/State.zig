@@ -41,6 +41,9 @@ pub const OamDma = @import("state/peripherals/OamDma.zig").OamDma;
 pub const DmcDma = @import("state/peripherals/DmcDma.zig").DmcDma;
 pub const ControllerState = @import("state/peripherals/ControllerState.zig").ControllerState;
 
+// Bus routing logic
+const BusRouting = @import("bus/routing.zig");
+
 
 
 
@@ -200,67 +203,7 @@ pub const EmulationState = struct {
     /// Read from NES memory bus
     /// Routes to appropriate component and updates open bus
     pub inline fn busRead(self: *EmulationState, address: u16) u8 {
-        const cart_ptr = self.cartPtr();
-        const value = switch (address) {
-            // RAM + mirrors ($0000-$1FFF)
-            // 2KB RAM mirrored 4 times through $0000-$1FFF
-            0x0000...0x1FFF => self.bus.ram[address & 0x7FF],
-
-            // PPU registers + mirrors ($2000-$3FFF)
-            // 8 registers mirrored through $2000-$3FFF
-            0x2000...0x3FFF => blk: {
-                const reg = address & 0x07;
-                const result = PpuLogic.readRegister(&self.ppu, cart_ptr, reg);
-                // NOTE: Do NOT call refreshPpuNmiLevel() here!
-                // NMI level is latched by PPU tick (Ppu.zig:137) and should not
-                // be recalculated when $2002 is read. This fixes the race condition
-                // where reading $2002 clears VBlank and then NMI gets suppressed.
-                break :blk result;
-            },
-
-            // APU and I/O registers ($4000-$4017)
-            0x4000...0x4013 => self.bus.open_bus, // APU channels write-only
-            0x4014 => self.bus.open_bus, // OAMDMA write-only
-            0x4015 => blk: {
-                // APU status register (read has side effect)
-                const status = ApuLogic.readStatus(&self.apu);
-                // Side effect: Clear frame IRQ flag
-                ApuLogic.clearFrameIrq(&self.apu);
-                break :blk status;
-            },
-            0x4016 => self.controller.read1() | (self.bus.open_bus & 0xE0), // Controller 1 + open bus bits 5-7
-            0x4017 => self.controller.read2() | (self.bus.open_bus & 0xE0), // Controller 2 + open bus bits 5-7
-
-            // Cartridge space ($4020-$FFFF)
-            0x4020...0xFFFF => blk: {
-                if (self.cart) |*cart| {
-                    break :blk cart.cpuRead(address);
-                }
-                // No cartridge - check test RAM
-                if (self.bus.test_ram) |test_ram| {
-                    if (address >= 0x8000) {
-                        break :blk test_ram[address - 0x8000];
-                    } else if (address >= 0x6000 and address < 0x8000) {
-                        // PRG RAM region - read from test_ram offset
-                        const prg_ram_offset = (address - 0x6000);
-                        if (test_ram.len > 16384 + prg_ram_offset) {
-                            break :blk test_ram[16384 + prg_ram_offset];
-                        }
-                    }
-                }
-                // No cartridge or test RAM - open bus
-                break :blk self.bus.open_bus;
-            },
-
-            // Unmapped regions - return open bus
-            else => self.bus.open_bus,
-        };
-
-        // Hardware: All reads update open bus (except $4015 which is a special case)
-        // $4015 (APU Status) doesn't update open bus because the value is synthesized
-        if (address != 0x4015) {
-            self.bus.open_bus = value;
-        }
+        const value = BusRouting.busRead(self, address);
         self.debuggerCheckMemoryAccess(address, value, false);
         return value;
     }
@@ -302,85 +245,12 @@ pub const EmulationState = struct {
     /// Write to NES memory bus
     /// Routes to appropriate component and updates open bus
     pub inline fn busWrite(self: *EmulationState, address: u16, value: u8) void {
-        const cart_ptr = self.cartPtr();
-        // Hardware: All writes update open bus
-        self.bus.open_bus = value;
-
-        switch (address) {
-            // RAM + mirrors ($0000-$1FFF)
-            0x0000...0x1FFF => {
-                self.bus.ram[address & 0x7FF] = value;
-            },
-
-            // PPU registers + mirrors ($2000-$3FFF)
-            0x2000...0x3FFF => {
-                const reg = address & 0x07;
-                PpuLogic.writeRegister(&self.ppu, cart_ptr, reg, value);
-                // Refresh NMI level on $2000 (PPUCTRL) writes only
-                // Writing to $2000 can change nmi_enable, which affects NMI generation
-                // per nesdev.org: toggling NMI enable during VBlank can trigger NMI
-                if (reg == 0x00) {
-                    self.refreshPpuNmiLevel();
-                }
-            },
-
-            // APU and I/O registers ($4000-$4017)
-            // Pulse 1 ($4000-$4003)
-            0x4000...0x4003 => |addr| ApuLogic.writePulse1(&self.apu, @intCast(addr & 0x03), value),
-
-            // Pulse 2 ($4004-$4007)
-            0x4004...0x4007 => |addr| ApuLogic.writePulse2(&self.apu, @intCast(addr & 0x03), value),
-
-            // Triangle ($4008-$400B)
-            0x4008...0x400B => |addr| ApuLogic.writeTriangle(&self.apu, @intCast(addr & 0x03), value),
-
-            // Noise ($400C-$400F)
-            0x400C...0x400F => |addr| ApuLogic.writeNoise(&self.apu, @intCast(addr & 0x03), value),
-
-            // DMC ($4010-$4013)
-            0x4010...0x4013 => |addr| ApuLogic.writeDmc(&self.apu, @intCast(addr & 0x03), value),
-
-            0x4014 => {
-                // OAM DMA trigger
-                // Check if we're on an odd CPU cycle (PPU runs at 3x CPU speed)
-                const cpu_cycle = self.clock.ppu_cycles / 3;
-                const on_odd_cycle = (cpu_cycle & 1) != 0;
-                self.dma.trigger(value, on_odd_cycle);
-            },
-
-            // APU Control ($4015)
-            0x4015 => ApuLogic.writeControl(&self.apu, value),
-
-            0x4016 => {
-                // Controller strobe (bit 0 controls latch/shift mode)
-                self.controller.writeStrobe(value);
-            },
-
-            // APU Frame Counter ($4017)
-            0x4017 => ApuLogic.writeFrameCounter(&self.apu, value),
-
-            // Cartridge space ($4020-$FFFF)
-            0x4020...0xFFFF => {
-                if (self.cart) |*cart| {
-                    cart.cpuWrite(address, value);
-                } else if (self.bus.test_ram) |test_ram| {
-                    // Allow test RAM writes to PRG ROM ($8000+) and PRG RAM ($6000-$7FFF)
-                    if (address >= 0x8000) {
-                        test_ram[address - 0x8000] = value;
-                    } else if (address >= 0x6000 and address < 0x8000) {
-                        // PRG RAM region - write to test_ram offset
-                        // Map $6000-$7FFF to end of test_ram (after PRG ROM)
-                        const prg_ram_offset = (address - 0x6000);
-                        if (test_ram.len > 16384 + prg_ram_offset) {
-                            test_ram[16384 + prg_ram_offset] = value;
-                        }
-                    }
-                }
-                // No cartridge or test RAM - write ignored
-            },
-
-            // Unmapped regions - write ignored
-            else => {},
+        BusRouting.busWrite(self, address, value);
+        // Refresh NMI level on $2000 (PPUCTRL) writes only
+        // Writing to $2000 can change nmi_enable, which affects NMI generation
+        // per nesdev.org: toggling NMI enable during VBlank can trigger NMI
+        if (address >= 0x2000 and address <= 0x3FFF and (address & 0x07) == 0x00) {
+            self.refreshPpuNmiLevel();
         }
         self.debuggerCheckMemoryAccess(address, value, true);
     }
@@ -388,24 +258,13 @@ pub const EmulationState = struct {
     /// Read 16-bit value (little-endian)
     /// Used for reading interrupt vectors and 16-bit operands
     pub inline fn busRead16(self: *EmulationState, address: u16) u16 {
-        const low = self.busRead(address);
-        const high = self.busRead(address +% 1);
-        return (@as(u16, high) << 8) | @as(u16, low);
+        return BusRouting.busRead16(self, address);
     }
 
     /// Read 16-bit value with JMP indirect page wrap bug
     /// The 6502 has a bug where JMP ($xxFF) wraps within the page
     pub inline fn busRead16Bug(self: *EmulationState, address: u16) u16 {
-        const low_addr = address;
-        // If low byte is $FF, wrap to $x00 instead of crossing page
-        const high_addr = if ((address & 0x00FF) == 0x00FF)
-            address & 0xFF00
-        else
-            address +% 1;
-
-        const low = self.busRead(low_addr);
-        const high = self.busRead(high_addr);
-        return (@as(u16, high) << 8) | @as(u16, low);
+        return BusRouting.busRead16Bug(self, address);
     }
 
     /// Peek memory without side effects (for debugging/inspection)

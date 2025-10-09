@@ -12,10 +12,10 @@
 
 | Metric | Current | Target | Status |
 |--------|---------|--------|--------|
-| **Milestones Complete** | 2/10 | 10/10 | 20% ✅ |
-| **State.zig Lines** | 2,046 | <800 | 🎯 M1.2 Next |
+| **Milestones Complete** | 3/10 | 10/10 | 30% ✅ |
+| **State.zig Lines** | 1,905 | <800 | 🎯 M1.3 Next |
 | **Tests Passing** | 940/950 | ≥940/950 | ✅ Baseline |
-| **Files Created** | 5 (+207 lines) | - | ✅ M1.1 |
+| **Files Created** | 6 (+388 lines) | - | ✅ M1.2 |
 | **Documentation** | Updated | Current | ✅ Ready |
 
 ---
@@ -118,6 +118,48 @@ Build: 114/118 steps succeeded ✅
 
 ---
 
+### 2025-10-09 (Day 0 - Continued) - Milestone 1.2 Started
+
+**Status:** ✅ **COMPLETE**
+**Time:** 30 minutes
+**Work Done:**
+- Analyzed bus routing logic in State.zig (lines 200-409)
+- Created `src/emulation/bus/routing.zig` with 4 core functions:
+  * `busRead()` - Memory-mapped I/O routing for CPU reads (RAM, PPU, APU, controllers, cartridge)
+  * `busWrite()` - Memory-mapped I/O routing for CPU writes
+  * `busRead16()` - 16-bit little-endian reads for vectors/operands
+  * `busRead16Bug()` - JMP indirect page wrap emulation (6502 bug)
+- Updated State.zig to delegate to routing module with inline wrappers
+- Added debugger hook integration (busRead/busWrite wrappers call debuggerCheckMemoryAccess)
+- Added NMI refresh logic for $2000 (PPUCTRL) writes
+- No test updates required - all bus access goes through State.zig public API
+
+**Files Created:**
+- `src/emulation/bus/routing.zig` (181 lines)
+
+**Impact:**
+- State.zig: 2,046 → 1,905 lines (-141 lines, -6.9%)
+- New file: 1 (+181 lines)
+- Net change: +40 lines (due to file headers and improved documentation)
+- Test changes: 0 files
+
+**Validation:**
+```
+Tests: 940/950 passing ✅
+Failing: 3 (known issues) + 1 (timing-sensitive) ✅
+Skipped: 6 ✅
+Build: 114/118 steps succeeded ✅
+```
+
+**Technical Notes:**
+- Used `anytype` parameter for duck typing - zero runtime overhead
+- busRead16/busRead16Bug call back through `state.busRead()` for debugger hooks
+- Inline functions throughout - compiler optimization expected
+
+**Next:** Begin Milestone 1.3 (Extract CPU Microsteps)
+
+---
+
 ## Milestone Tracking
 
 ### Milestone 1.0: Dead Code Removal
@@ -203,11 +245,22 @@ Build: 114/118 steps succeeded ✅
 
 ### Milestone 1.2: Extract Bus Routing
 
-**Status:** ⏳ Not Started
-**Estimated:** 3 days
-**Risk:** 🟡 Medium (heavy test usage)
+**Status:** ✅ **COMPLETE**
+**Completed:** 2025-10-09
+**Time:** 30 minutes
+**Risk:** 🟡 Medium (heavy test usage) - Mitigated by inline wrappers
 
-**Detailed Plan:** See `docs/refactoring/state-zig-extraction-plan.md`
+**What Was Extracted:**
+- ✅ `busRead()` - CPU bus read routing with memory-mapped I/O
+- ✅ `busWrite()` - CPU bus write routing with memory-mapped I/O
+- ✅ `busRead16()` - 16-bit little-endian reads
+- ✅ `busRead16Bug()` - JMP indirect page wrap bug emulation
+
+**Result:**
+- State.zig: 2,046 → 1,905 lines (-141 lines, -6.9%)
+- New file: 1 (+181 lines)
+- Net: +40 lines (file headers and documentation)
+- Tests updated: 0 files (public API unchanged)
 
 ---
 
@@ -324,8 +377,8 @@ Build: 114/118 steps succeeded ✅
 | Baseline | 2,225 | 2,225 | 0% |
 | 1.0 Dead Code | 2,225 | 2,225 | 0% (different file) |
 | 1.1 Data Structures | 2,225 | 2,046 | -8.0% |
-| 1.2 Bus Routing | 2,046 | TBD | TBD |
-| 1.3 CPU Microsteps | TBD | TBD | TBD |
+| 1.2 Bus Routing | 2,046 | 1,905 | -14.4% (cumulative) |
+| 1.3 CPU Microsteps | 1,905 | TBD | TBD |
 | 1.4 CPU Execution | TBD | TBD | TBD |
 | **Final Target** | **2,225** | **<800** | **>64%** |
 
@@ -343,7 +396,7 @@ Build: 114/118 steps succeeded ✅
 |-----------|---------------|-------------------|
 | 1.0 | 0 (deleted 2) | -256 |
 | 1.1 | 5 | +207 |
-| 1.2 | TBD | TBD |
+| 1.2 | 1 | +181 |
 
 ---
 
