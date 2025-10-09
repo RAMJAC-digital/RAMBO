@@ -27,13 +27,11 @@ pub fn readRegister(state: *PpuState, cart: ?*AnyCartridge, address: u16) u8 {
         },
         0x0002 => blk: {
             // $2002 PPUSTATUS - Read-only
-            std.debug.print("Reading PPUSTATUS ($2002). VBlank before read: {any}\n", .{state.status.vblank});
             const value = state.status.toByte(state.open_bus.value);
 
             // Side effects:
             // 1. Clear VBlank flag
             state.status.vblank = false;
-            std.debug.print("VBlank after read: {any}\n", .{state.status.vblank});
 
             // 2. Reset write toggle
             state.internal.resetToggle();
