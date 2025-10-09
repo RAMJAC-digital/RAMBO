@@ -8,8 +8,8 @@
 
 ## Status Dashboard
 
-**Current Phase:** Phase 0 - Test Cleanup (Phase 0-A Complete, 0-B Next)
-**Overall Progress:** 11% (2/18 sub-phases complete)
+**Current Phase:** Phase 0 - Test Cleanup (0-A & 0-B Complete, 0-C Next)
+**Overall Progress:** 17% (3/18 sub-phases complete)
 **Strategy Change:** Clean up tests BEFORE refactoring code (prevents wasted effort)
 
 ### Metrics
@@ -29,7 +29,7 @@
 **Phase 0: Test Cleanup (Days 0-1) - CRITICAL FIRST**
 - [x] 0.0: Create tracking documents and capture baseline
 - [x] 0-A: Delete 9 debug artifact test files (COMPLETE - 2025-10-09)
-- [ ] 0-B: Fix 2 real bugs (VBlank clear, frame skip) (4 hours)
+- [x] 0-B: Analyze 2 failing tests → documented as known issues (COMPLETE - 2025-10-09)
 - [ ] 0-C: Consolidate VBlank tests (10 → 3 files) (2 hours)
 - [ ] 0-D: Consolidate PPUSTATUS tests (2 → 1 file) (1 hour)
 - [ ] 0-E: Migrate high-priority tests to Harness (8 hours)
@@ -55,6 +55,43 @@
 ---
 
 ## Extraction Log
+
+### 2025-10-09 - Phase 0-B Complete: Failing Tests Documented as Known Issues
+**Status:** ✅ Complete (Analyzed & Documented)
+**Action:** Analyzed 2 remaining failing tests, determined both require architectural work
+**Decision:** Document as known issues and defer to Phase 2+ (post-refactoring)
+
+**Tests Analyzed:**
+1. **Odd Frame Skip** (`State.zig:2138`)
+   - **Issue**: Clock advances by 1, should advance by 2 when skipping odd frame dot 0
+   - **Fix Complexity**: Requires changing MasterClock timing invariant ("always advance by 1")
+   - **Architectural Risk**: Part of PPU/clock decoupling work
+   - **Decision**: DEFER to Phase 2+ (MasterClock refactoring)
+
+2. **AccuracyCoin Rendering** (`accuracycoin_execution_test.zig:166`)
+   - **Issue**: `rendering_enabled` never becomes true in 300 frames
+   - **Fix Complexity**: Unknown root cause, requires debugging investigation
+   - **Potential Causes**: PPU warmup, PPUMASK flag setting, VBlank timing, or test expectations
+   - **Decision**: DEFER to Phase 2+ (after VBlank $2002 fix)
+
+**User Guidance Applied:**
+> "If this proves to be more than a quick fix. We need to make sure we capture known information in failing tests (this is part of the vblank issue, and part of decoupling the ppu acting as the primary reference and advancing the clock, this should only ever be done once in a tick. If this requires more development and debugging, we need to pause, and track this with the vblank failing test and move forward."
+
+**Documentation Updated:**
+- docs/KNOWN-ISSUES.md: Added 2 new sections with comprehensive analysis
+  - "Emulation: Odd Frame Skip Not Implemented" (P2 priority)
+  - "PPU: AccuracyCoin Rendering Detection" (P2 priority)
+- Both include root cause analysis, proposed fixes, and deferral rationale
+
+**Test Status:**
+- Before: 933/943 passing, 4 failing (2 VBlank + 2 analyzed)
+- After: 933/943 passing, 4 failing (all documented as known issues)
+- **All 4 failing tests preserved** with clear documentation
+
+**Rationale:**
+Both tests touch core timing/architectural concerns that are better addressed during the EmulationState decomposition (Phase 2) rather than as quick fixes. Methodical approach prevents introducing regressions or violating MasterClock invariants.
+
+**Next:** Phase 0-C (consolidate VBlank tests)
 
 ### 2025-10-09 - Phase 0-A Complete: Debug Artifact Deletion
 **Status:** ✅ Complete

@@ -131,6 +131,188 @@ When this bug is fixed (post-refactoring), validation must include:
 
 ---
 
+## Emulation: Odd Frame Skip Not Implemented
+
+**Status:** 🟡 Known Issue (Deferred - Timing Architecture)
+**Priority:** P2 (Medium - affects timing accuracy, not functionality)
+**Discovered:** 2025-10-09 during Phase 0-B test analysis
+**Affects:** Cycle-accurate timing tests
+
+### Description
+
+The NES hardware skips dot 0 of scanline 0 on odd frames when rendering is enabled. The emulator detects this condition but does not correctly skip the clock position, only PPU processing.
+
+**Expected Behavior (Hardware):**
+```
+Odd frame with rendering enabled:
+- Scanline 261, dot 340 → tick() → Scanline 0, dot 1 (dot 0 skipped)
+- Clock advances by 2 PPU cycles instead of 1
+```
+
+**Actual Behavior (Current Implementation):**
+```
+Odd frame with rendering enabled:
+- Scanline 261, dot 340 → tick() → Scanline 0, dot 0
+- Clock advances by 1, then PPU processing is skipped
+- Net result: clock is at 0.0, not 0.1
+```
+
+### Impact
+
+**Functional Impact:** ✅ Minimal - ROMs work correctly, only timing off by 1 cycle per frame
+**Timing Impact:** ⚠️ Odd frames are 1 cycle too long (89,342 instead of 89,341)
+**Test Failures:**
+- `src/emulation/State.zig:2138` - "odd frame skip when rendering enabled"
+
+### Root Cause
+
+**File:** `src/emulation/State.zig`
+**Function:** `tick()` (lines 668-698)
+**Location:** Lines 678-688
+
+```zig
+// Current implementation (INCORRECT):
+self.clock.advance(1); // Always advances by 1
+
+const skip_odd_frame = self.odd_frame and self.rendering_enabled and
+    self.clock.scanline() == 0 and self.clock.dot() == 0;
+
+if (!skip_odd_frame) {
+    // Process PPU at current clock position
+    // ...
+}
+// Problem: Clock is at 0.0, but should be at 0.1
+```
+
+### Why Deferred
+
+This requires **architectural changes** to the MasterClock timing model:
+
+1. **Timing Invariant**: Current design has `tick()` always advance by exactly 1 cycle (line 673 comment)
+2. **Fix Requires**: Conditional advance (1 or 2 cycles) based on pre-advance state
+3. **Architectural Risk**: Part of larger PPU/clock decoupling work (see ADR-001)
+4. **User Guidance**: "This is part of decoupling the ppu acting as the primary reference and advancing the clock, this should only ever be done once in a tick"
+
+**Better to fix during Phase 2** when doing MasterClock/PPU architectural refactoring.
+
+### Proposed Fix (For Phase 2)
+
+```zig
+pub fn tick(self: *EmulationState) void {
+    if (self.debuggerShouldHalt()) return;
+
+    // Determine advance amount BEFORE advancing
+    const at_frame_boundary = self.clock.scanline() == 261 and
+                             self.clock.dot() == 340;
+    const will_skip_odd_frame = at_frame_boundary and
+                               self.odd_frame and
+                               self.rendering_enabled;
+
+    // Advance by 2 if skipping, 1 otherwise (still only ONE advance call)
+    self.clock.advance(if (will_skip_odd_frame) 2 else 1);
+
+    // Rest of tick() unchanged...
+}
+```
+
+### Failing Test (PRESERVED)
+
+**File:** `src/emulation/State.zig:2138`
+**Purpose:** Validates odd frame skip behavior
+**Expected:** After tick from 261.340 → should be at 0.1
+**Actual:** After tick from 261.340 → at 0.0
+
+**DO NOT DELETE THIS TEST** - It correctly validates hardware behavior
+
+### References
+
+- **NESDev Wiki:** [PPU Frame Timing](https://www.nesdev.org/wiki/PPU_frame_timing)
+- **Hardware Behavior:** "On odd frames with rendering enabled, the PPU skips the first idle cycle of the first visible scanline"
+- **Investigation:** `docs/refactoring/failing-tests-analysis-2025-10-09.md` (Test #1)
+- **Architectural Context:** Phase 0-B analysis (2025-10-09)
+
+---
+
+## PPU: AccuracyCoin Rendering Detection
+
+**Status:** 🟡 Known Issue (Deferred - Requires Investigation)
+**Priority:** P2 (Medium - test quality issue, ROM runs)
+**Discovered:** 2025-10-09 during Phase 0-B test analysis
+**Affects:** AccuracyCoin test ROM validation
+
+### Description
+
+The AccuracyCoin test ROM never sets `rendering_enabled` flag to `true` within the first 300 frames, causing a diagnostic test to fail.
+
+**Expected Behavior:**
+```
+AccuracyCoin ROM should enable rendering within first 300 frames
+- Test checks frames: 1, 5, 10, 30, 60, 120, 180, 240, 300
+- rendering_enabled should become true at some point
+```
+
+**Actual Behavior:**
+```
+rendering_enabled remains false through all 300 frames
+- Test fails at line 166: expect(rendering_enabled_frame != null)
+```
+
+### Impact
+
+**Functional Impact:** ✅ None - AccuracyCoin tests pass (939/939 CPU opcode tests)
+**ROM Execution:** ✅ ROM runs correctly, actual validation works
+**Test Quality:** ⚠️ Diagnostic test cannot verify rendering initialization timing
+
+**Test Failures:**
+- `tests/integration/accuracycoin_execution_test.zig:166` - "Compare PPU initialization sequences"
+
+### Root Cause
+
+**Unknown** - Requires investigation. Possible causes:
+
+1. **PPU Warmup Period**: PPU ignores writes for first 29,658 cycles - might affect rendering enable detection
+2. **Rendering Enable Detection**: Flag might not be set correctly from PPUMASK ($2001) writes
+3. **VBlank Timing**: Related to VBlank $2002 bug (rendering might not be detected during VBlank issues)
+4. **Test Expectations**: ROM might genuinely not enable rendering until after frame 300
+
+### Why Deferred
+
+**Requires debugging investigation:**
+1. Need to trace AccuracyCoin ROM execution to see when/if it writes to $2001
+2. Need to verify `rendering_enabled` flag is set correctly from PPUMASK
+3. Potentially related to VBlank $2002 bug (already documented as out of scope)
+4. Core AccuracyCoin validation (939 opcode tests) all pass - this is diagnostic only
+
+**Better to investigate** after VBlank $2002 bug is fixed and PPU/clock decoupling is complete.
+
+### Investigation Required
+
+```bash
+# When investigating (Phase 2+):
+# 1. Add logging to track PPUMASK ($2001) writes
+# 2. Check if rendering_enabled flag is set from PPUMASK correctly
+# 3. Extend frame limit to 500 or 1000 to see if it ever enables
+# 4. Trace AccuracyCoin ROM to understand its initialization sequence
+```
+
+### Failing Test (PRESERVED)
+
+**File:** `tests/integration/accuracycoin_execution_test.zig:166`
+**Purpose:** Diagnostic test to compare PPU initialization timing
+**Expected:** rendering_enabled becomes true within 300 frames
+**Actual:** rendering_enabled stays false through 300 frames
+
+**DO NOT DELETE THIS TEST** - It provides diagnostic information about ROM behavior
+
+### References
+
+- **ROM:** AccuracyCoin.nes (gold standard CPU test ROM)
+- **Test File:** `tests/integration/accuracycoin_execution_test.zig`
+- **Investigation:** `docs/refactoring/failing-tests-analysis-2025-10-09.md` (Test #13)
+- **Architectural Context:** Phase 0-B analysis (2025-10-09)
+
+---
+
 ## CPU: Absolute,X/Y Timing Deviation (Low Priority)
 
 **Status:** 🟡 Known Limitation (Deferred)
