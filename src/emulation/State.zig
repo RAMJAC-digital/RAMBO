@@ -65,6 +65,9 @@ const Timing = @import("state/Timing.zig");
 const TimingStep = Timing.TimingStep;
 const TimingHelpers = Timing.TimingHelpers;
 
+// VBlank timing ledger
+const VBlankLedger = @import("state/VBlankLedger.zig").VBlankLedger;
+
 /// Complete emulation state (pure data, no hidden state)
 /// This is the core of the RT emulation loop
 ///
@@ -86,6 +89,11 @@ pub const EmulationState = struct {
 
     /// NMI latch for edge detection, preventing race conditions.
     nmi_latched: bool = false,
+
+    /// VBlank timestamp ledger for cycle-accurate NMI edge detection
+    /// Records VBlank set/clear, $2002 reads, PPUCTRL writes with master clock timestamps
+    /// Decouples CPU NMI latch from readable PPU status flag
+    vblank_ledger: VBlankLedger = .{},
 
     /// PPU A12 state (for MMC3 IRQ detection)
     /// Bit 12 of PPU address - transitions during tile fetches
@@ -196,6 +204,7 @@ pub const EmulationState = struct {
         self.dma.reset();
         self.dmc_dma.reset();
         self.controller.reset();
+        self.vblank_ledger.reset();
 
         const reset_vector = self.busRead16(0xFFFC);
         self.cpu.pc = reset_vector;
@@ -260,12 +269,16 @@ pub const EmulationState = struct {
     /// Routes to appropriate component and updates open bus
     pub inline fn busWrite(self: *EmulationState, address: u16, value: u8) void {
         BusRouting.busWrite(self, address, value);
-        // Refresh NMI level on $2000 (PPUCTRL) writes only
+
+        // Track PPUCTRL writes for VBlank ledger
         // Writing to $2000 can change nmi_enable, which affects NMI generation
         // per nesdev.org: toggling NMI enable during VBlank can trigger NMI
         if (address >= 0x2000 and address <= 0x3FFF and (address & 0x07) == 0x00) {
+            const nmi_enabled = (value & 0x80) != 0;
+            self.vblank_ledger.recordCtrlToggle(self.clock.ppu_cycles, nmi_enabled);
             self.refreshPpuNmiLevel();
         }
+
         self.debuggerCheckMemoryAccess(address, value, true);
     }
 
@@ -434,15 +447,22 @@ pub const EmulationState = struct {
             }
         }
 
-        // Handle VBlank events and update NMI line
-        // On VBlank start/end, recompute NMI level based on current PPU state
-        // This ensures proper edge detection in CpuLogic.checkInterrupts()
+        // Handle VBlank events with timestamp ledger
+        // Post-refactor: Record events with master clock cycles for deterministic NMI
         if (result.nmi_signal) {
+            // VBlank flag set at scanline 241 dot 1
+            self.vblank_ledger.recordVBlankSet(self.clock.ppu_cycles);
+
+            // Check for NMI edge: VBlank set while NMI enabled
             if (self.ppu.ctrl.nmi_enable and self.ppu.status.vblank) {
                 self.nmi_latched = true;
+                self.vblank_ledger.nmi_edge_pending = true;
             }
         }
+
         if (result.vblank_clear) {
+            // VBlank span ends at scanline 261 dot 1 (pre-render)
+            self.vblank_ledger.recordVBlankSpanEnd(self.clock.ppu_cycles);
             self.refreshPpuNmiLevel();
         }
     }

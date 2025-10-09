@@ -20,10 +20,15 @@ pub inline fn busRead(state: anytype, address: u16) u8 {
         0x2000...0x3FFF => blk: {
             const reg = address & 0x07;
             const result = PpuLogic.readRegister(&state.ppu, cart_ptr, reg);
+
+            // Track $2002 (PPUSTATUS) reads for VBlank ledger
+            // Reading $2002 clears readable VBlank flag but NOT latched NMI
+            if (reg == 0x02) {
+                state.vblank_ledger.recordStatusRead(state.clock.ppu_cycles);
+            }
+
             // NOTE: Do NOT call refreshPpuNmiLevel() here!
-            // NMI level is latched by PPU tick (Ppu.zig:137) and should not
-            // be recalculated when $2002 is read. This fixes the race condition
-            // where reading $2002 clears VBlank and then NMI gets suppressed.
+            // NMI level is latched by VBlank ledger, not tied to readable flag
             break :blk result;
         },
 

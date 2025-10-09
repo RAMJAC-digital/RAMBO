@@ -73,6 +73,10 @@ const CpuCycleResult = CycleResults.CpuCycleResult;
 ///
 /// Returns: CpuCycleResult with mapper_irq flag
 pub fn stepCycle(state: anytype) CpuCycleResult {
+    if (state.nmi_latched) {
+        state.cpu.nmi_line = true;
+    }
+
     // Check PPU warmup period completion (29,658 CPU cycles)
     // During warmup, PPU ignores writes to $2000/$2001/$2005/$2006
     // Reference: nesdev.org/wiki/PPU_power_up_state
@@ -178,7 +182,17 @@ pub fn executeCycle(state: anytype) void {
                 // Cycle 7: Jump to handler
                 state.cpu.pc = (@as(u16, state.cpu.operand_high) << 8) |
                     @as(u16, state.cpu.operand_low);
+
+                // Acknowledge NMI before clearing pending_interrupt
+                const was_nmi = state.cpu.pending_interrupt == .nmi;
                 state.cpu.pending_interrupt = .none;
+
+                if (was_nmi) {
+                    // Clear NMI latch and acknowledge in ledger
+                    state.nmi_latched = false;
+                    state.vblank_ledger.acknowledgeCpu(state.clock.ppu_cycles);
+                }
+
                 break :blk true; // Complete
             },
             else => unreachable,
