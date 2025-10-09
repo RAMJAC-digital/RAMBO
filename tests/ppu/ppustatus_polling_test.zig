@@ -310,3 +310,83 @@ test "PPUSTATUS Polling: BIT instruction timing - when does read occur?" {
     // CPU N flag should match bit 7 of PPUSTATUS (which was VBlank)
     try testing.expect(harness.state.cpu.p.negative);
 }
+
+// ============================================================================
+// Additional PPUSTATUS tests from ppustatus_read_test.zig consolidation
+// ============================================================================
+
+test "PPUSTATUS: VBlank at exact set point 241.1" {
+    // Validates seekToScanlineDot accuracy at the exact moment VBlank sets
+    var harness = try Harness.init();
+    defer harness.deinit();
+
+    harness.state.ppu.warmup_complete = true;
+
+    // Seek to scanline 241, dot 1 - VBlank sets here
+    harness.seekToScanlineDot(241, 1);
+
+    // VBlank flag MUST be set
+    try testing.expect(harness.state.ppu.status.vblank);
+
+    // Read $2002
+    const status = harness.state.busRead(0x2002);
+
+    // Returned value MUST have bit 7 set
+    try testing.expectEqual(@as(u8, 0x80), status & 0x80);
+
+    // VBlank flag cleared after read
+    try testing.expect(!harness.state.ppu.status.vblank);
+}
+
+test "PPUSTATUS: Mid-VBlank persistence at 245.150" {
+    // Verifies VBlank flag persists correctly in the middle of the VBlank period
+    var harness = try Harness.init();
+    defer harness.deinit();
+
+    harness.state.ppu.warmup_complete = true;
+
+    // Seek to middle of VBlank period
+    harness.seekToScanlineDot(245, 150);
+
+    // VBlank flag MUST be set
+    try testing.expect(harness.state.ppu.status.vblank);
+
+    // Read $2002
+    const status = harness.state.busRead(0x2002);
+
+    // Returned value MUST have bit 7 set
+    try testing.expectEqual(@as(u8, 0x80), status & 0x80);
+}
+
+test "PPUSTATUS: Delayed read after 12-tick advance" {
+    // Simulates BIT instruction timing: advance 12 PPU ticks, then read
+    var harness = try Harness.init();
+    defer harness.deinit();
+
+    harness.state.ppu.warmup_complete = true;
+
+    // Seek to scanline 241, dot 1 - VBlank just set
+    harness.seekToScanlineDot(241, 1);
+
+    // VBlank MUST be set
+    try testing.expect(harness.state.ppu.status.vblank);
+
+    // Now simulate a BIT instruction: advance 12 PPU ticks (4 CPU cycles)
+    var i: usize = 0;
+    while (i < 12) : (i += 1) {
+        harness.state.tick();
+    }
+
+    // After 12 ticks, we're at scanline 241, dot 13
+    try testing.expectEqual(@as(u16, 241), harness.getScanline());
+    try testing.expectEqual(@as(u16, 13), harness.getDot());
+
+    // VBlank flag should STILL be set
+    try testing.expect(harness.state.ppu.status.vblank);
+
+    // NOW read $2002
+    const status = harness.state.busRead(0x2002);
+
+    // Returned value MUST have bit 7 set
+    try testing.expectEqual(@as(u8, 0x80), status & 0x80);
+}
