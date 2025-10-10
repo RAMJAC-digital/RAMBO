@@ -33,7 +33,7 @@ test "VBlank NMI: Flag NOT set at scanline 241 dot 0" {
     harness.seekToScanlineDot(241, 0);
 
     // VBlank should NOT be set yet (sets at 241.1, not 241.0)
-    try testing.expect(!harness.state.ppu.status.vblank);
+    try testing.expect(!harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles));
 
     // Verify exact position
     try testing.expectEqual(@as(u16, 241), harness.getScanline());
@@ -50,7 +50,7 @@ test "VBlank NMI: Flag set at scanline 241 dot 1 per nesdev.org" {
     harness.seekToScanlineDot(241, 1);
 
     // VBlank should NOW be set (per nesdev.org specification)
-    try testing.expect(harness.state.ppu.status.vblank);
+    try testing.expect(harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles));
 
     // Verify exact position
     try testing.expectEqual(@as(u16, 241), harness.getScanline());
@@ -77,7 +77,7 @@ test "VBlank NMI: NMI fires when vblank && nmi_enable both true" {
     try testing.expect(harness.state.cpu.nmi_line);
 
     // VBlank flag should also be set
-    try testing.expect(harness.state.ppu.status.vblank);
+    try testing.expect(harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles));
 }
 
 test "VBlank NMI: Reading $2002 at 241.1 clears flag but NMI STILL fires" {
@@ -103,7 +103,7 @@ test "VBlank NMI: Reading $2002 at 241.1 clears flag but NMI STILL fires" {
     // At this point:
     // - VBlank flag is SET
     // - NMI level is LATCHED (because nmi_enable=true)
-    try testing.expect(harness.state.ppu.status.vblank);
+    try testing.expect(harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles));
     try testing.expect(harness.state.cpu.nmi_line);
 
     // NOW: Simulate the race condition - CPU reads $2002
@@ -111,7 +111,7 @@ test "VBlank NMI: Reading $2002 at 241.1 clears flag but NMI STILL fires" {
     _ = harness.state.busRead(0x2002);
 
     // VBlank flag should be CLEARED by the $2002 read
-    try testing.expect(!harness.state.ppu.status.vblank);
+    try testing.expect(!harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles));
 
     // BUT: NMI line should STILL be asserted (already latched!)
     // This is the FIX: NMI was latched BEFORE $2002 could interfere
@@ -136,14 +136,14 @@ test "VBlank NMI: Reading $2002 BEFORE 241.1 does not affect NMI" {
     _ = harness.state.busRead(0x2002);
 
     // VBlank not set yet, so nothing to clear
-    try testing.expect(!harness.state.ppu.status.vblank);
+    try testing.expect(!harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles));
     try testing.expect(!harness.state.cpu.nmi_line);
 
     // Tick to dot 1 - VBlank and NMI set normally
     harness.state.tick();
 
     // Both VBlank and NMI should be active (normal operation)
-    try testing.expect(harness.state.ppu.status.vblank);
+    try testing.expect(harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles));
     try testing.expect(harness.state.cpu.nmi_line);
 }
 
@@ -158,14 +158,14 @@ test "VBlank NMI: Reading $2002 AFTER 241.1 clears flag, NMI already fired" {
     harness.seekToScanlineDot(241, 2);
 
     // VBlank and NMI should both be active
-    try testing.expect(harness.state.ppu.status.vblank);
+    try testing.expect(harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles));
     try testing.expect(harness.state.cpu.nmi_line);
 
     // Read $2002 AFTER VBlank set (normal case)
     _ = harness.state.busRead(0x2002);
 
     // VBlank flag cleared by read
-    try testing.expect(!harness.state.ppu.status.vblank);
+    try testing.expect(!harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles));
 
     // NMI still active (latched at 241.1, not affected by later reads)
     try testing.expect(harness.state.cpu.nmi_line);

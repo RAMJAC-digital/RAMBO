@@ -27,8 +27,7 @@ test "BIT $2002: N flag reflects VBlank state before clearing" {
     harness.state.bus.ram[2] = 0x20; // High byte of $2002
     harness.state.cpu.pc = 0x0000;
 
-    // Test 1: VBlank clear
-    harness.state.ppu.status.vblank = false;
+    // Test 1: VBlank clear (no need to set - already clear after reset)
 
     // Execute BIT $2002 (4 cycles)
     var cycles: usize = 0;
@@ -37,11 +36,11 @@ test "BIT $2002: N flag reflects VBlank state before clearing" {
     }
 
     try testing.expect(!harness.state.cpu.p.negative); // N should be 0
-    try testing.expect(!harness.state.ppu.status.vblank); // VBlank should still be clear
+    try testing.expect(!harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles)); // VBlank should still be clear
 
     // Test 2: VBlank set
     harness.state.cpu.pc = 0x0000; // Reset PC
-    harness.state.ppu.status.vblank = true;
+    harness.state.vblank_ledger.recordVBlankSet(harness.state.clock.ppu_cycles, harness.state.ppu.ctrl.nmi_enable);
 
     cycles = 0;
     while (cycles < 12) : (cycles += 1) { // 12 PPU cycles = 4 CPU cycles
@@ -49,7 +48,7 @@ test "BIT $2002: N flag reflects VBlank state before clearing" {
     }
 
     try testing.expect(harness.state.cpu.p.negative); // N should be 1 (bit 7 was set)
-    try testing.expect(!harness.state.ppu.status.vblank); // VBlank should be cleared by read
+    try testing.expect(!harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles)); // VBlank should be cleared by read
 
 }
 
@@ -69,7 +68,7 @@ test "BIT $2002 then BPL: Loop should exit when VBlank set" {
     harness.state.cpu.pc = 0x0000;
 
     // Set VBlank
-    harness.state.ppu.status.vblank = true;
+    harness.state.vblank_ledger.recordVBlankSet(harness.state.clock.ppu_cycles, harness.state.ppu.ctrl.nmi_enable);
 
     // Execute BIT $2002 (4 CPU cycles = 12 PPU cycles)
     var ppu_cycles: usize = 0;

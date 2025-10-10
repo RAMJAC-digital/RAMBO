@@ -120,7 +120,6 @@ pub const PpuStatus = packed struct(u8) {
             .open_bus = 0,
             .sprite_overflow = (byte & 0x20) != 0,
             .sprite_0_hit = (byte & 0x40) != 0,
-            .vblank = (byte & 0x80) != 0,
         };
     }
 };

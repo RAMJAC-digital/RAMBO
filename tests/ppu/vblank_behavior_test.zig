@@ -26,7 +26,7 @@ test "VBlank: Flag sets at scanline 241 dot 1" {
     harness.seekToScanlineDot(241, 0);
 
     // VBlank flag MUST NOT be set yet
-    try testing.expect(!harness.state.ppu.status.vblank);
+    try testing.expect(!harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles));
 
     // Tick once to advance to 241.1
     harness.state.tick();
@@ -36,7 +36,7 @@ test "VBlank: Flag sets at scanline 241 dot 1" {
     try testing.expectEqual(@as(u16, 1), harness.getDot());
 
     // VBlank flag MUST be set
-    try testing.expect(harness.state.ppu.status.vblank);
+    try testing.expect(harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles));
 }
 
 test "VBlank: Flag sets with dot-level precision at 241.1" {
@@ -55,7 +55,7 @@ test "VBlank: Flag sets with dot-level precision at 241.1" {
     var i: usize = 0;
     while (i < 11) : (i += 1) {
         dots[i] = harness.getDot();
-        vblank_states[i] = harness.state.ppu.status.vblank;
+        vblank_states[i] = harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles);
         harness.state.tick();
     }
 
@@ -79,13 +79,13 @@ test "VBlank: Flag clears at scanline 261 dot 1" {
     harness.seekToScanlineDot(245, 150);
 
     // VBlank flag MUST be set
-    try testing.expect(harness.state.ppu.status.vblank);
+    try testing.expect(harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles));
 
     // Seek to scanline 261, dot 0 (just before VBlank clears)
     harness.seekToScanlineDot(261, 0);
 
     // VBlank flag should STILL be set
-    try testing.expect(harness.state.ppu.status.vblank);
+    try testing.expect(harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles));
 
     // Tick once to advance to 261.1
     harness.state.tick();
@@ -95,7 +95,7 @@ test "VBlank: Flag clears at scanline 261 dot 1" {
     try testing.expectEqual(@as(u16, 1), harness.getDot());
 
     // VBlank flag MUST be cleared
-    try testing.expect(!harness.state.ppu.status.vblank);
+    try testing.expect(!harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles));
 }
 
 test "VBlank: Flag persists across scanlines without reads" {
@@ -108,7 +108,7 @@ test "VBlank: Flag persists across scanlines without reads" {
     harness.seekToScanlineDot(241, 1);
 
     // VBlank flag MUST be set
-    try testing.expect(harness.state.ppu.status.vblank);
+    try testing.expect(harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles));
 
     // Tick through multiple scanlines WITHOUT reading $2002
     // VBlank should STAY set
@@ -118,7 +118,7 @@ test "VBlank: Flag persists across scanlines without reads" {
 
         // Every scanline, verify VBlank is still set
         if (harness.getDot() == 0) {
-            try testing.expect(harness.state.ppu.status.vblank);
+            try testing.expect(harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles));
             scanlines_checked += 1;
         }
     }
@@ -130,7 +130,7 @@ test "VBlank: Flag persists across scanlines without reads" {
     harness.seekToScanlineDot(261, 1);
 
     // VBlank flag MUST be cleared
-    try testing.expect(!harness.state.ppu.status.vblank);
+    try testing.expect(!harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles));
 }
 
 test "VBlank: Multiple frame transitions" {
@@ -150,7 +150,7 @@ test "VBlank: Multiple frame transitions" {
     while (cycles < cycles_per_frame * 2) : (cycles += 1) {
         harness.state.tick();
 
-        const current_vblank = harness.state.ppu.status.vblank;
+        const current_vblank = harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles);
 
         // Track transitions
         if (!last_vblank and current_vblank) {
@@ -178,7 +178,7 @@ test "VBlank: Flag not set during visible scanlines" {
     harness.seekToScanlineDot(100, 150);
 
     // VBlank flag MUST NOT be set
-    try testing.expect(!harness.state.ppu.status.vblank);
+    try testing.expect(!harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles));
 
     // Read $2002
     const status = harness.state.busRead(0x2002);
@@ -190,7 +190,7 @@ test "VBlank: Flag not set during visible scanlines" {
     harness.seekToScanlineDot(200, 50);
 
     // Still no VBlank
-    try testing.expect(!harness.state.ppu.status.vblank);
+    try testing.expect(!harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles));
 }
 
 test "VBlank: Flag not set at scanline 0 (after clear)" {
@@ -203,7 +203,7 @@ test "VBlank: Flag not set at scanline 0 (after clear)" {
     harness.seekToScanlineDot(0, 100);
 
     // VBlank flag MUST NOT be set
-    try testing.expect(!harness.state.ppu.status.vblank);
+    try testing.expect(!harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles));
 
     // Read $2002
     const status = harness.state.busRead(0x2002);

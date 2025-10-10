@@ -23,26 +23,26 @@ test "PPUSTATUS Polling: VBlank flag persists for 20 scanlines" {
 
     // Advance to scanline 241, dot 1 (VBlank sets)
     harness.seekToScanlineDot(241, 1);
-    try testing.expect(harness.state.ppu.status.vblank);
+    try testing.expect(harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles));
 
     // VBlank should persist until scanline 261, dot 1
     // Let's verify it's still set at various points
 
     // Check at scanline 250 (middle of VBlank)
     harness.seekToScanlineDot(250, 100);
-    try testing.expect(harness.state.ppu.status.vblank);
+    try testing.expect(harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles));
 
     // Check at scanline 260 (near end of VBlank)
     harness.seekToScanlineDot(260, 340);
-    try testing.expect(harness.state.ppu.status.vblank);
+    try testing.expect(harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles));
 
     // Check at scanline 261, dot 0 (one cycle before clear)
     harness.seekToScanlineDot(261, 0);
-    try testing.expect(harness.state.ppu.status.vblank);
+    try testing.expect(harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles));
 
     // Check at scanline 261, dot 1 (should be cleared)
     harness.seekToScanlineDot(261, 1);
-    try testing.expect(!harness.state.ppu.status.vblank);
+    try testing.expect(!harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles));
 }
 
 test "PPUSTATUS Polling: Reading $2002 clears VBlank immediately" {
@@ -53,7 +53,7 @@ test "PPUSTATUS Polling: Reading $2002 clears VBlank immediately" {
 
     // Advance to middle of VBlank period
     harness.seekToScanlineDot(245, 100);
-    try testing.expect(harness.state.ppu.status.vblank);
+    try testing.expect(harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles));
 
     // Read $2002
     const value = harness.state.busRead(0x2002);
@@ -62,7 +62,7 @@ test "PPUSTATUS Polling: Reading $2002 clears VBlank immediately" {
     try testing.expect((value & 0x80) != 0);
 
     // But VBlank flag should now be cleared
-    try testing.expect(!harness.state.ppu.status.vblank);
+    try testing.expect(!harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles));
 }
 
 test "PPUSTATUS Polling: Tight loop can detect VBlank" {
@@ -76,7 +76,7 @@ test "PPUSTATUS Polling: Tight loop can detect VBlank" {
 
     // Start BEFORE VBlank
     harness.seekToScanlineDot(240, 340);
-    try testing.expect(!harness.state.ppu.status.vblank);
+    try testing.expect(!harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles));
 
     // Simulate tight polling loop
     // Each iteration: 4 CPU cycles (BIT $2002 = 4 cycles, BPL = 0 cycles when not taken)
@@ -169,11 +169,11 @@ test "PPUSTATUS Polling: Race condition at exact VBlank set point" {
 
     // Position at scanline 241, dot 0 (one cycle before VBlank)
     harness.seekToScanlineDot(241, 0);
-    try testing.expect(!harness.state.ppu.status.vblank);
+    try testing.expect(!harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles));
 
     // Tick to dot 1 - VBlank sets
     harness.state.tick();
-    try testing.expect(harness.state.ppu.status.vblank);
+    try testing.expect(harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles));
 
     // Immediately read $2002 (same frame as VBlank set)
     const status = harness.state.busRead(0x2002);
@@ -182,7 +182,7 @@ test "PPUSTATUS Polling: Race condition at exact VBlank set point" {
     try testing.expect((status & 0x80) != 0);
 
     // But flag is now cleared
-    try testing.expect(!harness.state.ppu.status.vblank);
+    try testing.expect(!harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles));
 }
 
 test "PPUSTATUS Polling: Can detect VBlank even with frequent reads" {
@@ -247,13 +247,13 @@ test "Simple VBlank: LDA $2002 clears flag" {
     var iterations: usize = 0;
     while (iterations < 100_000) : (iterations += 1) {
         if (harness.getScanline() == 241 and harness.getDot() == 0) {
-            std.debug.print("At scanline 241 dot 0, VBlank={}\n", .{harness.state.ppu.status.vblank});
-            try testing.expect(!harness.state.ppu.status.vblank);
+            std.debug.print("At scanline 241 dot 0, VBlank={}\n", .{harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles)});
+            try testing.expect(!harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles));
 
             // Tick to 241.1 - VBlank sets
             harness.state.tick();
-            std.debug.print("After tick to 241.1, VBlank={}\n", .{harness.state.ppu.status.vblank});
-            try testing.expect(harness.state.ppu.status.vblank);
+            std.debug.print("After tick to 241.1, VBlank={}\n", .{harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles)});
+            try testing.expect(harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles));
             break;
         }
         harness.state.tick();
@@ -266,10 +266,10 @@ test "Simple VBlank: LDA $2002 clears flag" {
         harness.state.tick();
     }
 
-    std.debug.print("After LDA, VBlank={}, A=0x{X:0>2}\n", .{harness.state.ppu.status.vblank, harness.state.cpu.a});
+    std.debug.print("After LDA, VBlank={}, A=0x{X:0>2}\n", .{harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles), harness.state.cpu.a});
 
     // VBlank should be cleared
-    try testing.expect(!harness.state.ppu.status.vblank);
+    try testing.expect(!harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles));
 
     // A register should have VBlank bit set (>= 0x80)
     try testing.expect(harness.state.cpu.a >= 0x80);
@@ -296,11 +296,11 @@ test "PPUSTATUS Polling: BIT instruction timing - when does read occur?" {
 
     // Position just before VBlank
     harness.seekToScanlineDot(241, 0);
-    try testing.expect(!harness.state.ppu.status.vblank);
+    try testing.expect(!harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles));
 
     // Tick to scanline 241, dot 1 - VBlank sets
     harness.state.tick();
-    try testing.expect(harness.state.ppu.status.vblank);
+    try testing.expect(harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles));
 
     // Now VBlank is set. Execute BIT $2002 instruction cycle by cycle
     // According to src/emulation/State.zig:
@@ -311,44 +311,44 @@ test "PPUSTATUS Polling: BIT instruction timing - when does read occur?" {
 
     std.debug.print("\n=== BIT $2002 Execution Trace ===\n", .{});
     std.debug.print("Starting at scanline={}, dot={}\n", .{harness.getScanline(), harness.getDot()});
-    std.debug.print("VBlank flag: {}\n\n", .{harness.state.ppu.status.vblank});
+    std.debug.print("VBlank flag: {}\n\n", .{harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles)});
 
     // CPU Cycle 1: fetch_opcode (3 PPU ticks)
     std.debug.print("CPU Cycle 1 (fetch_opcode): Before\n", .{});
-    std.debug.print("  State: {s}, VBlank: {}\n", .{@tagName(harness.state.cpu.state), harness.state.ppu.status.vblank});
+    std.debug.print("  State: {s}, VBlank: {}\n", .{@tagName(harness.state.cpu.state), harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles)});
     harness.state.tick();
     harness.state.tick();
     harness.state.tick();
-    std.debug.print("  After: State: {s}, VBlank: {}, PC: 0x{X:0>4}\n", .{@tagName(harness.state.cpu.state), harness.state.ppu.status.vblank, harness.state.cpu.pc});
+    std.debug.print("  After: State: {s}, VBlank: {}, PC: 0x{X:0>4}\n", .{@tagName(harness.state.cpu.state), harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles), harness.state.cpu.pc});
 
     // CPU Cycle 2: fetch_operand_low (3 PPU ticks)
     std.debug.print("\nCPU Cycle 2 (fetch_operand_low): Before\n", .{});
-    std.debug.print("  State: {s}, VBlank: {}\n", .{@tagName(harness.state.cpu.state), harness.state.ppu.status.vblank});
+    std.debug.print("  State: {s}, VBlank: {}\n", .{@tagName(harness.state.cpu.state), harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles)});
     harness.state.tick();
     harness.state.tick();
     harness.state.tick();
-    std.debug.print("  After: State: {s}, VBlank: {}, operand_low: 0x{X:0>2}\n", .{@tagName(harness.state.cpu.state), harness.state.ppu.status.vblank, harness.state.cpu.operand_low});
+    std.debug.print("  After: State: {s}, VBlank: {}, operand_low: 0x{X:0>2}\n", .{@tagName(harness.state.cpu.state), harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles), harness.state.cpu.operand_low});
 
     // CPU Cycle 3: fetch_operand_high (3 PPU ticks)
     std.debug.print("\nCPU Cycle 3 (fetch_operand_high): Before\n", .{});
-    std.debug.print("  State: {s}, VBlank: {}\n", .{@tagName(harness.state.cpu.state), harness.state.ppu.status.vblank});
+    std.debug.print("  State: {s}, VBlank: {}\n", .{@tagName(harness.state.cpu.state), harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles)});
     harness.state.tick();
     harness.state.tick();
     harness.state.tick();
-    std.debug.print("  After: State: {s}, VBlank: {}, operand_high: 0x{X:0>2}\n", .{@tagName(harness.state.cpu.state), harness.state.ppu.status.vblank, harness.state.cpu.operand_high});
+    std.debug.print("  After: State: {s}, VBlank: {}, operand_high: 0x{X:0>2}\n", .{@tagName(harness.state.cpu.state), harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles), harness.state.cpu.operand_high});
 
     // CPU Cycle 4: execute - THIS IS WHEN $2002 READ HAPPENS (3 PPU ticks)
     std.debug.print("\nCPU Cycle 4 (execute - SHOULD READ $2002 HERE): Before\n", .{});
-    std.debug.print("  State: {s}, VBlank: {}\n", .{@tagName(harness.state.cpu.state), harness.state.ppu.status.vblank});
+    std.debug.print("  State: {s}, VBlank: {}\n", .{@tagName(harness.state.cpu.state), harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles)});
     std.debug.print("  CRITICAL: VBlank MUST be true here for BIT to see it\n", .{});
 
-    const vblank_before_execute = harness.state.ppu.status.vblank;
+    const vblank_before_execute = harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles);
 
     harness.state.tick();
     harness.state.tick();
     harness.state.tick();
 
-    std.debug.print("  After: State: {s}, VBlank: {}\n", .{@tagName(harness.state.cpu.state), harness.state.ppu.status.vblank});
+    std.debug.print("  After: State: {s}, VBlank: {}\n", .{@tagName(harness.state.cpu.state), harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles)});
     std.debug.print("  CPU N flag (bit 7): {}, V flag (bit 6): {}\n", .{harness.state.cpu.p.negative, harness.state.cpu.p.overflow});
 
     // The critical assertion: VBlank MUST have been true when the execute cycle ran
@@ -356,7 +356,7 @@ test "PPUSTATUS Polling: BIT instruction timing - when does read occur?" {
     try testing.expect(vblank_before_execute);
 
     // After reading $2002, VBlank should be cleared
-    try testing.expect(!harness.state.ppu.status.vblank);
+    try testing.expect(!harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles));
 
     // CPU N flag should match bit 7 of PPUSTATUS (which was VBlank)
     try testing.expect(harness.state.cpu.p.negative);
@@ -377,7 +377,7 @@ test "PPUSTATUS: VBlank at exact set point 241.1" {
     harness.seekToScanlineDot(241, 1);
 
     // VBlank flag MUST be set
-    try testing.expect(harness.state.ppu.status.vblank);
+    try testing.expect(harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles));
 
     // Read $2002
     const status = harness.state.busRead(0x2002);
@@ -386,7 +386,7 @@ test "PPUSTATUS: VBlank at exact set point 241.1" {
     try testing.expectEqual(@as(u8, 0x80), status & 0x80);
 
     // VBlank flag cleared after read
-    try testing.expect(!harness.state.ppu.status.vblank);
+    try testing.expect(!harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles));
 }
 
 test "PPUSTATUS: Mid-VBlank persistence at 245.150" {
@@ -400,7 +400,7 @@ test "PPUSTATUS: Mid-VBlank persistence at 245.150" {
     harness.seekToScanlineDot(245, 150);
 
     // VBlank flag MUST be set
-    try testing.expect(harness.state.ppu.status.vblank);
+    try testing.expect(harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles));
 
     // Read $2002
     const status = harness.state.busRead(0x2002);
@@ -420,7 +420,7 @@ test "PPUSTATUS: Delayed read after 12-tick advance" {
     harness.seekToScanlineDot(241, 1);
 
     // VBlank MUST be set
-    try testing.expect(harness.state.ppu.status.vblank);
+    try testing.expect(harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles));
 
     // Now simulate a BIT instruction: advance 12 PPU ticks (4 CPU cycles)
     var i: usize = 0;
@@ -433,7 +433,7 @@ test "PPUSTATUS: Delayed read after 12-tick advance" {
     try testing.expectEqual(@as(u16, 13), harness.getDot());
 
     // VBlank flag should STILL be set
-    try testing.expect(harness.state.ppu.status.vblank);
+    try testing.expect(harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles));
 
     // NOW read $2002
     const status = harness.state.busRead(0x2002);

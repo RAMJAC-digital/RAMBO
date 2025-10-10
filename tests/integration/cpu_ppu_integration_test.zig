@@ -119,7 +119,6 @@ test "CPU-PPU Integration: Reading PPUSTATUS clears VBlank flag" {
     var harness = try TestHarness.init();
     defer harness.deinit();
     const state = harness.statePtr();
-    const ppu = &state.ppu;
 
     // Set VBlank flag using the ledger API
     state.vblank_ledger.recordVBlankSet(state.clock.ppu_cycles, state.ppu.ctrl.nmi_enable);
@@ -138,7 +137,6 @@ test "CPU-PPU Integration: VBlank flag race condition (read during setting)" {
     var harness = try TestHarness.init();
     defer harness.deinit();
     const state = harness.statePtr();
-    const ppu = &state.ppu;
 
     // Simulate race condition: VBlank just set using ledger API
     state.vblank_ledger.recordVBlankSet(state.clock.ppu_cycles, state.ppu.ctrl.nmi_enable);
@@ -159,7 +157,6 @@ test "CPU-PPU Integration: NMI edge detection (enabling NMI during VBlank)" {
     var harness = try TestHarness.init();
     defer harness.deinit();
     const state = harness.statePtr();
-    const ppu = &state.ppu;
 
     // Advance clock to avoid initialization race
     state.clock.advance(100);

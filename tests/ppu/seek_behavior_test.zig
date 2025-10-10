@@ -23,7 +23,7 @@ test "Seek Behavior: Harness seekToScanlineDot(241,1) sets VBlank correctly" {
     try testing.expectEqual(@as(u16, 0), harness.getDot());
 
     // VBlank should NOT be set (we're at dot 0, VBlank sets at dot 1)
-    try testing.expect(!harness.state.ppu.status.vblank);
+    try testing.expect(!harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles));
 
     // Now tick ONCE to advance to 241.1
     harness.state.tick();
@@ -33,7 +33,7 @@ test "Seek Behavior: Harness seekToScanlineDot(241,1) sets VBlank correctly" {
     try testing.expectEqual(@as(u16, 1), harness.getDot());
 
     // VBlank MUST be set at 241.1
-    try testing.expect(harness.state.ppu.status.vblank);
+    try testing.expect(harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles));
 }
 
 test "Seek Behavior: Harness seekToScanlineDot(241,1) direct positioning" {
@@ -50,5 +50,5 @@ test "Seek Behavior: Harness seekToScanlineDot(241,1) direct positioning" {
     try testing.expectEqual(@as(u16, 1), harness.getDot());
 
     // VBlank MUST be set
-    try testing.expect(harness.state.ppu.status.vblank);
+    try testing.expect(harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles));
 }

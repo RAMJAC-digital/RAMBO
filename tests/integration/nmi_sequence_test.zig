@@ -29,11 +29,11 @@ test "NMI Sequence: Step 1 - VBlank sets at scanline 241 dot 1" {
     while (harness.state.clock.scanline() < 241) {
         harness.state.tick();
     }
-    try testing.expect(!harness.state.ppu.status.vblank);
+    try testing.expect(!harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles));
 
     // Tick to dot 1 - VBlank should be set
     harness.state.tick();
-    try testing.expect(harness.state.ppu.status.vblank);
+    try testing.expect(harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles));
     try testing.expectEqual(@as(u16, 241), harness.state.clock.scanline());
 }
 
@@ -63,7 +63,7 @@ test "NMI Sequence: Step 2 - vblank_started flag is set" {
     // After this tick:
     // - VBlank flag should be set
     // - nmi_line should be asserted (refreshPpuNmiLevel was called)
-    try testing.expect(harness.state.ppu.status.vblank);
+    try testing.expect(harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles));
     try testing.expect(harness.state.cpu.nmi_line);
 }
 

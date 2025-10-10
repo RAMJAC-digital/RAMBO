@@ -356,7 +356,7 @@ test "VBlankLedger: NMI edge persists after VBlank span ends" {
     try testing.expect(ledger.nmi_edge_pending);
 
     // NMI line should still be asserted
-    try testing.expect(ledger.shouldAssertNmiLine(210, true, false));
+    try testing.expect(ledger.shouldAssertNmiLine(210, true));
 
     // shouldNmiEdge should return true (edge still pending)
     try testing.expect(ledger.shouldNmiEdge(210, true));
@@ -366,7 +366,7 @@ test "VBlankLedger: NMI edge persists after VBlank span ends" {
 
     // NOW edge should be cleared
     try testing.expect(!ledger.nmi_edge_pending);
-    try testing.expect(!ledger.shouldAssertNmiLine(230, true, false));
+    try testing.expect(!ledger.shouldAssertNmiLine(230, true));
 }
 
 test "VBlankLedger: isReadableFlagSet returns true after VBlank set" {

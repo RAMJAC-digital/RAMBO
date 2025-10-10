@@ -117,7 +117,7 @@ test "VBlank Wait Loop: CPU successfully waits for and detects VBlank" {
 
     while (cycles < max_cycles and instruction_count < max_instructions) {
         // Check for VBlank and log first BIT $2002 after VBlank
-        if (!vblank_seen and harness.state.ppu.status.vblank) {
+        if (!vblank_seen and harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles)) {
             vblank_seen = true;
         }
 
