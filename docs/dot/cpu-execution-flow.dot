@@ -1,0 +1,241 @@
+// CPU Execution Flow - 6502 Cycle-Accurate State Machine
+// Shows the complete instruction execution pipeline with BIT $2002 example
+
+digraph CPU_Execution_Flow {
+    // Graph settings
+    rankdir=TB;
+    compound=true;
+    splines=ortho;
+    nodesep=0.7;
+    ranksep=1.2;
+
+    // Node defaults
+    node [shape=box, style=filled, fillcolor=lightgray, fontname="Arial"];
+    edge [fontname="Arial", fontsize=10];
+
+    // ========== EXECUTION STATES ==========
+    subgraph cluster_states {
+        label="CPU Execution States\n(execution.zig State Machine)";
+        style=filled;
+        fillcolor=lightcyan;
+
+        fetch_opcode [label="fetch_opcode\nRead opcode from PC\nIncrement PC", fillcolor=lightblue, shape=box3d];
+
+        fetch_operand_low [label="fetch_operand_low\nRead operand bytes\n(Addressing mode specific)", fillcolor=lightyellow, shape=box3d];
+
+        execute [label="execute\nRead final operand\nCall opcode function\nApply result deltas", fillcolor=lightgreen, shape=box3d];
+
+        write_back [label="write_back\nWrite result to memory\n(RMW instructions only)", fillcolor=lightcoral, shape=box3d];
+    }
+
+    // ========== STATE TRANSITIONS ==========
+    subgraph cluster_transitions {
+        label="State Transition Logic";
+        style=filled;
+        fillcolor=lavender;
+
+        check_cycles [label="instruction_cycle\n< total_cycles - 1?", shape=diamond, fillcolor=wheat];
+        check_rmw [label="RMW Instruction?", shape=diamond, fillcolor=wheat];
+
+        increment_cycle [label="Increment\ninstruction_cycle", fillcolor=lightyellow];
+        reset_cycle [label="Reset\ninstruction_cycle = 0", fillcolor=lightyellow];
+    }
+
+    // ========== ADDRESSING MODES ==========
+    subgraph cluster_addressing {
+        label="Addressing Modes\n(Operand Acquisition)";
+        style=filled;
+        fillcolor=lightgoldenrodyellow;
+
+        immediate [label="Immediate\n#$nn", fillcolor=lightgoldenrodyellow];
+        zero_page [label="Zero Page\n$nn", fillcolor=lightgoldenrodyellow];
+        absolute [label="Absolute\n$nnnn\n(2-byte address)", fillcolor=yellow, shape=box3d];
+        indexed [label="Indexed\n$nnnn,X/Y", fillcolor=lightgoldenrodyellow];
+        indirect [label="Indirect\n($nnnn)", fillcolor=lightgoldenrodyellow];
+    }
+
+    // ========== BIT $2002 EXAMPLE ==========
+    subgraph cluster_example {
+        label="Example: BIT $2002 (4 Cycles)";
+        style=filled;
+        fillcolor=lightsteelblue;
+
+        subgraph cluster_cycle1 {
+            label="Cycle 1";
+            style=dashed;
+
+            ex_c1_state [label="fetch_opcode", fillcolor=lightblue];
+            ex_c1_action [label="PC=$8000\nRead $8000 → 0x2C\nPC=$8001", fillcolor=wheat, shape=note];
+        }
+
+        subgraph cluster_cycle2 {
+            label="Cycle 2";
+            style=dashed;
+
+            ex_c2_state [label="fetch_operand_low\ninstruction_cycle=0", fillcolor=lightyellow];
+            ex_c2_action [label="Read $8001 → 0x02\n(Address low)\nPC=$8002\noperand_low=0x02", fillcolor=wheat, shape=note];
+        }
+
+        subgraph cluster_cycle3 {
+            label="Cycle 3";
+            style=dashed;
+
+            ex_c3_state [label="fetch_operand_low\ninstruction_cycle=1", fillcolor=lightyellow];
+            ex_c3_action [label="Read $8002 → 0x20\n(Address high)\nPC=$8003\noperand_high=0x20\neffective_address=$2002", fillcolor=wheat, shape=note];
+        }
+
+        subgraph cluster_cycle4 {
+            label="Cycle 4";
+            style=filled;
+            fillcolor=palegreen;
+
+            ex_c4_state [label="execute", fillcolor=lightgreen, shape=box3d];
+            ex_c4_read [label="busRead($2002)\nREAD HAPPENS HERE", fillcolor=yellow, shape=box3d];
+            ex_c4_side [label="Side Effect:\nVBlank flag clears", fillcolor=lightcoral, shape=note];
+            ex_c4_operand [label="Operand = 0x80\n(if VBlank was set)", fillcolor=lightgreen, shape=note];
+            ex_c4_bit [label="bit(operand)\nSet N flag from bit 7\nSet V flag from bit 6", fillcolor=lightgreen, shape=note];
+            ex_c4_result [label="Result:\nN=1, V=0, Z=1", fillcolor=lightgreen, shape=note];
+        }
+
+        ex_c4_complete [label="Instruction Complete\nReturn to fetch_opcode", fillcolor=lightgreen, shape=box3d];
+    }
+
+    // ========== DISPATCH SYSTEM ==========
+    subgraph cluster_dispatch {
+        label="Opcode Dispatch\n(dispatch.zig)";
+        style=filled;
+        fillcolor=lightcyan;
+
+        dispatch_lookup [label="Opcode Lookup\nopcode_table[0x2C]", fillcolor=lightblue];
+        dispatch_entry [label="DispatchEntry\n.operation = bit\n.cycles = 4\n.mode = absolute", fillcolor=lightyellow, shape=note];
+        dispatch_call [label="Call Operation\nbit(core_state, operand)", fillcolor=lightgreen];
+    }
+
+    // ========== OPCODE HANDLERS ==========
+    subgraph cluster_opcodes {
+        label="Opcode Handlers\n(opcodes/compare.zig)";
+        style=filled;
+        fillcolor=lightgreen;
+
+        bit_func [label="pub fn bit(\n    state: CoreState,\n    operand: u8\n) ResultDelta", fillcolor=lightgreen, shape=box3d];
+
+        bit_logic [label="result = operand & state.a\nN = (operand >> 7) & 1\nV = (operand >> 6) & 1\nZ = (result == 0)", fillcolor=palegreen, shape=note];
+
+        bit_return [label="Return ResultDelta\nwith updated flags", fillcolor=lightgreen];
+    }
+
+    // ========== BUS ROUTING ==========
+    subgraph cluster_bus {
+        label="Bus Routing\n(bus/routing.zig)";
+        style=filled;
+        fillcolor=lightgoldenrodyellow;
+
+        bus_read [label="busRead(address)", fillcolor=gold, shape=box3d];
+        bus_route [label="Address Range Check", shape=diamond, fillcolor=wheat];
+
+        bus_ppu [label="$2000-$3FFF\n→ PPU Registers", fillcolor=lightcoral];
+        bus_ram [label="$0000-$1FFF\n→ RAM", fillcolor=lightgray];
+        bus_cart [label="$8000-$FFFF\n→ Cartridge", fillcolor=yellow];
+    }
+
+    // ========== PPU REGISTER READ ==========
+    subgraph cluster_ppu_read {
+        label="PPU Register Read\n(ppu/logic/registers.zig)";
+        style=filled;
+        fillcolor=lightcoral;
+
+        ppu_read_reg [label="readRegister(state, $2002)", fillcolor=salmon, shape=box3d];
+        ppu_read_status [label="value = status.toByte()\n(Bits: VNS-----)", fillcolor=salmon, shape=note];
+        ppu_side_effect [label="SIDE EFFECT:\nstatus.vblank = false\ninternal.resetToggle()", fillcolor=lightcoral, shape=note];
+        ppu_return [label="Return status byte", fillcolor=salmon];
+
+        vblank_ledger [label="VBlankLedger\nRecord $2002 read\nfor NMI edge detection", fillcolor=lightyellow, shape=cylinder];
+    }
+
+    // ========== MAIN FLOW ==========
+
+    // State machine loop
+    fetch_opcode -> fetch_operand_low [label="lookup cycles\nfrom decode table", color=blue, penwidth=2];
+    fetch_operand_low -> check_cycles;
+    check_cycles -> increment_cycle [label="more cycles", color=green];
+    check_cycles -> execute [label="last cycle", color=red, penwidth=2];
+    increment_cycle -> fetch_operand_low [label="loop", style=dashed];
+
+    execute -> check_rmw;
+    check_rmw -> write_back [label="yes\n(ASL, LSR, etc)", color=orange];
+    check_rmw -> reset_cycle [label="no", color=green];
+    write_back -> reset_cycle;
+    reset_cycle -> fetch_opcode [label="next instruction", color=blue, penwidth=2];
+
+    // Addressing mode connection
+    fetch_operand_low -> absolute [lhead=cluster_addressing, label="dispatch", style=dashed];
+
+    // BIT $2002 Example Flow
+    ex_c1_state -> ex_c1_action;
+    ex_c1_action -> ex_c2_state [label="cycle 1→2", color=blue];
+
+    ex_c2_state -> ex_c2_action;
+    ex_c2_action -> ex_c3_state [label="cycle 2→3", color=blue];
+
+    ex_c3_state -> ex_c3_action;
+    ex_c3_action -> ex_c4_state [label="cycle 3→4", color=blue];
+
+    ex_c4_state -> ex_c4_read [label="read operand", color=red, penwidth=2];
+    ex_c4_read -> ex_c4_side [color=red];
+    ex_c4_read -> ex_c4_operand [color=green];
+    ex_c4_operand -> ex_c4_bit [label="call opcode", color=green];
+    ex_c4_bit -> ex_c4_result;
+    ex_c4_result -> ex_c4_complete;
+
+    // Dispatch connection
+    ex_c1_action -> dispatch_lookup [label="decode opcode 0x2C", style=dashed, color=blue];
+    dispatch_lookup -> dispatch_entry;
+    dispatch_entry -> dispatch_call;
+    dispatch_call -> bit_func [lhead=cluster_opcodes];
+
+    // Opcode handler flow
+    bit_func -> bit_logic;
+    bit_logic -> bit_return;
+    bit_return -> ex_c4_result [style=dashed, color=green];
+
+    // Bus routing connection
+    ex_c4_read -> bus_read [lhead=cluster_bus, label="busRead($2002)", color=orange, penwidth=2];
+    bus_read -> bus_route;
+    bus_route -> bus_ppu [label="$2002", color=red];
+    bus_route -> bus_ram [label="other", style=dashed];
+    bus_route -> bus_cart [label="other", style=dashed];
+
+    // PPU register read connection
+    bus_ppu -> ppu_read_reg [lhead=cluster_ppu_read, color=red, penwidth=2];
+    ppu_read_reg -> ppu_read_status;
+    ppu_read_status -> ppu_side_effect [label="before return", color=red];
+    ppu_read_status -> vblank_ledger [label="record", style=dashed];
+    ppu_side_effect -> ppu_return;
+    ppu_return -> ex_c4_operand [label="return 0x80", color=green, style=dashed];
+
+    // Legend
+    subgraph cluster_legend {
+        label="Flow Legend";
+        style=filled;
+        fillcolor=white;
+        rank=sink;
+
+        legend_state [label="State Machine\nTransition", color=blue, penwidth=2];
+        legend_critical [label="Critical Path\n(Operand Read)", color=red, penwidth=2];
+        legend_side [label="Side Effect", color=red];
+        legend_data [label="Data Flow", color=green];
+        legend_lookup [label="Lookup/Call", style=dashed];
+    }
+
+    // Timing annotation
+    subgraph cluster_timing {
+        label="Timing Properties";
+        style=filled;
+        fillcolor=white;
+        rank=sink;
+
+        timing_cpu [label="1 CPU Cycle =\n3 PPU Cycles", shape=note, fillcolor=lightyellow];
+        timing_bit [label="BIT $2002 =\n4 CPU cycles =\n12 PPU cycles", shape=note, fillcolor=lightgreen];
+        timing_critical [label="$2002 read at\nCycle 4 of 4", shape=note, fillcolor=yellow];
+    }
+}
