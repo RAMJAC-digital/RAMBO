@@ -641,7 +641,8 @@ pub fn executeCycle(state: anytype) void {
                     break :blk 0; // Operand not used for write-only instructions
                 }
 
-                break :blk state.busRead(addr);
+                const value = state.busRead(addr);
+                break :blk value;
             },
             // Indexed modes: Always use temp_value (already read in addressing state)
             // No page cross: calcAbsoluteX/Y read it
