@@ -48,26 +48,21 @@ test "NMI: Complete 7-cycle execution sequence" {
     // NMI line will be computed automatically by stepCycle() from VBlankLedger
 
     // This should trigger NMI on next CPU tick
-    // Step 1: Interrupt detection
+    // Step 1: Interrupt detection + Cycle 0 (dummy read) happen in SAME tick
+    const pc_before = harness.state.cpu.pc;
     harness.state.tickCpu();
     try expect(harness.state.cpu.state == .interrupt_sequence);
-    try expect(harness.state.cpu.instruction_cycle == 0);
+    try expect(harness.state.cpu.instruction_cycle == 1); // Enter at cycle 1 (cycle 0 already done)
+    try expect(harness.state.cpu.pc == pc_before); // PC unchanged by dummy read
 
-    const pc_before = harness.state.cpu.pc;
-
-    // Step 2: Cycle 0 - Dummy read
-    harness.state.tickCpu();
-    try expect(harness.state.cpu.instruction_cycle == 1);
-    try expect(harness.state.cpu.pc == pc_before); // PC unchanged
-
-    // Step 3: Cycle 1 - Push PCH
+    // Step 2: Cycle 1 - Push PCH
     const sp_before = harness.state.cpu.sp;
     harness.state.tickCpu();
     try expect(harness.state.cpu.instruction_cycle == 2);
     try expect(harness.state.bus.ram[0x01FD - 0x0000] == 0x80); // PCH = $80
     try expect(harness.state.cpu.sp == sp_before - 1);
 
-    // Step 4: Cycle 2 - Push PCL
+    // Step 3: Cycle 2 - Push PCL
     harness.state.tickCpu();
     try expect(harness.state.cpu.instruction_cycle == 3);
     try expect(harness.state.bus.ram[0x01FC - 0x0000] == 0x00); // PCL = $00

@@ -171,12 +171,17 @@ pub const VBlankLedger = struct {
         nmi_enabled: bool,
     ) bool {
         // NMI line is asserted ONLY when edge is pending (latched but not yet acknowledged)
-        return self.shouldNmiEdge(cycle, nmi_enabled);
+        const result = self.shouldNmiEdge(cycle, nmi_enabled);
+        if (self.nmi_edge_pending) {
+            std.debug.print("[shouldAssertNmiLine] nmi_edge_pending=true, result={}, cycle={}, nmi_enabled={}\n", .{result, cycle, nmi_enabled});
+        }
+        return result;
     }
 
     /// CPU acknowledged NMI (during interrupt sequence cycle 6)
     /// Clears pending edge flag
     pub fn acknowledgeCpu(self: *VBlankLedger, cycle: u64) void {
+        std.debug.print("[acknowledgeCpu] Clearing nmi_edge_pending at cycle={}\n", .{cycle});
         self.nmi_edge_pending = false;
         self.last_cpu_ack_cycle = cycle;
     }

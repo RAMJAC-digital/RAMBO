@@ -61,6 +61,7 @@ const CpuCycleResult = CycleResults.CpuCycleResult;
 
 const DEBUG_NMI = false;
 const DEBUG_IRQ = false;
+const DEBUG_TRACE = false;
 
 /// Execute one CPU cycle with DMA and debugger checks.
 /// Entry point called from EmulationState.tick() via stepCpuCycle wrapper.
@@ -153,13 +154,24 @@ pub fn executeCycle(state: anytype) void {
     // This keeps timing management centralized
 
     // Check for interrupts at the start of instruction fetch
+    // CRITICAL: Interrupt must hijack the opcode fetch in the CURRENT cycle,
+    // not the next cycle. If we detect an interrupt, we do the dummy read
+    // (hijacked opcode fetch) immediately and transition to interrupt_sequence
+    // at cycle 1 (since we just completed cycle 0).
     if (state.cpu.state == .fetch_opcode) {
         CpuLogic.checkInterrupts(&state.cpu);
         if (state.cpu.pending_interrupt != .none and state.cpu.pending_interrupt != .reset) {
             if (DEBUG_IRQ and state.cpu.pending_interrupt == .irq) {
                 std.debug.print("[IRQ] Starting IRQ sequence at PC=0x{X:0>4}\n", .{state.cpu.pc});
             }
-            CpuLogic.startInterruptSequence(&state.cpu);
+
+            // Interrupt hijacks the opcode fetch - do dummy read at PC NOW
+            _ = state.busRead(state.cpu.pc);
+            // DO NOT increment PC - interrupt will set new PC from vector
+
+            // Transition to interrupt sequence at cycle 1 (we just did cycle 0)
+            state.cpu.state = .interrupt_sequence;
+            state.cpu.instruction_cycle = 1;  // Start at cycle 1, not 0
             return;
         }
 
@@ -174,19 +186,16 @@ pub fn executeCycle(state: anytype) void {
     }
 
     // Handle hardware interrupts (NMI/IRQ/RESET) - 7 cycles
-    // Pattern matches BRK (software interrupt) at line 835-842 below
+    // NOTE: Cycle 0 (dummy read) happens in fetch_opcode handler above
+    // We enter this handler at instruction_cycle = 1
     if (state.cpu.state == .interrupt_sequence) {
         const complete = switch (state.cpu.instruction_cycle) {
-            0 => blk: {
-                // Cycle 1: Dummy read at current PC (hijack opcode fetch)
-                _ = state.busRead(state.cpu.pc);
-                break :blk false;
-            },
-            1 => CpuMicrosteps.pushPch(state), // Cycle 2: Push PC high byte
-            2 => CpuMicrosteps.pushPcl(state), // Cycle 3: Push PC low byte
-            3 => CpuMicrosteps.pushStatusInterrupt(state), // Cycle 4: Push P (B=0)
+            // Cycle 0 done in fetch_opcode (dummy read at PC - hijacked opcode fetch)
+            1 => CpuMicrosteps.pushPch(state), // Cycle 1: Push PC high byte
+            2 => CpuMicrosteps.pushPcl(state), // Cycle 2: Push PC low byte
+            3 => CpuMicrosteps.pushStatusInterrupt(state), // Cycle 3: Push P (B=0)
             4 => blk: {
-                // Cycle 5: Fetch vector low byte
+                // Cycle 4: Fetch vector low byte
                 state.cpu.operand_low = switch (state.cpu.pending_interrupt) {
                     .nmi => state.busRead(0xFFFA),
                     .irq => state.busRead(0xFFFE),
@@ -197,7 +206,7 @@ pub fn executeCycle(state: anytype) void {
                 break :blk false;
             },
             5 => blk: {
-                // Cycle 6: Fetch vector high byte
+                // Cycle 5: Fetch vector high byte
                 state.cpu.operand_high = switch (state.cpu.pending_interrupt) {
                     .nmi => state.busRead(0xFFFB),
                     .irq => state.busRead(0xFFFF),
@@ -207,7 +216,7 @@ pub fn executeCycle(state: anytype) void {
                 break :blk false;
             },
             6 => blk: {
-                // Cycle 7: Jump to handler
+                // Cycle 6: Jump to handler
                 state.cpu.pc = (@as(u16, state.cpu.operand_high) << 8) |
                     @as(u16, state.cpu.operand_low);
 
@@ -236,9 +245,14 @@ pub fn executeCycle(state: anytype) void {
 
     // Cycle 1: Always fetch opcode
     if (state.cpu.state == .fetch_opcode) {
+        const pc_before = state.cpu.pc;
         state.cpu.opcode = state.busRead(state.cpu.pc);
         state.cpu.data_bus = state.cpu.opcode;
         state.cpu.pc +%= 1;
+
+        if (DEBUG_TRACE) {
+            std.debug.print("[CPU] PC=0x{X:0>4} opcode=0x{X:0>2}\n", .{pc_before, state.cpu.opcode});
+        }
 
         const entry = CpuModule.dispatch.DISPATCH_TABLE[state.cpu.opcode];
         state.cpu.address_mode = entry.info.mode;
