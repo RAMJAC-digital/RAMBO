@@ -128,10 +128,11 @@ pub const VBlankLedger = struct {
     /// This matches hardware behavior where NMI remains asserted until serviced.
     ///
     /// Returns: true if NMI should latch this cycle
-    pub fn shouldNmiEdge(self: *const VBlankLedger, _: u64, nmi_enabled: bool) bool {
-        // NMI output must be enabled
-        if (!nmi_enabled) return false;
-
+    ///
+    /// CRITICAL: Once an NMI edge is latched (nmi_edge_pending=true), it MUST persist
+    /// until CPU acknowledges it, **regardless of NMI enable bit state**.
+    /// Disabling NMI in PPUCTRL does NOT clear a pending NMI edge.
+    pub fn shouldNmiEdge(self: *const VBlankLedger, _: u64, _: bool) bool {
         // Check if edge is pending (latched edge persists until CPU acknowledges)
         if (!self.nmi_edge_pending) return false;
 
