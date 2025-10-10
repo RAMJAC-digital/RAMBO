@@ -359,17 +359,91 @@ Tests rely on precise timing of thread startup/shutdown which varies across syst
 
 ---
 
+## Commercial ROM: Super Mario Bros Blank Screen
+
+**Status:** 🔄 INVESTIGATING (Root Cause Identified, Fix In Progress)
+**Priority:** P1 (High - blocks popular commercial ROM)
+**Discovered:** 2025-10-09
+**Affects:** Super Mario Bros (World).nes
+
+### Description
+
+Super Mario Bros displays a blank screen and never enables rendering. The game is stuck in its initialization loop before reaching the main game logic.
+
+**Symptom:**
+```
+Super Mario Bros writes to PPUMASK ($2001):
+  0x06 → 0x00 → 0x00 (rendering never enabled)
+
+Mario Bros (working) writes to PPUMASK ($2001):
+  0x00 → 0x06 → 0x1E (rendering enabled on 3rd write)
+```
+
+### Root Cause
+
+**Identified:** Game never writes PPUMASK=0x1E to enable rendering
+**Diagnosis:** Game is stuck in initialization loop waiting for unmet condition
+**What Works:** VBlank timing, $2002 polling, OAM DMA, PPU warmup all work correctly
+**What's Broken:** Game never progresses to rendering enable stage
+
+### Current Investigation Status
+
+**Phase 1 Complete:** Root cause identified via debugger
+**Phase 2 In Progress:** Find PC loop location where game is stuck
+**Phase 3 Pending:** Determine why loop doesn't exit
+**Phase 4 Pending:** Implement fix
+
+### Investigation Tools
+
+See `docs/sessions/debugger-quick-start.md` for debugger usage:
+
+```bash
+# Watch PPUMASK writes
+./zig-out/bin/RAMBO "Super Mario Bros. (World).nes" --watch 0x2001 --inspect
+
+# Set breakpoints at key locations
+./zig-out/bin/RAMBO "Super Mario Bros. (World).nes" \
+  --break-at 0x8000,0x8100,0x8200 --inspect
+```
+
+### Related Documents
+
+- **Investigation Plan:** `docs/sessions/smb-investigation-plan.md`
+- **Session Summary:** `docs/sessions/session-summary-2025-10-09.md`
+- **Debugger Guide:** `docs/sessions/debugger-quick-start.md`
+
+### Next Steps
+
+1. Use debugger to find PC loop location
+2. Disassemble stuck code section
+3. Identify condition being polled
+4. Determine why condition never becomes true
+5. Fix emulator bug OR document required user input
+
+---
+
 ## Document Metadata
 
 **Created:** 2025-10-09
-**Last Updated:** 2025-10-09 (VBlank/NMI refactor completed)
+**Last Updated:** 2025-10-09 (NMI/IRQ timing fixes and SMB investigation)
 **Related Documents:**
-- `docs/code-review/nmi-timing-implementation-log-2025-10-09.md` (NEW - comprehensive refactor log)
+- `docs/sessions/session-summary-2025-10-09.md` (Latest session summary)
+- `docs/sessions/smb-investigation-plan.md` (SMB debugging plan)
+- `docs/sessions/debugger-quick-start.md` (Debugger usage guide)
+- `docs/code-review/nmi-timing-implementation-log-2025-10-09.md` (Comprehensive refactor log)
 - `docs/refactoring/failing-tests-analysis-2025-10-09.md`
 - `docs/refactoring/emulation-state-decomposition-2025-10-09.md`
 - `docs/CURRENT-STATUS.md`
 
-**Recent Changes (2025-10-09):**
+**Recent Changes (2025-10-09 - Latest Session):**
+- ✅ FIXED: BRK flag masking bug in hardware interrupts (bit 4 now cleared correctly)
+- ✅ FIXED: Frame pacing precision (16ms → 17ms rounding for NTSC 60.0988 Hz)
+- ✅ FIXED: Background fine_x panic (masked to 3 bits)
+- ✅ FIXED: Debugger output (handleCpuSnapshot now functional)
+- 🔄 INVESTIGATING: Super Mario Bros blank screen (root cause: stuck in initialization loop)
+- Test suite status: 955/967 passing (98.8%)
+
+**Previous Session Changes (2025-10-09 - Morning):**
 - ✅ FIXED: Odd frame skip timing bug (clock scheduling refactor)
 - ✅ FIXED: Primary $2002 VBlank flag clear bug (VBlank ledger implementation)
 - ✅ FIXED: VBlank loop logic bug in ppustatus_polling_test.zig

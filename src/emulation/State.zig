@@ -518,6 +518,15 @@ pub const EmulationState = struct {
     /// Post-refactor: All PPU work happens at explicit timing coordinates
     /// This decouples PPU execution from master clock state
     fn stepPpuCycle(self: *EmulationState, scanline: u16, dot: u16) PpuCycleResult {
+        // TEMP DEBUG: Log first few calls
+        const State = struct {
+            var call_count: u32 = 0;
+        };
+        if (State.call_count < 10) {
+            std.debug.print("[stepPpuCycle] Call {}: scanline={}, dot={}, ppu_cycles={}\n", .{State.call_count, scanline, dot, self.clock.ppu_cycles});
+            State.call_count += 1;
+        }
+
         var result = PpuCycleResult{};
         const cart_ptr = self.cartPtr();
 

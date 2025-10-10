@@ -20,16 +20,20 @@ pub inline fn busRead(state: anytype, address: u16) u8 {
         // 8 registers mirrored through $2000-$3FFF
         0x2000...0x3FFF => blk: {
             const reg = address & 0x07;
-            const result = PpuLogic.readRegister(&state.ppu, cart_ptr, reg);
 
-            // Track $2002 (PPUSTATUS) reads for VBlank ledger
-            // Reading $2002 clears readable VBlank flag but NOT latched NMI
-            if (reg == 0x02) {
-                state.vblank_ledger.recordStatusRead(state.clock.ppu_cycles);
-            }
+            // VBlank Migration (Phase 2): Pass VBlankLedger and current_cycle
+            // readRegister now handles $2002 side effects internally (recordStatusRead)
+            const result = PpuLogic.readRegister(
+                &state.ppu,
+                cart_ptr,
+                reg,
+                &state.vblank_ledger,
+                state.clock.ppu_cycles,
+            );
 
-            // NOTE: Do NOT call refreshPpuNmiLevel() here!
-            // NMI level is latched by VBlank ledger, not tied to readable flag
+            // NOTE: recordStatusRead() is now called inside readRegister() for $2002
+            // No need to call it here anymore - single source of truth
+
             break :blk result;
         },
 

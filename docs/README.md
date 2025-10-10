@@ -1,8 +1,8 @@
 # RAMBO Documentation Hub
 
-**Last Updated:** 2025-10-08
-**Test Status:** 920/926 passing (99.4%)
-**Current Phase:** Hardware Accuracy Refinement & Game Testing
+**Last Updated:** 2025-10-09
+**Test Status:** 955/967 passing (98.8%)
+**Current Phase:** Super Mario Bros Blank Screen Investigation
 
 ---
 
@@ -15,6 +15,7 @@
 | [**QUICK-START.md**](../QUICK-START.md) | Build, install, and run RAMBO |
 | [**README.md**](../README.md) | Project overview and features |
 | [**CURRENT-STATUS.md**](CURRENT-STATUS.md) | Detailed implementation status |
+| [**KNOWN-ISSUES.md**](KNOWN-ISSUES.md) | Current bugs and investigations |
 
 ### For Developers
 
@@ -22,6 +23,7 @@
 |----------|---------|
 | [**CLAUDE.md**](../CLAUDE.md) | **Primary development reference** (architecture, patterns, roadmap) |
 | [**CURRENT-STATUS.md**](CURRENT-STATUS.md) | Current implementation status and known issues |
+| [**sessions/**](sessions/) | Development session notes and investigations |
 
 ---
 
@@ -33,7 +35,14 @@
 docs/
 ├── README.md                          # This file - navigation hub
 ├── CURRENT-STATUS.md                  # Single source of truth for current status
+├── KNOWN-ISSUES.md                    # Current bugs and investigations
 ├── MAILBOX-ARCHITECTURE.md            # Mailbox system design
+│
+├── sessions/                          # Development session notes
+│   ├── session-summary-2025-10-09.md  # Latest session summary
+│   ├── smb-investigation-plan.md      # Super Mario Bros debugging
+│   ├── debugger-quick-start.md        # Debugger usage guide
+│   └── ...
 │
 ├── architecture/                      # System architecture
 │   ├── apu.md                        # APU implementation (86% complete)
@@ -204,40 +213,37 @@ For full details, see [CURRENT-STATUS.md](CURRENT-STATUS.md).
 
 ---
 
-## Recent Changes (2025-10-08)
+## Recent Changes (2025-10-09)
 
-### Documentation Cleanup
+### Hardware Accuracy Fixes
 
-**Latest Archival (2025-10-08):**
-- ✅ Archived dated audit files from docs/implementation/ (13 files → archive/audits-2025-10-07/)
-- ✅ Archived Phase 8 planning docs (COMPLETE-ARCHITECTURE-AND-PLAN.md, MAILBOX-ARCHITECTURE.md, INDEX.md)
-- ✅ Archived documentation assessment files
+**Latest Session (2025-10-09):**
+- ✅ Fixed BRK flag masking bug (hardware interrupts now clear bit 4 correctly)
+- ✅ Fixed frame pacing precision (16ms → 17ms rounding for NTSC timing)
+- ✅ Fixed background fine_x panic (masked to 3 bits)
+- ✅ Fixed debugger output (handleCpuSnapshot now functional)
+- 🔄 Investigating Super Mario Bros blank screen (root cause identified)
+
+See **[Session Summary](sessions/session-summary-2025-10-09.md)** for complete details.
+
+### Documentation Updates (2025-10-09)
+
+**Latest:**
+- ✅ Updated CLAUDE.md with accurate test counts (955/967)
+- ✅ Updated README.md with recent fixes and current focus
+- ✅ Updated KNOWN-ISSUES.md with SMB investigation
+- ✅ Updated docs/README.md navigation
+- ✅ Created comprehensive session documentation in docs/sessions/
+
+**Previous Cleanup (2025-10-08):**
+- ✅ Archived dated audit files from docs/implementation/ (13 files)
+- ✅ Archived Phase 8 planning docs
 - ✅ Top-level docs clean (only README.md and CURRENT-STATUS.md)
-
-**Previous Cleanup (2025-10-07):**
-- ✅ Consolidated video subsystem docs (8 → 1)
-- ✅ Consolidated audit docs (20+ → 1)
-- ✅ Created CURRENT-STATUS.md (single source of truth)
-- ✅ Archived all completed phase documentation
-
-### Code Updates
-
-**Threading & Mailbox Refactoring (2025-10-08):**
-- ✅ Removed 4 unused mailboxes (SpeedControl, EmulationStatus, RenderStatus, Config)
-- ✅ Fixed threading tests (timing-sensitive → behavior-based)
-- ✅ Added RT-safety documentation to FrameMailbox (720 KB stack allocation)
-- ✅ All existing tests passing
-
-**Debugging Enhancements (2025-10-08):**
-- ✅ Implemented bidirectional debug mailboxes (DebugCommandMailbox, DebugEventMailbox)
-- ✅ RT-safe debug communication (lock-free SPSC ring buffers)
-- ✅ Added --inspect flag for automatic CPU snapshot display
-- ✅ Removed all std.debug.print from emulation thread
 
 ### Test Status
 
-**Latest:** 920/926 passing (99.4%)
-**Previous:** 897/900 passing (99.7%)
+**Latest:** 955/967 passing (98.8%)
+**Previous:** 920/926 passing (99.4%)
 
 ---
 
@@ -264,7 +270,8 @@ For full details, see [CURRENT-STATUS.md](CURRENT-STATUS.md).
 → [CLAUDE.md](../CLAUDE.md) testing section, existing test files as examples
 
 **...use the debugger**
-→ [docs/api-reference/debugger-api.md](api-reference/debugger-api.md)
+→ [docs/sessions/debugger-quick-start.md](sessions/debugger-quick-start.md) (Quick start)
+→ [docs/api-reference/debugger-api.md](api-reference/debugger-api.md) (Full API)
 
 **...understand the PPU**
 → [docs/architecture/ppu-sprites.md](architecture/ppu-sprites.md)
@@ -339,7 +346,7 @@ Historical documentation is preserved in `docs/archive/`:
 
 ---
 
-**Documentation Last Audited:** 2025-10-07
-**Next Audit:** After major feature completion
+**Documentation Last Audited:** 2025-10-09
+**Next Audit:** After SMB investigation complete
 
 Happy emulating!

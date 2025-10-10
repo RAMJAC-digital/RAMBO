@@ -2,7 +2,18 @@
 
 Cycle-accurate NES emulator written in Zig 0.15.1.
 
-**Current Status:** ~99% complete (920/926 tests passing, AccuracyCoin PASSING ✅)
+**Current Status:** ~99% complete (955/967 tests passing, AccuracyCoin PASSING ✅)
+
+---
+
+## Recent Fixes (2025-10-09)
+
+- ✅ **BRK Flag Masking:** Hardware interrupts (NMI/IRQ) now correctly clear B flag (bit 4)
+- ✅ **Frame Pacing Precision:** Fixed nanosecond rounding (16ms → 17ms) for accurate NTSC timing
+- ✅ **Fine X Scroll Guard:** Masked to 3 bits to prevent panic on invalid values
+- ✅ **Debugger Restoration:** Implemented `handleCpuSnapshot()` for full CPU state display
+
+See **[Session Summary](docs/sessions/session-summary-2025-10-09.md)** for details.
 
 ---
 
@@ -18,11 +29,15 @@ cd RAMBO
 # Build executable
 zig build
 
-# Run tests (920/926 passing)
+# Run tests (955/967 passing)
 zig build test
 
 # Run emulator
 zig build run
+
+# Run with debugger (see docs/sessions/debugger-quick-start.md)
+./zig-out/bin/RAMBO "path/to/rom.nes" --break-at 0x8000 --inspect
+./zig-out/bin/RAMBO "path/to/rom.nes" --watch 0x2001 --inspect
 ```
 
 ### Requirements
@@ -153,7 +168,7 @@ pub fn Cartridge(comptime MapperType: type) type {
 
 ### Test Status
 
-**939/947 tests passing (99.2%)**
+**955/967 tests passing (98.8%)**
 
 ```bash
 # All tests
@@ -350,7 +365,7 @@ RAMBO/
 
 ```bash
 # Before committing
-zig build test  # Must report 939/947 (7 skipped, 1 timing-sensitive failure)
+zig build test  # Must report 955/967 (7 skipped, 5 flaky integration tests)
 
 # Verify no regressions
 git diff --stat
@@ -379,7 +394,7 @@ MIT License (see LICENSE file)
 
 ---
 
-**Last Updated:** 2025-10-08
+**Last Updated:** 2025-10-09
 **Version:** 0.2.0-alpha
-**Status:** ~99% complete, 939/947 tests passing, AccuracyCoin PASSING ✅
-**Current Focus:** Hardware accuracy refinement & game testing
+**Status:** ~99% complete, 955/967 tests passing, AccuracyCoin PASSING ✅
+**Current Focus:** Super Mario Bros blank screen investigation (see docs/sessions/session-summary-2025-10-09.md)

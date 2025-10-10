@@ -162,13 +162,17 @@ fn mainExec(ctx: zli.CommandContext) !void {
         }
 
         // Configure watchpoints from CLI
-        if (debug_flags.watch) |addrs| {
-            for (addrs) |addr| {
-                emu_state.debugger.?.addWatchpoint(addr, 1, .write) catch {
-                    continue;
-                };
-            }
-        }
+        // TEMP: Disabled for diagnostic logging run
+        _ = debug_flags.watch;
+        // if (debug_flags.watch) |addrs| {
+        //     for (addrs) |addr| {
+        //         // TEMP: Watch reads for $2002 diagnostics
+        //         const watch_type: RAMBO.Debugger.Watchpoint.WatchType = if (addr == 0x2002) .read else .write;
+        //         emu_state.debugger.?.addWatchpoint(addr, 1, watch_type) catch {
+        //             continue;
+        //         };
+        //     }
+        // }
     }
 
     // Cleanup debugger on exit

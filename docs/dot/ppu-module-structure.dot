@@ -1,0 +1,303 @@
+// PPU Module Complete Structure - All Types, Functions, and Relationships
+// Based on actual source code audit from docs/architecture/codebase-inventory.md
+
+digraph PPU_Module {
+    // Graph settings
+    rankdir=TB;
+    compound=true;
+    splines=ortho;
+    nodesep=0.6;
+    ranksep=0.9;
+
+    // Node defaults
+    node [shape=box, style=filled, fillcolor=lightgray, fontname="Arial", fontsize=10];
+    edge [fontname="Arial", fontsize=9];
+
+    // ========== PPU STATE (src/ppu/State.zig) ==========
+    subgraph cluster_ppu_state {
+        label="PpuState (src/ppu/State.zig)\n2C02 PPU Architectural State";
+        style=filled;
+        fillcolor=lightcoral;
+
+        subgraph cluster_ppu_registers {
+            label="PPU Registers ($2000-$2007)";
+            style=dashed;
+
+            ppu_ctrl [label="PpuCtrl ($2000):\nnametable_x, nametable_y\nvram_increment (+1 or +32)\nsprite_pattern, bg_pattern\nsprite_size (8x8 or 8x16)\nnmi_enable", fillcolor=lightyellow, shape=record];
+
+            ppu_mask [label="PpuMask ($2001):\ngreyscale\nshow_bg_left, show_sprites_left\nshow_bg, show_sprites\nemphasize_red/green/blue", fillcolor=lightyellow, shape=record];
+
+            ppu_status [label="PpuStatus ($2002):\nopen_bus (bits 0-4)\nsprite_overflow (bit 5)\nsprite_0_hit (bit 6)\nvblank (bit 7)", fillcolor=lightcoral, shape=record];
+
+            ppu_oam_addr [label="oam_addr: u8\n($2003 OAMADDR)", fillcolor=lightyellow, shape=record];
+        }
+
+        subgraph cluster_internal_regs {
+            label="Internal Registers (Loopy)";
+            style=dashed;
+
+            internal_regs [label="InternalRegisters:\nv: u16  // Current VRAM addr\nt: u16  // Temp VRAM addr\nx: u3   // Fine X scroll\nw: bool // Write toggle\nread_buffer: u8", fillcolor=wheat, shape=record];
+        }
+
+        subgraph cluster_memory {
+            label="Memory Arrays";
+            style=dashed;
+
+            ppu_oam [label="oam: [256]u8\nObject Attribute Memory", fillcolor=orchid, shape=cylinder];
+            ppu_secondary_oam [label="secondary_oam: [32]u8\nSprite Eval Buffer", fillcolor=plum, shape=cylinder];
+            ppu_vram [label="vram: [2048]u8\nNametable Storage (2KB)", fillcolor=lightblue, shape=cylinder];
+            ppu_palette [label="palette_ram: [32]u8\nPalette RAM", fillcolor=lightgreen, shape=cylinder];
+        }
+
+        subgraph cluster_rendering_state {
+            label="Rendering Pipeline State";
+            style=dashed;
+
+            bg_state [label="BackgroundState:\npattern_shift_lo/hi: u16\nattribute_shift_lo/hi: u8\nnametable_latch: u8\nattribute_latch: u8\npattern_latch_lo/hi: u8", fillcolor=lightgreen, shape=record];
+
+            sprite_state [label="SpriteState:\lpattern_shift_lo/hi: [8]u8\lattributes: [8]u8\lx_counters: [8]u8\loam_source_index: [8]u8\lsprite_count: u8\lsprite_0_present: bool\lsprite_0_index: u8 = 0xFF\l", fillcolor=orchid, shape=box];
+        }
+
+        subgraph cluster_ppu_config {
+            label="Configuration";
+            style=dashed;
+
+            ppu_mirroring [label="mirroring: Mirroring\n.horizontal / .vertical\n.four_screen / .single", fillcolor=lightyellow];
+            ppu_warmup [label="warmup_complete: bool\n// First 29,658 CPU cycles\n// Guards writes to $2000/$2001/$2005/$2006", fillcolor=wheat];
+        }
+
+        subgraph cluster_ppu_types {
+            label="Helper Types";
+            style=dashed;
+
+            ppu_openbus [label="OpenBus struct:\lvalue: u8 = 0\ldecay_timer: u16 = 0\l\lMethods:\lwrite(self, value: u8) void\lread(self) u8\ldecay(self) void\l", fillcolor=wheat, shape=box];
+
+            ppu_sprite_pixel [label="SpritePixel struct:\lpixel: u8\lpriority: bool\lsprite_0: bool\l\lReturned by getSpritePixel()\l", fillcolor=orchid, shape=box];
+        }
+    }
+
+    // ========== PPU LOGIC (src/ppu/Logic.zig) ==========
+    subgraph cluster_ppu_logic {
+        label="PpuLogic (src/ppu/Logic.zig)\nFacade Delegating to Specialized Modules";
+        style=filled;
+        fillcolor=salmon;
+
+        logic_facade [label="PpuLogic\nFacade Module", fillcolor=salmon, shape=box3d];
+    }
+
+    // ========== MEMORY LOGIC (src/ppu/logic/memory.zig) ==========
+    subgraph cluster_memory_logic {
+        label="Memory Logic (src/ppu/logic/memory.zig)\nVRAM Access ($0000-$3FFF)";
+        style=filled;
+        fillcolor=lightblue;
+
+        mem_read [label="readVram(state, cart, addr) u8\n// SIDE EFFECTS:\n// - Cartridge CHR read\n// - Nametable mirroring", fillcolor=lightblue, shape=box3d];
+
+        mem_write [label="writeVram(state, cart, addr, val) void\n// SIDE EFFECTS:\n// - VRAM write (nametables)\n// - CHR RAM write (if present)\n// - Palette RAM write", fillcolor=lightcoral, shape=box3d];
+
+        mem_map [label="VRAM Memory Map:\n$0000-$0FFF: Pattern Table 0 (CHR)\n$1000-$1FFF: Pattern Table 1 (CHR)\n$2000-$23FF: Nametable 0\n$2400-$27FF: Nametable 1\n$2800-$2BFF: Nametable 2\n$2C00-$2FFF: Nametable 3\n$3000-$3EFF: Mirror of $2000-$2EFF\n$3F00-$3F1F: Palette RAM\n$3F20-$3FFF: Mirror of $3F00-$3F1F", fillcolor=wheat, shape=note];
+    }
+
+    // ========== REGISTER LOGIC (src/ppu/logic/registers.zig) ==========
+    subgraph cluster_register_logic {
+        label="Register Logic (src/ppu/logic/registers.zig)\nCPU Register Access ($2000-$2007)";
+        style=filled;
+        fillcolor=lightyellow;
+
+        reg_read [label="readRegister(state, cart, addr) u8\n// SIDE EFFECTS:\n// - $2002: Clear vblank, reset toggle\n// - $2004: Read OAM\n// - $2007: Buffer read, increment v", fillcolor=lightyellow, shape=box3d];
+
+        reg_write [label="writeRegister(state, cart, addr, val) void\n// SIDE EFFECTS:\n// - $2000: Update ctrl, may trigger NMI\n// - $2001: Update mask\n// - $2003: Set OAM addr\n// - $2004: Write OAM, increment addr\n// - $2005: Update t, x (2 writes)\n// - $2006: Update t, v (2 writes)\n// - $2007: Write VRAM, increment v", fillcolor=lightcoral, shape=box3d];
+
+        reg_table [label="Register Table:\n$2000: PPUCTRL (W)\n$2001: PPUMASK (W)\n$2002: PPUSTATUS (R, clears VBlank)\n$2003: OAMADDR (W)\n$2004: OAMDATA (RW)\n$2005: PPUSCROLL (W, 2x)\n$2006: PPUADDR (W, 2x)\n$2007: PPUDATA (RW, buffered)", fillcolor=wheat, shape=note];
+    }
+
+    // ========== SCROLLING LOGIC (src/ppu/logic/scrolling.zig) ==========
+    subgraph cluster_scrolling {
+        label="Scrolling Logic (src/ppu/logic/scrolling.zig)\nLoopy Register Manipulation";
+        style=filled;
+        fillcolor=lightsteelblue;
+
+        scroll_inc_x [label="incrementScrollX(state) void\n// Increment coarse X\n// Handle nametable wraparound", fillcolor=lightsteelblue];
+
+        scroll_inc_y [label="incrementScrollY(state) void\n// Increment fine Y, then coarse Y\n// Handle nametable wraparound", fillcolor=lightsteelblue];
+
+        scroll_copy_x [label="copyScrollX(state) void\n// Copy t→v (horizontal bits)\n// Dot 257 of visible scanlines", fillcolor=lightsteelblue];
+
+        scroll_copy_y [label="copyScrollY(state) void\n// Copy t→v (vertical bits)\n// Dots 280-304 of pre-render", fillcolor=lightsteelblue];
+
+        scroll_diagram [label="Loopy Register Bits:\nv/t: yyy NN YYYYY XXXXX\n  y: Fine Y scroll (3 bits)\n  N: Nametable select (2 bits)\n  Y: Coarse Y (5 bits)\n  X: Coarse X (5 bits)\nx: Fine X scroll (3 bits)", fillcolor=wheat, shape=note];
+    }
+
+    // ========== BACKGROUND LOGIC (src/ppu/logic/background.zig) ==========
+    subgraph cluster_background {
+        label="Background Logic (src/ppu/logic/background.zig)\nTile Fetching and Rendering";
+        style=filled;
+        fillcolor=lightgreen;
+
+        bg_fetch [label="fetchBackgroundTile(state, cart, dot) void\n// 4-step fetch cycle:\n// 1. Nametable byte\n// 2. Attribute byte\n// 3. Pattern low byte\n// 4. Pattern high byte\n// SIDE EFFECTS:\n// - Reads from VRAM/CHR\n// - Updates latches\n// - Loads shift registers every 8 dots", fillcolor=lightgreen, shape=box3d];
+
+        bg_get_pixel [label="getBackgroundPixel(state, pixel_x) u8\n// Extract pixel from shift registers\n// Returns palette index (0-3)\n// Pure: No side effects", fillcolor=palegreen];
+
+        bg_palette [label="getPaletteColor(state, pal_idx) u32\n// Lookup RGBA color\n// Returns 32-bit RGBA\n// Pure: No side effects", fillcolor=palegreen];
+
+        bg_timing [label="Fetch Timing:\nDots 1-256: Visible pixels\nDots 321-336: Next scanline prep\nDots 337-340: Dummy nametable reads", fillcolor=wheat, shape=note];
+    }
+
+    // ========== SPRITE LOGIC (src/ppu/logic/sprites.zig) ==========
+    subgraph cluster_sprites {
+        label="Sprite Logic (src/ppu/logic/sprites.zig)\nSprite Evaluation and Rendering";
+        style=filled;
+        fillcolor=orchid;
+
+        sprite_eval [label="evaluateSprites(state, scanline) void\n// Sprite evaluation (dots 65-256)\n// Populate secondary OAM\n// Set sprite_0_present\n// Set sprite_overflow\n// SIDE EFFECTS:\n// - Writes secondary_oam\n// - Updates sprite_state", fillcolor=plum, shape=box3d];
+
+        sprite_fetch [label="fetchSprites(state, cart, scanline, dot) void\n// Sprite fetching (dots 257-320)\n// Load sprite shift registers\n// 8 cycles per sprite\n// SIDE EFFECTS:\n// - Reads OAM, CHR\n// - Loads shift registers", fillcolor=plum, shape=box3d];
+
+        sprite_get_pixel [label="getSpritePixel(state, pixel_x) SpritePixel\n// Returns:\n// - pixel: u8 (palette index)\n// - priority: bool (front/back)\n// - sprite_0: bool (for hit detection)\n// Pure: No side effects", fillcolor=orchid];
+
+        sprite_timing [label="Sprite Timing:\nDots 1-64: Clear secondary OAM\nDot 65: Evaluate sprites (instant)\nDots 257-320: Fetch sprites (8x8 cycles)", fillcolor=wheat, shape=note];
+    }
+
+    // ========== PPU RUNTIME (src/emulation/Ppu.zig) ==========
+    subgraph cluster_ppu_runtime {
+        label="PPU Runtime (src/emulation/Ppu.zig)\nTiming-Driven Orchestrator";
+        style=filled;
+        fillcolor=mistyrose;
+
+        runtime_tick [label="tick(state, scanline, dot, cart, fb) TickFlags\n// One PPU cycle\n// SIDE EFFECTS:\n// - Calls all rendering logic\n// - Updates shift registers\n// - Writes framebuffer\n// - Sets/clears VBlank flag", fillcolor=lightcoral, shape=box3d];
+
+        runtime_flags [label="TickFlags:\nframe_complete: bool\nrendering_enabled: bool\nnmi_signal: bool (241.1)\nvblank_clear: bool (261.1)", fillcolor=wheat, shape=record];
+
+        runtime_timing [label="Frame Structure:\n262 scanlines × 341 dots\n= 89,342 PPU cycles\n\n0-239: Visible\n240: Post-render\n241-260: VBlank\n261: Pre-render", fillcolor=wheat, shape=note];
+    }
+
+    // ========== PALETTE (src/ppu/palette.zig) ==========
+    subgraph cluster_palette {
+        label="Palette (src/ppu/palette.zig)\nNES Color Palette";
+        style=filled;
+        fillcolor=lightgreen;
+
+        palette_table [label="NES_PALETTE_RGB: [64]u32\n// 64 NES colors in RGB888 format\n// 0xRRGGBB for each color\n// Comptime constant", fillcolor=lightgreen, shape=cylinder];
+
+        palette_lookup [label="rgbToRgba(rgb: u32) u32\n// Convert RGB888 to RGBA8888\n// Adds alpha channel 0xFF\n// Pure function", fillcolor=palegreen];
+    }
+
+    // ========== MAIN DATA FLOW ==========
+
+    // State to Logic facade
+    ppu_ctrl -> logic_facade [label="access", style=dotted];
+    ppu_mask -> logic_facade [label="access", style=dotted];
+    ppu_status -> logic_facade [label="access", style=dotted];
+
+    // Facade delegates to specialized modules
+    logic_facade -> mem_read [label="readVram", color=blue];
+    logic_facade -> mem_write [label="writeVram", color=red];
+    logic_facade -> reg_read [label="readRegister", color=blue];
+    logic_facade -> reg_write [label="writeRegister", color=red];
+    logic_facade -> scroll_inc_x [lhead=cluster_scrolling, label="scrolling", color=orange];
+    logic_facade -> bg_fetch [lhead=cluster_background, label="background", color=green];
+    logic_facade -> sprite_eval [lhead=cluster_sprites, label="sprites", color=purple];
+
+    // Runtime orchestrates everything
+    runtime_tick -> bg_fetch [label="dots 1-256,\n321-336", color=green];
+    runtime_tick -> sprite_eval [label="dot 65", color=purple];
+    runtime_tick -> sprite_fetch [label="dots 257-320", color=purple];
+    runtime_tick -> scroll_inc_x [label="every 8 dots", color=orange];
+    runtime_tick -> scroll_inc_y [label="dot 256", color=orange];
+    runtime_tick -> scroll_copy_x [label="dot 257", color=orange];
+    runtime_tick -> scroll_copy_y [label="dots 280-304\n(pre-render)", color=orange];
+
+    // Pixel output flow
+    bg_get_pixel -> bg_palette [label="palette lookup", color=green];
+    sprite_get_pixel -> bg_palette [label="palette lookup", color=purple];
+    runtime_tick -> bg_get_pixel [label="visible dots", color=green];
+    runtime_tick -> sprite_get_pixel [label="visible dots", color=purple];
+
+    // Memory access
+    bg_fetch -> mem_read [label="CHR/NT read", color=blue];
+    sprite_fetch -> mem_read [label="CHR read", color=blue];
+    mem_read -> ppu_vram [label="nametable", color=blue];
+    mem_write -> ppu_vram [label="nametable", color=red];
+    mem_read -> ppu_palette [label="palette", color=blue];
+    mem_write -> ppu_palette [label="palette", color=red];
+
+    // Register access
+    reg_read -> ppu_status [label="$2002", color=blue];
+    reg_write -> ppu_ctrl [label="$2000", color=red];
+    reg_write -> ppu_mask [label="$2001", color=red];
+    reg_read -> ppu_oam [label="$2004", color=blue];
+    reg_write -> ppu_oam [label="$2004", color=red];
+
+    // Rendering state updates
+    bg_fetch -> bg_state [label="update latches/shifts", color=green];
+    sprite_fetch -> sprite_state [label="load shifts", color=purple];
+    sprite_eval -> ppu_secondary_oam [label="populate", color=purple];
+
+    // Internal registers
+    reg_write -> internal_regs [label="$2005/$2006\nupdate t, x, w", color=red];
+    scroll_inc_x -> internal_regs [label="modify v", color=orange];
+    scroll_inc_y -> internal_regs [label="modify v", color=orange];
+    scroll_copy_x -> internal_regs [label="copy t→v", color=orange];
+    scroll_copy_y -> internal_regs [label="copy t→v", color=orange];
+
+    // Palette lookup
+    bg_palette -> palette_table [label="index", color=green];
+    sprite_get_pixel -> palette_table [label="index", color=purple, style=dashed];
+
+    // VBlank flag control
+    runtime_tick -> ppu_status [label="set VBlank @ 241.1\nclear @ 261.1", color=red];
+    reg_read -> ppu_status [label="$2002 clears VBlank", color=blue];
+
+    // Legend
+    subgraph cluster_legend {
+        label="Legend";
+        style=filled;
+        fillcolor=white;
+        rank=sink;
+
+        legend_read [label="Blue: Read operations", color=blue, penwidth=2];
+        legend_write [label="Red: Write/mutation", color=red, penwidth=2];
+        legend_background [label="Green: Background pipeline", color=green, penwidth=2];
+        legend_sprite [label="Purple: Sprite pipeline", color=purple, penwidth=2];
+        legend_scroll [label="Orange: Scrolling/addressing", color=orange, penwidth=2];
+    }
+
+    // Ownership
+    subgraph cluster_ownership {
+        label="Ownership & Lifetime";
+        style=filled;
+        fillcolor=white;
+        rank=sink;
+
+        own_state [label="PpuState:\nOwned by EmulationState\n~2.5KB stack allocation\nNo heap usage", fillcolor=lightcyan, shape=note];
+        own_logic [label="Logic Modules:\nStateless pure functions\nNo allocations\nRT-safe", fillcolor=palegreen, shape=note];
+        own_palette [label="Palette Table:\nComptime const\nRead-only\nZero-cost", fillcolor=lightgreen, shape=note];
+    }
+
+    // Side Effects Summary
+    subgraph cluster_side_effects {
+        label="Side Effects Summary";
+        style=filled;
+        fillcolor=white;
+        rank=sink;
+
+        side_vram [label="VRAM Mutations:\n- Nametable writes\n- CHR RAM writes (if present)\n- Palette RAM writes\n- Internal register updates (v,t,x,w)", fillcolor=lightblue, shape=note];
+        side_oam [label="OAM Mutations:\n- Primary OAM writes ($2004)\n- Secondary OAM population (eval)\n- Sprite state updates", fillcolor=orchid, shape=note];
+        side_flags [label="Flag Mutations:\n- VBlank set @ 241.1\n- VBlank clear @ 261.1 or $2002 read\n- Sprite 0 hit detection\n- Sprite overflow", fillcolor=lightcoral, shape=note];
+        side_render [label="Rendering:\n- Shift register updates\n- Framebuffer writes (RGBA)\n- Background/sprite pixel output", fillcolor=lightgreen, shape=note];
+    }
+
+    // Critical Timing Points
+    subgraph cluster_critical_timing {
+        label="Critical Timing Points";
+        style=filled;
+        fillcolor=yellow;
+        rank=sink;
+
+        timing_vblank_set [label="VBlank SET:\nScanline 241, Dot 1\nPPU Cycle 82,181", fillcolor=yellow, shape=box3d];
+        timing_vblank_clear [label="VBlank CLEAR:\nScanline 261, Dot 1\nPPU Cycle 89,001", fillcolor=yellow, shape=box3d];
+        timing_sprite_eval [label="Sprite Evaluation:\nDot 65 (instant)\nAll visible scanlines", fillcolor=yellow, shape=box3d];
+        timing_copy_x [label="Copy Scroll X:\nDot 257\nVisible + pre-render", fillcolor=yellow, shape=box3d];
+        timing_copy_y [label="Copy Scroll Y:\nDots 280-304\nPre-render only", fillcolor=yellow, shape=box3d];
+    }
+}

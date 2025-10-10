@@ -51,7 +51,12 @@ pub const MasterClock = struct {
     ///
     /// Hardware: Each call represents N cycles of the 5.369318 MHz PPU clock
     pub fn advance(self: *MasterClock, cycles: u64) void {
+        // TEMP DEBUG
+        const old_cycles = self.ppu_cycles;
         self.ppu_cycles +%= cycles; // Wrapping add (handles overflow after ~109 years at 60 FPS)
+        if (old_cycles < 100 and self.ppu_cycles >= 100) {
+            std.debug.print("[CLOCK] Advanced from {} to {} (delta={})\n", .{old_cycles, self.ppu_cycles, cycles});
+        }
     }
 
     /// Get current scanline (0-261)
@@ -167,6 +172,7 @@ pub const MasterClock = struct {
     /// Reset clock to power-on state
     /// Used when emulator is reset or ROM is loaded
     pub fn reset(self: *MasterClock) void {
+        std.debug.print("[CLOCK RESET] ppu_cycles was {}, resetting to 0\n", .{self.ppu_cycles});
         self.ppu_cycles = 0;
         // Note: speed_multiplier is NOT reset (user preference persists)
     }

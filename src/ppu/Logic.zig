@@ -60,8 +60,15 @@ pub inline fn writeVram(state: *PpuState, cart: ?*AnyCartridge, address: u16, va
 // ============================================================================
 
 /// Read from PPU register (via CPU memory bus)
-pub inline fn readRegister(state: *PpuState, cart: ?*AnyCartridge, address: u16) u8 {
-    return registers.readRegister(state, cart, address);
+/// VBlank Migration (Phase 2): Now requires VBlankLedger and current_cycle
+pub inline fn readRegister(
+    state: *PpuState,
+    cart: ?*AnyCartridge,
+    address: u16,
+    vblank_ledger: *@import("../emulation/state/VBlankLedger.zig").VBlankLedger,
+    current_cycle: u64,
+) u8 {
+    return registers.readRegister(state, cart, address, vblank_ledger, current_cycle);
 }
 
 /// Write to PPU register (via CPU memory bus)

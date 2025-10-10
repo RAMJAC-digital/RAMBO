@@ -1,0 +1,389 @@
+// Emulation Coordination Layer - Complete System Integration
+// Based on actual source code audit from docs/architecture/codebase-inventory.md
+// Shows how CPU, PPU, APU, Bus, Cartridge, DMA, and Debugger coordinate
+
+digraph Emulation_Coordination {
+    // Graph settings
+    rankdir=TB;
+    compound=true;
+    splines=ortho;
+    nodesep=0.6;
+    ranksep=1.2;
+
+    // Node defaults
+    node [shape=box, style=filled, fillcolor=lightgray, fontname="Arial", fontsize=10];
+    edge [fontname="Arial", fontsize=9];
+
+    // ========== EMULATION STATE (src/emulation/State.zig) ==========
+    subgraph cluster_emulation_state {
+        label="EmulationState (src/emulation/State.zig)\nSingle Source of Truth - Direct Data Ownership";
+        style=filled;
+        fillcolor=lightblue;
+
+        subgraph cluster_owned_components {
+            label="Directly Owned Components";
+            style=dashed;
+
+            owned_state [label="Direct Ownership:\nclock: MasterClock          // PPU cycle counter\ncpu: CpuState               // 6502 state\nppu: PpuState               // 2C02 state\napu: ApuState               // APU state\nbus: BusState               // RAM + open bus\ncart: ?AnyCartridge         // Tagged union\ndma: OamDma                 // OAM DMA state machine\ndmc_dma: DmcDma             // DMC DMA state machine\ncontroller: ControllerState // NES controller\ndebugger: ?Debugger         // Breakpoints/watchpoints\nvblank_ledger: VBlankLedger // NMI edge detection\n\nNo pointer wiring - all stack-allocated", fillcolor=lightcyan, shape=record];
+        }
+
+        subgraph cluster_emulation_flags {
+            label="Emulation Flags";
+            style=dashed;
+
+            emu_flags [label="Runtime Flags:\nframe_complete: bool      // VBlank start\nodd_frame: bool           // Odd/even tracking\nrendering_enabled: bool   // PPU $2001 bits 3-4\nppu_a12_state: bool       // For MMC3 IRQ\ndebug_break_occurred: bool\n\nImmutable Configuration:\nconfig: *const Config     // Hardware config\n\nOptional Framebuffer:\nframebuffer: ?[]u32       // 256×240 RGBA", fillcolor=lightyellow, shape=record];
+        }
+
+        subgraph cluster_emulation_functions {
+            label="Public API";
+            style=dashed;
+
+            emu_init [label="init(config) EmulationState\n// Power-on state", fillcolor=lightblue];
+            emu_deinit [label="deinit(self) void\n// Cleanup cartridge", fillcolor=lightblue];
+            emu_reset [label="reset(self) void\n// RESET button\n// Load PC from $FFFC", fillcolor=lightblue];
+            emu_load_cart [label="loadCartridge(self, cart)\n// Takes ownership\n// Updates PPU mirroring", fillcolor=wheat];
+
+            emu_tick [label="tick(self) void\n// RT emulation loop\n// Advances by 1 PPU cycle\n// CRITICAL: Single entry point", fillcolor=lightgreen, shape=box3d, penwidth=2];
+
+            emu_helpers [label="Convenience Helpers:\nemulateFrame(self) u64\nemulateCpuCycles(self, n) u64\ntickCpuWithClock(self)\n// Delegates to helpers.zig", fillcolor=lightgray];
+        }
+
+        subgraph cluster_bus_routing {
+            label="Bus Routing (Inline Logic)";
+            style=dashed;
+
+            bus_read [label="busRead(self, addr) u8\n// Route to component\n// Update open bus\n// Check debugger", fillcolor=wheat, shape=box3d];
+            bus_write [label="busWrite(self, addr, value)\n// Route to component\n// Track PPUCTRL writes\n// Record VBlank ledger\n// Check debugger", fillcolor=lightcoral, shape=box3d];
+            bus_read16 [label="busRead16(self, addr) u16\n// Little-endian read", fillcolor=wheat];
+            bus_read16bug [label="busRead16Bug(self, addr) u16\n// JMP indirect page wrap", fillcolor=wheat];
+            bus_peek [label="peekMemory(self, addr) u8\n// No side effects\n// Debugger-safe", fillcolor=lightgreen];
+        }
+    }
+
+    // ========== MASTER CLOCK (src/emulation/MasterClock.zig) ==========
+    subgraph cluster_master_clock {
+        label="MasterClock (src/emulation/MasterClock.zig)\nSingle Source of Timing Truth";
+        style=filled;
+        fillcolor=yellow;
+
+        clock_state [label="MasterClock:\nppu_cycles: u64         // ONLY timing counter\nspeed_multiplier: f64   // External speed control\n\nHardware Model:\n21.477272 MHz master oscillator\nPPU: ÷4 = 5.369318 MHz\nCPU: ÷12 = 1.789773 MHz\nRatio: 3 PPU cycles per CPU cycle", fillcolor=yellow, shape=record];
+
+        clock_advance [label="advance(self, cycles) void\n// ONLY function that mutates time\n// Called by tick()", fillcolor=yellow, shape=box3d, penwidth=2];
+
+        clock_derive [label="Derived Timing (Pure Functions):\nscanline() u16        // (cycles / 341) % 262\ndot() u16             // cycles % 341\nframe() u64           // cycles / 89342\ncpuCycles() u64       // cycles / 3\nisCpuTick() bool      // cycles % 3 == 0\nisApuTick() bool      // same as CPU\nisOddFrame() bool     // frame() & 1\nframePosition() u32   // cycles % 89342\nscanlineAndDot()      // Both at once", fillcolor=lightyellow, shape=record];
+
+        clock_control [label="Speed Control:\nsetSpeed(multiplier)\ngetSpeed() f64\nreset() void", fillcolor=wheat];
+    }
+
+    // ========== TIMING STEP (src/emulation/state/Timing.zig) ==========
+    subgraph cluster_timing_step {
+        label="Timing Coordination (src/emulation/state/Timing.zig)";
+        style=filled;
+        fillcolor=lightyellow;
+
+        timing_step [label="TimingStep struct:\lscanline: u16       // PRE-advance position\ldot: u16            // PRE-advance position\lcpu_tick: bool      // POST-advance (after clock.advance())\lapu_tick: bool      // POST-advance (same as cpu_tick)\lskip_slot: bool     // Odd frame skip occurred\l\lReturned by nextTimingStep()\l\lCRITICAL TIMING:\lPRE-advance coordinates allow components to see\lwhere they ARE before advancing to next cycle.\lPOST-advance bools tell components if CPU/APU\nshould tick AFTER PPU processes current cycle.\l", fillcolor=lightyellow, shape=box];
+
+        next_timing_step [label="nextTimingStep(self) TimingStep\n// Compute timing step\n// Advance clock by 1 (or 2 if skip)\n// Return metadata for components\n// SIDE EFFECTS:\n// - Advances clock\n// - May skip odd frame dot", fillcolor=yellow, shape=box3d];
+
+        timing_helpers [label="TimingHelpers:\nshouldSkipOddFrame(odd, rendering, sl, dot) bool\n// Returns true at scanline 261 dot 340\n// if odd frame + rendering enabled", fillcolor=wheat];
+    }
+
+    // ========== CYCLE RESULTS (src/emulation/state/CycleResults.zig) ==========
+    subgraph cluster_cycle_results {
+        label="Component Cycle Results";
+        style=filled;
+        fillcolor=lightgray;
+
+        ppu_result [label="PpuCycleResult:\nrendering_enabled: bool\nframe_complete: bool\nnmi_signal: bool     // VBlank set @ 241.1\nvblank_clear: bool   // VBlank clear @ 261.1\na12_rising: bool     // For MMC3 IRQ", fillcolor=lightcoral, shape=record];
+
+        cpu_result [label="CpuCycleResult:\nmapper_irq: bool     // IRQ from cartridge", fillcolor=lightgreen, shape=record];
+
+        apu_result [label="ApuCycleResult:\nframe_irq: bool      // Frame counter IRQ\ndmc_irq: bool        // DMC sample IRQ", fillcolor=lightyellow, shape=record];
+    }
+
+    // ========== BUS STATE (src/emulation/state/BusState.zig) ==========
+    subgraph cluster_bus_state {
+        label="BusState (src/emulation/state/BusState.zig)\nMemory Bus Data";
+        style=filled;
+        fillcolor=wheat;
+
+        bus_state [label="BusState:\nram: [2048]u8       // 2KB, mirrored $0000-$1FFF\nopen_bus: u8        // Last bus value\ntest_ram: ?[]u8     // For tests (no cartridge)", fillcolor=wheat, shape=record];
+    }
+
+    // ========== VBLANK LEDGER (src/emulation/state/VBlankLedger.zig) ==========
+    subgraph cluster_vblank_ledger {
+        label="VBlankLedger (src/emulation/state/VBlankLedger.zig)\nCycle-Accurate NMI Edge Detection";
+        style=filled;
+        fillcolor=lightcoral;
+
+        vblank_ledger_state [label="VBlankLedger:\lspan_active: bool = false           // VBlank period active\lnmi_edge_pending: bool = false      // Latched NMI edge\l\lTimestamp Fields (PPU cycles):\llast_set_cycle: u64 = 0            // @ scanline 241.1\llast_clear_cycle: u64 = 0          // @ 261.1 or $2002 read\llast_status_read_cycle: u64 = 0    // $2002 read time\llast_ctrl_toggle_cycle: u64 = 0    // $2000 write time\llast_cpu_ack_cycle: u64 = 0        // CPU interrupt ack\l\lDecouples NMI latch from readable VBlank flag\lRecords events with master clock timestamps\l", fillcolor=lightcoral, shape=box];
+
+        vblank_record_set [label="recordVBlankSet(cycle, nmi_enabled)\n// Called at scanline 241 dot 1\n// Sets span_active = true\n// Latch NMI edge if !was_active && nmi_enabled", fillcolor=lightcoral];
+
+        vblank_record_clear [label="recordVBlankClear(cycle)\n// Updates last_clear_cycle\n// Note: Does NOT clear nmi_edge_pending", fillcolor=lightcoral];
+
+        vblank_record_end [label="recordVBlankSpanEnd(cycle)\n// Called at scanline 261 dot 1\n// Sets span_active = false\n// Preserves nmi_edge_pending", fillcolor=lightcoral];
+
+        vblank_record_status [label="recordStatusRead(cycle)\n// $2002 read\n// Updates last_status_read_cycle\n// Updates last_clear_cycle\n// Note: span_active stays true until 261.1\n// Note: nmi_edge_pending NOT cleared", fillcolor=lightcoral];
+
+        vblank_record_ctrl [label="recordCtrlToggle(cycle, old_nmi, new_nmi)\n// Called on $2000 write\n// Latch edge if 0→1 transition during VBlank span\n// Hardware: toggling NMI enable can trigger multiple edges", fillcolor=lightcoral];
+
+        vblank_should_assert [label="shouldAssertNmiLine(cycle, nmi_en, vb_flag) bool\n// Query NMI line state\n// Combines edge (latched) + level (active) logic\n// Single source of truth for CPU NMI input", fillcolor=lightgreen];
+
+        vblank_acknowledge [label="acknowledgeCpu(cycle)\n// Called during CPU interrupt sequence\n// Clears nmi_edge_pending\n// Updates last_cpu_ack_cycle", fillcolor=wheat];
+    }
+
+    // ========== OAM DMA (src/emulation/state/peripherals/OamDma.zig) ==========
+    subgraph cluster_oam_dma {
+        label="OamDma (src/emulation/state/peripherals/OamDma.zig)\n256-Byte Sprite DMA";
+        style=filled;
+        fillcolor=lightyellow;
+
+        oam_dma_state [label="OamDma:\nactive: bool\npage: u8              // $xx00 source address\nbyte_index: u8        // 0-255 progress\ntransfer_buffer: u8   // Current byte\ncycle_phase: DmaCyclePhase\n\nStalls CPU for 513/514 cycles", fillcolor=lightyellow, shape=record];
+
+        oam_dma_trigger [label="trigger(page)\n// Write to $4014\n// Starts DMA", fillcolor=wheat];
+        oam_dma_tick [label="tick(state) void\n// Called every CPU cycle\n// Progresses state machine", fillcolor=yellow];
+        oam_dma_reset [label="reset()\n// Clear state", fillcolor=lightblue];
+    }
+
+    // ========== DMC DMA (src/emulation/state/peripherals/DmcDma.zig) ==========
+    subgraph cluster_dmc_dma {
+        label="DmcDma (src/emulation/state/peripherals/DmcDma.zig)\nDPCM Sample Fetch";
+        style=filled;
+        fillcolor=lightcoral;
+
+        dmc_dma_state [label="DmcDma:\nactive: bool\naddress: u16          // Sample address\ncycle_phase: DmaDmcPhase\n\nStalls CPU for 4 cycles per byte\nTriggered by APU when buffer empty", fillcolor=lightcoral, shape=record];
+
+        dmc_dma_trigger [label="triggerFetch(address)\n// Called by APU\n// Starts DMA", fillcolor=wheat];
+        dmc_dma_tick [label="tick(state) void\n// Called every CPU cycle\n// Progresses state machine", fillcolor=yellow];
+        dmc_dma_reset [label="reset()\n// Clear state", fillcolor=lightblue];
+    }
+
+    // ========== CONTROLLER (src/emulation/state/peripherals/ControllerState.zig) ==========
+    subgraph cluster_controller {
+        label="ControllerState (src/emulation/state/peripherals/ControllerState.zig)\nNES Controller Interface";
+        style=filled;
+        fillcolor=lightgreen;
+
+        controller_state [label="ControllerState:\nshift_register: u8    // 8 buttons (A,B,Sel,St,U,D,L,R)\nstrobe: bool          // Latch mode\nbutton_state: u8      // Current button state\n\nReads from mailbox on strobe", fillcolor=lightgreen, shape=record];
+
+        controller_write [label="write(value)\n// $4016: Strobe bit\n// Latch buttons on 1→0", fillcolor=wheat];
+        controller_read [label="read() u8\n// $4016: Read next bit\n// Shift out buttons", fillcolor=lightgreen];
+        controller_update [label="updateButtons(buttons)\n// Update from mailbox", fillcolor=wheat];
+    }
+
+    // ========== CPU EXECUTION (src/emulation/cpu/execution.zig) ==========
+    subgraph cluster_cpu_execution {
+        label="CPU Execution (src/emulation/cpu/execution.zig)\nCycle-Accurate State Machine";
+        style=filled;
+        fillcolor=lightgreen;
+
+        cpu_step_cycle [label="stepCycle(state) CpuCycleResult\n// Called every CPU tick\n// SIDE EFFECTS:\n// - Tick DMA state machines\n// - Query VBlank ledger for NMI\n// - Execute CPU cycle\n// - Poll mapper IRQ\n// Returns: mapper_irq flag", fillcolor=lightgreen, shape=box3d];
+
+        cpu_execute_cycle [label="executeCycle(state) void\n// Delegates to Logic.tick()\n// Implements 4-state machine", fillcolor=lightgreen];
+    }
+
+    // ========== PPU RUNTIME (src/emulation/Ppu.zig) ==========
+    subgraph cluster_ppu_runtime {
+        label="PPU Runtime (src/emulation/Ppu.zig)\nPPU Orchestration";
+        style=filled;
+        fillcolor=lightcoral;
+
+        ppu_tick [label="tick(ppu, scanline, dot, cart, fb) PpuFlags\n// Called every PPU cycle\n// Explicit timing coordinates\n// SIDE EFFECTS:\n// - Update VRAM/OAM/palette\n// - Render pixels to framebuffer\n// - Trigger NMI/VBlank events\n// Returns: rendering_enabled, frame_complete, nmi_signal, vblank_clear, a12_rising", fillcolor=lightcoral, shape=box3d];
+    }
+
+    // ========== BUS ROUTING (src/emulation/bus/routing.zig) ==========
+    subgraph cluster_bus_routing_logic {
+        label="Bus Routing Logic (src/emulation/bus/routing.zig)\nMemory Map Implementation";
+        style=filled;
+        fillcolor=wheat;
+
+        routing_read [label="busRead(state, addr) u8\n// Route by address:\n// $0000-$1FFF: RAM (mirrored)\n// $2000-$3FFF: PPU registers (mirrored)\n// $4000-$4017: APU/IO registers\n// $4018-$401F: Test mode (disabled)\n// $4020-$FFFF: Cartridge\n// Returns: value + updates open_bus", fillcolor=wheat, shape=record];
+
+        routing_write [label="busWrite(state, addr, value)\n// Route by address:\n// $0000-$1FFF: RAM\n// $2000-$3FFF: PPU registers\n// $4000-$4013: APU registers\n// $4014: OAM DMA trigger\n// $4015: APU control\n// $4016: Controller strobe\n// $4017: Frame counter\n// $4020-$FFFF: Cartridge\n// Updates: open_bus", fillcolor=wheat, shape=record];
+
+        routing_read16 [label="busRead16(state, addr) u16\n// Little-endian read\n// Low byte at addr, high at addr+1", fillcolor=wheat];
+
+        routing_read16bug [label="busRead16Bug(state, addr) u16\n// JMP ($xxFF) page wrap bug\n// High byte at ($xx00) not ($xx+100)", fillcolor=wheat];
+    }
+
+    // ========== DMA LOGIC (src/emulation/dma/logic.zig) ==========
+    subgraph cluster_dma_logic {
+        label="DMA Logic (src/emulation/dma/logic.zig)\nDMA State Machine Drivers";
+        style=filled;
+        fillcolor=lightyellow;
+
+        dma_tick_oam [label="tickOamDma(state) void\n// Called every CPU cycle\n// Progresses OAM DMA state machine\n// SIDE EFFECTS:\n// - Read from source address\n// - Write to PPU OAM\n// - Stall CPU", fillcolor=yellow, shape=box3d];
+
+        dma_tick_dmc [label="tickDmcDma(state) void\n// Called every CPU cycle\n// Progresses DMC DMA state machine\n// SIDE EFFECTS:\n// - Read from sample address\n// - Write to APU sample buffer\n// - Stall CPU", fillcolor=yellow, shape=box3d];
+    }
+
+    // ========== DEBUG INTEGRATION (src/emulation/debug/integration.zig) ==========
+    subgraph cluster_debug_integration {
+        label="Debug Integration (src/emulation/debug/integration.zig)\nDebugger RT-Safe Interface";
+        style=filled;
+        fillcolor=lightblue;
+
+        debug_should_halt [label="shouldHalt(state) bool\n// Check if debugger paused\n// Pure: No side effects", fillcolor=lightgreen];
+
+        debug_is_paused [label="isPaused(state) bool\n// Public query for threads", fillcolor=lightgreen];
+
+        debug_check_memory [label="checkMemoryAccess(state, addr, value, is_write)\n// Called on all bus ops\n// Check breakpoints/watchpoints\n// SIDE EFFECTS:\n// - Set debug_break_occurred\n// - Pause execution", fillcolor=lightcoral];
+    }
+
+    // ========== BUS INSPECTION (src/emulation/bus/inspection.zig) ==========
+    subgraph cluster_bus_inspection {
+        label="Bus Inspection (src/emulation/bus/inspection.zig)\nDebugger-Safe Memory Reads";
+        style=filled;
+        fillcolor=lightgreen;
+
+        inspect_peek [label="peekMemory(state, addr) u8\n// Read without side effects\n// Does NOT update open_bus\n// Safe for debugger", fillcolor=lightgreen];
+    }
+
+    // ========== HELPERS (src/emulation/helpers.zig) ==========
+    subgraph cluster_helpers {
+        label="Emulation Helpers (src/emulation/helpers.zig)\nConvenience Wrappers";
+        style=filled;
+        fillcolor=lightgray;
+
+        helper_frame [label="emulateFrame(state) u64\n// Run until frame_complete\n// Returns: PPU cycles elapsed", fillcolor=lightgray];
+
+        helper_cpu_cycles [label="emulateCpuCycles(state, n) u64\n// Run N CPU cycles\n// Returns: PPU cycles elapsed", fillcolor=lightgray];
+
+        helper_tick_cpu_clock [label="tickCpuWithClock(state)\n// Advance clock by 3\n// Tick CPU\n// For CPU-only tests", fillcolor=lightgray];
+    }
+
+    // ========== MAIN DATA FLOW ==========
+
+    // EmulationState contains all components
+    owned_state -> clock_state [label="contains", style=dotted];
+    owned_state -> bus_state [label="contains", style=dotted];
+    owned_state -> vblank_ledger_state [label="contains", style=dotted];
+    owned_state -> oam_dma_state [label="contains", style=dotted];
+    owned_state -> dmc_dma_state [label="contains", style=dotted];
+    owned_state -> controller_state [label="contains", style=dotted];
+
+    // Main tick flow
+    emu_tick -> next_timing_step [label="1. Compute timing", color=blue, penwidth=2];
+    next_timing_step -> clock_advance [label="advances", color=blue, penwidth=2];
+    next_timing_step -> timing_helpers [label="uses", style=dashed];
+    next_timing_step -> timing_step [label="returns", color=blue];
+
+    emu_tick -> ppu_tick [label="2. Tick PPU (every cycle)", color=red, penwidth=2];
+    ppu_tick -> ppu_result [label="returns", color=red];
+
+    emu_tick -> cpu_step_cycle [label="3. Tick CPU (if cpu_tick)", color=green, penwidth=2];
+    cpu_step_cycle -> dma_tick_oam [label="tick DMA", color=orange];
+    cpu_step_cycle -> dma_tick_dmc [label="tick DMC DMA", color=orange];
+    cpu_step_cycle -> vblank_should_assert [label="query NMI", color=purple];
+    cpu_step_cycle -> cpu_execute_cycle [label="execute", color=green];
+    cpu_step_cycle -> cpu_result [label="returns", color=green];
+
+    emu_tick -> apu_result [ltail=cluster_emulation_state, label="4. Tick APU (if apu_tick)", color=orange];
+
+    // VBlank ledger coordination
+    ppu_result -> vblank_record_set [label="on nmi_signal", color=red];
+    ppu_result -> vblank_record_end [label="on vblank_clear", color=red];
+    bus_write -> vblank_record_ctrl [label="on $2000 write", color=orange];
+
+    // Bus routing
+    bus_read -> routing_read [label="delegate", color=blue];
+    bus_write -> routing_write [label="delegate", color=blue];
+    bus_read16 -> routing_read16 [label="delegate", color=blue];
+    bus_read16bug -> routing_read16bug [label="delegate", color=blue];
+    bus_peek -> inspect_peek [label="delegate", color=green];
+
+    // Debugger checks
+    bus_read -> debug_check_memory [label="check watchpoints", style=dashed];
+    bus_write -> debug_check_memory [label="check watchpoints", style=dashed];
+    emu_tick -> debug_should_halt [label="check pause", style=dashed];
+
+    // DMA triggers
+    routing_write -> oam_dma_trigger [label="$4014 write", color=orange];
+    apu_result -> dmc_dma_trigger [ltail=cluster_apu_result, label="on sample needed", color=orange];
+
+    // Helper delegation
+    emu_helpers -> helper_frame [lhead=cluster_helpers, label="delegates", style=dashed];
+
+    // Clock derivation
+    clock_state -> clock_derive [label="contains", style=dotted];
+    next_timing_step -> clock_derive [label="query", style=dashed];
+    ppu_tick -> clock_derive [label="uses scanline/dot", style=dashed];
+
+    // Legend
+    subgraph cluster_legend {
+        label="Legend";
+        style=filled;
+        fillcolor=white;
+        rank=sink;
+
+        legend_solid [label="Solid: Direct call/contains", penwidth=2];
+        legend_blue [label="Blue: Main tick flow", color=blue, penwidth=2];
+        legend_red [label="Red: PPU coordination", color=red, penwidth=2];
+        legend_green [label="Green: CPU execution", color=green, penwidth=2];
+        legend_orange [label="Orange: DMA/APU coordination", color=orange];
+        legend_purple [label="Purple: Interrupt handling", color=purple];
+        legend_dashed [label="Dashed: Query/lookup", style=dashed];
+        legend_dotted [label="Dotted: Containment", style=dotted];
+    }
+
+    // Critical timing behaviors
+    subgraph cluster_critical_timing {
+        label="Critical Timing Behaviors";
+        style=filled;
+        fillcolor=white;
+        rank=sink;
+
+        timing_odd_frame [label="Odd Frame Skip:\n- Occurs at scanline 261 dot 340\n- Only if odd frame + rendering enabled\n- Skips dot 0 of scanline 0\n- nextTimingStep() advances by 2 cycles\n- Manually sets frame_complete flag\n- Result: Odd frames are 89,341 cycles", fillcolor=yellow, shape=note];
+
+        timing_vblank [label="VBlank Timing:\n- Set @ scanline 241 dot 1 → recordVBlankSet()\n- Clear @ scanline 261 dot 1 → recordVBlankSpanEnd()\n- NMI edge latched in VBlankLedger\n- CPU queries shouldAssertNmiLine() each cycle\n- Edge persists until CPU latches NMI", fillcolor=yellow, shape=note];
+
+        timing_execution_order [label="Same-Cycle Execution Order:\n1. PPU (may trigger NMI)\n2. APU (may trigger IRQ, DMA)\n3. CPU (may read registers)\nOrder matters for correct emulation", fillcolor=yellow, shape=note];
+
+        timing_dma_priority [label="DMA Priority:\n1. OAM DMA (513/514 cycles)\n2. DMC DMA (4 cycles per byte)\nBoth stall CPU during transfer\nAPU DMC triggers DMC DMA", fillcolor=yellow, shape=note];
+    }
+
+    // Ownership summary
+    subgraph cluster_ownership {
+        label="Ownership & Lifetime";
+        style=filled;
+        fillcolor=white;
+        rank=sink;
+
+        own_emulation [label="EmulationState:\nDirect ownership of all components\nStack-allocated (no heap)\nNo pointer wiring (connectComponents eliminated)\nSingle source of truth architecture", fillcolor=lightcyan, shape=note];
+
+        own_clock [label="MasterClock:\nSingle timing counter (ppu_cycles)\nAll other timing derived on demand\nComponents NEVER advance time\nModels single crystal oscillator", fillcolor=yellow, shape=note];
+
+        own_ledger [label="VBlankLedger:\nSingle source of NMI truth\nDecouples edge from readable flag\nTimestamp-based determinism\nNo legacy refreshPpuNmiLevel()", fillcolor=lightcoral, shape=note];
+    }
+
+    // Side effects summary
+    subgraph cluster_side_effects {
+        label="Side Effects Summary";
+        style=filled;
+        fillcolor=white;
+        rank=sink;
+
+        side_timing [label="Timing Mutation:\n- ONLY clock.advance() mutates time\n- Called ONLY by nextTimingStep()\n- All other timing is derived (pure functions)\n- Odd frame skip: advance(2) instead of advance(1)", fillcolor=lightyellow, shape=note];
+
+        side_state [label="State Mutation:\n- tick() → stepPpuCycle() → PpuLogic.tick()\n- tick() → stepCpuCycle() → CpuLogic.tick()\n- tick() → stepApuCycle() → ApuLogic.tick*()\n- DMA state machines progress\n- VBlank ledger records events", fillcolor=lightyellow, shape=note];
+
+        side_bus [label="Bus I/O:\n- busRead() updates open_bus\n- busWrite() updates open_bus\n- $2000 write → recordCtrlToggle()\n- $4014 write → trigger OAM DMA\n- PPU/APU register side effects", fillcolor=lightcoral, shape=note];
+
+        side_debugger [label="Debugger:\n- All bus ops check watchpoints\n- tick() checks shouldHalt()\n- No heap allocation in hot path\n- RT-safe by design", fillcolor=lightblue, shape=note];
+    }
+
+    // Hardware accuracy notes
+    subgraph cluster_hardware_accuracy {
+        label="Hardware Accuracy Notes";
+        style=filled;
+        fillcolor=white;
+        rank=sink;
+
+        hw_ratios [label="Clock Ratios:\n21.477272 MHz master oscillator\nPPU: ÷4 = 5.369318 MHz (341 dots × 262 scanlines)\nCPU: ÷12 = 1.789773 MHz (3:1 PPU ratio)\nAPU: Same as CPU\nFrame: 60.0988 Hz (89,342 or 89,341 cycles)", fillcolor=wheat, shape=note];
+
+        hw_memory_map [label="NES Memory Map:\n$0000-$1FFF: RAM (2KB, mirrored 4×)\n$2000-$3FFF: PPU (8 registers, mirrored)\n$4000-$4013: APU channels\n$4014: OAM DMA trigger\n$4015: APU status/control\n$4016-$4017: Controllers + frame counter\n$4020-$FFFF: Cartridge (PRG-ROM/RAM)", fillcolor=wheat, shape=note];
+
+        hw_vblank [label="VBlank Duration:\nStarts: Scanline 241 dot 1\nEnds: Scanline 261 dot 1 (pre-render)\nDuration: 20.33 scanlines = 6933 PPU cycles\nNMI latched on rising edge (0→1 transition)\nPersists until CPU handles interrupt", fillcolor=wheat, shape=note];
+    }
+}

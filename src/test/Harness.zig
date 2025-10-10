@@ -72,7 +72,14 @@ pub const Harness = struct {
     }
 
     pub fn ppuReadRegister(self: *Harness, address: u16) u8 {
-        return PpuLogic.readRegister(&self.state.ppu, self.cartPtr(), address);
+        // VBlank Migration (Phase 2): Pass VBlankLedger and current_cycle
+        return PpuLogic.readRegister(
+            &self.state.ppu,
+            self.cartPtr(),
+            address,
+            &self.state.vblank_ledger,
+            self.state.clock.ppu_cycles,
+        );
     }
 
     pub fn ppuWriteRegister(self: *Harness, address: u16, value: u8) void {

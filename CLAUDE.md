@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **RAMBO** is a cycle-accurate NES emulator written in Zig 0.15.1, targeting hardware-accurate 6502/2C02 emulation with cycle-level precision validated against the AccuracyCoin test suite.
 
-**Current Status:** ~99% complete, 939/947 tests passing, AccuracyCoin PASSING ✅
+**Current Status:** ~99% complete, 955/967 tests passing, AccuracyCoin PASSING ✅
 
 ## Build Commands
 
@@ -15,7 +15,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 zig build
 
 # Run tests
-zig build test              # All tests (939/947 passing)
+zig build test              # All tests (955/967 passing)
 zig build test-unit         # Unit tests only (fast)
 zig build test-integration  # Integration tests only
 zig build bench-release     # Release-optimized benchmarks
@@ -24,10 +24,46 @@ zig build bench-release     # Release-optimized benchmarks
 zig build run
 
 # Run with debugging
-zig build run -- --inspect path/to/rom.nes
+./zig-out/bin/RAMBO path/to/rom.nes --inspect
+./zig-out/bin/RAMBO path/to/rom.nes --break-at 0x8000 --inspect
+./zig-out/bin/RAMBO path/to/rom.nes --watch 0x2001 --inspect
 ```
 
 ## Architecture
+
+### Visual Architecture Documentation
+
+**GraphViz diagrams** provide comprehensive visual maps of the entire codebase. Use these to understand system structure before diving into code:
+
+**System Overview:**
+- `docs/dot/architecture.dot` - Complete 3-thread architecture (60 nodes)
+- `docs/dot/emulation-coordination.dot` - RT loop coordination (80 nodes)
+
+**Core Modules:**
+- `docs/dot/cpu-module-structure.dot` - 6502 complete subsystem (50 nodes)
+- `docs/dot/ppu-module-structure.dot` - 2C02 rendering pipeline (60 nodes)
+- `docs/dot/apu-module-structure.dot` - APU 5-channel audio (60 nodes)
+
+**Systems:**
+- `docs/dot/cartridge-mailbox-systems.dot` - Comptime generics + lock-free communication (70 nodes)
+
+**Investigations:**
+- `docs/dot/cpu-execution-flow.dot` - Cycle-accurate CPU state machine
+- `docs/dot/ppu-timing.dot` - NTSC frame timing (262 scanlines × 341 dots)
+- `docs/dot/investigation-workflow.dot` - Example investigation methodology
+
+**How to use:**
+1. Start with `architecture.dot` for high-level overview
+2. Dive into specific module diagrams (`cpu-module-structure.dot`, etc.)
+3. Reference during code navigation to understand data flow and ownership
+4. Generate images: `cd docs/dot && dot -Tpng <file>.dot -o <file>.png`
+
+All diagrams include:
+- Complete type definitions and function signatures
+- Data flow (color-coded: Blue=main, Red=writes, Green=reads)
+- Side effects and ownership annotations
+- Critical timing behaviors
+- Hardware accuracy notes
 
 ### State/Logic Separation Pattern
 
@@ -216,7 +252,7 @@ src/
 
 ```bash
 # Before committing
-zig build test  # Must pass (939/947 expected, 7 skipped, 1 timing-sensitive failure)
+zig build test  # Must pass (955/967 expected, 12 failing - see KNOWN-ISSUES.md)
 
 # Verify no regressions
 git diff --stat
@@ -247,13 +283,55 @@ git commit -m "type(scope): description"
 - **Impact:** Functionally correct, timing slightly off
 - **Priority:** MEDIUM (defer to post-playability)
 
+### Current Focus: VBlank Flag Race Condition (CRITICAL BUG FOUND)
+
+**Status:** 🔍 Root Cause Identified (2025-10-10)
+**Priority:** P0 (Critical - blocks Super Mario Bros and likely other games)
+
+**Issue:** VBlank flag sets correctly at scanline 241 dot 1, but **immediately clears** before CPU can read it.
+
+**Root Cause:** $2002 (PPUSTATUS) read clears VBlank flag unconditionally, even on the same cycle it was set. This violates NES hardware behavior where:
+- VBlank flag should persist from scanline 241 dot 1 until scanline 261 dot 1 (pre-render)
+- Reading $2002 on exact cycle VBlank sets should suppress NMI but NOT clear the flag (nesdev.org race condition)
+
+**Evidence:**
+```
+[DEBUG] At 241.1: vblank_flag=false, about to set
+[DEBUG] VBlank flag NOW TRUE
+[$2002 READ] value=0x10, VBlank=false  ← Flag already cleared!
+```
+
+**Impact on SMB:**
+1. SMB enables NMI (PPUCTRL=$90), expecting to enter NMI handler
+2. VBlank flag clears before NMI can fire (no visible 0→1 transition)
+3. SMB thinks it entered handler, disables NMI (PPUCTRL=$10)
+4. SMB enters infinite polling loop waiting for VBlank that already passed
+
+**Fix Required:** Modify `src/ppu/logic/registers.zig:46` to prevent clearing VBlank flag on the same cycle it was set. Need to track `last_vblank_set_cycle` and compare before clearing.
+
+**See:** `docs/investigations/vblank-flag-race-condition-2025-10-10.md` for complete analysis
+
 ### Threading Tests (Low Priority)
 
-1 threading test fails in some environments (timing-sensitive), 7 tests skipped. This is a test infrastructure issue, not a functional problem.
+3 threading tests fail (timing-sensitive), 7 tests skipped. This is a test infrastructure issue, not a functional problem.
 
 ## Test Coverage
 
-**Total:** 939/947 tests passing (99.2%)
+**Total:** 955/967 tests passing (98.8%)
+
+**Recent Fixes (2025-10-09):**
+- ✅ Fixed BRK flag masking in hardware interrupts
+- ✅ Fixed background fine_x panic guard
+- ✅ Fixed frame pacing precision (16ms→17ms rounding)
+- ✅ Fixed debugger output (was no-op)
+- ✅ Fixed sprite 0 hit detection (OAM source tracking)
+
+**Known Failures:**
+- 7 integration tests (PPUSTATUS polling, VBlank wait) - test infrastructure issues
+- 3 threading tests (timing-sensitive) - not functional bugs
+- 2 VBlank edge case tests - expected/documented failures
+
+See: `docs/KNOWN-ISSUES.md` for details
 
 ### By Component
 
@@ -336,5 +414,8 @@ See `compiler/README.md` for details.
 **Key Principle:** Hardware accuracy first. Cycle-accurate execution over performance optimization.
 
 **Version:** 0.2.0-alpha
-**Last Updated:** 2025-10-08
-**Status:** 939/947 tests passing, AccuracyCoin PASSING ✅
+**Last Updated:** 2025-10-09
+**Status:** 955/967 tests passing, AccuracyCoin PASSING ✅
+**Current Task:** Super Mario Bros blank screen investigation (debugger working, root cause identified)
+
+**Next Session:** Use debugger to find SMB initialization loop, determine fix

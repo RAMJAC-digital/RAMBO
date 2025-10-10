@@ -8,16 +8,60 @@ const PpuState = @import("../State.zig").PpuState;
 const PpuCtrl = @import("../State.zig").PpuCtrl;
 const PpuMask = @import("../State.zig").PpuMask;
 const AnyCartridge = @import("../../cartridge/mappers/registry.zig").AnyCartridge;
+const VBlankLedger = @import("../../emulation/state/VBlankLedger.zig").VBlankLedger;
 const memory = @import("memory.zig");
 
 // DEBUG: $2002 read diagnostics
-const DEBUG_PPUSTATUS = false;  // Enable to see $2002 reads
+const DEBUG_PPUSTATUS = true;  // Enable to see $2002 reads
 const DEBUG_PPUSTATUS_VBLANK_ONLY = false;  // Only log when VBlank changes
-const DEBUG_PPU_WRITES = false;
+const DEBUG_PPU_WRITES = true;  // Enable to see PPU register writes
+
+/// Build PPUSTATUS byte for $2002 read
+/// Combines sprite flags from PpuStatus with VBlank flag from VBlankLedger
+///
+/// Hardware behavior (nesdev.org/wiki/PPU_registers):
+/// - Bits 7-5: Status flags (VBlank, Sprite0Hit, SpriteOverflow)
+/// - Bits 4-0: Open bus (data bus latch from last access)
+///
+/// VBlank flag (bit 7) is provided separately because it's managed by
+/// VBlankLedger, not PpuStatus struct, to handle race conditions correctly.
+///
+/// Returns: Byte value to return when reading $2002
+pub fn buildStatusByte(
+    sprite_overflow: bool,
+    sprite_0_hit: bool,
+    vblank_flag: bool,
+    data_bus_latch: u8,
+) u8 {
+    var result: u8 = 0;
+
+    // Bit 7: VBlank flag (from VBlankLedger, not PpuStatus)
+    if (vblank_flag) result |= 0x80;
+
+    // Bit 6: Sprite 0 hit
+    if (sprite_0_hit) result |= 0x40;
+
+    // Bit 5: Sprite overflow
+    if (sprite_overflow) result |= 0x20;
+
+    // Bits 0-4: Open bus (data bus latch from previous access)
+    result |= (data_bus_latch & 0x1F);
+
+    return result;
+}
 
 /// Read from PPU register (via CPU memory bus)
 /// Handles register mirroring and open bus behavior
-pub fn readRegister(state: *PpuState, cart: ?*AnyCartridge, address: u16) u8 {
+///
+/// VBlank Migration (Phase 2): Now accepts VBlankLedger and current_cycle
+/// to query VBlank flag state instead of reading from PpuStatus.vblank field.
+pub fn readRegister(
+    state: *PpuState,
+    cart: ?*AnyCartridge,
+    address: u16,
+    vblank_ledger: *VBlankLedger,
+    current_cycle: u64,
+) u8 {
     // Registers are mirrored every 8 bytes through $3FFF
     const reg = address & 0x0007;
 
@@ -32,23 +76,36 @@ pub fn readRegister(state: *PpuState, cart: ?*AnyCartridge, address: u16) u8 {
         },
         0x0002 => blk: {
             // $2002 PPUSTATUS - Read-only
-            const value = state.status.toByte(state.open_bus.value);
-            const vblank_before = state.status.vblank;
+
+            // Query VBlank flag from ledger (single source of truth)
+            // This handles race conditions correctly (reading on exact set cycle)
+            const vblank_flag = vblank_ledger.isReadableFlagSet(current_cycle);
+
+            // Build status byte using new helper function
+            // VBlank comes from ledger, sprite flags from PpuStatus
+            const value = buildStatusByte(
+                state.status.sprite_overflow,
+                state.status.sprite_0_hit,
+                vblank_flag,
+                state.open_bus.value,
+            );
 
             if (DEBUG_PPUSTATUS) {
-                std.debug.print("[$2002 READ] value=0x{X:0>2}, VBlank={}, sprite_0_hit={}, sprite_overflow={}\n", .{value, vblank_before, state.status.sprite_0_hit, state.status.sprite_overflow});
-            } else if (DEBUG_PPUSTATUS_VBLANK_ONLY and vblank_before) {
-                std.debug.print("[$2002 READ] CLEARED VBlank flag (was true)\n", .{});
+                std.debug.print("[$2002 READ] value=0x{X:0>2}, VBlank={}, sprite_0_hit={}, sprite_overflow={}\n",
+                    .{value, vblank_flag, state.status.sprite_0_hit, state.status.sprite_overflow});
+            } else if (DEBUG_PPUSTATUS_VBLANK_ONLY and vblank_flag) {
+                std.debug.print("[$2002 READ] VBlank flag was true\n", .{});
             }
 
             // Side effects:
-            // 1. Clear VBlank flag
-            state.status.vblank = false;
+            // 1. Record $2002 read in ledger (updates last_status_read_cycle, last_clear_cycle)
+            //    This is the ONLY place that clears the readable VBlank flag now
+            vblank_ledger.recordStatusRead(current_cycle);
 
             // 2. Reset write toggle
             state.internal.resetToggle();
 
-            // 3. Update open bus with status (top 3 bits)
+            // 3. Update open bus with status byte
             state.open_bus.write(value);
 
             break :blk value;
@@ -146,13 +203,6 @@ pub fn writeRegister(state: *PpuState, cart: ?*AnyCartridge, address: u16, value
                 }
                 return;
             }
-
-            // TEMPORARY: Always log PPUMASK writes to debug SMB blank screen
-            const old_mask = state.mask;
-            const new_mask = PpuMask.fromByte(value);
-            std.debug.print("[PPUMASK] Write 0x{X:0>2}, show_bg: {} -> {}, show_sprites: {} -> {}\n", .{
-                value, old_mask.show_bg, new_mask.show_bg, old_mask.show_sprites, new_mask.show_sprites
-            });
 
             state.mask = PpuMask.fromByte(value);
         },

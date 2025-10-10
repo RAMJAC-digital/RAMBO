@@ -23,33 +23,57 @@ digraph CPU_Module {
             label="6502 Registers";
             style=dashed;
 
-            cpu_regs [label="Registers:\na: u8  // Accumulator\nx: u8  // X index\ny: u8  // Y index\nsp: u8 // Stack pointer\npc: u16 // Program counter\np: StatusFlags // NVBDIZC", fillcolor=lightcyan, shape=record];
+            cpu_regs [label="Registers:\la: u8 = 0        // Accumulator\lx: u8 = 0        // X index\ly: u8 = 0        // Y index\lsp: u8 = 0xFD    // Stack pointer\lpc: u16 = 0      // Program counter\lp: StatusFlags = .{} // CZIDB-VN\l", fillcolor=lightcyan, shape=box];
         }
 
         subgraph cluster_exec_state {
             label="Execution State Machine";
             style=dashed;
 
-            exec_state [label="State Machine:\nstate: ExecutionState\n  .fetch_opcode\n  .fetch_operand_low\n  .execute\n  .write_back", fillcolor=wheat, shape=record];
+            exec_state [label="ExecutionState enum (17 states):\n.fetch_opcode\n.fetch_operand_low\n.fetch_operand_high\n.calc_address_low\n.calc_address_high\n.dummy_read\n.dummy_write\n.execute\n.write_result\n.push_high\n.push_low\n.pull\n.interrupt_sequence\n.branch_taken\n.branch_page_cross", fillcolor=wheat, shape=record];
 
-            exec_fields [label="Microstep Fields:\nopcode: u8\ninstruction_cycle: u8\naddress_mode: AddressingMode\noperand_low: u8\noperand_high: u8\ntemp_value: u8\neffective_address: u16\npage_crossed: bool", fillcolor=lightyellow, shape=record];
+            exec_fields [label="Microstep Fields:\ninstruction_cycle: u8 = 0\nstate: ExecutionState = .fetch_opcode\nopcode: u8 = 0\noperand_low: u8 = 0\noperand_high: u8 = 0\neffective_address: u16 = 0\naddress_mode: AddressingMode = .implied\npage_crossed: bool = false\ndata_bus: u8 = 0\ntemp_value: u8 = 0\ntemp_address: u16 = 0", fillcolor=lightyellow, shape=record];
         }
 
         subgraph cluster_interrupt_state {
             label="Interrupt State";
             style=dashed;
 
-            interrupt_fields [label="Interrupt Tracking:\nirq_line: bool\nnmi_edge: bool\nnmi_pending: bool\nprev_nmi_line: bool", fillcolor=lightcoral, shape=record];
+            interrupt_fields [label="Interrupt Tracking:\npending_interrupt: InterruptType = .none\nnmi_line: bool = false\nnmi_edge_detected: bool = false\nirq_line: bool = false\nhalted: bool = false", fillcolor=lightcoral, shape=record];
+
+            interrupt_type [label="InterruptType enum:\n.none\n.nmi\n.irq\n.reset\n.brk", fillcolor=lightcoral, shape=record];
         }
 
         subgraph cluster_cpu_functions {
             label="Public Functions";
             style=dashed;
 
-            cpu_init [label="init() CpuState\n// Power-on defaults", fillcolor=lightblue];
-            cpu_reset [label="reset(self) void\n// RESET button", fillcolor=lightblue];
-            cpu_tick [label="tick(self, bus) void\n// Delegate to Logic.tick()", fillcolor=lightgreen, shape=box3d];
+            cpu_note [label="NOTE: No methods on CpuState\nAll operations via Logic module\nPure data structure", fillcolor=lightyellow, shape=note];
         }
+    }
+
+    // ========== CPU CORE STATE (src/cpu/State.zig) ==========
+    subgraph cluster_cpu_core {
+        label="CpuCoreState (src/cpu/State.zig)\nPure CPU State - 6502 Registers Only";
+        style=filled;
+        fillcolor=palegreen;
+
+        core_state [label="CpuCoreState struct:\la: u8 = 0\lx: u8 = 0\ly: u8 = 0\lsp: u8 = 0xFD\lpc: u16 = 0\lp: StatusFlags = .{}\leffective_address: u16 = 0\l", fillcolor=palegreen, shape=box];
+
+        core_note [label="Purpose:\nImmutable state for pure opcode functions\nNO execution context\nNO bus access\nNO side effects\nSize: ~15 bytes (optimal for copying)", fillcolor=palegreen, shape=note];
+    }
+
+    // ========== OPCODE RESULT (src/cpu/State.zig) ==========
+    subgraph cluster_opcode_result {
+        label="OpcodeResult (src/cpu/State.zig)\nDelta Structure for Opcode Returns";
+        style=filled;
+        fillcolor=wheat;
+
+        opcode_result [label="OpcodeResult struct:\na: ?u8 = null\nx: ?u8 = null\ny: ?u8 = null\nsp: ?u8 = null\npc: ?u16 = null\nflags: ?StatusFlags = null\nbus_write: ?BusWrite = null\npush: ?u8 = null\npull: bool = false\nhalt: bool = false", fillcolor=wheat, shape=record];
+
+        result_buswrite [label="BusWrite struct:\naddress: u16\nvalue: u8", fillcolor=wheat, shape=record];
+
+        result_note [label="Design:\nAll fields optional (null = no change)\nSeparates computation from coordination\nEnables testability without mocking\nSize: ~24 bytes", fillcolor=wheat, shape=note];
     }
 
     // ========== CPU LOGIC (src/cpu/Logic.zig) ==========
@@ -58,11 +82,15 @@ digraph CPU_Module {
         style=filled;
         fillcolor=skyblue;
 
-        logic_tick [label="tick(cpu: *CpuState, bus: *BusState) void\n// Main execution driver\n// SIDE EFFECTS:\n// - Mutates cpu state\n// - Calls busRead/Write\n// - May trigger interrupts", fillcolor=lightgreen, shape=box3d];
+        logic_init [label="init() CpuState\n// Power-on state\n// Returns new CpuState", fillcolor=lightblue];
 
-        logic_interrupt [label="handleInterrupt(cpu, bus, type) void\n// Process NMI/IRQ/BRK\n// SIDE EFFECTS:\n// - Pushes PC, P to stack\n// - Sets I flag\n// - Loads vector", fillcolor=lightcoral, shape=box3d];
+        logic_reset [label="reset(cpu: *CpuState, reset_vector: u16) void\n// RESET interrupt processing\n// SIDE EFFECTS:\n// - Decrement SP by 3\n// - Set interrupt disable\n// - Jump to vector\n// - Clear halted state", fillcolor=lightblue];
 
-        logic_core [label="toCoreState(cpu) CoreState\n// Extract 6502 registers\n// Pure: No side effects", fillcolor=palegreen];
+        logic_core [label="toCoreState(cpu: *const CpuState) CpuCoreState\n// Extract 6502 registers + effective_address\n// Pure: No side effects", fillcolor=palegreen];
+
+        logic_check_int [label="checkInterrupts(state: *CpuState) void\n// Check and latch interrupt signals\n// NMI: edge-triggered (falling edge)\n// IRQ: level-triggered\n// SIDE EFFECTS:\n// - Sets pending_interrupt", fillcolor=lightcoral];
+
+        logic_start_int [label="startInterruptSequence(state: *CpuState) void\n// Begin hardware interrupt (7 cycles)\n// SIDE EFFECTS:\n// - Set state to .interrupt_sequence\n// - Reset instruction_cycle to 0", fillcolor=lightcoral];
     }
 
     // ========== EXECUTION ENGINE (src/emulation/cpu/execution.zig) ==========
@@ -71,19 +99,9 @@ digraph CPU_Module {
         style=filled;
         fillcolor=lightyellow;
 
-        exec_tick [label="tick(state: *EmulationState) CpuTickResult\n// One CPU cycle\n// SIDE EFFECTS:\n// - Advances state machine\n// - Calls busRead/Write\n// - May complete instruction", fillcolor=yellow, shape=box3d];
+        exec_step [label="stepCycle(state: anytype) CpuCycleResult\n// Entry point for one CPU cycle\n// SIDE EFFECTS:\n// - Queries VBlankLedger for NMI\n// - Checks PPU warmup (29658 cycles)\n// - Handles CPU halted state\n// - Checks debugger breakpoints\n// - Handles DMC/OAM DMA\n// - Calls executeCycle()\n// - Polls mapper IRQ", fillcolor=yellow, shape=box3d];
 
-        subgraph cluster_state_handlers {
-            label="State Handlers";
-            style=dashed;
-
-            exec_fetch [label="handleFetchOpcode(state)\n// Read PC, decode opcode\n// Increment PC", fillcolor=lightyellow];
-            exec_operand [label="handleFetchOperand(state)\n// Read operand bytes\n// Address calculation", fillcolor=lightyellow];
-            exec_execute [label="handleExecute(state)\n// Read final operand\n// Call opcode function\n// Apply result", fillcolor=lightgreen];
-            exec_writeback [label="handleWriteBack(state)\n// RMW: Write result\n// Dummy write for hardware", fillcolor=lightcoral];
-        }
-
-        exec_interrupt_check [label="checkInterrupts(state)\n// Poll NMI edge, IRQ level\n// Priority: NMI > IRQ", fillcolor=lightcoral];
+        exec_execute [label="executeCycle(state: anytype) void\n// Execute CPU micro-operations\n// State Machine Dispatcher:\n// - .interrupt_sequence (7 cycles)\n// - .fetch_opcode (1 cycle)\n// - .fetch_operand_low (1-8 cycles)\n// - .execute (1 cycle)\n// SIDE EFFECTS:\n// - Advances state machine\n// - Calls busRead/Write\n// - May complete instruction", fillcolor=lightgreen, shape=box3d];
     }
 
     // ========== MICROSTEPS (src/emulation/cpu/microsteps.zig) ==========
@@ -105,9 +123,11 @@ digraph CPU_Module {
         style=filled;
         fillcolor=lightsteelblue;
 
-        dispatch_table [label="OPCODE_TABLE: [256]DispatchEntry\n\nDispatchEntry:\n  .operation: OpcodeFn\n  .cycles: u8\n  .mode: AddressingMode\n  .official: bool", fillcolor=lightsteelblue, shape=record];
+        dispatch_table [label="DISPATCH_TABLE: [256]DispatchEntry\nBuilt at comptime via buildDispatchTable()\n\nDispatchEntry struct:\noperation: OpcodeFn\ninfo: OpcodeInfo\nis_rmw: bool = false\nis_pull: bool = false", fillcolor=lightsteelblue, shape=record];
 
-        dispatch_lookup [label="Lookup by opcode byte:\nentry = OPCODE_TABLE[opcode]", fillcolor=lightblue];
+        dispatch_opcode_fn [label="OpcodeFn signature:\n*const fn(CpuCoreState, u8) OpcodeResult\n\nTakes: Core CPU state (read-only) + operand\nReturns: Delta structure (OpcodeResult)", fillcolor=lightsteelblue, shape=record];
+
+        dispatch_lookup [label="Lookup by opcode byte:\nentry = DISPATCH_TABLE[opcode]\n\nUsage in executeCycle:\nconst entry = DISPATCH_TABLE[state.cpu.opcode]\nconst result = entry.operation(core_state, operand)", fillcolor=lightblue];
     }
 
     // ========== OPCODES (src/cpu/opcodes/) ==========
@@ -135,7 +155,7 @@ digraph CPU_Module {
             op_unofficial [label="unofficial.zig:\nslo, rla, sre, etc.\n// Unofficial opcodes\n// Combined operations", fillcolor=lightgray];
         }
 
-        opcode_signature [label="Common Signature:\nfn(state: CoreState, operand: u8) ResultDelta\n\nResultDelta:\n  a: ?u8\n  x: ?u8\n  y: ?u8\n  sp: ?u8\n  pc: ?u16\n  flags: ?StatusFlags\n  bus_write: ?BusWrite", fillcolor=wheat, shape=note];
+        opcode_signature [label="Common Signature:\nfn(state: CpuCoreState, operand: u8) OpcodeResult\n\nSee cluster_opcode_result for full\nOpcodeResult structure definition\n\nPure function design:\n- Immutable input (CpuCoreState)\n- No side effects\n- Returns delta structure\n- Execution engine applies result", fillcolor=wheat, shape=note];
     }
 
     // ========== DECODE (src/cpu/decode.zig) ==========
@@ -144,9 +164,9 @@ digraph CPU_Module {
         style=filled;
         fillcolor=lightyellow;
 
-        decode_table [label="INSTRUCTION_INFO: [256]InstructionInfo\n\nInstructionInfo:\n  .cycles: u8\n  .mode: AddressingMode\n  .page_cross_penalty: bool", fillcolor=lightyellow, shape=record];
+        decode_table [label="OPCODE_TABLE: [256]OpcodeInfo\nBuilt at comptime\n\nOpcodeInfo struct:\nmnemonic: []const u8\nmode: AddressingMode\ncycles: u8\npage_cross_cycle: bool = false\nunofficial: bool = false", fillcolor=lightyellow, shape=record];
 
-        decode_modes [label="AddressingMode enum:\n.implied, .accumulator\n.immediate, .zero_page\n.zero_page_x, .zero_page_y\n.absolute, .absolute_x, .absolute_y\n.indirect, .indexed_indirect\n.indirect_indexed, .relative", fillcolor=wheat, shape=record];
+        decode_modes [label="AddressingMode enum (13 modes):\n.implied\n.accumulator\n.immediate\n.zero_page\n.zero_page_x\n.zero_page_y\n.absolute\n.absolute_x\n.absolute_y\n.indirect\n.indexed_indirect\n.indirect_indexed\n.relative", fillcolor=wheat, shape=record];
     }
 
     // ========== STATUS FLAGS (src/cpu/State.zig) ==========
@@ -155,9 +175,9 @@ digraph CPU_Module {
         style=filled;
         fillcolor=lightyellow;
 
-        flags_struct [label="StatusFlags struct:\n  negative: bool    // N - Bit 7\n  overflow: bool    // V - Bit 6\n  // B flag exists only on stack\n  decimal: bool     // D - Bit 3 (ignored on NES)\n  interrupt: bool   // I - Bit 2\n  zero: bool        // Z - Bit 1\n  carry: bool       // C - Bit 0", fillcolor=lightyellow, shape=record];
+        flags_struct [label="StatusFlags packed struct(u8):\ncarry: bool = false       // C - Bit 0\nzero: bool = false        // Z - Bit 1\ninterrupt: bool = false   // I - Bit 2\ndecimal: bool = false     // D - Bit 3 (ignored on NES)\nbreak_flag: bool = false  // B - Bit 4 (stack only)\nunused: bool = true       // - - Bit 5 (always 1)\noverflow: bool = false    // V - Bit 6\nnegative: bool = false    // N - Bit 7", fillcolor=lightyellow, shape=record];
 
-        flags_functions [label="Functions:\ntoByte() u8 // Serialize to byte\nfromByte(u8) StatusFlags // Deserialize\nsetNZ(value: u8) // Set N, Z from value", fillcolor=wheat];
+        flags_functions [label="Functions:\ntoByte(self) u8\n  // Serialize to byte via @bitCast\n\nfromByte(byte: u8) StatusFlags\n  // Deserialize via @bitCast\n  // Forces unused bit to 1\n\nsetZN(self, value: u8) StatusFlags\n  // Returns NEW flags with Z,N set\n  // Pure function (no mutation)\n\nsetCarry(self, carry: bool) StatusFlags\nsetOverflow(self, overflow: bool) StatusFlags", fillcolor=wheat];
     }
 
     // ========== VARIANTS (src/cpu/variants.zig) ==========
@@ -171,41 +191,46 @@ digraph CPU_Module {
 
     // ========== MAIN DATA FLOW ==========
 
-    // State machine execution flow
-    cpu_tick -> logic_tick [label="delegate", color=blue, penwidth=2];
-    logic_tick -> exec_tick [label="call", color=blue];
+    // Main execution flow: EmulationState.tick() -> stepCycle() -> executeCycle()
+    // NOTE: cpu_tick, logic_tick, exec_fetch, exec_operand, exec_writeback, exec_interrupt_check removed
+    // These nodes don't exist in actual architecture
 
-    exec_tick -> exec_fetch [label="state:\nfetch_opcode", color=green];
-    exec_tick -> exec_operand [label="state:\nfetch_operand_low", color=green];
-    exec_tick -> exec_execute [label="state:\nexecute", color=green];
-    exec_tick -> exec_writeback [label="state:\nwrite_back", color=green];
+    // Entry point: EmulationState calls stepCycle
+    exec_step -> exec_execute [label="calls", color=blue, penwidth=2];
 
-    // Fetch phase uses microsteps
-    exec_fetch -> micro_fetch [label="read opcode byte", color=blue];
-    exec_operand -> micro_fetch [label="read operand bytes", color=blue];
-    exec_operand -> micro_addr [label="calculate address", color=orange];
+    // executeCycle is inline state machine dispatcher
+    exec_execute -> micro_fetch [label=".fetch_opcode:\nread opcode at PC", color=green];
+    exec_execute -> micro_addr [label=".fetch_operand_low:\naddressing microsteps", color=green];
+    exec_execute -> dispatch_lookup [label=".execute:\nlookup + call opcode", color=purple, penwidth=2];
 
-    // Execute phase uses dispatch
-    exec_execute -> dispatch_lookup [label="lookup opcode", color=purple];
-    dispatch_lookup -> dispatch_table [label="index", color=purple];
-    dispatch_table -> op_arithmetic [lhead=cluster_opcode_modules, label="call operation", color=green];
+    // Dispatch flow
+    dispatch_lookup -> dispatch_table [label="index by opcode", color=purple];
+    dispatch_table -> dispatch_opcode_fn [label="contains", style=dotted];
+    dispatch_table -> op_arithmetic [lhead=cluster_opcode_modules, label="operation field", color=green];
 
-    // Decode table used at fetch
-    exec_fetch -> decode_table [label="get cycles/mode", style=dashed];
+    // Decode table used during fetch
+    exec_execute -> decode_table [label=".fetch_opcode:\nget mode/cycles", style=dashed];
 
-    // Stack operations
-    exec_execute -> micro_stack [label="for stack ops", style=dashed, color=orange];
-    logic_interrupt -> micro_stack [label="push PC, P", color=red];
+    // Microsteps used during addressing
+    micro_addr -> micro_stack [label="for control flow\n(JSR/RTS/RTI/BRK)", style=dashed, color=orange];
 
-    // Interrupt handling
-    exec_tick -> exec_interrupt_check [label="after execute", style=dashed, color=red];
-    exec_interrupt_check -> logic_interrupt [label="if pending", color=red];
+    // Interrupt handling via Logic module
+    exec_execute -> logic_check_int [label="at .fetch_opcode", style=dashed, color=red];
+    logic_check_int -> logic_start_int [label="if pending", color=red];
+    logic_start_int -> micro_stack [label=".interrupt_sequence:\npush PC, P", color=red];
+
+    // Pure opcode functions use CpuCoreState
+    logic_core -> core_state [label="extracts", color=green];
+    op_arithmetic -> core_state [lhead=cluster_opcode_modules, ltail=cluster_opcode_modules, label="accepts", color=green, style=dashed];
+    op_arithmetic -> opcode_result [lhead=cluster_opcode_modules, ltail=cluster_opcode_modules, label="returns", color=orange, style=dashed];
+
+    // OpcodeResult contains BusWrite
+    opcode_result -> result_buswrite [label="contains", style=dotted];
 
     // Flags used throughout
     cpu_regs -> flags_struct [label="contains", style=dotted];
-    op_arithmetic -> flags_struct [label="modifies", color=orange, style=dashed];
-    op_logical -> flags_struct [label="modifies", color=orange, style=dashed];
-    op_compare -> flags_struct [label="modifies", color=orange, style=dashed];
+    core_state -> flags_struct [label="contains", style=dotted];
+    opcode_result -> flags_struct [label="may update", color=orange, style=dashed];
 
     // Legend
     subgraph cluster_legend {

@@ -11,7 +11,7 @@ const PpuModule = @import("../ppu/Ppu.zig");
 const RegistryModule = @import("../cartridge/mappers/registry.zig");
 
 // DEBUG: VBlank timing diagnostics
-const DEBUG_VBLANK = false;
+const DEBUG_VBLANK = true;
 const DEBUG_SPRITES = false;  // Disable sprite debug to reduce noise
 
 const AnyCartridge = RegistryModule.AnyCartridge;
@@ -48,6 +48,11 @@ pub fn tick(
     cart: ?*AnyCartridge,
     framebuffer: ?[]u32,
 ) TickFlags {
+    // TEMP DEBUG: Log scanline 241, dot 1 specifically
+    if (scanline == 241 and dot == 1) {
+        std.debug.print("[PPU ENTRY] scanline={}, dot={}\n", .{scanline, dot});
+    }
+
     var flags = TickFlags{
         .frame_complete = false,
         .rendering_enabled = state.mask.renderingEnabled(),
@@ -153,11 +158,13 @@ pub fn tick(
 
     // Set VBlank flag at start of VBlank period
     if (scanline == 241 and dot == 1) {
+        std.debug.print("[DEBUG] At 241.1: vblank_flag={}, about to set\n", .{state.status.vblank});
         if (!state.status.vblank) { // Only set if not already set
             if (DEBUG_VBLANK) {
                 std.debug.print("[VBlank] SET at scanline={}, dot={}, nmi_enable={}, flag_before={}, ppu_state={*}\n", .{ scanline, dot, state.ctrl.nmi_enable, state.status.vblank, state });
             }
             state.status.vblank = true;
+            std.debug.print("[DEBUG] VBlank flag NOW TRUE\n", .{});
             if (DEBUG_VBLANK) {
                 std.debug.print("[VBlank] SET COMPLETE - flag_after={}, ppu_state={*}\n", .{state.status.vblank, state});
             }
