@@ -1,0 +1,247 @@
+// CPU Module Complete Structure - All Types, Functions, and Relationships
+// Based on actual source code audit from docs/architecture/codebase-inventory.md
+
+digraph CPU_Module {
+    // Graph settings
+    rankdir=TB;
+    compound=true;
+    splines=ortho;
+    nodesep=0.6;
+    ranksep=1.0;
+
+    // Node defaults
+    node [shape=box, style=filled, fillcolor=lightgray, fontname="Arial", fontsize=10];
+    edge [fontname="Arial", fontsize=9];
+
+    // ========== CPU STATE (src/cpu/State.zig) ==========
+    subgraph cluster_cpu_state {
+        label="CpuState (src/cpu/State.zig)\n6502 Registers + Execution State Machine";
+        style=filled;
+        fillcolor=lightblue;
+
+        subgraph cluster_registers {
+            label="6502 Registers";
+            style=dashed;
+
+            cpu_regs [label="Registers:\na: u8  // Accumulator\nx: u8  // X index\ny: u8  // Y index\nsp: u8 // Stack pointer\npc: u16 // Program counter\np: StatusFlags // NVBDIZC", fillcolor=lightcyan, shape=record];
+        }
+
+        subgraph cluster_exec_state {
+            label="Execution State Machine";
+            style=dashed;
+
+            exec_state [label="State Machine:\nstate: ExecutionState\n  .fetch_opcode\n  .fetch_operand_low\n  .execute\n  .write_back", fillcolor=wheat, shape=record];
+
+            exec_fields [label="Microstep Fields:\nopcode: u8\ninstruction_cycle: u8\naddress_mode: AddressingMode\noperand_low: u8\noperand_high: u8\ntemp_value: u8\neffective_address: u16\npage_crossed: bool", fillcolor=lightyellow, shape=record];
+        }
+
+        subgraph cluster_interrupt_state {
+            label="Interrupt State";
+            style=dashed;
+
+            interrupt_fields [label="Interrupt Tracking:\nirq_line: bool\nnmi_edge: bool\nnmi_pending: bool\nprev_nmi_line: bool", fillcolor=lightcoral, shape=record];
+        }
+
+        subgraph cluster_cpu_functions {
+            label="Public Functions";
+            style=dashed;
+
+            cpu_init [label="init() CpuState\n// Power-on defaults", fillcolor=lightblue];
+            cpu_reset [label="reset(self) void\n// RESET button", fillcolor=lightblue];
+            cpu_tick [label="tick(self, bus) void\n// Delegate to Logic.tick()", fillcolor=lightgreen, shape=box3d];
+        }
+    }
+
+    // ========== CPU LOGIC (src/cpu/Logic.zig) ==========
+    subgraph cluster_cpu_logic {
+        label="CpuLogic (src/cpu/Logic.zig)\nPure Functions - No Hidden State";
+        style=filled;
+        fillcolor=skyblue;
+
+        logic_tick [label="tick(cpu: *CpuState, bus: *BusState) void\n// Main execution driver\n// SIDE EFFECTS:\n// - Mutates cpu state\n// - Calls busRead/Write\n// - May trigger interrupts", fillcolor=lightgreen, shape=box3d];
+
+        logic_interrupt [label="handleInterrupt(cpu, bus, type) void\n// Process NMI/IRQ/BRK\n// SIDE EFFECTS:\n// - Pushes PC, P to stack\n// - Sets I flag\n// - Loads vector", fillcolor=lightcoral, shape=box3d];
+
+        logic_core [label="toCoreState(cpu) CoreState\n// Extract 6502 registers\n// Pure: No side effects", fillcolor=palegreen];
+    }
+
+    // ========== EXECUTION ENGINE (src/emulation/cpu/execution.zig) ==========
+    subgraph cluster_execution {
+        label="Execution Engine (src/emulation/cpu/execution.zig)\nCycle-Accurate State Machine";
+        style=filled;
+        fillcolor=lightyellow;
+
+        exec_tick [label="tick(state: *EmulationState) CpuTickResult\n// One CPU cycle\n// SIDE EFFECTS:\n// - Advances state machine\n// - Calls busRead/Write\n// - May complete instruction", fillcolor=yellow, shape=box3d];
+
+        subgraph cluster_state_handlers {
+            label="State Handlers";
+            style=dashed;
+
+            exec_fetch [label="handleFetchOpcode(state)\n// Read PC, decode opcode\n// Increment PC", fillcolor=lightyellow];
+            exec_operand [label="handleFetchOperand(state)\n// Read operand bytes\n// Address calculation", fillcolor=lightyellow];
+            exec_execute [label="handleExecute(state)\n// Read final operand\n// Call opcode function\n// Apply result", fillcolor=lightgreen];
+            exec_writeback [label="handleWriteBack(state)\n// RMW: Write result\n// Dummy write for hardware", fillcolor=lightcoral];
+        }
+
+        exec_interrupt_check [label="checkInterrupts(state)\n// Poll NMI edge, IRQ level\n// Priority: NMI > IRQ", fillcolor=lightcoral];
+    }
+
+    // ========== MICROSTEPS (src/emulation/cpu/microsteps.zig) ==========
+    subgraph cluster_microsteps {
+        label="Microsteps (src/emulation/cpu/microsteps.zig)\nAtomic Hardware Operations";
+        style=filled;
+        fillcolor=lightgoldenrodyellow;
+
+        micro_fetch [label="Fetch Operations:\nfetchAbsLow(state)\nfetchAbsHigh(state)\nfetchZeroPage(state)\n// SIDE EFFECTS:\n// - busRead() at PC\n// - Increment PC\n// - Store in operand_low/high", fillcolor=wheat, shape=record];
+
+        micro_addr [label="Address Calculations:\ncalcAbsoluteX(state)\ncalcAbsoluteY(state)\ncalcIndirect(state)\n// SIDE EFFECTS:\n// - May busRead() on page cross\n// - Set effective_address\n// - Set page_crossed flag", fillcolor=wheat, shape=record];
+
+        micro_stack [label="Stack Operations:\npushByte(state, value)\npopByte(state) u8\npush16(state, value)\npop16(state) u16\n// SIDE EFFECTS:\n// - busWrite/Read $0100-$01FF\n// - Modify SP", fillcolor=lightcoral, shape=record];
+    }
+
+    // ========== DISPATCH (src/cpu/dispatch.zig) ==========
+    subgraph cluster_dispatch {
+        label="Dispatch Table (src/cpu/dispatch.zig)\n256 Opcode Entries";
+        style=filled;
+        fillcolor=lightsteelblue;
+
+        dispatch_table [label="OPCODE_TABLE: [256]DispatchEntry\n\nDispatchEntry:\n  .operation: OpcodeFn\n  .cycles: u8\n  .mode: AddressingMode\n  .official: bool", fillcolor=lightsteelblue, shape=record];
+
+        dispatch_lookup [label="Lookup by opcode byte:\nentry = OPCODE_TABLE[opcode]", fillcolor=lightblue];
+    }
+
+    // ========== OPCODES (src/cpu/opcodes/) ==========
+    subgraph cluster_opcodes {
+        label="Opcode Implementations (src/cpu/opcodes/)\nPure Functions - Return Deltas";
+        style=filled;
+        fillcolor=palegreen;
+
+        subgraph cluster_opcode_modules {
+            label="Modules by Category";
+            style=dashed;
+
+            op_arithmetic [label="arithmetic.zig:\nadc, sbc\n// ADC/SBC with carry\n// Set N, V, Z, C flags", fillcolor=palegreen];
+            op_logical [label="logical.zig:\nand, ora, eor\n// Bitwise operations\n// Set N, Z flags", fillcolor=palegreen];
+            op_shifts [label="shifts.zig:\nasl, lsr, rol, ror\n// Shift/rotate\n// Set N, Z, C flags", fillcolor=palegreen];
+            op_compare [label="compare.zig:\ncmp, cpx, cpy, bit\n// Compare/test\n// Set N, Z, C flags\n// BIT: Copy V, N from memory", fillcolor=palegreen];
+            op_loadstore [label="loadstore.zig:\nlda, ldx, ldy, sta, stx, sty\n// Load/store registers\n// Set N, Z on loads", fillcolor=palegreen];
+            op_transfer [label="transfer.zig:\ntax, tay, txa, tya, tsx, txs\n// Register transfers\n// Set N, Z (except TXS)", fillcolor=palegreen];
+            op_incdec [label="incdec.zig:\ninc, dec, inx, dex, iny, dey\n// Increment/decrement\n// Set N, Z flags", fillcolor=palegreen];
+            op_branch [label="branch.zig:\nbcc, bcs, beq, bne, etc.\n// Conditional branches\n// Modify PC on condition", fillcolor=palegreen];
+            op_jumps [label="jumps.zig (control.zig):\njmp, jsr, rts, rti\n// Unconditional flow\n// Stack operations", fillcolor=palegreen];
+            op_stack [label="stack.zig:\npha, pla, php, plp\n// Stack push/pop\n// PLP restores flags", fillcolor=palegreen];
+            op_flags [label="flags.zig:\nsec, clc, sei, cli, sed, cld, clv\n// Flag manipulation\n// Direct flag sets/clears", fillcolor=palegreen];
+            op_control [label="control.zig:\nbrk, nop\n// BRK: Software interrupt\n// NOP: No operation", fillcolor=palegreen];
+            op_unofficial [label="unofficial.zig:\nslo, rla, sre, etc.\n// Unofficial opcodes\n// Combined operations", fillcolor=lightgray];
+        }
+
+        opcode_signature [label="Common Signature:\nfn(state: CoreState, operand: u8) ResultDelta\n\nResultDelta:\n  a: ?u8\n  x: ?u8\n  y: ?u8\n  sp: ?u8\n  pc: ?u16\n  flags: ?StatusFlags\n  bus_write: ?BusWrite", fillcolor=wheat, shape=note];
+    }
+
+    // ========== DECODE (src/cpu/decode.zig) ==========
+    subgraph cluster_decode {
+        label="Decode Table (src/cpu/decode.zig)\nOpcode Metadata";
+        style=filled;
+        fillcolor=lightyellow;
+
+        decode_table [label="INSTRUCTION_INFO: [256]InstructionInfo\n\nInstructionInfo:\n  .cycles: u8\n  .mode: AddressingMode\n  .page_cross_penalty: bool", fillcolor=lightyellow, shape=record];
+
+        decode_modes [label="AddressingMode enum:\n.implied, .accumulator\n.immediate, .zero_page\n.zero_page_x, .zero_page_y\n.absolute, .absolute_x, .absolute_y\n.indirect, .indexed_indirect\n.indirect_indexed, .relative", fillcolor=wheat, shape=record];
+    }
+
+    // ========== STATUS FLAGS (src/cpu/State.zig) ==========
+    subgraph cluster_flags {
+        label="StatusFlags (CPU P Register)\nNVBDIZC Bits";
+        style=filled;
+        fillcolor=lightyellow;
+
+        flags_struct [label="StatusFlags struct:\n  negative: bool    // N - Bit 7\n  overflow: bool    // V - Bit 6\n  // B flag exists only on stack\n  decimal: bool     // D - Bit 3 (ignored on NES)\n  interrupt: bool   // I - Bit 2\n  zero: bool        // Z - Bit 1\n  carry: bool       // C - Bit 0", fillcolor=lightyellow, shape=record];
+
+        flags_functions [label="Functions:\ntoByte() u8 // Serialize to byte\nfromByte(u8) StatusFlags // Deserialize\nsetNZ(value: u8) // Set N, Z from value", fillcolor=wheat];
+    }
+
+    // ========== VARIANTS (src/cpu/variants.zig) ==========
+    subgraph cluster_variants {
+        label="Variants (src/cpu/variants.zig)\nCPU Model Differences";
+        style=filled;
+        fillcolor=lightgray;
+
+        variants_note [label="CpuVariant enum:\n  .NMOS_6502  // Original\n  .CMOS_65C02 // Bugfixes\n  .Ricoh_2A03 // NES (decimal disabled)\n  .Ricoh_2A07 // PAL NES\n\nUsed for edge case behavior", fillcolor=lightgray, shape=note];
+    }
+
+    // ========== MAIN DATA FLOW ==========
+
+    // State machine execution flow
+    cpu_tick -> logic_tick [label="delegate", color=blue, penwidth=2];
+    logic_tick -> exec_tick [label="call", color=blue];
+
+    exec_tick -> exec_fetch [label="state:\nfetch_opcode", color=green];
+    exec_tick -> exec_operand [label="state:\nfetch_operand_low", color=green];
+    exec_tick -> exec_execute [label="state:\nexecute", color=green];
+    exec_tick -> exec_writeback [label="state:\nwrite_back", color=green];
+
+    // Fetch phase uses microsteps
+    exec_fetch -> micro_fetch [label="read opcode byte", color=blue];
+    exec_operand -> micro_fetch [label="read operand bytes", color=blue];
+    exec_operand -> micro_addr [label="calculate address", color=orange];
+
+    // Execute phase uses dispatch
+    exec_execute -> dispatch_lookup [label="lookup opcode", color=purple];
+    dispatch_lookup -> dispatch_table [label="index", color=purple];
+    dispatch_table -> op_arithmetic [lhead=cluster_opcode_modules, label="call operation", color=green];
+
+    // Decode table used at fetch
+    exec_fetch -> decode_table [label="get cycles/mode", style=dashed];
+
+    // Stack operations
+    exec_execute -> micro_stack [label="for stack ops", style=dashed, color=orange];
+    logic_interrupt -> micro_stack [label="push PC, P", color=red];
+
+    // Interrupt handling
+    exec_tick -> exec_interrupt_check [label="after execute", style=dashed, color=red];
+    exec_interrupt_check -> logic_interrupt [label="if pending", color=red];
+
+    // Flags used throughout
+    cpu_regs -> flags_struct [label="contains", style=dotted];
+    op_arithmetic -> flags_struct [label="modifies", color=orange, style=dashed];
+    op_logical -> flags_struct [label="modifies", color=orange, style=dashed];
+    op_compare -> flags_struct [label="modifies", color=orange, style=dashed];
+
+    // Legend
+    subgraph cluster_legend {
+        label="Legend";
+        style=filled;
+        fillcolor=white;
+        rank=sink;
+
+        legend_call [label="Solid: Direct call/contains", penwidth=2];
+        legend_delegate [label="Blue: Main execution flow", color=blue, penwidth=2];
+        legend_data [label="Dashed: Data lookup/usage", style=dashed];
+        legend_side [label="Orange: Mutation/side effect", color=orange];
+        legend_interrupt [label="Red: Interrupt flow", color=red];
+    }
+
+    // Ownership annotation
+    subgraph cluster_ownership {
+        label="Ownership & Lifetime";
+        style=filled;
+        fillcolor=white;
+        rank=sink;
+
+        own_state [label="CpuState:\nOwned by EmulationState\nStack-allocated\nNo heap usage", fillcolor=lightcyan, shape=note];
+        own_logic [label="Logic Functions:\nStateless pure functions\nNo allocations\nRT-safe", fillcolor=palegreen, shape=note];
+        own_tables [label="Dispatch/Decode Tables:\nComptime-initialized const\nRead-only\nZero-cost", fillcolor=lightyellow, shape=note];
+    }
+
+    // Side effects summary
+    subgraph cluster_side_effects {
+        label="Side Effects Summary";
+        style=filled;
+        fillcolor=white;
+        rank=sink;
+
+        side_mutation [label="State Mutation:\n- CPU registers (A, X, Y, SP, PC, P)\n- Execution state machine fields\n- Interrupt pending flags", fillcolor=lightyellow, shape=note];
+        side_bus [label="Bus I/O:\n- busRead() at PC, operand addresses\n- busWrite() for STA, stack ops, RMW\n- Open bus updates", fillcolor=lightcoral, shape=note];
+        side_timing [label="Timing:\n- Instruction cycle counter\n- Page cross detection\n- Dummy reads on address fixup", fillcolor=wheat, shape=note];
+    }
+}
