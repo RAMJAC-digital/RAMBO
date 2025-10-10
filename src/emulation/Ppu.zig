@@ -10,10 +10,6 @@ const Cartridge = @import("../cartridge/Cartridge.zig");
 const PpuModule = @import("../ppu/Ppu.zig");
 const RegistryModule = @import("../cartridge/mappers/registry.zig");
 
-// DEBUG: VBlank timing diagnostics
-const DEBUG_VBLANK = true;
-const DEBUG_SPRITES = false;  // Disable sprite debug to reduce noise
-
 const AnyCartridge = RegistryModule.AnyCartridge;
 const PpuState = PpuModule.State.PpuState;
 const PpuLogic = PpuModule.Logic;
@@ -48,11 +44,6 @@ pub fn tick(
     cart: ?*AnyCartridge,
     framebuffer: ?[]u32,
 ) TickFlags {
-    // TEMP DEBUG: Log scanline 241, dot 1 specifically
-    if (scanline == 241 and dot == 1) {
-        std.debug.print("[PPU ENTRY] scanline={}, dot={}\n", .{scanline, dot});
-    }
-
     var flags = TickFlags{
         .frame_complete = false,
         .rendering_enabled = state.mask.renderingEnabled(),
@@ -102,15 +93,6 @@ pub fn tick(
 
     if (is_visible and rendering_enabled and dot == 65) {
         PpuLogic.evaluateSprites(state, scanline);
-        if (DEBUG_SPRITES and scanline == 0) {
-            var sprite_count: u8 = 0;
-            for (0..32) |i| {
-                if (state.secondary_oam[i] != 0xFF) {
-                    sprite_count += 1;
-                }
-            }
-            std.debug.print("[SPRITE EVAL] Scanline {}, found {} sprites in secondary OAM\n", .{scanline, sprite_count / 4});
-        }
     }
 
     // === Sprite Fetching ===
@@ -136,9 +118,6 @@ pub fn tick(
         } else {
             final_palette_index = if (sprite_result.priority) bg_pixel else sprite_result.pixel;
             if (sprite_result.sprite_0 and pixel_x < 255 and dot >= 2) {
-                if (DEBUG_SPRITES and !state.status.sprite_0_hit) {
-                    std.debug.print("[SPRITE 0 HIT] Detected at scanline={}, pixel_x={}, bg_pixel={}, sprite_pixel={}\n", .{scanline, pixel_x, bg_pixel, sprite_result.pixel});
-                }
                 state.status.sprite_0_hit = true;
             }
         }
@@ -162,10 +141,6 @@ pub fn tick(
 
     // Signal VBlank start (scanline 241 dot 1)
     if (scanline == 241 and dot == 1) {
-        if (DEBUG_VBLANK) {
-            std.debug.print("[VBlank] SIGNAL SET at scanline={}, dot={}, nmi_enable={}\n",
-                .{ scanline, dot, state.ctrl.nmi_enable });
-        }
         // Signal NMI edge detection to CPU
         // VBlankLedger.recordVBlankSet() will be called in EmulationState
         flags.nmi_signal = true;
@@ -173,9 +148,6 @@ pub fn tick(
 
     // Clear sprite flags and signal VBlank end (scanline 261 dot 1)
     if (scanline == 261 and dot == 1) {
-        if (DEBUG_VBLANK) {
-            std.debug.print("[VBlank] SIGNAL CLEAR at scanline={}, dot={}\n", .{ scanline, dot });
-        }
         // Clear sprite flags (these are NOT managed by VBlankLedger)
         state.status.sprite_0_hit = false;
         state.status.sprite_overflow = false;

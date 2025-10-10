@@ -164,7 +164,7 @@ fn handleCommand(ctx: *EmulationContext, command: EmulationCommand) void {
     switch (command) {
         .power_on => {
             // Reset state to power-on defaults
-            ctx.state.reset();
+            ctx.state.power_on();
             ctx.frame_count = 0;
             ctx.total_frames = 0;
             ctx.total_cycles = 0;

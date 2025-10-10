@@ -109,7 +109,7 @@ test "EmulationState: tick advances PPU clock" {
     defer config.deinit();
 
     var state = EmulationState.init(&config);
-    state.reset();
+    state.power_on();
 
     // Initial state
     try testing.expectEqual(@as(u64, 0), state.clock.ppu_cycles);
@@ -130,7 +130,7 @@ test "EmulationState: CPU ticks every 3 PPU cycles" {
     defer config.deinit();
 
     var state = EmulationState.init(&config);
-    state.reset();
+    state.power_on();
 
     const initial_cpu_cycles = state.clock.cpuCycles();
 
@@ -158,7 +158,7 @@ test "EmulationState: emulateCpuCycles advances correctly" {
     defer config.deinit();
 
     var state = EmulationState.init(&config);
-    state.reset();
+    state.power_on();
 
     // Emulate 10 CPU cycles (should be 30 PPU cycles)
     const ppu_cycles = state.emulateCpuCycles(10);
@@ -174,7 +174,7 @@ test "EmulationState: VBlank timing at scanline 241, dot 1" {
     config.ppu.variant = .rp2c02g_ntsc;
 
     var state = EmulationState.init(&config);
-    state.reset();
+    state.power_on();
 
     // Advance to scanline 241, dot 0 (just before VBlank)
     // MasterClock: scanline 241, dot 0 = (241 * 341) + 0 PPU cycles
@@ -195,7 +195,7 @@ test "EmulationState: odd frame skip when rendering enabled" {
     config.ppu.variant = .rp2c02g_ntsc;
 
     var state = EmulationState.init(&config);
-    state.reset();
+    state.power_on();
 
     // Set up odd frame with rendering enabled
     state.odd_frame = true;
@@ -227,7 +227,7 @@ test "EmulationState: even frame does not skip dot" {
     config.ppu.variant = .rp2c02g_ntsc;
 
     var state = EmulationState.init(&config);
-    state.reset();
+    state.power_on();
 
     // Set up even frame with rendering enabled
     state.odd_frame = false; // Even frame
@@ -252,7 +252,7 @@ test "EmulationState: odd frame without rendering does not skip" {
     config.ppu.variant = .rp2c02g_ntsc;
 
     var state = EmulationState.init(&config);
-    state.reset();
+    state.power_on();
 
     // Set up odd frame WITHOUT rendering enabled
     state.odd_frame = true;
@@ -277,7 +277,7 @@ test "EmulationState: frame toggle at scanline boundary" {
     config.ppu.variant = .rp2c02g_ntsc;
 
     var state = EmulationState.init(&config);
-    state.reset();
+    state.power_on();
 
     // Start with even frame (odd_frame = false)
     try testing.expect(!state.odd_frame);

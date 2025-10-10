@@ -11,11 +11,6 @@ const AnyCartridge = @import("../../cartridge/mappers/registry.zig").AnyCartridg
 const VBlankLedger = @import("../../emulation/state/VBlankLedger.zig").VBlankLedger;
 const memory = @import("memory.zig");
 
-// DEBUG: $2002 read diagnostics
-const DEBUG_PPUSTATUS = true;  // Enable to see $2002 reads
-const DEBUG_PPUSTATUS_VBLANK_ONLY = false;  // Only log when VBlank changes
-const DEBUG_PPU_WRITES = true;  // Enable to see PPU register writes
-
 /// Build PPUSTATUS byte for $2002 read
 /// Combines sprite flags from PpuStatus with VBlank flag from VBlankLedger
 ///
@@ -89,13 +84,6 @@ pub fn readRegister(
                 vblank_flag,
                 state.open_bus.value,
             );
-
-            if (DEBUG_PPUSTATUS) {
-                std.debug.print("[$2002 READ] value=0x{X:0>2}, VBlank={}, sprite_0_hit={}, sprite_overflow={}\n",
-                    .{value, vblank_flag, state.status.sprite_0_hit, state.status.sprite_overflow});
-            } else if (DEBUG_PPUSTATUS_VBLANK_ONLY and vblank_flag) {
-                std.debug.print("[$2002 READ] VBlank flag was true\n", .{});
-            }
 
             // Side effects:
             // 1. Record $2002 read in ledger (updates last_status_read_cycle, last_clear_cycle)
@@ -176,16 +164,7 @@ pub fn writeRegister(state: *PpuState, cart: ?*AnyCartridge, address: u16, value
             // $2000 PPUCTRL
             // Ignored during warm-up period (first ~29,658 CPU cycles)
             if (!state.warmup_complete) {
-                if (DEBUG_PPU_WRITES) {
-                    std.debug.print("[PPUCTRL] Write 0x{X:0>2} IGNORED (warmup not complete)\n", .{value});
-                }
                 return;
-            }
-
-            if (DEBUG_PPU_WRITES) {
-                const old_nmi = state.ctrl.nmi_enable;
-                const new_nmi = (value & 0x80) != 0;
-                std.debug.print("[PPUCTRL] Write 0x{X:0>2}, NMI: {} -> {}\n", .{value, old_nmi, new_nmi});
             }
 
             state.ctrl = PpuCtrl.fromByte(value);
@@ -198,9 +177,6 @@ pub fn writeRegister(state: *PpuState, cart: ?*AnyCartridge, address: u16, value
             // $2001 PPUMASK
             // Ignored during warm-up period (first ~29,658 CPU cycles)
             if (!state.warmup_complete) {
-                if (DEBUG_PPU_WRITES) {
-                    std.debug.print("[PPUMASK] Write 0x{X:0>2} IGNORED (warmup not complete)\n", .{value});
-                }
                 return;
             }
 
@@ -211,9 +187,6 @@ pub fn writeRegister(state: *PpuState, cart: ?*AnyCartridge, address: u16, value
         },
         0x0003 => {
             // $2003 OAMADDR
-            if (DEBUG_PPU_WRITES) {
-                std.debug.print("[OAMADDR] Write 0x{X:0>2} (setting OAM address for DMA/read)\n", .{value});
-            }
             state.oam_addr = value;
         },
         0x0004 => {

@@ -59,14 +59,10 @@ pub const VBlankLedger = struct {
         self.span_active = true;
         self.last_set_cycle = cycle;
 
-        // TEMP DEBUG
-        std.debug.print("[VBlankLedger] recordVBlankSet: was_active={}, nmi_enabled={}, will_set_edge={}\n", .{was_active, nmi_enabled, !was_active and nmi_enabled});
-
         // Detect NMI edge: 0→1 transition of (VBlank span AND NMI_enable)
         // If VBlank sets while NMI is already enabled, fire NMI edge
         if (!was_active and nmi_enabled) {
             self.nmi_edge_pending = true;
-            std.debug.print("[VBlankLedger] NMI EDGE PENDING SET!\n", .{});
         }
     }
 
@@ -171,17 +167,12 @@ pub const VBlankLedger = struct {
         nmi_enabled: bool,
     ) bool {
         // NMI line is asserted ONLY when edge is pending (latched but not yet acknowledged)
-        const result = self.shouldNmiEdge(cycle, nmi_enabled);
-        if (self.nmi_edge_pending) {
-            std.debug.print("[shouldAssertNmiLine] nmi_edge_pending=true, result={}, cycle={}, nmi_enabled={}\n", .{result, cycle, nmi_enabled});
-        }
-        return result;
+        return self.shouldNmiEdge(cycle, nmi_enabled);
     }
 
     /// CPU acknowledged NMI (during interrupt sequence cycle 6)
     /// Clears pending edge flag
     pub fn acknowledgeCpu(self: *VBlankLedger, cycle: u64) void {
-        std.debug.print("[acknowledgeCpu] Clearing nmi_edge_pending at cycle={}\n", .{cycle});
         self.nmi_edge_pending = false;
         self.last_cpu_ack_cycle = cycle;
     }

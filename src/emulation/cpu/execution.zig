@@ -59,10 +59,6 @@ const CpuMicrosteps = @import("microsteps.zig");
 const CycleResults = @import("../state/CycleResults.zig");
 const CpuCycleResult = CycleResults.CpuCycleResult;
 
-const DEBUG_NMI = false;
-const DEBUG_IRQ = false;
-const DEBUG_TRACE = false;
-
 /// Execute one CPU cycle with DMA and debugger checks.
 /// Entry point called from EmulationState.tick() via stepCpuCycle wrapper.
 ///
@@ -86,29 +82,7 @@ pub fn stepCycle(state: anytype) CpuCycleResult {
         state.ppu.ctrl.nmi_enable,
     );
 
-    // DEBUG: Track NMI line changes
-    if (DEBUG_NMI and nmi_line != state.cpu.nmi_line) {
-        const scanline = state.clock.scanline();
-        const dot = state.clock.dot();
-        // VBlank flag queried from ledger for debug logging
-        const vblank_flag = state.vblank_ledger.isReadableFlagSet(state.clock.ppu_cycles);
-        std.debug.print("[NMI LINE] changed {} -> {} at scanline={}, dot={}, ppu_cycle={}, PC=0x{X:0>4}, vblank_flag={}, nmi_enable={}, ledger.span_active={}, ledger.nmi_edge_pending={}\n",
-            .{ state.cpu.nmi_line, nmi_line, scanline, dot, state.clock.ppu_cycles, state.cpu.pc, vblank_flag, state.ppu.ctrl.nmi_enable, state.vblank_ledger.span_active, state.vblank_ledger.nmi_edge_pending });
-    }
-
-    // DEBUG: Track when NMI interrupt starts
-    if (DEBUG_NMI and state.cpu.pending_interrupt == .nmi and state.cpu.state == .fetch_opcode) {
-        std.debug.print("[NMI] Starting NMI sequence at PC=0x{X:0>4}\n", .{state.cpu.pc});
-    }
-
     state.cpu.nmi_line = nmi_line;
-
-    // Check PPU warmup period completion (29,658 CPU cycles)
-    // During warmup, PPU ignores writes to $2000/$2001/$2005/$2006
-    // Reference: nesdev.org/wiki/PPU_power_up_state
-    if (!state.ppu.warmup_complete and state.clock.cpuCycles() >= 29658) {
-        state.ppu.warmup_complete = true;
-    }
 
     // If CPU is halted (JAM/KIL), do nothing until RESET
     if (state.cpu.halted) {
@@ -161,17 +135,13 @@ pub fn executeCycle(state: anytype) void {
     if (state.cpu.state == .fetch_opcode) {
         CpuLogic.checkInterrupts(&state.cpu);
         if (state.cpu.pending_interrupt != .none and state.cpu.pending_interrupt != .reset) {
-            if (DEBUG_IRQ and state.cpu.pending_interrupt == .irq) {
-                std.debug.print("[IRQ] Starting IRQ sequence at PC=0x{X:0>4}\n", .{state.cpu.pc});
-            }
-
             // Interrupt hijacks the opcode fetch - do dummy read at PC NOW
             _ = state.busRead(state.cpu.pc);
             // DO NOT increment PC - interrupt will set new PC from vector
 
             // Transition to interrupt sequence at cycle 1 (we just did cycle 0)
             state.cpu.state = .interrupt_sequence;
-            state.cpu.instruction_cycle = 1;  // Start at cycle 1, not 0
+            state.cpu.instruction_cycle = 1; // Start at cycle 1, not 0
             return;
         }
 
@@ -245,14 +215,9 @@ pub fn executeCycle(state: anytype) void {
 
     // Cycle 1: Always fetch opcode
     if (state.cpu.state == .fetch_opcode) {
-        const pc_before = state.cpu.pc;
         state.cpu.opcode = state.busRead(state.cpu.pc);
         state.cpu.data_bus = state.cpu.opcode;
         state.cpu.pc +%= 1;
-
-        if (DEBUG_TRACE) {
-            std.debug.print("[CPU] PC=0x{X:0>4} opcode=0x{X:0>2}\n", .{pc_before, state.cpu.opcode});
-        }
 
         const entry = CpuModule.dispatch.DISPATCH_TABLE[state.cpu.opcode];
         state.cpu.address_mode = entry.info.mode;

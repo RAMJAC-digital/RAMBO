@@ -188,6 +188,36 @@ pub const EmulationState = struct {
 
     /// Reset emulation to power-on state
     /// Loads PC from RESET vector ($FFFC-$FFFD)
+    pub fn power_on(self: *EmulationState) void {
+        self.clock.reset();
+        self.frame_complete = false;
+        self.odd_frame = false;
+        self.rendering_enabled = false;
+        self.ppu_a12_state = false;
+        self.bus.open_bus = 0;
+        self.dma.reset();
+        self.dmc_dma.reset();
+        self.controller.reset();
+        self.vblank_ledger.reset();
+
+        const reset_vector = self.busRead16(0xFFFC);
+        self.cpu.pc = reset_vector;
+        self.cpu.sp = 0xFD;
+        self.cpu.p.interrupt = true;
+        self.cpu.state = .fetch_opcode;
+        self.cpu.instruction_cycle = 0;
+        self.cpu.pending_interrupt = .none;
+        self.cpu.halted = false;
+
+        PpuLogic.reset(&self.ppu);
+        self.ppu.warmup_complete = true;
+
+        self.apu.reset();
+        self.cpu.nmi_line = false;
+    }
+
+    /// Reset emulation to reset state
+    /// Loads PC from RESET vector ($FFFC-$FFFD)
     pub fn reset(self: *EmulationState) void {
         self.clock.reset();
         self.frame_complete = false;
@@ -210,6 +240,8 @@ pub const EmulationState = struct {
         self.cpu.halted = false;
 
         PpuLogic.reset(&self.ppu);
+        self.ppu.warmup_complete = true;
+
         self.apu.reset();
         self.cpu.nmi_line = false;
     }
@@ -517,15 +549,6 @@ pub const EmulationState = struct {
     /// Post-refactor: All PPU work happens at explicit timing coordinates
     /// This decouples PPU execution from master clock state
     fn stepPpuCycle(self: *EmulationState, scanline: u16, dot: u16) PpuCycleResult {
-        // TEMP DEBUG: Log first few calls
-        const State = struct {
-            var call_count: u32 = 0;
-        };
-        if (State.call_count < 10) {
-            std.debug.print("[stepPpuCycle] Call {}: scanline={}, dot={}, ppu_cycles={}\n", .{State.call_count, scanline, dot, self.clock.ppu_cycles});
-            State.call_count += 1;
-        }
-
         var result = PpuCycleResult{};
         const cart_ptr = self.cartPtr();
 
@@ -616,7 +639,6 @@ pub const EmulationState = struct {
     ///
     /// The VBlankLedger is now the ONLY source of truth for NMI state.
     /// Only stepCycle() (via VBlankLedger.shouldAssertNmiLine()) should set cpu.nmi_line.
-
     /// Tick DMA state machine (called every 3 PPU cycles, same as CPU)
     /// Delegates to DmaLogic.tickOamDma()
     pub fn tickDma(self: *EmulationState) void {

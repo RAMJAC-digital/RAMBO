@@ -25,9 +25,7 @@ const DebugFlags = struct {
 /// Print CPU state snapshot for debugging
 fn handleCpuSnapshot(snapshot: RAMBO.Mailboxes.CpuSnapshot) void {
     std.debug.print("\n=== CPU Snapshot ===\n", .{});
-    std.debug.print("  PC: ${X:0>4}  A: ${X:0>2}  X: ${X:0>2}  Y: ${X:0>2}\n", .{
-        snapshot.pc, snapshot.a, snapshot.x, snapshot.y
-    });
+    std.debug.print("  PC: ${X:0>4}  A: ${X:0>2}  X: ${X:0>2}  Y: ${X:0>2}\n", .{ snapshot.pc, snapshot.a, snapshot.x, snapshot.y });
     std.debug.print("  SP: ${X:0>2}   P: ${X:0>2}  ", .{ snapshot.sp, snapshot.p });
 
     // Decode status flags
@@ -139,7 +137,7 @@ fn mainExec(ctx: zli.CommandContext) !void {
     emu_state.loadCartridge(any_cart);
 
     // Reset CPU to load reset vector and initialize state
-    emu_state.reset();
+    emu_state.power_on();
 
     // ========================================================================
     // 2.5. Initialize Debugger (if debug flags enabled)

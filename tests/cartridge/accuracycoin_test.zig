@@ -21,7 +21,7 @@ const TestHarness = struct {
         cfg.* = Config.Config.init(testing.allocator);
 
         var emu_state = EmulationState.init(cfg);
-        emu_state.reset();
+        emu_state.power_on();
 
         return .{
             .config = cfg,
