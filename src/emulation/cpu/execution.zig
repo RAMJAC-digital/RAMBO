@@ -79,18 +79,20 @@ const DEBUG_IRQ = false;
 pub fn stepCycle(state: anytype) CpuCycleResult {
     // Query VBlankLedger for NMI line state (single source of truth)
     // Combines edge (latched) and level (active) logic
+    // VBlank Migration (Phase 4): No longer pass vblank_flag - ledger tracks internally
     const nmi_line = state.vblank_ledger.shouldAssertNmiLine(
         state.clock.ppu_cycles,
         state.ppu.ctrl.nmi_enable,
-        state.ppu.status.vblank,
     );
 
     // DEBUG: Track NMI line changes
     if (DEBUG_NMI and nmi_line != state.cpu.nmi_line) {
         const scanline = state.clock.scanline();
         const dot = state.clock.dot();
+        // VBlank flag queried from ledger for debug logging
+        const vblank_flag = state.vblank_ledger.isReadableFlagSet(state.clock.ppu_cycles);
         std.debug.print("[NMI LINE] changed {} -> {} at scanline={}, dot={}, ppu_cycle={}, PC=0x{X:0>4}, vblank_flag={}, nmi_enable={}, ledger.span_active={}, ledger.nmi_edge_pending={}\n",
-            .{ state.cpu.nmi_line, nmi_line, scanline, dot, state.clock.ppu_cycles, state.cpu.pc, state.ppu.status.vblank, state.ppu.ctrl.nmi_enable, state.vblank_ledger.span_active, state.vblank_ledger.nmi_edge_pending });
+            .{ state.cpu.nmi_line, nmi_line, scanline, dot, state.clock.ppu_cycles, state.cpu.pc, vblank_flag, state.ppu.ctrl.nmi_enable, state.vblank_ledger.span_active, state.vblank_ledger.nmi_edge_pending });
     }
 
     // DEBUG: Track when NMI interrupt starts

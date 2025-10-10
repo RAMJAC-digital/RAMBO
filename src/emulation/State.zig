@@ -231,18 +231,17 @@ pub const EmulationState = struct {
     // to ensure tests properly simulate hardware behavior
 
     /// TEST HELPER: Simulate VBlank flag set with ledger coordination
-    /// Use this in tests instead of manually setting ppu.status.vblank
-    ///
-    /// This ensures both the readable flag AND the ledger span state are synchronized
+    /// VBlank Migration (Phase 4): Helper removed - use ledger directly
+    /// Call: state.vblank_ledger.recordVBlankSet(state.clock.ppu_cycles, nmi_enabled)
     pub fn testSetVBlank(self: *EmulationState) void {
-        self.ppu.status.vblank = true;
         const nmi_enabled = self.ppu.ctrl.nmi_enable;
         self.vblank_ledger.recordVBlankSet(self.clock.ppu_cycles, nmi_enabled);
     }
 
     /// TEST HELPER: Simulate VBlank flag clear with ledger coordination
+    /// VBlank Migration (Phase 4): Helper removed - use ledger directly
+    /// Call: state.vblank_ledger.recordVBlankSpanEnd(state.clock.ppu_cycles)
     pub fn testClearVBlank(self: *EmulationState) void {
-        self.ppu.status.vblank = false;
         self.vblank_ledger.recordVBlankSpanEnd(self.clock.ppu_cycles);
     }
 

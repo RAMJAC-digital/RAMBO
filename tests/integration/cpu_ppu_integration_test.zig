@@ -59,14 +59,12 @@ test "CPU-PPU Integration: NMI triggered when VBlank flag set and NMI enabled" {
     state.clock.advance(100);
 
     // Simulate VBlank start (as PPU tick would do) using the ledger API
-    state.ppu.status.vblank = true;
     state.vblank_ledger.recordVBlankSet(state.clock.ppu_cycles, state.ppu.ctrl.nmi_enable);
 
     // Verify the ledger indicates NMI should be asserted
     const should_assert_nmi = state.vblank_ledger.shouldAssertNmiLine(
         state.clock.ppu_cycles,
         state.ppu.ctrl.nmi_enable,
-        state.ppu.status.vblank,
     );
     try testing.expect(should_assert_nmi);
 }
@@ -80,14 +78,12 @@ test "CPU-PPU Integration: NMI not triggered when VBlank set but NMI disabled" {
     state.busWrite(0x2000, 0x00); // Bit 7 = 0
 
     // Set VBlank flag using the ledger API
-    state.ppu.status.vblank = true;
     state.vblank_ledger.recordVBlankSet(state.clock.ppu_cycles, state.ppu.ctrl.nmi_enable);
 
     // Verify the ledger indicates NMI should NOT be asserted (NMI disabled)
     const should_assert_nmi = state.vblank_ledger.shouldAssertNmiLine(
         state.clock.ppu_cycles,
         state.ppu.ctrl.nmi_enable,
-        state.ppu.status.vblank,
     );
     try testing.expect(!should_assert_nmi);
 }
@@ -110,12 +106,12 @@ test "CPU-PPU Integration: Reading PPUSTATUS clears VBlank but preserves latched
     state.tick();
 
     // Both VBlank and NMI should be active
-    try testing.expect(state.ppu.status.vblank);
+    try testing.expect(state.vblank_ledger.isReadableFlagSet(state.clock.ppu_cycles));
     try testing.expect(state.cpu.nmi_line);
 
     // Reading PPUSTATUS clears VBlank but NMI remains latched
     _ = state.busRead(0x2002);
-    try testing.expect(!state.ppu.status.vblank); // VBlank cleared ✓
+    try testing.expect(!state.vblank_ledger.isReadableFlagSet(state.clock.ppu_cycles)); // VBlank cleared ✓
     try testing.expect(state.cpu.nmi_line); // NMI still latched ✓
 }
 
@@ -126,7 +122,6 @@ test "CPU-PPU Integration: Reading PPUSTATUS clears VBlank flag" {
     const ppu = &state.ppu;
 
     // Set VBlank flag using the ledger API
-    ppu.status.vblank = true;
     state.vblank_ledger.recordVBlankSet(state.clock.ppu_cycles, state.ppu.ctrl.nmi_enable);
 
     // Read PPUSTATUS
@@ -135,8 +130,8 @@ test "CPU-PPU Integration: Reading PPUSTATUS clears VBlank flag" {
     // VBlank bit should be set in the read value
     try testing.expect((status & 0x80) != 0);
 
-    // But VBlank flag should now be cleared in PPU state
-    try testing.expect(!ppu.status.vblank);
+    // But VBlank flag should now be cleared by the read
+    try testing.expect(!state.vblank_ledger.isReadableFlagSet(state.clock.ppu_cycles));
 }
 
 test "CPU-PPU Integration: VBlank flag race condition (read during setting)" {
@@ -146,7 +141,6 @@ test "CPU-PPU Integration: VBlank flag race condition (read during setting)" {
     const ppu = &state.ppu;
 
     // Simulate race condition: VBlank just set using ledger API
-    ppu.status.vblank = true;
     state.vblank_ledger.recordVBlankSet(state.clock.ppu_cycles, state.ppu.ctrl.nmi_enable);
 
     // Immediate read should see VBlank flag
@@ -154,7 +148,7 @@ test "CPU-PPU Integration: VBlank flag race condition (read during setting)" {
     try testing.expect((status & 0x80) != 0);
 
     // But flag is now cleared
-    try testing.expect(!ppu.status.vblank);
+    try testing.expect(!state.vblank_ledger.isReadableFlagSet(state.clock.ppu_cycles));
 
     // Next read should not see VBlank
     const status2 = state.busRead(0x2002);
@@ -171,14 +165,12 @@ test "CPU-PPU Integration: NMI edge detection (enabling NMI during VBlank)" {
     state.clock.advance(100);
 
     // Set VBlank first (without NMI enable) using ledger API
-    ppu.status.vblank = true;
     state.vblank_ledger.recordVBlankSet(state.clock.ppu_cycles, state.ppu.ctrl.nmi_enable);
 
     // Verify NMI should NOT be asserted (NMI disabled)
     var should_assert_nmi = state.vblank_ledger.shouldAssertNmiLine(
         state.clock.ppu_cycles,
         state.ppu.ctrl.nmi_enable,
-        state.ppu.status.vblank,
     );
     try testing.expect(!should_assert_nmi);
 
@@ -193,7 +185,6 @@ test "CPU-PPU Integration: NMI edge detection (enabling NMI during VBlank)" {
     should_assert_nmi = state.vblank_ledger.shouldAssertNmiLine(
         state.clock.ppu_cycles,
         state.ppu.ctrl.nmi_enable,
-        state.ppu.status.vblank,
     );
     try testing.expect(should_assert_nmi);
 }

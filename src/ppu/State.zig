@@ -93,15 +93,20 @@ pub const PpuMask = packed struct(u8) {
 /// |||+-++++- Open bus (returns PPU data bus latch)
 /// ||+------- Sprite overflow flag
 /// |+-------- Sprite 0 hit flag
-/// +--------- VBlank flag (1 if in VBlank)
+/// +--------- VBlank flag (REMOVED - now managed by VBlankLedger)
+///
+/// VBlank Migration (Phase 4): The vblank field has been removed.
+/// VBlank flag state is now queried from VBlankLedger.isReadableFlagSet()
+/// This struct only contains sprite-related status flags.
 pub const PpuStatus = packed struct(u8) {
     open_bus: u5 = 0, // Bits 0-4: Open bus
     sprite_overflow: bool = false, // Bit 5
     sprite_0_hit: bool = false, // Bit 6
-    vblank: bool = false, // Bit 7
+    _reserved: bool = false, // Bit 7: Reserved (was vblank, now in VBlankLedger)
 
     /// Convert to byte representation
     /// Open bus bits come from PPU data bus latch
+    /// NOTE: VBlank flag is NOT included - use buildStatusByte() in registers.zig
     pub fn toByte(self: PpuStatus, data_bus: u8) u8 {
         var result: u8 = @bitCast(self);
         // Replace open bus bits with data bus latch

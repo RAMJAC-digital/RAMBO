@@ -159,16 +159,16 @@ pub const VBlankLedger = struct {
     /// - `nmi_edge_pending` represents the CPU's internal NMI latch
     /// - We assert cpu.nmi_line ONLY while edge is pending (not yet acknowledged)
     /// - Once CPU acknowledges (clears nmi_edge_pending), line goes low immediately
-    /// - The level signal (vblank_flag && nmi_enabled) is NOT used for NMI after edge detection
+    ///
+    /// VBlank Migration (Phase 4): Removed vblank_flag parameter - no longer needed
+    /// The ledger tracks VBlank span internally and doesn't need external flag state.
     ///
     /// Returns: true if cpu.nmi_line should be asserted
     pub fn shouldAssertNmiLine(
         self: *const VBlankLedger,
         cycle: u64,
         nmi_enabled: bool,
-        vblank_flag: bool,
     ) bool {
-        _ = vblank_flag; // Unused after edge detection
         // NMI line is asserted ONLY when edge is pending (latched but not yet acknowledged)
         return self.shouldNmiEdge(cycle, nmi_enabled);
     }

@@ -156,33 +156,33 @@ pub fn tick(
     // - VBlank flag CLEARED at scanline 261, dot 1 (PPU cycle 89,001)
     // - Also CLEARED when $2002 is read (handled in PpuLogic.readRegister)
 
-    // Set VBlank flag at start of VBlank period
+    // === VBlank Signal Management ===
+    // VBlank Migration (Phase 3): VBlank flag is now managed by VBlankLedger only
+    // We only signal the events; ledger handles the actual flag state
+
+    // Signal VBlank start (scanline 241 dot 1)
     if (scanline == 241 and dot == 1) {
-        std.debug.print("[DEBUG] At 241.1: vblank_flag={}, about to set\n", .{state.status.vblank});
-        if (!state.status.vblank) { // Only set if not already set
-            if (DEBUG_VBLANK) {
-                std.debug.print("[VBlank] SET at scanline={}, dot={}, nmi_enable={}, flag_before={}, ppu_state={*}\n", .{ scanline, dot, state.ctrl.nmi_enable, state.status.vblank, state });
-            }
-            state.status.vblank = true;
-            std.debug.print("[DEBUG] VBlank flag NOW TRUE\n", .{});
-            if (DEBUG_VBLANK) {
-                std.debug.print("[VBlank] SET COMPLETE - flag_after={}, ppu_state={*}\n", .{state.status.vblank, state});
-            }
-            flags.nmi_signal = true; // Signal NMI edge detection to CPU
-        } else if (DEBUG_VBLANK) {
-            std.debug.print("[VBlank] SKIPPED SET at scanline={}, dot={} (flag already set), ppu_state={*}\n", .{ scanline, dot, state });
+        if (DEBUG_VBLANK) {
+            std.debug.print("[VBlank] SIGNAL SET at scanline={}, dot={}, nmi_enable={}\n",
+                .{ scanline, dot, state.ctrl.nmi_enable });
         }
+        // Signal NMI edge detection to CPU
+        // VBlankLedger.recordVBlankSet() will be called in EmulationState
+        flags.nmi_signal = true;
     }
 
-    // Clear VBlank and other flags at pre-render scanline
+    // Clear sprite flags and signal VBlank end (scanline 261 dot 1)
     if (scanline == 261 and dot == 1) {
         if (DEBUG_VBLANK) {
-            std.debug.print("[VBlank] CLEAR at scanline={}, dot={} (flag was: {})\n", .{ scanline, dot, state.status.vblank });
+            std.debug.print("[VBlank] SIGNAL CLEAR at scanline={}, dot={}\n", .{ scanline, dot });
         }
-        state.status.vblank = false;  // VBlank DOES clear here on hardware
+        // Clear sprite flags (these are NOT managed by VBlankLedger)
         state.status.sprite_0_hit = false;
         state.status.sprite_overflow = false;
-        flags.vblank_clear = true; // Signal end of VBlank period
+
+        // Signal end of VBlank period
+        // VBlankLedger.recordVBlankSpanEnd() will be called in EmulationState
+        flags.vblank_clear = true;
     }
 
     // === Frame Complete ===
