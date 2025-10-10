@@ -59,10 +59,14 @@ pub const VBlankLedger = struct {
         self.span_active = true;
         self.last_set_cycle = cycle;
 
+        // TEMP DEBUG
+        std.debug.print("[VBlankLedger] recordVBlankSet: was_active={}, nmi_enabled={}, will_set_edge={}\n", .{was_active, nmi_enabled, !was_active and nmi_enabled});
+
         // Detect NMI edge: 0→1 transition of (VBlank span AND NMI_enable)
         // If VBlank sets while NMI is already enabled, fire NMI edge
         if (!was_active and nmi_enabled) {
             self.nmi_edge_pending = true;
+            std.debug.print("[VBlankLedger] NMI EDGE PENDING SET!\n", .{});
         }
     }
 
@@ -174,6 +178,42 @@ pub const VBlankLedger = struct {
     pub fn acknowledgeCpu(self: *VBlankLedger, cycle: u64) void {
         self.nmi_edge_pending = false;
         self.last_cpu_ack_cycle = cycle;
+    }
+
+    /// Query if readable VBlank flag should be set
+    /// This is the hardware-visible flag (bit 7 of $2002 PPUSTATUS)
+    ///
+    /// Hardware behavior (nesdev.org/wiki/PPU_registers):
+    /// - Flag sets at scanline 241 dot 1
+    /// - Flag clears at scanline 261 dot 1 OR when $2002 read
+    /// - EXCEPTION: If $2002 read on EXACT cycle flag set, flag STAYS set (NMI suppressed)
+    ///
+    /// This decouples readable flag state from internal NMI edge state.
+    /// The readable flag can be cleared (by $2002 read) while NMI edge remains latched.
+    ///
+    /// Returns: true if VBlank flag should appear set when reading $2002
+    pub fn isReadableFlagSet(self: *const VBlankLedger, current_cycle: u64) bool {
+        _ = current_cycle; // Reserved for future use if needed
+
+        // VBlank flag is NOT active if span hasn't started yet
+        if (!self.span_active) return false;
+
+        // Race condition: If $2002 read on exact cycle VBlank set,
+        // flag STAYS set (but NMI is suppressed - handled by shouldNmiEdge)
+        // This is documented hardware behavior on nesdev.org
+        if (self.last_status_read_cycle == self.last_set_cycle) {
+            // Reading on exact set cycle preserves the flag
+            return true;
+        }
+
+        // Normal case: Check if flag was cleared by read
+        // If last_clear_cycle > last_set_cycle, flag was cleared
+        if (self.last_clear_cycle > self.last_set_cycle) {
+            return false; // Cleared by $2002 read or scanline 261.1
+        }
+
+        // Flag is active (set and not yet cleared)
+        return true;
     }
 
     /// Reset ledger to power-on state
@@ -296,4 +336,128 @@ test "VBlankLedger: reset clears all state" {
     try testing.expect(!ledger.span_active);
     try testing.expect(!ledger.nmi_edge_pending);
     try testing.expectEqual(@as(u64, 0), ledger.last_set_cycle);
+}
+
+test "VBlankLedger: NMI edge persists after VBlank span ends" {
+    var ledger = VBlankLedger{};
+
+    // VBlank sets with NMI enabled → edge pending
+    ledger.recordVBlankSet(100, true);
+    try testing.expect(ledger.span_active);
+    try testing.expect(ledger.nmi_edge_pending);
+
+    // VBlank span ends at scanline 261.1 (pre-render)
+    ledger.recordVBlankSpanEnd(200);
+
+    // Span is no longer active
+    try testing.expect(!ledger.span_active);
+
+    // CRITICAL: NMI edge should STILL be pending (persists until CPU acknowledges)
+    try testing.expect(ledger.nmi_edge_pending);
+
+    // NMI line should still be asserted
+    try testing.expect(ledger.shouldAssertNmiLine(210, true, false));
+
+    // shouldNmiEdge should return true (edge still pending)
+    try testing.expect(ledger.shouldNmiEdge(210, true));
+
+    // CPU acknowledges NMI
+    ledger.acknowledgeCpu(220);
+
+    // NOW edge should be cleared
+    try testing.expect(!ledger.nmi_edge_pending);
+    try testing.expect(!ledger.shouldAssertNmiLine(230, true, false));
+}
+
+test "VBlankLedger: isReadableFlagSet returns true after VBlank set" {
+    var ledger = VBlankLedger{};
+
+    // VBlank not set yet
+    try testing.expect(!ledger.isReadableFlagSet(50));
+
+    // Set VBlank (NMI not enabled)
+    ledger.recordVBlankSet(100, false);
+
+    // Readable flag should be true
+    try testing.expect(ledger.isReadableFlagSet(110));
+    try testing.expect(ledger.isReadableFlagSet(150));
+}
+
+test "VBlankLedger: isReadableFlagSet returns false after $2002 read" {
+    var ledger = VBlankLedger{};
+
+    // Set VBlank
+    ledger.recordVBlankSet(100, false);
+    try testing.expect(ledger.isReadableFlagSet(105));
+
+    // Read $2002 at cycle 110
+    ledger.recordStatusRead(110);
+
+    // Readable flag should now be false (cleared by read)
+    try testing.expect(!ledger.isReadableFlagSet(120));
+    try testing.expect(!ledger.isReadableFlagSet(150));
+}
+
+test "VBlankLedger: isReadableFlagSet stays true if read on exact set cycle" {
+    var ledger = VBlankLedger{};
+
+    const set_cycle = 100;
+
+    // Set VBlank and read $2002 on SAME cycle (race condition)
+    ledger.recordVBlankSet(set_cycle, false);
+    ledger.recordStatusRead(set_cycle);
+
+    // CRITICAL: Flag should STAY set despite read (hardware race condition behavior)
+    try testing.expect(ledger.isReadableFlagSet(set_cycle + 1));
+    try testing.expect(ledger.isReadableFlagSet(set_cycle + 100));
+}
+
+test "VBlankLedger: isReadableFlagSet returns false after VBlank span end" {
+    var ledger = VBlankLedger{};
+
+    // Set VBlank
+    ledger.recordVBlankSet(100, false);
+    try testing.expect(ledger.isReadableFlagSet(150));
+
+    // End VBlank span at scanline 261.1
+    ledger.recordVBlankSpanEnd(200);
+
+    // Readable flag should be false (span ended)
+    try testing.expect(!ledger.isReadableFlagSet(210));
+}
+
+test "VBlankLedger: isReadableFlagSet race condition does not affect NMI suppression" {
+    var ledger = VBlankLedger{};
+
+    const set_cycle = 100;
+
+    // Set VBlank with NMI enabled, read on exact same cycle
+    ledger.recordVBlankSet(set_cycle, true);
+    ledger.recordStatusRead(set_cycle);
+
+    // Readable flag stays set (race condition behavior)
+    try testing.expect(ledger.isReadableFlagSet(set_cycle + 1));
+
+    // But NMI should be suppressed (existing shouldNmiEdge handles this)
+    try testing.expect(!ledger.shouldNmiEdge(set_cycle + 1, true));
+}
+
+test "VBlankLedger: isReadableFlagSet multiple reads only first clears" {
+    var ledger = VBlankLedger{};
+
+    // Set VBlank
+    ledger.recordVBlankSet(100, false);
+    try testing.expect(ledger.isReadableFlagSet(105));
+
+    // First read clears flag
+    ledger.recordStatusRead(110);
+    try testing.expect(!ledger.isReadableFlagSet(115));
+
+    // Second read doesn't change anything (already cleared)
+    ledger.recordStatusRead(120);
+    try testing.expect(!ledger.isReadableFlagSet(125));
+
+    // VBlank sets again in next frame
+    ledger.recordVBlankSet(200, false);
+    try testing.expect(ledger.isReadableFlagSet(205));
 }
