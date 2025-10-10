@@ -272,3 +272,53 @@ pub fn writeRegister(state: *PpuState, cart: ?*AnyCartridge, address: u16, value
         else => unreachable, // reg is masked to 0-7
     }
 }
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+test {
+    std.testing.refAllDeclsRecursive(@This());
+}
+
+const testing = std.testing;
+
+test "buildStatusByte: all flags false, zero open bus" {
+    const result = buildStatusByte(false, false, false, 0x00);
+    try testing.expectEqual(@as(u8, 0x00), result);
+}
+
+test "buildStatusByte: VBlank flag set" {
+    const result = buildStatusByte(false, false, true, 0x00);
+    try testing.expectEqual(@as(u8, 0x80), result);
+}
+
+test "buildStatusByte: Sprite 0 hit set" {
+    const result = buildStatusByte(false, true, false, 0x00);
+    try testing.expectEqual(@as(u8, 0x40), result);
+}
+
+test "buildStatusByte: Sprite overflow set" {
+    const result = buildStatusByte(true, false, false, 0x00);
+    try testing.expectEqual(@as(u8, 0x20), result);
+}
+
+test "buildStatusByte: All status flags set" {
+    const result = buildStatusByte(true, true, true, 0x00);
+    try testing.expectEqual(@as(u8, 0xE0), result);
+}
+
+test "buildStatusByte: Open bus bits preserved" {
+    const result = buildStatusByte(false, false, false, 0x1F);
+    try testing.expectEqual(@as(u8, 0x1F), result);
+}
+
+test "buildStatusByte: Status flags and open bus combined" {
+    const result = buildStatusByte(true, true, true, 0x15);
+    try testing.expectEqual(@as(u8, 0xF5), result); // 0xE0 | 0x15
+}
+
+test "buildStatusByte: Open bus upper bits ignored" {
+    const result = buildStatusByte(false, false, false, 0xFF);
+    try testing.expectEqual(@as(u8, 0x1F), result); // Only lower 5 bits
+}
