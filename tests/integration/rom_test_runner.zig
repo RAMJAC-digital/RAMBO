@@ -155,17 +155,24 @@ pub const RomTestRunner = struct {
         return try self.extractResults(frames_executed, instructions_executed, timed_out);
     }
 
-    /// Execute one frame of emulation (29780 CPU cycles)
+    /// Execute one frame of emulation (29780.5 CPU cycles for precise NTSC timing)
     pub fn runFrame(self: *RomTestRunner) !usize {
         var instructions: usize = 0;
-        const cycles_per_frame = 29780; // NTSC: ~1.79 MHz / 60 Hz
+        // NTSC: ~1.789773 MHz / 60 Hz = 29829.55 PPU cycles / 3 = 9943.18 CPU cycles per frame
+        // For simplicity, use 29781 CPU cycles (29780.5 rounded up for slight accuracy)
+        const cycles_per_frame = 29781; // More accurate than 29780
 
         var cycles_executed: usize = 0;
+        const start_cpu_state = self.state.cpu.state;
+
         while (cycles_executed < cycles_per_frame) {
-            // Execute one CPU instruction
             const cycles_before = self.state.clock.cpuCycles();
+            const cpu_state_before = self.state.cpu.state;
+
             self.state.tick();
+
             const cycles_after = self.state.clock.cpuCycles();
+            const cpu_state_after = self.state.cpu.state;
 
             // Count cycles executed (handle overflow)
             const delta = if (cycles_after >= cycles_before)
@@ -175,11 +182,16 @@ pub const RomTestRunner = struct {
 
             cycles_executed += delta;
 
-            // Count as one instruction (tick may execute partial instruction)
-            instructions += 1;
+            // Count instructions: only when CPU completes an instruction (enters fetch_opcode state)
+            // Note: tick() executes ONE CPU CYCLE, not one instruction
+            // An instruction is complete when we transition to fetch_opcode state
+            if (cpu_state_before != .fetch_opcode and cpu_state_after == .fetch_opcode) {
+                instructions += 1;
+            }
 
             // Safety check: prevent infinite loops within a frame
-            if (instructions > 100000) {
+            // Using cycle count instead of tick count for more accurate detection
+            if (cycles_executed > cycles_per_frame * 2) {
                 return error.InfiniteLoopDetected;
             }
         }

@@ -47,71 +47,18 @@ test "AccuracyCoin: Execute and extract test results" {
     defer result.deinit(testing.allocator);
 
     // Extract test results from $6000-$6003
+    // Verify test passed
+    try testing.expect(result.passed);
 
-    _ = result.status_bytes.len;
-    if (result.error_message) |_| {}
-
-    if (!result.passed) {
-        return error.SkipZigTest; // Skip test instead of failing
+    // If test failed, print error message for debugging
+    if (result.error_message) |msg| {
+        std.debug.print("AccuracyCoin test failed: {s}\n", .{msg});
     }
 }
 
-test "AccuracyCoin: Sample test results at intervals" {
-    const accuracycoin_path = "AccuracyCoin/AccuracyCoin.nes";
-
-    const config = RunConfig{
-        .max_frames = 300, // 5 seconds
-        .verbose = false,
-    };
-
-    var runner = RomTestRunner.RomTestRunner.init(
-        testing.allocator,
-        accuracycoin_path,
-        config,
-    ) catch |err| {
-        if (err == error.FileNotFound) {
-            return error.SkipZigTest;
-        }
-        return err;
-    };
-    defer runner.deinit();
-
-    // Sample test status every 60 frames (1 second intervals)
-    var frame: usize = 0;
-    while (frame < 300) : (frame += 60) {
-        // Run 60 frames
-        var f: usize = 0;
-        while (f < 60) : (f += 1) {
-            _ = try runner.runFrame();
-        }
-
-        // Sample status bytes
-        const s0 = runner.state.busRead(0x6000);
-        const s1 = runner.state.busRead(0x6001);
-        const s2 = runner.state.busRead(0x6002);
-        const s3 = runner.state.busRead(0x6003);
-
-        // Check if test is running or complete
-        if (s0 == 0x80 or s1 == 0x80 or s2 == 0x80 or s3 == 0x80) {} else if (s0 == 0x00 and s1 == 0x00 and s2 == 0x00 and s3 == 0x00) {} else {
-
-            // Try to extract error message
-            var msg_buf: [128]u8 = undefined;
-            var msg_len: usize = 0;
-            var addr: u16 = 0x6004;
-            while (msg_len < msg_buf.len - 1) : (addr += 1) {
-                const byte = runner.state.busRead(addr);
-                if (byte == 0) break;
-                if (byte >= 0x20 and byte <= 0x7E) { // Printable ASCII
-                    msg_buf[msg_len] = byte;
-                    msg_len += 1;
-                }
-            }
-            if (msg_len > 0) {}
-        }
-    }
-
-    return error.SkipZigTest; // Always skip to avoid CI failures
-}
+// NOTE: Test removed - was diagnostic-only with no assertions
+// The test sampled AccuracyCoin status bytes at intervals but had no expectations,
+// making it useless for regression detection. The first test already validates pass/fail.
 
 // ============================================================================
 // ROM Rendering Diagnosis Tests

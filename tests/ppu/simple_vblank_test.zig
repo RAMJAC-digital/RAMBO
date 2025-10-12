@@ -37,13 +37,15 @@ test "Simple VBlank test: $2002 read clears flag" {
 
         if (scanline == 241 and dot == 0) {
             // We're just before VBlank sets
-            std.debug.print("At scanline 241 dot 0, VBlank={}\n", .{state.ppu.status.vblank});
-            try testing.expect(!state.ppu.status.vblank);
+            const vblank_before = state.vblank_ledger.isReadableFlagSet(state.clock.ppu_cycles);
+            std.debug.print("At scanline 241 dot 0, VBlank={}\n", .{vblank_before});
+            try testing.expect(!vblank_before);
 
             // Tick once - VBlank should set
             state.tick();
-            std.debug.print("After tick to 241.1, VBlank={}\n", .{state.ppu.status.vblank});
-            try testing.expect(state.ppu.status.vblank);
+            const vblank_after = state.vblank_ledger.isReadableFlagSet(state.clock.ppu_cycles);
+            std.debug.print("After tick to 241.1, VBlank={}\n", .{vblank_after});
+            try testing.expect(vblank_after);
 
             found_vblank_set = true;
             break;
@@ -59,7 +61,7 @@ test "Simple VBlank test: $2002 read clears flag" {
     std.debug.print("\nExecuting LDA $2002 instruction...\n", .{});
 
     var ticks: usize = 0;
-    const vblank_before_instruction = state.ppu.status.vblank;
+    const vblank_before_instruction = state.vblank_ledger.isReadableFlagSet(state.clock.ppu_cycles);
     try testing.expect(vblank_before_instruction); // Should be true
 
     // Tick through the instruction (12 PPU ticks = 4 CPU cycles)
@@ -67,11 +69,12 @@ test "Simple VBlank test: $2002 read clears flag" {
         state.tick();
     }
 
-    std.debug.print("After LDA execution, VBlank={}\n", .{state.ppu.status.vblank});
+    const vblank_after_read = state.vblank_ledger.isReadableFlagSet(state.clock.ppu_cycles);
+    std.debug.print("After LDA execution, VBlank={}\n", .{vblank_after_read});
     std.debug.print("CPU A register = 0x{X:0>2}\n", .{state.cpu.a});
 
     // After reading $2002, VBlank should be cleared
-    try testing.expect(!state.ppu.status.vblank);
+    try testing.expect(!vblank_after_read);
 
     // CPU A register should have captured VBlank bit (0x80 or higher)
     try testing.expect(state.cpu.a >= 0x80);

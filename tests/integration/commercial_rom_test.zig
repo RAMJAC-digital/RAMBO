@@ -206,7 +206,7 @@ test "Commercial ROM: Super Mario Bros - enables rendering" {
     // Mario should enable rendering (PPUMASK bits 3 or 4 set)
     const rendering_enabled = (result.ppumask & 0x18) != 0;
 
-    if (!rendering_enabled) return error.SkipZigTest;
+    try testing.expect(rendering_enabled);
 }
 
 test "Commercial ROM: Super Mario Bros - renders graphics" {
@@ -223,7 +223,7 @@ test "Commercial ROM: Super Mario Bros - renders graphics" {
 
     const non_zero = countNonZeroPixels(&result.framebuffer);
 
-    if (!(non_zero > 10000)) return error.SkipZigTest;
+    try testing.expect(non_zero > 10000);
 }
 
 // ============================================================================
@@ -257,7 +257,7 @@ test "Commercial ROM: Donkey Kong - enables rendering" {
         return err;
     };
 
-    if ((result.ppumask & 0x18) == 0) return error.SkipZigTest;
+    try testing.expect((result.ppumask & 0x18) != 0);
 }
 
 // ============================================================================
@@ -291,7 +291,7 @@ test "Commercial ROM: BurgerTime - enables rendering" {
         return err;
     };
 
-    if ((result.ppumask & 0x18) == 0) return error.SkipZigTest;
+    try testing.expect((result.ppumask & 0x18) != 0);
 }
 
 // ============================================================================
