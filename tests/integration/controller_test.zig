@@ -273,50 +273,6 @@ test "Controller: re-latch mid-sequence" {
 }
 
 // ============================================================================
-// Test 7: ControllerState Direct Testing
+// NOTE: Direct ControllerState unit tests moved to:
+// tests/emulation/state/peripherals/controller_state_test.zig
 // ============================================================================
-
-test "ControllerState: shift register fills with 1s" {
-    var controller = ControllerState{};
-
-    // No buttons pressed
-    controller.buttons1 = 0x00;
-    controller.writeStrobe(0x01);
-    controller.writeStrobe(0x00);
-
-    // Read 8 zeros
-    for (0..8) |_| {
-        try testing.expectEqual(@as(u8, 0), controller.read1());
-    }
-
-    // Further reads return 1 (shift register = 0xFF after 8 shifts)
-    for (0..5) |_| {
-        try testing.expectEqual(@as(u8, 1), controller.read1());
-    }
-}
-
-test "ControllerState: updateButtons while strobe high" {
-    var controller = ControllerState{};
-
-    // Strobe high, initial buttons
-    controller.writeStrobe(0x01);
-    controller.updateButtons(0xFF, 0x00);
-
-    // Should immediately reload shift registers
-    try testing.expectEqual(@as(u8, 0xFF), controller.shift1);
-}
-
-test "ControllerState: updateButtons while strobe low" {
-    var controller = ControllerState{};
-
-    // Latch initial state
-    controller.updateButtons(0xFF, 0x00);
-    controller.writeStrobe(0x01);
-    controller.writeStrobe(0x00);
-
-    // Update buttons while shifting
-    controller.updateButtons(0x00, 0x00);
-
-    // Shift register should still have old data
-    try testing.expectEqual(@as(u8, 1), controller.read1()); // Old data (0xFF)
-}

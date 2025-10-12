@@ -811,6 +811,21 @@ pub fn build(b: *std.Build) void {
 
     const run_state_tests = b.addRunArtifact(state_tests);
 
+    // ControllerState unit tests (peripherals)
+    const controller_state_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/emulation/state/peripherals/controller_state_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+    controller_state_tests.root_module.addImport("xev", xev_dep.module("xev"));
+
+    const run_controller_state_tests = b.addRunArtifact(controller_state_tests);
+
     // Debugger isolation tests
     const debugger_isolation_tests = b.addTest(.{
         .root_module = b.createModule(.{
@@ -1166,6 +1181,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_vblank_behavior_tests.step);
     test_step.dependOn(&run_snapshot_integration_tests.step);
     test_step.dependOn(&run_state_tests.step);
+    test_step.dependOn(&run_controller_state_tests.step);
     test_step.dependOn(&run_debugger_isolation_tests.step);
     test_step.dependOn(&run_debugger_callbacks_tests.step);
     test_step.dependOn(&run_debugger_integration_tests2.step);
@@ -1192,6 +1208,7 @@ pub fn build(b: *std.Build) void {
     const unit_test_step = b.step("test-unit", "Run unit tests only");
     unit_test_step.dependOn(&run_mod_tests.step);
     unit_test_step.dependOn(&run_state_tests.step);
+    unit_test_step.dependOn(&run_controller_state_tests.step);
     unit_test_step.dependOn(&run_apu_tests.step);
     unit_test_step.dependOn(&run_apu_length_counter_tests.step);
     unit_test_step.dependOn(&run_apu_dmc_tests.step);
