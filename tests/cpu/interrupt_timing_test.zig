@@ -16,7 +16,8 @@ test "NMI: Response latency is 7 cycles" {
     // Trigger VBlank (scanline 241, dot 1)
     // This should set the NMI edge pending in the ledger
     harness.state.clock.advance(1);
-    harness.state.testSetVBlank();
+    const nmi_enabled = harness.state.ppu.ctrl.nmi_enable;
+    harness.state.vblank_ledger.recordVBlankSet(harness.state.clock.ppu_cycles, nmi_enabled);
     try expect(harness.state.vblank_ledger.shouldAssertNmiLine(harness.state.clock.ppu_cycles, true));
 
     // Step 1 CPU cycle - should detect NMI and start the 7-cycle sequence

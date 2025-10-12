@@ -2,7 +2,7 @@
 
 Cycle-accurate NES emulator written in Zig 0.15.1.
 
-**Current Status:** ~99% complete (955/967 tests passing, AccuracyCoin PASSING ✅)
+**Current Status:** ~99% complete (949/986 tests passing, AccuracyCoin PASSING ✅)
 
 ---
 
@@ -29,7 +29,7 @@ cd RAMBO
 # Build executable
 zig build
 
-# Run tests (955/967 passing)
+# Run tests (949/986 passing)
 zig build test
 
 # Run emulator
@@ -168,7 +168,7 @@ pub fn Cartridge(comptime MapperType: type) type {
 
 ### Test Status
 
-**955/967 tests passing (98.8%)**
+**949/986 tests passing (96.2%)**
 
 ```bash
 # All tests
@@ -365,7 +365,7 @@ RAMBO/
 
 ```bash
 # Before committing
-zig build test  # Must report 955/967 (7 skipped, 5 flaky integration tests)
+zig build test  # Must report 949/986 (25 skipped, 12 failing - see KNOWN-ISSUES.md)
 
 # Verify no regressions
 git diff --stat
@@ -396,5 +396,5 @@ MIT License (see LICENSE file)
 
 **Last Updated:** 2025-10-09
 **Version:** 0.2.0-alpha
-**Status:** ~99% complete, 955/967 tests passing, AccuracyCoin PASSING ✅
+**Status:** ~99% complete, 949/986 tests passing, AccuracyCoin PASSING ✅
 **Current Focus:** Super Mario Bros blank screen investigation (see docs/sessions/session-summary-2025-10-09.md)

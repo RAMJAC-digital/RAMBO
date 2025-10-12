@@ -129,8 +129,8 @@ pub const Mapper0 = struct {
         const chr_addr = @as(usize, address & 0x1FFF);
 
         // Only allow writes if this is CHR RAM
-        // (Cartridge determines this based on header.chr_rom_size)
-        if (cart.header.chr_rom_size == 0 and chr_addr < cart.chr_data.len) {
+        // (Cartridge determines this based on header.getChrRomSize())
+        if (cart.header.getChrRomSize() == 0 and chr_addr < cart.chr_data.len) {
             cart.chr_data[chr_addr] = value;
         }
 
@@ -188,6 +188,11 @@ const TestCart = struct {
     prg_ram: ?[]u8 = null,
     header: struct {
         chr_rom_size: u8,
+
+        // Match InesHeader API for Mapper0 compatibility
+        pub fn getChrRomSize(self: @This()) u32 {
+            return @as(u32, self.chr_rom_size) * 8192;
+        }
     },
 };
 

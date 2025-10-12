@@ -27,7 +27,7 @@ digraph PPU_Module {
 
             ppu_mask [label="PpuMask ($2001):\ngreyscale\nshow_bg_left, show_sprites_left\nshow_bg, show_sprites\nemphasize_red/green/blue", fillcolor=lightyellow, shape=record];
 
-            ppu_status [label="PpuStatus ($2002):\nopen_bus (bits 0-4)\nsprite_overflow (bit 5)\nsprite_0_hit (bit 6)\nvblank (bit 7)", fillcolor=lightcoral, shape=record];
+            ppu_status [label="PpuStatus ($2002):\nopen_bus (bits 0-4)\nsprite_overflow (bit 5)\nsprite_0_hit (bit 6)\n_reserved (bit 7)\n\nNOTE: VBlank flag REMOVED (Phase 4)\nNow managed by VBlankLedger", fillcolor=lightcoral, shape=record];
 
             ppu_oam_addr [label="oam_addr: u8\n($2003 OAMADDR)", fillcolor=lightyellow, shape=record];
         }
@@ -244,9 +244,8 @@ digraph PPU_Module {
     bg_palette -> palette_table [label="index", color=green];
     sprite_get_pixel -> palette_table [label="index", color=purple, style=dashed];
 
-    // VBlank flag control
-    runtime_tick -> ppu_status [label="set VBlank @ 241.1\nclear @ 261.1", color=red];
-    reg_read -> ppu_status [label="$2002 clears VBlank", color=blue];
+    // VBlank flag control (now via VBlankLedger, not PpuStatus)
+    // NOTE: VBlank flag migrated to VBlankLedger in Phase 4 (see emulation-coordination.dot)
 
     // Legend
     subgraph cluster_legend {

@@ -22,11 +22,11 @@
 //! will use message passing, not shared mutable state.
 
 const std = @import("std");
-const ines = @import("ines.zig");
+const ines = @import("ines/mod.zig");
 const Mapper0 = @import("mappers/Mapper0.zig").Mapper0;
 
 pub const InesHeader = ines.InesHeader;
-pub const Mirroring = ines.Mirroring;
+pub const Mirroring = ines.MirroringMode;
 
 /// Cartridge errors
 pub const CartridgeError = error{
@@ -85,7 +85,7 @@ pub fn Cartridge(comptime MapperType: type) type {
         /// Takes ownership of the data, caller should not free it
         pub fn loadFromData(allocator: std.mem.Allocator, data: []const u8) CartridgeError!Self {
             // Parse iNES header
-            const header = try ines.InesHeader.parse(data);
+            const header = try ines.parseHeader(data);
 
             // Check for unsupported features
             if (header.hasTrainer()) {

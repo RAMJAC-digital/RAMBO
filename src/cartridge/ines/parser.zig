@@ -145,13 +145,17 @@ pub fn parseHeader(file_data: []const u8) InesError!InesHeader {
         return InesError.FileTooSmall;
     }
 
-    const header: *const InesHeader = @ptrCast(@alignCast(file_data.ptr));
+    // Copy header bytes to avoid alignment issues
+    // (file_data may not be aligned for packed struct(u128))
+    var header_bytes: [16]u8 = undefined;
+    @memcpy(&header_bytes, file_data[0..16]);
+    const header: InesHeader = @bitCast(header_bytes);
 
     if (!header.isValid()) {
         return InesError.InvalidMagic;
     }
 
-    return header.*;
+    return header;
 }
 
 /// Get expected file size from header

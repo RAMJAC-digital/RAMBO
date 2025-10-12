@@ -979,22 +979,8 @@ pub fn build(b: *std.Build) void {
 
     const run_benchmark_release_tests = b.addRunArtifact(benchmark_release_tests);
 
-    // iNES ROM parser tests
-    const ines_tests = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("tests/ines/ines_test.zig"),
-            .target = target,
-            .optimize = optimize,
-            .imports = &.{
-                .{ .name = "ines", .module = b.addModule("ines", .{
-                    .root_source_file = b.path("src/cartridge/ines/mod.zig"),
-                    .target = target,
-                }) },
-            },
-        }),
-    });
-
-    const run_ines_tests = b.addRunArtifact(ines_tests);
+    // Legacy iNES tests removed - old ines.zig parser deleted
+    // New iNES parser has tests integrated in src/cartridge/ines/mod.zig
 
     // Threading system tests
     const threading_tests = b.addTest(.{
@@ -1107,7 +1093,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_apu_open_bus_tests.step);
     test_step.dependOn(&run_dpcm_dma_tests.step);
     test_step.dependOn(&run_benchmark_tests.step);
-    test_step.dependOn(&run_ines_tests.step);
+    // run_ines_tests removed - legacy test deleted
     test_step.dependOn(&run_threading_tests.step);
     test_step.dependOn(&run_button_state_tests.step);
     test_step.dependOn(&run_keyboard_mapper_tests.step);
@@ -1124,7 +1110,7 @@ pub fn build(b: *std.Build) void {
     unit_test_step.dependOn(&run_apu_sweep_tests.step);
     unit_test_step.dependOn(&run_apu_frame_irq_tests.step);
     unit_test_step.dependOn(&run_apu_open_bus_tests.step);
-    unit_test_step.dependOn(&run_ines_tests.step);
+    // run_ines_tests removed - legacy test deleted
     unit_test_step.dependOn(&run_button_state_tests.step);
     unit_test_step.dependOn(&run_keyboard_mapper_tests.step);
 

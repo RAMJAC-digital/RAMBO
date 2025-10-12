@@ -4,7 +4,7 @@
 //! Following the hybrid architecture pattern: State contains data + convenience methods.
 
 const std = @import("std");
-const Mirroring = @import("../cartridge/ines.zig").Mirroring;
+const Mirroring = @import("../cartridge/ines/mod.zig").MirroringMode;
 const NromCart = @import("../cartridge/Cartridge.zig").NromCart;
 
 /// PPU Control Register ($2000)
@@ -102,7 +102,7 @@ pub const PpuStatus = packed struct(u8) {
     open_bus: u5 = 0, // Bits 0-4: Open bus
     sprite_overflow: bool = false, // Bit 5
     sprite_0_hit: bool = false, // Bit 6
-    _reserved: bool = false, // Bit 7: Reserved (was vblank, now in VBlankLedger)
+    _unused: bool = false, // Bit 7: Unused (VBlank flag moved to VBlankLedger)
 
     /// Convert to byte representation
     /// Open bus bits come from PPU data bus latch

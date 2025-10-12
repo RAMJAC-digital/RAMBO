@@ -246,36 +246,11 @@ pub const EmulationState = struct {
         self.cpu.nmi_line = false;
     }
 
-    /// DEPRECATED: Legacy function removed - use VBlankLedger API directly
-    /// Tests should use ledger methods instead of manually setting flags
-    pub fn syncDerivedSignals(self: *EmulationState) void {
-        // NO-OP: This function is deprecated. The VBlankLedger is the single source
-        // of truth for NMI state. Tests should use:
-        // - state.vblank_ledger.recordVBlankSet() instead of setting ppu.status.vblank
-        // - state.vblank_ledger.recordCtrlToggle() instead of setting ppu.ctrl.nmi_enable
-        _ = self;
-    }
-
     // =========================================================================
     // Test Helper Functions
     // =========================================================================
     // These functions coordinate VBlank flag changes with the VBlankLedger
     // to ensure tests properly simulate hardware behavior
-
-    /// TEST HELPER: Simulate VBlank flag set with ledger coordination
-    /// VBlank Migration (Phase 4): Helper removed - use ledger directly
-    /// Call: state.vblank_ledger.recordVBlankSet(state.clock.ppu_cycles, nmi_enabled)
-    pub fn testSetVBlank(self: *EmulationState) void {
-        const nmi_enabled = self.ppu.ctrl.nmi_enable;
-        self.vblank_ledger.recordVBlankSet(self.clock.ppu_cycles, nmi_enabled);
-    }
-
-    /// TEST HELPER: Simulate VBlank flag clear with ledger coordination
-    /// VBlank Migration (Phase 4): Helper removed - use ledger directly
-    /// Call: state.vblank_ledger.recordVBlankSpanEnd(state.clock.ppu_cycles)
-    pub fn testClearVBlank(self: *EmulationState) void {
-        self.vblank_ledger.recordVBlankSpanEnd(self.clock.ppu_cycles);
-    }
 
     /// TEST HELPER: Simulate PPUCTRL NMI enable toggle with ledger coordination
     /// Use this in tests instead of manually setting ppu.ctrl.nmi_enable

@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **RAMBO** is a cycle-accurate NES emulator written in Zig 0.15.1, targeting hardware-accurate 6502/2C02 emulation with cycle-level precision validated against the AccuracyCoin test suite.
 
-**Current Status:** ~99% complete, 955/967 tests passing, AccuracyCoin PASSING ✅
+**Current Status:** ~99% complete, 949/986 tests passing (96.2%), AccuracyCoin PASSING ✅
 
 ## Build Commands
 
@@ -15,7 +15,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 zig build
 
 # Run tests
-zig build test              # All tests (955/967 passing)
+zig build test              # All tests (949/986 passing)
 zig build test-unit         # Unit tests only (fast)
 zig build test-integration  # Integration tests only
 zig build bench-release     # Release-optimized benchmarks
@@ -184,7 +184,7 @@ src/
 ├── cpu/              # 6502 CPU emulation
 │   ├── State.zig         # CPU registers and microstep state
 │   ├── Logic.zig         # Pure CPU functions
-│   ├── opcodes/          # All 256 opcodes (14 modules)
+│   ├── opcodes/          # All 256 opcodes (13 modules)
 │   ├── decode.zig        # Opcode decoding tables
 │   └── dispatch.zig      # Opcode → executor mapping
 ├── ppu/              # 2C02 PPU emulation
@@ -192,7 +192,7 @@ src/
 │   ├── Logic.zig         # PPU operations (background + sprite rendering)
 │   ├── palette.zig       # NES color palette (64 colors)
 │   └── timing.zig        # PPU timing constants (341 dots × 262 scanlines)
-├── apu/              # Audio Processing Unit (86% complete)
+├── apu/              # Audio Processing Unit (emulation logic 100%, audio output TODO)
 │   ├── State.zig         # APU channels, frame counter
 │   ├── Logic.zig         # APU operations
 │   ├── Dmc.zig           # DMC channel
@@ -252,7 +252,7 @@ src/
 
 ```bash
 # Before committing
-zig build test  # Must pass (955/967 expected, 12 failing - see KNOWN-ISSUES.md)
+zig build test  # Must pass (949/986 expected, 12 failing - see KNOWN-ISSUES.md)
 
 # Verify no regressions
 git diff --stat
@@ -309,7 +309,7 @@ git commit -m "type(scope): description"
 
 **Fix Required:** Modify `src/ppu/logic/registers.zig:46` to prevent clearing VBlank flag on the same cycle it was set. Need to track `last_vblank_set_cycle` and compare before clearing.
 
-**See:** `docs/investigations/vblank-flag-race-condition-2025-10-10.md` for complete analysis
+**See:** `docs/archive/sessions-2025-10-09-10/vblank-flag-race-condition-2025-10-10.md` for complete analysis
 
 ### Threading Tests (Low Priority)
 
@@ -317,7 +317,7 @@ git commit -m "type(scope): description"
 
 ## Test Coverage
 
-**Total:** 955/967 tests passing (98.8%)
+**Total:** 949/986 tests passing (96.2%), 25 skipped, 12 failing
 
 **Recent Fixes (2025-10-09):**
 - ✅ Fixed BRK flag masking in hardware interrupts
@@ -345,7 +345,7 @@ See: `docs/KNOWN-ISSUES.md` for details
 | Mailboxes | 57 | ✅ All passing |
 | Input System | 40 | ✅ All passing |
 | Cartridge | ~48 | ✅ All passing |
-| Threading | 14 | ⚠️ 13/14 passing |
+| Threading | 14 | ⚠️ 10/14 passing, 4 skipped |
 | Config | ~30 | ✅ All passing |
 | iNES | 26 | ✅ All passing |
 | Snapshot | ~23 | ✅ All passing |
@@ -414,8 +414,7 @@ See `compiler/README.md` for details.
 **Key Principle:** Hardware accuracy first. Cycle-accurate execution over performance optimization.
 
 **Version:** 0.2.0-alpha
-**Last Updated:** 2025-10-09
-**Status:** 955/967 tests passing, AccuracyCoin PASSING ✅
-**Current Task:** Super Mario Bros blank screen investigation (debugger working, root cause identified)
-
-**Next Session:** Use debugger to find SMB initialization loop, determine fix
+**Last Updated:** 2025-10-11
+**Status:** 949/986 tests passing (96.2%), AccuracyCoin PASSING ✅
+**Documentation:** Comprehensive audit completed 2025-10-11 (see docs/DOCUMENTATION-AUDIT-2025-10-11.md)
+**Current Task:** Super Mario Bros blank screen investigation (VBlank migration Phases 1-4 completed)

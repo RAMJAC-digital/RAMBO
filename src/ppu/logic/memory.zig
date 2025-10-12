@@ -8,7 +8,7 @@
 
 const PpuState = @import("../State.zig").PpuState;
 const AnyCartridge = @import("../../cartridge/mappers/registry.zig").AnyCartridge;
-const Mirroring = @import("../../cartridge/ines.zig").Mirroring;
+const Mirroring = @import("../../cartridge/ines/mod.zig").MirroringMode;
 
 /// Mirror nametable address based on mirroring mode
 /// Returns address in 0-2047 range (2KB VRAM)
@@ -54,6 +54,11 @@ fn mirrorNametableAddress(address: u16, mirroring: Mirroring) u16 {
             // Requires 4KB external VRAM on cartridge
             // For now, mirror to 2KB (will need cartridge support later)
             break :blk addr & 0x07FF;
+        },
+        .single_screen => blk: {
+            // Single-screen mirroring (all map to same 1KB)
+            // Used by some mapper configurations
+            break :blk addr & 0x03FF; // First 1KB only
         },
     };
 }

@@ -29,28 +29,6 @@ pub fn init() CpuState {
     };
 }
 
-/// Reset CPU (via RESET interrupt)
-/// Note: Side effects (bus reads, state mutations) handled by EmulationState
-/// This is kept for reference but not used in new architecture
-pub fn reset(cpu: *CpuState, reset_vector: u16) void {
-    // Decrement SP by 3 (but don't write to stack)
-    cpu.sp -%= 3;
-
-    // Set interrupt disable flag
-    cpu.p.interrupt = true;
-
-    // Jump to reset vector
-    cpu.pc = reset_vector;
-
-    // Reset to fetch state
-    cpu.state = .fetch_opcode;
-    cpu.instruction_cycle = 0;
-    cpu.pending_interrupt = .none;
-
-    // Clear halted state - RESET recovers from JAM/KIL
-    cpu.halted = false;
-}
-
 /// Convert full CPU state to core CPU state (6502 registers + effective address)
 ///
 /// Pure opcode functions operate on immutable 6502 state plus addressing context.

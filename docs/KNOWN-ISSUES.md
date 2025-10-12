@@ -441,7 +441,7 @@ See `docs/sessions/debugger-quick-start.md` for debugger usage:
 - ✅ FIXED: Background fine_x panic (masked to 3 bits)
 - ✅ FIXED: Debugger output (handleCpuSnapshot now functional)
 - 🔄 INVESTIGATING: Super Mario Bros blank screen (root cause: stuck in initialization loop)
-- Test suite status: 955/967 passing (98.8%)
+- Test suite status: 949/986 passing (96.2%)
 
 **Previous Session Changes (2025-10-09 - Morning):**
 - ✅ FIXED: Odd frame skip timing bug (clock scheduling refactor)

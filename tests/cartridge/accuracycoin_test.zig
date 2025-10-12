@@ -57,7 +57,7 @@ test "Load AccuracyCoin.nes" {
     try testing.expectEqual(@as(u8, 0), cart.header.getMapperNumber());
     try testing.expectEqual(@as(usize, 32768), cart.header.getPrgRomSize()); // 32KB PRG ROM
     try testing.expectEqual(@as(usize, 8192), cart.header.getChrRomSize()); // 8KB CHR ROM
-    try testing.expect(!cart.header.hasBatteryRam());
+    try testing.expect(!cart.header.hasBattery());
     try testing.expect(!cart.header.hasTrainer());
 
     // Verify mirroring

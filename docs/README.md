@@ -1,8 +1,8 @@
 # RAMBO Documentation Hub
 
-**Last Updated:** 2025-10-09
-**Test Status:** 955/967 passing (98.8%)
-**Current Phase:** Super Mario Bros Blank Screen Investigation
+**Last Updated:** 2025-10-11
+**Test Status:** 949/986 passing (96.2%)
+**Documentation Audit:** ✅ Completed 2025-10-11 (see DOCUMENTATION-AUDIT-2025-10-11.md)
 
 ---
 
@@ -34,15 +34,13 @@
 ```
 docs/
 ├── README.md                          # This file - navigation hub
-├── CURRENT-STATUS.md                  # Single source of truth for current status
 ├── KNOWN-ISSUES.md                    # Current bugs and investigations
-├── MAILBOX-ARCHITECTURE.md            # Mailbox system design
+├── DOCUMENTATION-AUDIT-2025-10-11.md  # Comprehensive documentation audit report
 │
-├── sessions/                          # Development session notes
-│   ├── session-summary-2025-10-09.md  # Latest session summary
-│   ├── smb-investigation-plan.md      # Super Mario Bros debugging
-│   ├── debugger-quick-start.md        # Debugger usage guide
-│   └── ...
+├── sessions/                          # Active session documentation
+│   ├── debugger-quick-start.md        # Debugger usage guide (active)
+│   ├── smb-investigation-plan.md      # Super Mario Bros debugging (active)
+│   └── smb-nmi-handler-investigation.md  # SMB NMI analysis (active)
 │
 ├── architecture/                      # System architecture
 │   ├── apu.md                        # APU implementation (86% complete)
@@ -68,13 +66,10 @@ docs/
 │   └── CLAUDE-MD-ACCURACY-AUDIT-2025-10-07.md
 │
 └── archive/                           # Historical documentation
-    ├── completed-phases/              # Archived phase documentation
-    │   ├── phase-0/                  # CPU implementation
-    │   ├── phase-8-planning/         # Video subsystem planning
-    │   └── ...
-    ├── audits-historical/            # Old audits
-    ├── apu-planning-historical/      # Old APU planning
-    └── ...
+    ├── sessions-2025-10-09-10/       # Oct 9-10 VBlank investigation (27 files)
+    ├── graphviz-audits/              # GraphViz audit artifacts (8 files)
+    ├── completed-phases/             # Archived phase documentation
+    └── [Other historical archives]
 ```
 
 ### Root Level Documentation
@@ -226,10 +221,19 @@ For full details, see [CURRENT-STATUS.md](CURRENT-STATUS.md).
 
 See **[Session Summary](sessions/session-summary-2025-10-09.md)** for complete details.
 
-### Documentation Updates (2025-10-09)
+### Documentation Updates (2025-10-11)
 
 **Latest:**
-- ✅ Updated CLAUDE.md with accurate test counts (955/967)
+- ✅ Comprehensive documentation audit completed (100% accuracy achieved)
+- ✅ Updated all test counts to 949/986 (was 955/967 in 9 locations)
+- ✅ Fixed architecture.dot mailbox count (9→7, identified 4 orphaned files)
+- ✅ Added 19 missing debugger API methods to debugger-api.md
+- ✅ Verified all GraphViz diagrams (95-98% accuracy)
+- ✅ Updated VBlank migration documentation in ppu-module-structure.dot
+- ✅ See: DOCUMENTATION-AUDIT-FINAL-REPORT-2025-10-11.md for complete details
+
+**Previous (2025-10-09):**
+- ✅ Updated CLAUDE.md with test counts
 - ✅ Updated README.md with recent fixes and current focus
 - ✅ Updated KNOWN-ISSUES.md with SMB investigation
 - ✅ Updated docs/README.md navigation
@@ -242,7 +246,7 @@ See **[Session Summary](sessions/session-summary-2025-10-09.md)** for complete d
 
 ### Test Status
 
-**Latest:** 955/967 passing (98.8%)
+**Latest:** 949/986 passing (96.2%)
 **Previous:** 920/926 passing (99.4%)
 
 ---
@@ -346,7 +350,8 @@ Historical documentation is preserved in `docs/archive/`:
 
 ---
 
-**Documentation Last Audited:** 2025-10-09
-**Next Audit:** After SMB investigation complete
+**Documentation Last Audited:** 2025-10-11
+**Audit Status:** ✅ Comprehensive audit completed
+**See:** DOCUMENTATION-AUDIT-2025-10-11.md for complete findings
 
 Happy emulating!

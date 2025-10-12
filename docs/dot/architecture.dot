@@ -1,5 +1,6 @@
 // RAMBO NES Emulator - System Architecture
 // Generated: 2025-10-09
+// Updated: 2025-10-11 (mailbox count corrected: 7 active, not 9)
 // This diagram shows the complete system architecture with all major components
 
 digraph RAMBO_Architecture {
@@ -38,18 +39,19 @@ digraph RAMBO_Architecture {
 
     // ========== MAILBOX COMMUNICATION ==========
     subgraph cluster_mailboxes {
-        label="Lock-Free Mailboxes\n(Thread Communication)";
+        label="Lock-Free Mailboxes\n(Thread Communication)\n7 Active Mailboxes";
         style=filled;
         fillcolor=lavender;
 
         subgraph cluster_mailbox_core {
-            label="Core Mailboxes";
+            label="Emulation I/O";
             style=dashed;
 
-            frame_mb [label="FrameMailbox\n(Double-Buffered)", shape=cylinder];
+            frame_mb [label="FrameMailbox\n(Triple-Buffered)", shape=cylinder];
             ctrl_mb [label="ControllerInputMailbox\n(Button State)", shape=cylinder];
             dbg_cmd_mb [label="DebugCommandMailbox\n(Breakpoints)", shape=cylinder];
             dbg_evt_mb [label="DebugEventMailbox\n(Events)", shape=cylinder];
+            emu_cmd_mb [label="EmulationCommandMailbox\n(Pause/Reset)", shape=cylinder];
         }
 
         subgraph cluster_mailbox_window {
@@ -60,14 +62,9 @@ digraph RAMBO_Architecture {
             xdg_window_mb [label="XdgWindowEventMailbox\n(Resize/Close)", shape=cylinder];
         }
 
-        subgraph cluster_mailbox_control {
-            label="Control & Status";
-            style=dashed;
-
-            emu_cmd_mb [label="EmulationCommandMailbox\n(Pause/Reset)", shape=cylinder];
-            emu_status_mb [label="EmulationStatusMailbox\n(Running)", shape=cylinder];
-            speed_mb [label="SpeedControlMailbox\n(Fast-Forward)", shape=cylinder];
-        }
+        // Note: EmulationStatusMailbox, SpeedControlMailbox, ConfigMailbox, RenderStatusMailbox
+        // exist as source files but are NOT integrated into Mailboxes.zig (orphaned).
+        // See: docs/GRAPHVIZ-COMPREHENSIVE-AUDIT-2025-10-11.md for details.
     }
 
     // ========== EMULATION STATE ==========

@@ -8,12 +8,21 @@ Complete guide to using the RAMBO debugger system for interactive debugging and 
 2. [Quick Start](#quick-start)
 3. [Bidirectional Communication](#bidirectional-communication)
 4. [API Reference](#api-reference)
+   - [Initialization](#initialization)
+   - [Callback Registration](#callback-registration)
+   - [Helper Functions](#helper-functions)
 5. [Breakpoint System](#breakpoint-system)
 6. [Watchpoint System](#watchpoint-system)
 7. [Step Execution](#step-execution)
 8. [Execution History](#execution-history)
-9. [Usage Examples](#usage-examples)
-10. [Best Practices](#best-practices)
+9. [State Manipulation](#state-manipulation)
+   - [CPU Register Manipulation](#cpu-register-manipulation)
+   - [CPU Status Flag Manipulation](#cpu-status-flag-manipulation)
+   - [Memory Manipulation](#memory-manipulation)
+   - [PPU State Manipulation](#ppu-state-manipulation)
+   - [Modification History](#modification-history)
+10. [Usage Examples](#usage-examples)
+11. [Best Practices](#best-practices)
 
 ## Overview
 
@@ -321,6 +330,258 @@ pub fn deinit(self: *Debugger) void
 
 **Returns:** Initialized debugger in `.running` mode
 
+### Callback Registration
+
+The debugger supports user-defined callbacks for custom debugging logic. All callbacks must be RT-safe (no heap allocations, no blocking operations).
+
+```zig
+pub fn registerCallback(self: *Debugger, callback: DebugCallback) !void
+pub fn unregisterCallback(self: *Debugger, userdata: *anyopaque) bool
+pub fn clearCallbacks(self: *Debugger) void
+```
+
+**Callback Structure:**
+
+```zig
+pub const DebugCallback = struct {
+    /// Called before each instruction execution
+    /// Return true to break, false to continue
+    /// Receives const state - read-only access
+    onBeforeInstruction: ?*const fn (self: *anyopaque, state: *const EmulationState) bool = null,
+
+    /// Called on memory access (read or write)
+    /// Return true to break, false to continue
+    /// address: Memory address being accessed
+    /// value: Value being read or written
+    /// is_write: true for write, false for read
+    onMemoryAccess: ?*const fn (self: *anyopaque, address: u16, value: u8, is_write: bool) bool = null,
+
+    /// User data pointer (context for callbacks)
+    userdata: *anyopaque,
+};
+```
+
+**Parameters:**
+- `callback`: Callback structure with optional function pointers
+- `userdata`: Opaque pointer for identifying/removing callbacks
+
+**Returns:**
+- `registerCallback`: Error if more than 8 callbacks registered
+- `unregisterCallback`: true if callback was found and removed, false otherwise
+
+**Errors:**
+- `error.TooManyCallbacks`: Maximum of 8 callbacks can be registered simultaneously
+
+**RT-Safety Requirements:**
+
+1. **No Heap Allocations:** Callbacks must not allocate memory
+2. **No Blocking Operations:** No I/O, no mutex locks, no syscalls
+3. **Deterministic Execution:** Callbacks should complete quickly (<1μs)
+4. **Read-Only State:** EmulationState is const, use debugger.readMemory() for inspection
+
+**Example:**
+
+```zig
+const TracerContext = struct {
+    instruction_count: u64 = 0,
+    target_address: u16,
+
+    fn onInstruction(ctx_ptr: *anyopaque, state: *const EmulationState) callconv(.C) bool {
+        const self = @ptrCast(*TracerContext, @alignCast(@alignOf(TracerContext), ctx_ptr));
+        self.instruction_count += 1;
+
+        // Break at specific address
+        if (state.cpu.pc == self.target_address) {
+            return true;  // Trigger break
+        }
+
+        return false;  // Continue execution
+    }
+
+    fn onMemoryWrite(ctx_ptr: *anyopaque, address: u16, value: u8, is_write: bool) callconv(.C) bool {
+        if (!is_write) return false;
+
+        // Break on write to PPU control register
+        if (address == 0x2000) {
+            return true;
+        }
+
+        return false;
+    }
+};
+
+// Register custom callback
+var tracer = TracerContext{ .target_address = 0x8000 };
+const callback = DebugCallback{
+    .onBeforeInstruction = TracerContext.onInstruction,
+    .onMemoryAccess = TracerContext.onMemoryWrite,
+    .userdata = &tracer,
+};
+
+try debugger.registerCallback(callback);
+
+// ... run emulation ...
+
+// Remove callback when done
+_ = debugger.unregisterCallback(&tracer);
+
+// Or clear all callbacks
+debugger.clearCallbacks();
+```
+
+**Advanced Usage - Multiple Callbacks:**
+
+```zig
+// Callback 1: Instruction tracer
+var tracer = InstructionTracer{};
+try debugger.registerCallback(.{
+    .onBeforeInstruction = InstructionTracer.callback,
+    .userdata = &tracer,
+});
+
+// Callback 2: Memory access logger
+var memory_logger = MemoryLogger{};
+try debugger.registerCallback(.{
+    .onMemoryAccess = MemoryLogger.callback,
+    .userdata = &memory_logger,
+});
+
+// Callback 3: Conditional breakpoint
+var conditional = ConditionalBreak{ .break_if_a_equals = 0x42 };
+try debugger.registerCallback(.{
+    .onBeforeInstruction = ConditionalBreak.callback,
+    .userdata = &conditional,
+});
+
+// All three callbacks will be invoked in registration order
+```
+
+**Common Patterns:**
+
+```zig
+// 1. Instruction count limiting
+const CountLimiter = struct {
+    max_instructions: u64,
+    count: u64 = 0,
+
+    fn callback(ctx: *anyopaque, _: *const EmulationState) bool {
+        const self = @ptrCast(*CountLimiter, @alignCast(@alignOf(CountLimiter), ctx));
+        self.count += 1;
+        return self.count >= self.max_instructions;
+    }
+};
+
+// 2. Address range breakpoint
+const RangeBreak = struct {
+    start: u16,
+    end: u16,
+
+    fn callback(ctx: *anyopaque, state: *const EmulationState) bool {
+        const self = @ptrCast(*RangeBreak, @alignCast(@alignOf(RangeBreak), ctx));
+        return state.cpu.pc >= self.start and state.cpu.pc < self.end;
+    }
+};
+
+// 3. Register condition breakpoint
+const RegisterCondition = struct {
+    fn callback(_: *anyopaque, state: *const EmulationState) bool {
+        // Break if A == X and Y != 0
+        return state.cpu.a == state.cpu.x and state.cpu.y != 0;
+    }
+};
+```
+
+### Helper Functions
+
+```zig
+pub fn getBreakReason(self: *const Debugger) ?[]const u8
+pub fn isPaused(self: *const Debugger) bool
+pub fn hasMemoryTriggers(self: *const Debugger) bool
+```
+
+**getBreakReason:**
+
+Returns the reason for the last break event, or null if no break has occurred.
+
+**Returns:** String describing why execution paused (null if never paused)
+
+**Example:**
+
+```zig
+if (try debugger.shouldBreak(&state)) {
+    if (debugger.getBreakReason()) |reason| {
+        std.debug.print("Execution paused: {s}\n", .{reason});
+    }
+
+    // Typical reasons:
+    // "Breakpoint at $8000 (hit count: 1)"
+    // "Watchpoint: write $2000 = $90"
+    // "Step instruction"
+    // "Step over complete"
+    // "User callback break"
+}
+```
+
+**isPaused:**
+
+Fast check for whether debugger is currently in paused state.
+
+**Returns:** true if mode is `.paused`, false otherwise
+
+**Example:**
+
+```zig
+// Check if debugger is waiting for user input
+if (debugger.isPaused()) {
+    try showDebuggerPrompt(&debugger, &state);
+} else {
+    // Continue normal execution
+    try state.tick();
+}
+
+// Equivalent to:
+if (debugger.state.mode == .paused) { ... }
+```
+
+**hasMemoryTriggers:**
+
+Fast check for any active memory breakpoints or watchpoints. Optimization hint for emulation loop.
+
+**Returns:** true if any read/write/access breakpoints or watchpoints are enabled
+
+**Example:**
+
+```zig
+// Optimize emulation loop - only check memory access if triggers exist
+while (running) {
+    if (try debugger.shouldBreak(&state)) {
+        // Handle breakpoint
+        break;
+    }
+
+    // Execute instruction
+    const address = state.cpu.readByte();  // Example memory access
+
+    // Only check if memory triggers exist (performance optimization)
+    if (debugger.hasMemoryTriggers()) {
+        if (try debugger.checkMemoryAccess(&state, address, value, is_write)) {
+            // Handle memory watchpoint
+            break;
+        }
+    }
+
+    try state.tick();
+}
+```
+
+**Performance Considerations:**
+
+- `isPaused()`: O(1) - simple enum comparison
+- `hasMemoryTriggers()`: O(1) - checks breakpoint/watchpoint counts
+- `getBreakReason()`: O(1) - returns pre-formatted string slice
+
+All helper functions are inline and have zero overhead in release builds.
+
 ## Breakpoint System
 
 ### Breakpoint Types
@@ -559,6 +820,318 @@ while (running) {
 const restored_state = try debugger.restoreFromHistory(5, cartridge);
 // Time-travel debugging: state is now at history[5]
 ```
+
+## State Manipulation
+
+The debugger provides comprehensive state manipulation for testing, save state editing, and dynamic debugging scenarios. All mutations are tracked in the modification history for transparency.
+
+### CPU Register Manipulation
+
+```zig
+pub fn setRegisterA(self: *Debugger, state: *EmulationState, value: u8) void
+pub fn setRegisterX(self: *Debugger, state: *EmulationState, value: u8) void
+pub fn setRegisterY(self: *Debugger, state: *EmulationState, value: u8) void
+pub fn setStackPointer(self: *Debugger, state: *EmulationState, value: u8) void
+pub fn setProgramCounter(self: *Debugger, state: *EmulationState, value: u16) void
+```
+
+**Parameters:**
+- `self`: Debugger instance
+- `state`: Mutable EmulationState reference
+- `value`: New register value (u8 for 8-bit registers, u16 for PC)
+
+**Side Effects:**
+- Modifies CPU register immediately
+- Records modification in modification history
+- Does NOT trigger breakpoints or watchpoints
+
+**Example:**
+
+```zig
+// Initialize CPU registers for testing
+debugger.setRegisterA(&state, 0x42);
+debugger.setRegisterX(&state, 0x10);
+debugger.setRegisterY(&state, 0x20);
+debugger.setStackPointer(&state, 0xFF);
+debugger.setProgramCounter(&state, 0x8000);
+
+// Simulate JSR by manipulating PC and SP
+const return_addr = state.cpu.pc + 2;
+debugger.setStackPointer(&state, state.cpu.sp -% 2);
+debugger.setProgramCounter(&state, 0xC000);
+
+// Verify modifications were tracked
+const mods = debugger.getModifications();
+std.debug.print("Recorded {} modifications\n", .{mods.len});
+```
+
+### CPU Status Flag Manipulation
+
+```zig
+pub fn setStatusFlag(
+    self: *Debugger,
+    state: *EmulationState,
+    flag: StatusFlag,
+    value: bool,
+) void
+
+pub fn setStatusRegister(self: *Debugger, state: *EmulationState, value: u8) void
+```
+
+**Status Flags:**
+
+```zig
+pub const StatusFlag = enum {
+    carry,      // Bit 0: Carry flag
+    zero,       // Bit 1: Zero flag
+    interrupt,  // Bit 2: Interrupt disable
+    decimal,    // Bit 3: Decimal mode (not used on NES)
+    overflow,   // Bit 6: Overflow flag
+    negative,   // Bit 7: Negative flag
+};
+```
+
+**Parameters:**
+- `flag`: Individual status flag to modify
+- `value`: true to set flag, false to clear flag
+- For `setStatusRegister`: raw u8 value (bits 4-5 ignored per 6502 spec)
+
+**Example:**
+
+```zig
+// Set individual flags
+debugger.setStatusFlag(&state, .carry, true);
+debugger.setStatusFlag(&state, .zero, false);
+debugger.setStatusFlag(&state, .overflow, true);
+
+// Verify flag state
+const carry_set = (state.cpu.p.raw() & 0x01) != 0;
+try testing.expect(carry_set);
+
+// Set complete status register (bits 4-5 ignored)
+debugger.setStatusRegister(&state, 0b1010_0101);
+// Result: Carry=1, Zero=1, Interrupt=0, Decimal=0, Overflow=1, Negative=1
+
+// Common use case: Force specific condition for testing
+debugger.setStatusFlag(&state, .zero, true);  // Force Z=1 for BEQ test
+debugger.setStatusFlag(&state, .carry, false); // Force C=0 for BCC test
+```
+
+### Memory Manipulation
+
+```zig
+pub fn writeMemory(
+    self: *Debugger,
+    state: *EmulationState,
+    address: u16,
+    value: u8,
+) void
+
+pub fn writeMemoryRange(
+    self: *Debugger,
+    state: *EmulationState,
+    start_address: u16,
+    data: []const u8,
+) void
+
+pub fn readMemory(
+    self: *Debugger,
+    state: *const EmulationState,
+    address: u16,
+) u8
+
+pub fn readMemoryRange(
+    self: *Debugger,
+    allocator: std.mem.Allocator,
+    state: *const EmulationState,
+    start_address: u16,
+    length: u16,
+) ![]u8
+```
+
+**Write Operations:**
+
+**Parameters:**
+- `address` / `start_address`: Target memory address (6502 address space: $0000-$FFFF)
+- `value`: Byte value to write
+- `data`: Slice of bytes to write sequentially
+
+**Side Effects:**
+- Writes through normal bus (triggers PPU/APU register writes)
+- Records modification in history
+- Does NOT trigger watchpoints during debugger writes
+
+**Read Operations:**
+
+**Parameters:**
+- `address` / `start_address`: Memory address to read
+- `length`: Number of bytes to read
+- `allocator`: For range reads, allocates return buffer (caller must free)
+
+**Returns:**
+- `readMemory`: Single byte value
+- `readMemoryRange`: Allocated slice (caller owns memory)
+
+**Side Effects:**
+- Reads WITHOUT side effects (safe for inspection)
+- Does NOT trigger PPU latch updates or port reads
+- Does NOT increment DMC address or other hardware state
+
+**Example:**
+
+```zig
+// Write test data to zero page
+const test_data = [_]u8{ 0x01, 0x02, 0x03, 0x04 };
+debugger.writeMemoryRange(&state, 0x00, &test_data);
+
+// Write single byte
+debugger.writeMemory(&state, 0x10, 0xFF);
+
+// Read for verification (no side effects)
+const value = debugger.readMemory(&state, 0x10);
+try testing.expectEqual(@as(u8, 0xFF), value);
+
+// Read range for analysis
+const buffer = try debugger.readMemoryRange(allocator, &state, 0x0000, 256);
+defer allocator.free(buffer);
+
+// Dump zero page contents
+for (buffer, 0..) |byte, i| {
+    if (i % 16 == 0) std.debug.print("\n${X:0>4}:", .{i});
+    std.debug.print(" {X:0>2}", .{byte});
+}
+
+// Safe PPU register inspection (no latch side effects)
+const ppu_ctrl = debugger.readMemory(&state, 0x2000);
+const ppu_status = debugger.readMemory(&state, 0x2002);  // Does NOT clear vblank!
+```
+
+**Important Notes:**
+
+1. **Bus Routing:** Writes go through the normal bus system:
+   - `$0000-$07FF`: Internal RAM (mirrored to $1FFF)
+   - `$2000-$3FFF`: PPU registers (mirrored every 8 bytes)
+   - `$4000-$4017`: APU/IO registers
+   - `$8000-$FFFF`: Cartridge ROM/RAM
+
+2. **Side-Effect-Free Reads:** `readMemory()` bypasses hardware side effects:
+   - Reading `$2002` does NOT clear VBlank flag
+   - Reading `$2007` does NOT increment VRAM address
+   - Reading `$4016/$4017` does NOT shift controller latches
+
+3. **Watchpoint Suppression:** Debugger writes do NOT trigger watchpoints (prevents infinite recursion during debugging).
+
+### PPU State Manipulation
+
+```zig
+pub fn setPpuScanline(self: *Debugger, state: *EmulationState, scanline: u16) void
+pub fn setPpuFrame(self: *Debugger, state: *EmulationState, frame: u64) void
+```
+
+**Parameters:**
+- `scanline`: PPU scanline number (0-261, NTSC timing)
+  - 0-239: Visible scanlines
+  - 240: Post-render scanline
+  - 241-260: VBlank period
+  - 261: Pre-render scanline
+- `frame`: PPU frame counter (increments at scanline 0)
+
+**Side Effects:**
+- Directly modifies PPU timing state
+- Does NOT trigger VBlank NMI or other PPU events
+- Recorded in modification history
+
+**Example:**
+
+```zig
+// Jump to VBlank period for testing
+debugger.setPpuScanline(&state, 241);
+
+// Fast-forward to specific frame
+debugger.setPpuFrame(&state, 100);
+
+// Test VBlank flag behavior at scanline boundary
+debugger.setPpuScanline(&state, 240);  // Pre-VBlank
+const status_before = debugger.readMemory(&state, 0x2002);
+debugger.setPpuScanline(&state, 241);  // VBlank start
+const status_after = debugger.readMemory(&state, 0x2002);
+try testing.expect((status_after & 0x80) != 0);  // VBlank flag set
+
+// Verify frame timing
+const initial_frame = state.clock.frame();
+debugger.setPpuFrame(&state, initial_frame + 10);
+try testing.expectEqual(initial_frame + 10, state.clock.frame());
+```
+
+### Modification History
+
+All state manipulations are tracked for transparency and debugging:
+
+```zig
+pub fn getModifications(self: *const Debugger) []const StateModification
+pub fn clearModifications(self: *Debugger) void
+```
+
+**State Modification Types:**
+
+```zig
+pub const StateModification = union(enum) {
+    register_a: u8,
+    register_x: u8,
+    register_y: u8,
+    stack_pointer: u8,
+    program_counter: u16,
+    status_flag: struct { flag: StatusFlag, value: bool },
+    status_register: u8,
+    memory_write: struct { address: u16, value: u8 },
+    memory_range: struct { start: u16, length: u16 },
+    ppu_ctrl: u8,
+    ppu_mask: u8,
+    ppu_scroll: struct { x: u8, y: u8 },
+    ppu_addr: u16,
+    ppu_vram: struct { address: u16, value: u8 },
+    ppu_scanline: u16,
+    ppu_frame: u64,
+};
+```
+
+**Parameters:**
+- `getModifications()`: Returns slice of all recorded modifications (read-only)
+- `clearModifications()`: Clears modification history
+
+**Example:**
+
+```zig
+// Perform several modifications
+debugger.setRegisterA(&state, 0x42);
+debugger.setProgramCounter(&state, 0x8000);
+debugger.writeMemory(&state, 0x2000, 0x90);
+
+// Review modification history
+const mods = debugger.getModifications();
+std.debug.print("Recorded {} modifications:\n", .{mods.len});
+
+for (mods) |mod| {
+    switch (mod) {
+        .register_a => |val| std.debug.print("  A = ${X:0>2}\n", .{val}),
+        .program_counter => |val| std.debug.print("  PC = ${X:0>4}\n", .{val}),
+        .memory_write => |data| std.debug.print("  [{X:0>4}] = ${X:0>2}\n",
+            .{data.address, data.value}),
+        else => {},
+    }
+}
+
+// Clear history for next test
+debugger.clearModifications();
+try testing.expectEqual(@as(usize, 0), debugger.getModifications().len);
+```
+
+**Use Cases:**
+
+1. **Test Verification:** Ensure test setup modifies only intended state
+2. **Save State Editing:** Track what changed when editing save states
+3. **Debugging Transparency:** Understand what debugger changed vs. emulation
+4. **Undo Support:** Potential future feature for reverting modifications
 
 ### Statistics
 
@@ -810,9 +1383,17 @@ Execution history uses the snapshot system:
 
 ---
 
-**Last Updated:** 2025-10-08
-**Version:** 1.1
-**RAMBO Version:** 0.1.0
+**Last Updated:** 2025-10-11
+**Version:** 1.2
+**RAMBO Version:** 0.2.0-alpha
 **Changelog:**
+- 2025-10-11: Added comprehensive documentation for 19 missing methods:
+  - CPU register manipulation (5 methods)
+  - CPU status flag manipulation (2 methods)
+  - Memory manipulation (4 methods)
+  - PPU state manipulation (2 methods)
+  - Modification history (2 methods)
+  - Callback registration (3 methods)
+  - Helper functions (3 methods)
 - 2025-10-08: Added bidirectional mailbox communication section
 - 2025-10-04: Initial debugger API documentation
