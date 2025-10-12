@@ -30,7 +30,7 @@ pub fn countColorPixels(framebuffer: []const u32, color: u32) usize {
     return count;
 }
 
-/// Calculate CRC64 hash for framebuffer
+/// Calculate CRC32 hash for framebuffer
 /// Useful for visual regression testing
 pub fn framebufferHash(framebuffer: []const u32) u64 {
     const hasher = std.hash.Crc32.hash(std.mem.sliceAsBytes(framebuffer));
