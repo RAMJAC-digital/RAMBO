@@ -163,7 +163,6 @@ pub const RomTestRunner = struct {
         const cycles_per_frame = 29781; // More accurate than 29780
 
         var cycles_executed: usize = 0;
-        const start_cpu_state = self.state.cpu.state;
 
         while (cycles_executed < cycles_per_frame) {
             const cycles_before = self.state.clock.cpuCycles();
