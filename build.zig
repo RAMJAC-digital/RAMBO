@@ -811,10 +811,10 @@ pub fn build(b: *std.Build) void {
 
     const run_state_tests = b.addRunArtifact(state_tests);
 
-    // Debugger integration tests
-    const debugger_integration_tests = b.addTest(.{
+    // Debugger isolation tests
+    const debugger_isolation_tests = b.addTest(.{
         .root_module = b.createModule(.{
-            .root_source_file = b.path("tests/debugger/debugger_test.zig"),
+            .root_source_file = b.path("tests/debugger/isolation_test.zig"),
             .target = target,
             .optimize = optimize,
             .imports = &.{
@@ -823,7 +823,91 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
-    const run_debugger_integration_tests = b.addRunArtifact(debugger_integration_tests);
+    const run_debugger_isolation_tests = b.addRunArtifact(debugger_isolation_tests);
+
+    // Debugger callbacks tests
+    const debugger_callbacks_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/debugger/callbacks_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+
+    const run_debugger_callbacks_tests = b.addRunArtifact(debugger_callbacks_tests);
+
+    // Debugger integration tests (history, statistics, limits)
+    const debugger_integration_tests2 = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/debugger/integration_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+
+    const run_debugger_integration_tests2 = b.addRunArtifact(debugger_integration_tests2);
+
+    // Debugger breakpoints tests
+    const debugger_breakpoints_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/debugger/breakpoints_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+
+    const run_debugger_breakpoints_tests = b.addRunArtifact(debugger_breakpoints_tests);
+
+    // Debugger watchpoints tests
+    const debugger_watchpoints_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/debugger/watchpoints_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+
+    const run_debugger_watchpoints_tests = b.addRunArtifact(debugger_watchpoints_tests);
+
+    // Debugger step execution tests
+    const debugger_step_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/debugger/step_execution_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+
+    const run_debugger_step_tests = b.addRunArtifact(debugger_step_tests);
+
+    // Debugger state manipulation tests
+    const debugger_state_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/debugger/state_manipulation_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+
+    const run_debugger_state_tests = b.addRunArtifact(debugger_state_tests);
 
     // APU unit tests
     const apu_tests = b.addTest(.{
@@ -1082,7 +1166,13 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_vblank_behavior_tests.step);
     test_step.dependOn(&run_snapshot_integration_tests.step);
     test_step.dependOn(&run_state_tests.step);
-    test_step.dependOn(&run_debugger_integration_tests.step);
+    test_step.dependOn(&run_debugger_isolation_tests.step);
+    test_step.dependOn(&run_debugger_callbacks_tests.step);
+    test_step.dependOn(&run_debugger_integration_tests2.step);
+    test_step.dependOn(&run_debugger_breakpoints_tests.step);
+    test_step.dependOn(&run_debugger_watchpoints_tests.step);
+    test_step.dependOn(&run_debugger_step_tests.step);
+    test_step.dependOn(&run_debugger_state_tests.step);
     test_step.dependOn(&run_apu_tests.step);
     test_step.dependOn(&run_apu_length_counter_tests.step);
     test_step.dependOn(&run_apu_dmc_tests.step);
@@ -1139,7 +1229,13 @@ pub fn build(b: *std.Build) void {
     integration_test_step.dependOn(&run_sprite_edge_cases_tests.step);
     integration_test_step.dependOn(&run_vblank_nmi_timing_tests.step);
     integration_test_step.dependOn(&run_snapshot_integration_tests.step);
-    integration_test_step.dependOn(&run_debugger_integration_tests.step);
+    integration_test_step.dependOn(&run_debugger_isolation_tests.step);
+    integration_test_step.dependOn(&run_debugger_callbacks_tests.step);
+    integration_test_step.dependOn(&run_debugger_integration_tests2.step);
+    integration_test_step.dependOn(&run_debugger_breakpoints_tests.step);
+    integration_test_step.dependOn(&run_debugger_watchpoints_tests.step);
+    integration_test_step.dependOn(&run_debugger_step_tests.step);
+    integration_test_step.dependOn(&run_debugger_state_tests.step);
     integration_test_step.dependOn(&run_dpcm_dma_tests.step);
     integration_test_step.dependOn(&run_benchmark_tests.step);
     integration_test_step.dependOn(&run_threading_tests.step);
