@@ -1,16 +1,12 @@
 const std = @import("std");
 const testing = std.testing;
 const RAMBO = @import("RAMBO");
-const EmulationState = RAMBO.EmulationState.EmulationState;
-const Config = RAMBO.Config;
+const Harness = RAMBO.TestHarness.Harness;
 
 test "DMC DMA: RDY line stalls CPU for 4 cycles" {
-    var config = Config.Config.init(testing.allocator);
-    defer config.deinit();
-
-    var state = EmulationState.init(&config);
-    defer state.deinit();
-    state.reset();
+    var harness = try Harness.init();
+    defer harness.deinit();
+    var state = &harness.state;
 
     // Initialize DMC state with a sample loaded to avoid underflow
     state.apu.dmc_bytes_remaining = 10;
@@ -38,13 +34,10 @@ test "DMC DMA: RDY line stalls CPU for 4 cycles" {
 }
 
 test "DMC DMA: Controller corruption on NTSC" {
-    var config = Config.Config.init(testing.allocator);
-    defer config.deinit();
-    config.cpu.variant = .rp2a03g; // NTSC
-
-    var state = EmulationState.init(&config);
-    defer state.deinit();
-    state.reset();
+    var harness = try Harness.init();
+    defer harness.deinit();
+    harness.config.cpu.variant = .rp2a03g; // NTSC
+    var state = &harness.state;
 
     // Initialize DMC state to avoid underflow
     state.apu.dmc_bytes_remaining = 10;
@@ -77,13 +70,10 @@ test "DMC DMA: Controller corruption on NTSC" {
 }
 
 test "DMC DMA: No corruption on PAL" {
-    var config = Config.Config.init(testing.allocator);
-    defer config.deinit();
-    config.cpu.variant = .rp2a07; // PAL
-
-    var state = EmulationState.init(&config);
-    defer state.deinit();
-    state.reset();
+    var harness = try Harness.init();
+    defer harness.deinit();
+    harness.config.cpu.variant = .rp2a07; // PAL
+    var state = &harness.state;
 
     // Initialize DMC state to avoid underflow
     state.apu.dmc_bytes_remaining = 10;

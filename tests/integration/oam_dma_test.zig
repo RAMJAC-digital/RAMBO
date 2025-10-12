@@ -16,36 +16,12 @@ const std = @import("std");
 const testing = std.testing;
 
 const RAMBO = @import("RAMBO");
+const Harness = RAMBO.TestHarness.Harness;
 const EmulationState = RAMBO.EmulationState.EmulationState;
-const Config = RAMBO.Config;
 
 // ============================================================================
 // Test Helpers
 // ============================================================================
-
-const TestState = struct {
-    config: *Config.Config,
-    emu: EmulationState,
-
-    fn deinit(self: *TestState) void {
-        self.config.deinit();
-        testing.allocator.destroy(self.config);
-    }
-};
-
-/// Create a test emulation state with initialized configuration
-fn makeTestState() !TestState {
-    const config = try testing.allocator.create(Config.Config);
-    config.* = Config.Config.init(testing.allocator);
-
-    var state = EmulationState.init(config);
-    state.reset();
-
-    return .{
-        .config = config,
-        .emu = state,
-    };
-}
 
 /// Fill CPU memory page with test pattern (uses busWrite for proper routing)
 fn fillRamPage(state: *EmulationState, page: u8, pattern: u8) void {
@@ -61,9 +37,9 @@ fn fillRamPage(state: *EmulationState, page: u8, pattern: u8) void {
 // ============================================================================
 
 test "OAM DMA: basic transfer from page $02" {
-    var ts = try makeTestState();
-    defer ts.deinit();
-    var state = &ts.emu;
+    var harness = try Harness.init();
+    defer harness.deinit();
+    var state = &harness.state;
 
     // Fill source page with test data (0x00, 0x01, 0x02, ..., 0xFF)
     fillRamPage(state, 0x02, 0x00);
@@ -91,9 +67,9 @@ test "OAM DMA: basic transfer from page $02" {
 }
 
 test "OAM DMA: transfer from page $00 (zero page)" {
-    var ts = try makeTestState();
-    defer ts.deinit();
-    var state = &ts.emu;
+    var harness = try Harness.init();
+    defer harness.deinit();
+    var state = &harness.state;
 
     // Fill zero page with test pattern
     fillRamPage(state, 0x00, 0xAA);
@@ -115,9 +91,9 @@ test "OAM DMA: transfer from page $00 (zero page)" {
 }
 
 test "OAM DMA: transfer from page $07 (stack page)" {
-    var ts = try makeTestState();
-    defer ts.deinit();
-    var state = &ts.emu;
+    var harness = try Harness.init();
+    defer harness.deinit();
+    var state = &harness.state;
 
     // Fill stack region with test pattern
     fillRamPage(state, 0x07, 0x55);
@@ -142,9 +118,9 @@ test "OAM DMA: transfer from page $07 (stack page)" {
 // ============================================================================
 
 test "OAM DMA: even cycle start takes exactly 513 CPU cycles" {
-    var ts = try makeTestState();
-    defer ts.deinit();
-    var state = &ts.emu;
+    var harness = try Harness.init();
+    defer harness.deinit();
+    var state = &harness.state;
 
     // Prepare source data
     fillRamPage(state, 0x03, 0x00);
@@ -174,9 +150,9 @@ test "OAM DMA: even cycle start takes exactly 513 CPU cycles" {
 }
 
 test "OAM DMA: odd cycle start takes exactly 514 CPU cycles" {
-    var ts = try makeTestState();
-    defer ts.deinit();
-    var state = &ts.emu;
+    var harness = try Harness.init();
+    defer harness.deinit();
+    var state = &harness.state;
 
     // Prepare source data
     fillRamPage(state, 0x04, 0x00);
@@ -206,9 +182,9 @@ test "OAM DMA: odd cycle start takes exactly 514 CPU cycles" {
 }
 
 test "OAM DMA: CPU is stalled during transfer" {
-    var ts = try makeTestState();
-    defer ts.deinit();
-    var state = &ts.emu;
+    var harness = try Harness.init();
+    defer harness.deinit();
+    var state = &harness.state;
 
     // Prepare source data
     fillRamPage(state, 0x05, 0x00);
@@ -235,9 +211,9 @@ test "OAM DMA: CPU is stalled during transfer" {
 }
 
 test "OAM DMA: PPU continues running during transfer" {
-    var ts = try makeTestState();
-    defer ts.deinit();
-    var state = &ts.emu;
+    var harness = try Harness.init();
+    defer harness.deinit();
+    var state = &harness.state;
 
     // Prepare source data
     fillRamPage(state, 0x06, 0x00);
@@ -265,9 +241,9 @@ test "OAM DMA: PPU continues running during transfer" {
 // ============================================================================
 
 test "OAM DMA: transfer during VBlank" {
-    var ts = try makeTestState();
-    defer ts.deinit();
-    var state = &ts.emu;
+    var harness = try Harness.init();
+    defer harness.deinit();
+    var state = &harness.state;
 
     // Advance to VBlank (scanline 241)
     while (state.clock.scanline() != 241) {
@@ -293,9 +269,9 @@ test "OAM DMA: transfer during VBlank" {
 }
 
 test "OAM DMA: multiple sequential transfers" {
-    var ts = try makeTestState();
-    defer ts.deinit();
-    var state = &ts.emu;
+    var harness = try Harness.init();
+    defer harness.deinit();
+    var state = &harness.state;
 
     // First transfer from page $02
     fillRamPage(state, 0x02, 0x10);
@@ -319,9 +295,9 @@ test "OAM DMA: multiple sequential transfers" {
 }
 
 test "OAM DMA: offset wraps correctly within page" {
-    var ts = try makeTestState();
-    defer ts.deinit();
-    var state = &ts.emu;
+    var harness = try Harness.init();
+    defer harness.deinit();
+    var state = &harness.state;
 
     // Test that all 256 bytes transfer correctly (offset wraps from 0xFF to 0x00)
     // Use page $06 (valid RAM region)
@@ -340,9 +316,9 @@ test "OAM DMA: offset wraps correctly within page" {
 }
 
 test "OAM DMA: DMA state resets after completion" {
-    var ts = try makeTestState();
-    defer ts.deinit();
-    var state = &ts.emu;
+    var harness = try Harness.init();
+    defer harness.deinit();
+    var state = &harness.state;
 
     // Prepare source data
     fillRamPage(state, 0x02, 0x00);
@@ -364,9 +340,9 @@ test "OAM DMA: DMA state resets after completion" {
 }
 
 test "OAM DMA: transfer integrity with alternating pattern" {
-    var ts = try makeTestState();
-    defer ts.deinit();
-    var state = &ts.emu;
+    var harness = try Harness.init();
+    defer harness.deinit();
+    var state = &harness.state;
 
     // Fill with alternating 0xAA/0x55 pattern
     for (0..256) |i| {
@@ -393,9 +369,9 @@ test "OAM DMA: transfer integrity with alternating pattern" {
 // ============================================================================
 
 test "OAM DMA: reading $4014 returns open bus" {
-    var ts = try makeTestState();
-    defer ts.deinit();
-    var state = &ts.emu;
+    var harness = try Harness.init();
+    defer harness.deinit();
+    var state = &harness.state;
 
     // Set open bus value
     state.bus.open_bus = 0x42;
@@ -406,9 +382,9 @@ test "OAM DMA: reading $4014 returns open bus" {
 }
 
 test "OAM DMA: DMA not triggered on read from $4014" {
-    var ts = try makeTestState();
-    defer ts.deinit();
-    var state = &ts.emu;
+    var harness = try Harness.init();
+    defer harness.deinit();
+    var state = &harness.state;
 
     // Read from $4014 (should not trigger DMA)
     _ = state.busRead(0x4014);
