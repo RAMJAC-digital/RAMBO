@@ -19,6 +19,11 @@ test "Simple VBlank test: $2002 read clears flag" {
     test_ram[2] = 0x20; // High byte
     test_ram[3] = 0xEA; // NOP
     test_ram[4] = 0xEA; // NOP
+
+    // Initialize reset vector at $FFFC-$FFFD to point to $8000
+    test_ram[0x7FFC] = 0x00; // Low byte of $8000
+    test_ram[0x7FFD] = 0x80; // High byte of $8000
+
     state.bus.test_ram = &test_ram;
 
     state.reset();

@@ -65,8 +65,8 @@ const Timing = @import("state/Timing.zig");
 const TimingStep = Timing.TimingStep;
 const TimingHelpers = Timing.TimingHelpers;
 
-// VBlank timing ledger
-const VBlankLedger = @import("state/VBlankLedger.zig").VBlankLedger;
+// VBlank timing ledger (exported for unit tests)
+pub const VBlankLedger = @import("state/VBlankLedger.zig").VBlankLedger;
 
 /// Complete emulation state (pure data, no hidden state)
 /// This is the core of the RT emulation loop

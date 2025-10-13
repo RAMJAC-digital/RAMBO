@@ -436,6 +436,21 @@ pub fn build(b: *std.Build) void {
 
     const run_page_crossing_tests = b.addRunArtifact(page_crossing_tests);
 
+    // JMP indirect microstep tests (hardware bug compliance)
+    const jmp_indirect_microstep_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/cpu/microsteps/jmp_indirect_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+    jmp_indirect_microstep_tests.root_module.addImport("xev", xev_dep.module("xev"));
+
+    const run_jmp_indirect_microstep_tests = b.addRunArtifact(jmp_indirect_microstep_tests);
+
     // CPU interrupt logic tests (pure functions)
     const cpu_interrupt_logic_tests = b.addTest(.{
         .root_module = b.createModule(.{
@@ -826,6 +841,36 @@ pub fn build(b: *std.Build) void {
 
     const run_controller_state_tests = b.addRunArtifact(controller_state_tests);
 
+    // VBlankLedger unit tests
+    const vblank_ledger_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/emulation/state/vblank_ledger_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+    vblank_ledger_tests.root_module.addImport("xev", xev_dep.module("xev"));
+
+    const run_vblank_ledger_tests = b.addRunArtifact(vblank_ledger_tests);
+
+    // VBlank flag determinism test
+    const vblank_determinism_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/emulation/state/vblank_flag_determinism_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+    vblank_determinism_tests.root_module.addImport("xev", xev_dep.module("xev"));
+
+    const run_vblank_determinism_tests = b.addRunArtifact(vblank_determinism_tests);
+
     // Debugger isolation tests
     const debugger_isolation_tests = b.addTest(.{
         .root_module = b.createModule(.{
@@ -1154,6 +1199,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_control_flow_tests.step);
     test_step.dependOn(&run_rmw_tests.step);
     test_step.dependOn(&run_page_crossing_tests.step);
+    test_step.dependOn(&run_jmp_indirect_microstep_tests.step);
     test_step.dependOn(&run_cpu_interrupt_logic_tests.step);
     test_step.dependOn(&run_interrupt_execution_tests.step);
     test_step.dependOn(&run_nmi_sequence_tests.step);
@@ -1182,6 +1228,8 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_snapshot_integration_tests.step);
     test_step.dependOn(&run_state_tests.step);
     test_step.dependOn(&run_controller_state_tests.step);
+    test_step.dependOn(&run_vblank_ledger_tests.step);
+    test_step.dependOn(&run_vblank_determinism_tests.step);
     test_step.dependOn(&run_debugger_isolation_tests.step);
     test_step.dependOn(&run_debugger_callbacks_tests.step);
     test_step.dependOn(&run_debugger_integration_tests2.step);
@@ -1209,6 +1257,7 @@ pub fn build(b: *std.Build) void {
     unit_test_step.dependOn(&run_mod_tests.step);
     unit_test_step.dependOn(&run_state_tests.step);
     unit_test_step.dependOn(&run_controller_state_tests.step);
+    unit_test_step.dependOn(&run_vblank_ledger_tests.step);
     unit_test_step.dependOn(&run_apu_tests.step);
     unit_test_step.dependOn(&run_apu_length_counter_tests.step);
     unit_test_step.dependOn(&run_apu_dmc_tests.step);
@@ -1218,6 +1267,7 @@ pub fn build(b: *std.Build) void {
     unit_test_step.dependOn(&run_apu_frame_irq_tests.step);
     unit_test_step.dependOn(&run_apu_open_bus_tests.step);
     // run_ines_tests removed - legacy test deleted
+    unit_test_step.dependOn(&run_jmp_indirect_microstep_tests.step);
     unit_test_step.dependOn(&run_button_state_tests.step);
     unit_test_step.dependOn(&run_keyboard_mapper_tests.step);
 

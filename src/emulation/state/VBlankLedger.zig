@@ -190,26 +190,19 @@ pub const VBlankLedger = struct {
     ///
     /// Returns: true if VBlank flag should appear set when reading $2002
     pub fn isReadableFlagSet(self: *const VBlankLedger, current_cycle: u64) bool {
-        _ = current_cycle; // Reserved for future use if needed
+        _ = current_cycle; // Race condition handled by shouldNmiEdge, not here
 
         // VBlank flag is NOT active if span hasn't started yet
         if (!self.span_active) return false;
 
-        // Race condition: If $2002 read on exact cycle VBlank set,
-        // flag STAYS set (but NMI is suppressed - handled by shouldNmiEdge)
-        // This is documented hardware behavior on nesdev.org
-        if (self.last_status_read_cycle == self.last_set_cycle) {
-            // Reading on exact set cycle preserves the flag
-            return true;
+        // Check if flag was cleared by a previous $2002 read
+        // Race condition (read at exact set cycle) DOES clear the flag for future reads,
+        // but suppresses NMI (handled in shouldNmiEdge)
+        if (self.last_status_read_cycle >= self.last_set_cycle) {
+            return false; // Cleared by $2002 read (including race condition read)
         }
 
-        // Normal case: Check if flag was cleared by read
-        // If last_clear_cycle > last_set_cycle, flag was cleared
-        if (self.last_clear_cycle > self.last_set_cycle) {
-            return false; // Cleared by $2002 read or scanline 261.1
-        }
-
-        // Flag is active (set and not yet cleared)
+        // Flag is active (set and not yet cleared by any read)
         return true;
     }
 

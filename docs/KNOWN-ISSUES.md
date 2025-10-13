@@ -361,14 +361,15 @@ Tests rely on precise timing of thread startup/shutdown which varies across syst
 
 ## Commercial ROM: Super Mario Bros Blank Screen
 
-**Status:** 🔄 INVESTIGATING (Root Cause Identified, Fix In Progress)
-**Priority:** P1 (High - blocks popular commercial ROM)
+**Status:** 🔄 INVESTIGATING (NMI Handler Stuck in Loop)
+**Priority:** P0 (Critical - blocks commercial ROM compatibility)
 **Discovered:** 2025-10-09
+**Updated:** 2025-10-12
 **Affects:** Super Mario Bros (World).nes
 
 ### Description
 
-Super Mario Bros displays a blank screen and never enables rendering. The game is stuck in its initialization loop before reaching the main game logic.
+Super Mario Bros displays a blank screen and never enables rendering. The game's NMI handler executes correctly but gets stuck in a countdown loop at address `0x8E6C-0x8E79`.
 
 **Symptom:**
 ```
@@ -379,44 +380,97 @@ Mario Bros (working) writes to PPUMASK ($2001):
   0x00 → 0x06 → 0x1E (rendering enabled on 3rd write)
 ```
 
-### Root Cause
+### Root Cause Investigation
 
-**Identified:** Game never writes PPUMASK=0x1E to enable rendering
-**Diagnosis:** Game is stuck in initialization loop waiting for unmet condition
-**What Works:** VBlank timing, $2002 polling, OAM DMA, PPU warmup all work correctly
-**What's Broken:** Game never progresses to rendering enable stage
+**What Works ✅:**
+- VBlank flag sets at scanline 241.1 and clears at 261.1
+- $2002 reads return correct VBlank status and clear the flag
+- NMI edge detection fires correctly when VBlank sets
+- NMI handler executes and jumps to `0x8082` correctly
+- VBlankLedger architecture handles race conditions properly
 
-### Current Investigation Status
+**What's Broken ❌:**
+- SMB NMI handler gets stuck in countdown loop at `0x8E6C-0x8E79`
+- Loop structure: `DEY + BNE` (decrement Y, branch if not zero)
+- Loop never terminates (Y never reaches zero)
+- Handler never completes initialization
+- Game never writes PPUMASK=0x1E to enable rendering
 
-**Phase 1 Complete:** Root cause identified via debugger
-**Phase 2 In Progress:** Find PC loop location where game is stuck
-**Phase 3 Pending:** Determine why loop doesn't exit
-**Phase 4 Pending:** Implement fix
+**Handler Loop Disassembly:**
+```
+0x8E6C: PHA          # Push A
+0x8E6D: LDA abs,X    # Load from table
+0x8E70: STA zp       # Store to zero page
+0x8E72: LSR          # Shift right
+0x8E73: ORA zp       # Combine with stored value
+0x8E75: LSR          # Shift right again
+0x8E76: PLA          # Pull A
+0x8E77: ROL          # Rotate left
+0x8E78: DEY          # Decrement Y counter
+0x8E79: BNE 0x8E6C   # Loop if Y != 0 (NEVER EXITS)
+```
+
+### Investigation Status (2025-10-12)
+
+**Phase 1 Complete ✅:** Code review verified VBlankLedger and NMI detection correct
+**Phase 2 In Progress 🔄:** Timing analysis to trace handler execution
+**Phase 3 Pending ⏸️:** Test enhancement based on findings
+**Phase 4 Pending ⏸️:** Root cause identification
+**Phase 5 Pending ⏸️:** Fix implementation
+**Phase 6 Pending ⏸️:** Regression testing
+
+### Comprehensive Investigation Plan
+
+**New Documentation (2025-10-12):**
+- **Investigation Document:** `docs/sessions/2025-10-12-vblank-nmi-investigation.md`
+  - Complete problem statement and hardware specification
+  - Investigation history with session notes template
+  - Systematic 6-phase investigation plan
+  - Test strategy and development checklist
+
+- **Development Plan:** `docs/planning/vblank-nmi-fix-plan.md`
+  - Acceptance criteria and success metrics
+  - Risk mitigation strategies
+  - Estimated timeline (3-14 days depending on complexity)
+  - Dependencies and monitoring plan
 
 ### Investigation Tools
 
-See `docs/sessions/debugger-quick-start.md` for debugger usage:
-
+**Debugger Commands:**
 ```bash
-# Watch PPUMASK writes
-./zig-out/bin/RAMBO "Super Mario Bros. (World).nes" --watch 0x2001 --inspect
-
-# Set breakpoints at key locations
+# Break at NMI handler entry
 ./zig-out/bin/RAMBO "Super Mario Bros. (World).nes" \
-  --break-at 0x8000,0x8100,0x8200 --inspect
+  --break-at 0x8082 --inspect
+
+# Break at stuck loop
+./zig-out/bin/RAMBO "Super Mario Bros. (World).nes" \
+  --break-at 0x8E6C --inspect
+
+# Watch PPU registers
+./zig-out/bin/RAMBO "Super Mario Bros. (World).nes" \
+  --watch 0x2000,0x2001,0x2002 --inspect
 ```
 
 ### Related Documents
 
-- **Investigation Plan:** `docs/sessions/smb-investigation-plan.md`
-- **Session Summary:** `docs/sessions/session-summary-2025-10-09.md`
-- **Debugger Guide:** `docs/sessions/debugger-quick-start.md`
+**Investigation Documents:**
+- **Primary Investigation:** `docs/sessions/2025-10-12-vblank-nmi-investigation.md` (NEW)
+- **Development Plan:** `docs/planning/vblank-nmi-fix-plan.md` (NEW)
+- **Original Plan:** `docs/sessions/smb-investigation-plan.md`
+- **NMI Handler Analysis:** `docs/sessions/smb-nmi-handler-investigation.md`
+- **Test Harness Notes:** `docs/sessions/2025-10-12-bit-nmi-harness-notes.md`
 
-### Next Steps
+**Historical Documents:**
+- `docs/archive/sessions-2025-10-09-10/vblank-flag-race-condition-2025-10-10.md`
+- `docs/archive/sessions-2025-10-09-10/vblank-nmi-architecture-review-2025-10-09.md`
 
-1. Use debugger to find PC loop location
-2. Disassemble stuck code section
-3. Identify condition being polled
+### Next Steps (Phase 2 - Timing Analysis)
+
+1. Use debugger to break at NMI handler entry (`0x8082`)
+2. Trace handler execution to stuck loop (`0x8E6C-0x8E79`)
+3. Dump CPU state at loop entry (especially Y register)
+4. Identify memory addresses accessed in loop
+5. Compare with expected behavior (if SMB disassembly available)
 4. Determine why condition never becomes true
 5. Fix emulator bug OR document required user input
 

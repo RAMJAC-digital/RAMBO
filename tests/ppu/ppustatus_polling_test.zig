@@ -236,6 +236,11 @@ test "Simple VBlank: LDA $2002 clears flag" {
     test_ram[1] = 0x02; // Low byte ($2002)
     test_ram[2] = 0x20; // High byte
     test_ram[3] = 0xEA; // NOP
+
+    // Initialize reset vector at $FFFC-$FFFD to point to $8000
+    test_ram[0x7FFC] = 0x00; // Low byte of $8000
+    test_ram[0x7FFD] = 0x80; // High byte of $8000
+
     harness.state.bus.test_ram = &test_ram;
 
     harness.state.reset();
@@ -289,6 +294,11 @@ test "PPUSTATUS Polling: BIT instruction timing - when does read occur?" {
     test_ram[1] = 0x02; // Low byte of address ($2002)
     test_ram[2] = 0x20; // High byte of address ($2002)
     test_ram[3] = 0xEA; // NOP (next instruction)
+
+    // Initialize reset vector at $FFFC-$FFFD to point to $8000
+    test_ram[0x7FFC] = 0x00; // Low byte of $8000
+    test_ram[0x7FFD] = 0x80; // High byte of $8000
+
     harness.state.bus.test_ram = &test_ram;
 
     harness.state.reset();

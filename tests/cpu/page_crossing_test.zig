@@ -310,12 +310,18 @@ test "Page Crossing: Maximum page crossing offset (X=$FF)" {
 //
 // NOTE: JMP indirect page boundary bug is correctly implemented in
 // src/emulation/cpu/microsteps.zig:357-369 (jmpIndirectFetchHigh).
-// However, testing it requires complex test harness setup with ROM loading.
-// The implementation is verified to match hardware behavior:
+//
+// ✅ COMPREHENSIVE MICROSTEP UNIT TESTS: tests/cpu/microsteps/jmp_indirect_test.zig
+//    - 13 tests covering hardware spec compliance
+//    - All 256 page boundaries tested
+//    - Regression detection (ensures bug exists)
+//    - Real-world scenario validation
+//
+// Hardware behavior (verified):
 //   - If pointer at $xxFF, reads high byte from $xx00 (wraps within page)
 //   - If pointer not at page boundary, reads normally from next byte
 //
-// TODO(P3): Add integration test with actual ROM to verify JMP ($xxFF) behavior
+// Reference: https://www.nesdev.org/wiki/Errata
 
 // ============================================================================
 // Stack Wrap-Around Tests
