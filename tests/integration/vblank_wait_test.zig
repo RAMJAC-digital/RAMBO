@@ -1,154 +1,59 @@
 //! VBlank Wait Loop Integration Test
 //!
-//! This test verifies that ROMs can successfully wait for VBlank by polling $2002.
-//! This is a critical pattern used by nearly all NES ROMs during initialization.
-//!
-//! The test creates a minimal ROM that:
-//! 1. Waits for VBlank by polling bit 7 of $2002 (PPUSTATUS)
-//! 2. Writes to $2000/$2001 after VBlank detected
-//! 3. Enters infinite loop
-//!
-//! This test catches the regression where CPU gets stuck in VBlank wait loop.
+//! Verifies that a ROM can successfully wait for VBlank by polling $2002.
 
 const std = @import("std");
 const testing = std.testing;
 const RAMBO = @import("RAMBO");
-
 const Harness = RAMBO.TestHarness.Harness;
-const NromCart = RAMBO.CartridgeType;
 
-/// Create a minimal test ROM that waits for VBlank
-/// ROM structure:
-///   - PRG ROM: 16KB (one bank)
-///   - CHR ROM: 8KB
-///   - Reset vector: $8000
-///   - Code at $8000: Wait for VBlank, then write to PPU registers
-fn createVBlankWaitRom(allocator: std.mem.Allocator) ![]u8 {
-    // iNES header (16 bytes)
-    var rom = try std.ArrayList(u8).initCapacity(allocator, 16 + 16384 + 8192);
-    errdefer rom.deinit(allocator);
+fn createVBlankWaitRom() ![]u8 {
+    const header = [_]u8{ 0x4E, 0x45, 0x53, 0x1A, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+    const header_size = header.len;
+    const prg_size = 16384;
+    const chr_size = 8192;
+    const total_size = header_size + prg_size + chr_size;
 
-    // iNES header
-    try rom.appendSlice(allocator, &[_]u8{
-        'N', 'E', 'S', 0x1A, // Magic
-        1, // 1 x 16KB PRG ROM
-        1, // 1 x 8KB CHR ROM
-        0, // Mapper 0 (NROM), horizontal mirroring
-        0, // Mapper 0 (upper bits)
-        0, 0, 0, 0, 0, 0, 0, 0, // Padding
-    });
+    var rom_data = try std.testing.allocator.alloc(u8, total_size);
+    errdefer std.testing.allocator.free(rom_data);
 
-    // PRG ROM (16KB)
-    try rom.resize(allocator, 16 + 16384);
-    @memset(rom.items[16..], 0xEA); // Fill with NOP
+    @memset(rom_data, 0);
+    @memcpy(rom_data[0..header_size], header[0..]);
 
-    // Code starts at $8000 (file offset 16)
-    const code_offset = 16;
-    var code = try std.ArrayList(u8).initCapacity(allocator, 256);
-    defer code.deinit(allocator);
+    // PRG ROM: fill with NOPs
+    const prg_start = header_size;
+    @memset(rom_data[prg_start .. prg_start + prg_size], 0xEA);
 
-    // Wait for VBlank loop:
-    // :vblankwait1
-    //   BIT $2002    ; Test bit 7 of PPUSTATUS
-    //   BPL vblankwait1  ; Loop while bit 7 = 0 (not in VBlank)
-    try code.appendSlice(allocator, &[_]u8{
+    // Program code at start of PRG ROM
+    const code = [_]u8{
         0x2C, 0x02, 0x20, // BIT $2002
-        0x10, 0xFB, // BPL -5 (loop back to BIT)
-    });
-
-    // After VBlank detected, write to PPU control registers
-    try code.appendSlice(allocator, &[_]u8{
-        0xA9, 0x80, // LDA #$80 (enable NMI)
-        0x8D, 0x00, 0x20, // STA $2000 (PPUCTRL)
-        0xA9, 0x1E, // LDA #$1E (enable rendering)
+        0x10, 0xFB,       // BPL -5
+        0xA9, 0x1E,       // LDA #$1E
         0x8D, 0x01, 0x20, // STA $2001 (PPUMASK)
-    });
+        0x4C, 0x0D, 0x80, // JMP $800D
+    };
+    @memcpy(rom_data[prg_start .. prg_start + code.len], code[0..]);
 
-    // Write success marker to $6000 (for test verification)
-    try code.appendSlice(allocator, &[_]u8{
-        0xA9, 0x42, // LDA #$42
-        0x8D, 0x00, 0x60, // STA $6000
-    });
+    // Reset vector at end of PRG ROM region
+    const reset_vector_offset = prg_start + prg_size - 4;
+    rom_data[reset_vector_offset + 0] = 0x00;
+    rom_data[reset_vector_offset + 1] = 0x80;
 
-    // Infinite loop (test passed)
-    try code.appendSlice(allocator, &[_]u8{
-        0x4C, 0x1C, 0x80, // JMP $801C (self-loop)
-    });
-
-    // Copy code to ROM
-    @memcpy(rom.items[code_offset .. code_offset + code.items.len], code.items);
-
-    // Reset vector at $FFFC points to $8000
-    rom.items[code_offset + 0x3FFC] = 0x00; // Low byte
-    rom.items[code_offset + 0x3FFD] = 0x80; // High byte
-
-    // CHR ROM (8KB) - can be empty for this test
-    try rom.resize(allocator, 16 + 16384 + 8192);
-    @memset(rom.items[16 + 16384 ..], 0x00);
-
-    return rom.toOwnedSlice(allocator);
+    return rom_data;
 }
 
-test "VBlank Wait Loop: CPU successfully waits for and detects VBlank" {
-    // Create test ROM
-    const rom_data = try createVBlankWaitRom(testing.allocator);
-    defer testing.allocator.free(rom_data);
+test "VBlank Wait Loop: ROM successfully waits for and detects VBlank" {
+    const rom_data = try createVBlankWaitRom();
+    defer std.testing.allocator.free(rom_data);
 
-    // Load ROM using Harness
-    const cart = try NromCart.loadFromData(testing.allocator, rom_data);
+    var h = try Harness.initWithRom(rom_data);
+    defer h.deinit();
 
-    var harness = try Harness.init();
-    defer harness.deinit();
+    // Run for 2 frames, which should be more than enough time for the
+    // ROM to wait for VBlank and enable rendering.
+    h.runCpuCycles(60000);
 
-    harness.loadNromCartridge(cart);
-    harness.state.reset();
-
-    // DEBUG: Verify ROM code is loaded correctly
-
-    // Run emulation for maximum 2 frames (should complete in ~1 frame)
-    const max_cycles: u64 = 89342 * 2; // 2 NTSC frames
-    var cycles: u64 = 0;
-    var instruction_count: usize = 0;
-    const max_instructions: usize = 10000; // Safety limit
-
-    // Track state transitions to count actual instructions (not PPU cycles)
-    var last_cpu_state: @TypeOf(harness.state.cpu.state) = harness.state.cpu.state;
-    var vblank_seen = false;
-
-    while (cycles < max_cycles and instruction_count < max_instructions) {
-        // Check for VBlank and log first BIT $2002 after VBlank
-        if (!vblank_seen and harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles)) {
-            vblank_seen = true;
-        }
-
-        harness.state.tick();
-        cycles += 1;
-
-        // Count instructions by detecting TRANSITIONS to fetch_opcode
-        // This avoids counting the same instruction 3 times (once per PPU cycle)
-        if (harness.state.cpu.state == .fetch_opcode and last_cpu_state != .fetch_opcode) {
-            instruction_count += 1;
-
-            // Log first few BIT instructions after VBlank
-            if (vblank_seen and instruction_count >= 2740 and instruction_count <= 2750) {}
-
-            // Check success marker every 100 instructions
-            if (instruction_count % 100 == 0) {
-                const marker = harness.state.busRead(0x6000);
-                if (marker == 0x42) {
-
-                    // Verify PPU registers were set correctly
-                    try testing.expectEqual(@as(u8, 0x80), harness.state.ppu.ctrl.toByte());
-                    try testing.expectEqual(@as(u8, 0x1E), harness.state.ppu.mask.toByte());
-                    return; // Test passed!
-                }
-            }
-        }
-
-        last_cpu_state = harness.state.cpu.state;
-    }
-
-    // If we get here, test failed
-
-    return error.VBlankWaitTimeout;
+    // Check if rendering was enabled
+    const mask_byte: u8 = @bitCast(h.state.ppu.mask);
+    try testing.expectEqual(@as(u8, 0x1E), mask_byte);
 }

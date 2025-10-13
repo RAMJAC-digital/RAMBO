@@ -8,8 +8,14 @@ const PpuState = @import("../State.zig").PpuState;
 const PpuCtrl = @import("../State.zig").PpuCtrl;
 const PpuMask = @import("../State.zig").PpuMask;
 const AnyCartridge = @import("../../cartridge/mappers/registry.zig").AnyCartridge;
-const VBlankLedger = @import("../../emulation/state/VBlankLedger.zig").VBlankLedger;
+const VBlankLedger = @import("../../emulation/VBlankLedger.zig").VBlankLedger;
 const memory = @import("memory.zig");
+
+/// The result of a PPU register read, containing the value and any side-effect signals.
+pub const PpuReadResult = struct {
+    value: u8,
+    read_2002: bool = false, // True if $2002 was read, signaling a side-effect.
+};
 
 /// Build PPUSTATUS byte for $2002 read
 /// Combines sprite flags from PpuStatus with VBlank flag from VBlankLedger
@@ -48,85 +54,87 @@ pub fn buildStatusByte(
 /// Read from PPU register (via CPU memory bus)
 /// Handles register mirroring and open bus behavior
 ///
-/// VBlank Migration (Phase 2): Now accepts VBlankLedger and current_cycle
-/// to query VBlank flag state instead of reading from PpuStatus.vblank field.
+/// VBlank Refactor (Phase 4): This function is now pure regarding the VBlankLedger.
+/// It accepts the ledger by value, computes the VBlank status, and returns a
+/// `PpuReadResult` to signal a $2002 read to the orchestrator (EmulationState).
 pub fn readRegister(
     state: *PpuState,
     cart: ?*AnyCartridge,
     address: u16,
-    vblank_ledger: *VBlankLedger,
-    current_cycle: u64,
-) u8 {
+    vblank_ledger: VBlankLedger,
+) PpuReadResult {
     // Registers are mirrored every 8 bytes through $3FFF
     const reg = address & 0x0007;
 
-    return switch (reg) {
-        0x0000 => blk: {
+    var result = PpuReadResult{.value = 0};
+
+    switch (reg) {
+        0x0000 => {
             // $2000 PPUCTRL - Write-only, return open bus
-            break :blk state.open_bus.read();
+            result.value = state.open_bus.read();
         },
-        0x0001 => blk: {
+        0x0001 => {
             // $2001 PPUMASK - Write-only, return open bus
-            break :blk state.open_bus.read();
+            result.value = state.open_bus.read();
         },
-        0x0002 => blk: {
+        0x0002 => {
             // $2002 PPUSTATUS - Read-only
 
-            // Query VBlank flag from ledger (single source of truth)
-            // This handles race conditions correctly (reading on exact set cycle)
-            const vblank_flag = vblank_ledger.isReadableFlagSet(current_cycle);
+            // Determine VBlank status from the ledger's timestamps.
+            // A VBlank is active if it was set more recently than it was cleared by timing
+            // AND more recently than it was cleared by a previous read.
+            const vblank_active = (vblank_ledger.last_set_cycle > vblank_ledger.last_clear_cycle) and
+                (vblank_ledger.race_hold or (vblank_ledger.last_set_cycle > vblank_ledger.last_read_cycle));
 
-            // Build status byte using new helper function
-            // VBlank comes from ledger, sprite flags from PpuStatus
+            // Build status byte using the computed flag.
             const value = buildStatusByte(
                 state.status.sprite_overflow,
                 state.status.sprite_0_hit,
-                vblank_flag,
+                vblank_active,
                 state.open_bus.value,
             );
 
-            // Side effects:
-            // 1. Record $2002 read in ledger (updates last_status_read_cycle, last_clear_cycle)
-            //    This is the ONLY place that clears the readable VBlank flag now
-            vblank_ledger.recordStatusRead(current_cycle);
+            // Side effects handled locally or signaled upwards:
+            // 1. Signal that a $2002 read occurred. EmulationState will update the ledger.
+            result.read_2002 = true;
 
-            // 2. Reset write toggle
+            // 2. Reset write toggle (local PPU state).
             state.internal.resetToggle();
 
-            // 3. Update open bus with status byte
+            // 3. Update open bus with the final status byte.
             state.open_bus.write(value);
 
-            break :blk value;
+            result.value = value;
         },
-        0x0003 => blk: {
+        0x0003 => {
             // $2003 OAMADDR - Write-only, return open bus
-            break :blk state.open_bus.read();
+            result.value = state.open_bus.read();
         },
-        0x0004 => blk: {
+        0x0004 => {
             // $2004 OAMDATA - Read/write
             const value = state.oam[state.oam_addr];
 
             // Attribute bytes have bits 2-4 as open bus
             const is_attribute_byte = (state.oam_addr & 0x03) == 0x02;
-            const result = if (is_attribute_byte)
+            const oam_result = if (is_attribute_byte)
                 (value & 0xE3) | (state.open_bus.value & 0x1C)
             else
                 value;
 
             // Update open bus
-            state.open_bus.write(result);
+            state.open_bus.write(oam_result);
 
-            break :blk result;
+            result.value = oam_result;
         },
-        0x0005 => blk: {
+        0x0005 => {
             // $2005 PPUSCROLL - Write-only, return open bus
-            break :blk state.open_bus.read();
+            result.value = state.open_bus.read();
         },
-        0x0006 => blk: {
+        0x0006 => {
             // $2006 PPUADDR - Write-only, return open bus
-            break :blk state.open_bus.read();
+            result.value = state.open_bus.read();
         },
-        0x0007 => blk: {
+        0x0007 => {
             // $2007 PPUDATA - Buffered read from VRAM
             const addr = state.internal.v;
             const buffered_value = state.internal.read_buffer;
@@ -139,15 +147,16 @@ pub fn readRegister(
 
             // Palette reads are NOT buffered (return current, not buffered)
             // All other reads return the buffered value
-            const value = if (addr >= 0x3F00) state.internal.read_buffer else buffered_value;
+            const vram_value = if (addr >= 0x3F00) state.internal.read_buffer else buffered_value;
 
             // Update open bus
-            state.open_bus.write(value);
+            state.open_bus.write(vram_value);
 
-            break :blk value;
+            result.value = vram_value;
         },
         else => unreachable,
-    };
+    }
+    return result;
 }
 
 /// Write to PPU register (via CPU memory bus)

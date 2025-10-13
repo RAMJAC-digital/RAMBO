@@ -1,6 +1,7 @@
 // RAMBO NES Emulator - System Architecture
 // Generated: 2025-10-09
-// Updated: 2025-10-13 (Phase 5: Config module removed, APU State/Logic separation complete)
+// Updated: 2025-10-13 (Phase 5: APU State/Logic separation complete, Config module active)
+// Updated: 2025-10-16 (Phase 4: VBlankLedger integration edges added, PPU description updated)
 // This diagram shows the complete system architecture with all major components
 
 digraph RAMBO_Architecture {
@@ -101,11 +102,11 @@ digraph RAMBO_Architecture {
             style=filled;
             fillcolor=lightcoral;
 
-            ppu_state [label="PpuState\n(VRAM + OAM)", fillcolor=lightcoral];
-            ppu_logic [label="PpuLogic\n(Pure Functions)", fillcolor=salmon];
+            ppu_state [label="PpuState\n(VRAM + OAM)\n\nPhase 4: VBlank flag\nmoved to VBlankLedger", fillcolor=lightcoral];
+            ppu_logic [label="PpuLogic\n(Pure Functions)\n\nPhase 4: readRegister()\nreturns PpuReadResult", fillcolor=salmon];
             ppu_emu [label="Ppu.zig\n(Emulation Helpers)", fillcolor=salmon];
             ppu_rendering [label="Background + Sprites\n(Rendering Pipeline)", fillcolor=salmon];
-            ppu_registers [label="registers.zig\n($2000-$2007)", fillcolor=salmon];
+            ppu_registers [label="registers.zig\n($2000-$2007)\n\nPhase 4: Pure VBlank\nflag computation", fillcolor=salmon];
         }
 
         subgraph cluster_apu {
@@ -215,8 +216,12 @@ digraph RAMBO_Architecture {
     emu_state -> cpu_state [label="stepCpuCycle()", color=blue];
     emu_state -> ppu_state [label="stepPpuCycle()", color=red];
     emu_state -> apu_state [label="stepApuCycle()", color=purple];
-    emu_state -> vblank_ledger [label="NMI edge", style=dashed];
     emu_state -> bus_routing [lhead=cluster_bus, label="busRead/Write", color=orange];
+
+    // VBlankLedger integration (Phase 4 - Critical data flows)
+    ppu_logic -> vblank_ledger [label="nmi_signal\nvblank_clear\n(event flags)", color=red, penwidth=2];
+    ppu_registers -> vblank_ledger [label="read by value\n(pure function)", color=lightblue, style=dashed];
+    emu_state -> vblank_ledger [label="MUTATES:\nlast_set_cycle\nlast_clear_cycle\nlast_read_cycle\nrace_hold", color=purple, penwidth=2];
 
     // CPU internal connections
     cpu_state -> cpu_logic [label="delegate", color=blue];

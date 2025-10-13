@@ -10,36 +10,7 @@ const std = @import("std");
 const testing = std.testing;
 const RAMBO = @import("RAMBO");
 
-const EmulationState = RAMBO.EmulationState.EmulationState;
-const Config = RAMBO.Config;
-
-const TestHarness = struct {
-    config: *Config.Config,
-    state: EmulationState,
-
-    pub fn init() !TestHarness {
-        const cfg = try testing.allocator.create(Config.Config);
-        cfg.* = Config.Config.init(testing.allocator);
-
-        var emu_state = EmulationState.init(cfg);
-        emu_state.reset();
-
-        return .{
-            .config = cfg,
-            .state = emu_state,
-        };
-    }
-
-    pub fn deinit(self: *TestHarness) void {
-        self.state.deinit(); // Clean up emulation state (including cartridge)
-        self.config.deinit();
-        testing.allocator.destroy(self.config);
-    }
-
-    pub fn statePtr(self: *TestHarness) *EmulationState {
-        return &self.state;
-    }
-};
+const Harness = RAMBO.TestHarness.Harness;
 
 // ============================================================================
 // Category 1: RAM Mirroring Integration Tests (4 tests)
@@ -48,9 +19,9 @@ const TestHarness = struct {
 // regions, testing boundary conditions and data persistence.
 
 test "Bus Integration: Write to $0000 visible at all RAM mirrors" {
-    var harness = try TestHarness.init();
+    var harness = try Harness.init();
     defer harness.deinit();
-    const state = harness.statePtr();
+    const state = &harness.state;
 
     // Write test value to base RAM address
     state.busWrite(0x0100, 0x42);
@@ -64,9 +35,9 @@ test "Bus Integration: Write to $0000 visible at all RAM mirrors" {
 }
 
 test "Bus Integration: RAM mirroring boundary ($1FFF → $0000)" {
-    var harness = try TestHarness.init();
+    var harness = try Harness.init();
     defer harness.deinit();
-    const state = harness.statePtr();
+    const state = &harness.state;
 
     // Write to the last byte of the mirrored RAM region
     state.busWrite(0x1FFF, 0xFF);
@@ -81,9 +52,9 @@ test "Bus Integration: RAM mirroring boundary ($1FFF → $0000)" {
 }
 
 test "Bus Integration: Mirroring preserves data across all regions" {
-    var harness = try TestHarness.init();
+    var harness = try Harness.init();
     defer harness.deinit();
-    const state = harness.statePtr();
+    const state = &harness.state;
 
     // Fill different addresses in base RAM
     state.busWrite(0x0000, 0xAA);
@@ -116,9 +87,9 @@ test "Bus Integration: Mirroring preserves data across all regions" {
 }
 
 test "Bus Integration: Write to mirror affects base and all other mirrors" {
-    var harness = try TestHarness.init();
+    var harness = try Harness.init();
     defer harness.deinit();
-    const state = harness.statePtr();
+    const state = &harness.state;
 
     // Write to the second mirror (0x1234 is in range $1000-$17FF)
     state.busWrite(0x1234, 0x88);

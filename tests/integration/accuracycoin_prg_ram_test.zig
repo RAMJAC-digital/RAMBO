@@ -15,7 +15,7 @@ const Cartridge = RAMBO.CartridgeType;
 // ============================================================================
 
 test "AccuracyCoin: Cartridge has 8KB PRG RAM" {
-    const accuracycoin_path = "AccuracyCoin/AccuracyCoin.nes";
+    const accuracycoin_path = "tests/data/AccuracyCoin.nes";
 
     // Load cartridge from file
     var cart = Cartridge.load(testing.allocator, accuracycoin_path) catch |err| {
@@ -36,7 +36,7 @@ test "AccuracyCoin: Cartridge has 8KB PRG RAM" {
 // ============================================================================
 
 test "AccuracyCoin: PRG RAM read/write" {
-    const accuracycoin_path = "AccuracyCoin/AccuracyCoin.nes";
+    const accuracycoin_path = "tests/data/AccuracyCoin.nes";
 
     var cart = Cartridge.load(testing.allocator, accuracycoin_path) catch |err| {
         if (err == error.FileNotFound) {
@@ -60,7 +60,7 @@ test "AccuracyCoin: PRG RAM read/write" {
 // ============================================================================
 
 test "AccuracyCoin: PRG RAM starts zero" {
-    const accuracycoin_path = "AccuracyCoin/AccuracyCoin.nes";
+    const accuracycoin_path = "tests/data/AccuracyCoin.nes";
 
     var cart = Cartridge.load(testing.allocator, accuracycoin_path) catch |err| {
         if (err == error.FileNotFound) {

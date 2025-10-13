@@ -154,15 +154,9 @@ pub fn isReadableFlagSet(self: *const VBlankLedger, current_cycle: u64) bool {
     // VBlank flag is NOT active if span hasn't started yet
     if (!self.span_active) return false;  // ✓
 
-    // Race condition: If $2002 read on exact cycle VBlank set,
-    // flag STAYS set (but NMI is suppressed)
-    if (self.last_status_read_cycle == self.last_set_cycle) {
-        return true;  // ✓ Hardware race condition behavior
-    }
-
     // Normal case: Check if flag was cleared by read
-    if (self.last_clear_cycle > self.last_set_cycle) {
-        return false; // ✓ Cleared by $2002 read or scanline 261.1
+    if (self.last_clear_cycle >= self.last_set_cycle) {
+        return false; // ✓ Cleared by $2002 read (including race window) or scanline 261.1
     }
 
     // Flag is active (set and not yet cleared)

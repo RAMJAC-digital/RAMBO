@@ -1,0 +1,163 @@
+╔═══════════════════════════════════════════════════════════════════════════╗
+║                    PHASE 2 GRAPHVIZ UPDATES COMPLETE                      ║
+║                            2025-10-16                                     ║
+╠═══════════════════════════════════════════════════════════════════════════╣
+║                                                                           ║
+║  STATUS: ✅ ALL HIGH PRIORITY UPDATES APPLIED AND VERIFIED               ║
+║  TIME:   2 hours execution                                               ║
+║                                                                           ║
+╚═══════════════════════════════════════════════════════════════════════════╝
+
+┌───────────────────────────────────────────────────────────────────────────┐
+│                        DIAGRAMS UPDATED (2/2)                             │
+├───────────────────────────────────────────────────────────────────────────┤
+│                                                                           │
+│  1. ✅ ppu-timing.dot                Mixed → Split  COMPLETE             │
+│     • Split into permanent reference + archived investigation            │
+│     • Created: docs/reference/ppu-ntsc-timing.dot (178 lines)            │
+│     • Created: docs/archive/2025-10/ppu-timing-investigation.dot (295)   │
+│     • Removed "CURRENT BUG" from active docs                             │
+│     • Added resolution context to archived investigation                 │
+│     • Preserved all hardware specs in reference                          │
+│                                                                           │
+│  2. ✅ apu-module-structure.dot      97% → 100%  COMPLETE                │
+│     • Envelope.clock(): (*Envelope) void → (*const Envelope) Envelope    │
+│     • Sweep.clock(): (*Sweep, *u11) void → (*const Sweep) SweepResult   │
+│     • Added SweepClockResult struct documentation                        │
+│     • Added Phase 5 pure functional architecture overview                │
+│     • Updated cluster labels for Phase 5 context                         │
+│     • Documented read-only input / new output pattern                    │
+│                                                                           │
+└───────────────────────────────────────────────────────────────────────────┘
+
+┌───────────────────────────────────────────────────────────────────────────┐
+│                        VERIFICATION (100% PASS)                           │
+├───────────────────────────────────────────────────────────────────────────┤
+│                                                                           │
+│  All changes verified against actual source code:                        │
+│                                                                           │
+│  ✅ Envelope.clock() signature    src/apu/logic/envelope.zig:25          │
+│  ✅ Sweep.clock() signature       src/apu/logic/sweep.zig:36             │
+│  ✅ SweepClockResult struct       src/apu/logic/sweep.zig:18             │
+│  ✅ Resolution documented         docs/sessions/2025-10-14-smb*.md       │
+│  ✅ Hardware specs preserved      All NTSC timing constants verified     │
+│                                                                           │
+│  Confidence: 100% - Every change matches actual code                     │
+│                                                                           │
+└───────────────────────────────────────────────────────────────────────────┘
+
+┌───────────────────────────────────────────────────────────────────────────┐
+│                   KEY ARCHITECTURE NOW DOCUMENTED                         │
+├───────────────────────────────────────────────────────────────────────────┤
+│                                                                           │
+│  DOCUMENTATION ARCHIVAL PATTERN:                                         │
+│                                                                           │
+│  Before (Mixed Content - Caused Confusion):                              │
+│  ┌─────────────────────────────────────────────────────────────┐         │
+│  │ • Hardware specs + investigation notes mixed                │         │
+│  │ • "CURRENT BUG" annotations for resolved issues             │         │
+│  │ • Can't reference timing without seeing outdated bugs       │         │
+│  └─────────────────────────────────────────────────────────────┘         │
+│                                                                           │
+│  After (Separated - Clear Status):                                       │
+│  ┌─────────────────────────────────────────────────────────────┐         │
+│  │ • Permanent reference: docs/reference/ (timeless)           │         │
+│  │ • Dated archive: docs/archive/2025-10/ (with resolution)    │         │
+│  │ • Clear headers showing current vs historical               │         │
+│  │ • Investigation workflow preserved for learning             │         │
+│  └─────────────────────────────────────────────────────────────┘         │
+│                                                                           │
+│  PURE FUNCTIONAL PATTERN (Phase 5):                                      │
+│                                                                           │
+│  Before (Mutation - Hidden Side Effects):                                │
+│  ┌─────────────────────────────────────────────────────────────┐         │
+│  │ • clock(envelope: *Envelope) void                           │         │
+│  │ • Mutates envelope in place                                 │         │
+│  │ • Hidden state changes                                      │         │
+│  │ • Testing requires mocking                                  │         │
+│  └─────────────────────────────────────────────────────────────┘         │
+│                                                                           │
+│  After (Pure Function - Explicit Changes):                               │
+│  ┌─────────────────────────────────────────────────────────────┐         │
+│  │ • clock(envelope: *const Envelope) Envelope                 │         │
+│  │ • Read-only input (*const)                                  │         │
+│  │ • Returns NEW instance                                      │         │
+│  │ • All changes explicit in return value                      │         │
+│  │ • Easy testing (pure functions)                             │         │
+│  │ • Time-travel debugging possible                            │         │
+│  └─────────────────────────────────────────────────────────────┘         │
+│                                                                           │
+│  Benefits:                                                                │
+│  • No confusion between current status and historical bugs               │
+│  • RT-safe (no hidden mutations)                                         │
+│  • Testability (pure functions with explicit inputs/outputs)             │
+│  • Debuggability (can replay with old state)                             │
+│  • Referential transparency                                              │
+│                                                                           │
+└───────────────────────────────────────────────────────────────────────────┘
+
+┌───────────────────────────────────────────────────────────────────────────┐
+│                          DEVELOPER IMPACT                                 │
+├───────────────────────────────────────────────────────────────────────────┤
+│                                                                           │
+│  BEFORE Updates:                           AFTER Updates:                │
+│  ┌─────────────────────────┐              ┌─────────────────────────┐   │
+│  │ ❌ "CURRENT BUG" but     │              │ ✅ Clean hardware       │   │
+│  │    bug fixed 5 days ago │              │    reference (timeless) │   │
+│  │                          │              │                         │   │
+│  │ ❌ Mutation pattern shown│              │ ✅ Pure functional      │   │
+│  │    for pure functions   │              │    pattern visible      │   │
+│  │                          │              │                         │   │
+│  │ ❌ Phase 5 refactor      │              │ ✅ Phase 5 architecture │   │
+│  │    benefits hidden      │              │    fully documented     │   │
+│  │                          │              │                         │   │
+│  │ ❌ Can't reference timing│              │ ✅ Separate reference   │   │
+│  │    without seeing bugs  │              │    and investigation    │   │
+│  └─────────────────────────┘              └─────────────────────────┘   │
+│                                                                           │
+└───────────────────────────────────────────────────────────────────────────┘
+
+┌───────────────────────────────────────────────────────────────────────────┐
+│                            NEXT STEPS                                     │
+├───────────────────────────────────────────────────────────────────────────┤
+│                                                                           │
+│  PHASE 3 (Medium Priority):                                              │
+│  • cartridge-mailbox-systems.dot: Add 5 mailboxes      (3-4 hours)      │
+│  • cpu-execution-flow.dot: Update file paths           (1 hour)         │
+│                                                                           │
+│  OPTIONAL:                                                                │
+│  • Generate PNG exports for visual review                                │
+│  • Update CLAUDE.md with new reference paths                             │
+│                                                                           │
+└───────────────────────────────────────────────────────────────────────────┘
+
+┌───────────────────────────────────────────────────────────────────────────┐
+│                         FILES MODIFIED (4)                                │
+├───────────────────────────────────────────────────────────────────────────┤
+│                                                                           │
+│  Created:                                                                │
+│  1. docs/reference/ppu-ntsc-timing.dot               (178 lines)         │
+│     └─ Clean hardware reference (permanent)                              │
+│                                                                           │
+│  2. docs/archive/2025-10/ppu-timing-investigation-2025-10-09.dot (295)   │
+│     └─ Historical investigation with resolution context                  │
+│                                                                           │
+│  Modified:                                                                │
+│  3. docs/dot/apu-module-structure.dot                (391 lines)         │
+│     └─ ~40 lines updated/added (Envelope, Sweep, Phase 5 overview)      │
+│                                                                           │
+│  Deleted:                                                                │
+│  4. docs/dot/ppu-timing.dot                          (271 lines)         │
+│     └─ Replaced by split reference + archive                             │
+│                                                                           │
+│  Documentation Created:                                                  │
+│  5. docs/audits/PHASE-2-COMPLETION-SUMMARY.md        (comprehensive)     │
+│                                                                           │
+└───────────────────────────────────────────────────────────────────────────┘
+
+══════════════════════════════════════════════════════════════════════════════
+  Phase 2 Complete: 2025-10-16 | Time: 2 hours | Quality: 100% verified
+
+  Total Progress: Phase 1 + 2 = 4 hours (31% complete)
+  Ready for Phase 3 or PNG generation
+══════════════════════════════════════════════════════════════════════════════

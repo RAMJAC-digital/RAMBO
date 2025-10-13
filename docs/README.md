@@ -1,8 +1,8 @@
 # RAMBO Documentation Hub
 
-**Last Updated:** 2025-10-13 (Phase 6 Documentation Remediation Complete)
-**Test Status:** 930/966 passing (96.3%)
-**Documentation Audit:** ✅ Completed 2025-10-11, remediated 2025-10-13 (see archive/2025-10/audits/)
+**Last Updated:** 2025-10-13 (Phase 7 Documentation Cleanup Complete)
+**Test Status:** 930/966 passing (96.3%), 19 skipped, 17 failing
+**Current Issues:** Documented in `CURRENT-ISSUES.md` (verified against code 2025-10-13)
 
 ---
 
@@ -14,16 +14,16 @@
 |----------|---------|
 | [**QUICK-START.md**](../QUICK-START.md) | Build, install, and run RAMBO |
 | [**README.md**](../README.md) | Project overview and features |
-| [**CURRENT-STATUS.md**](CURRENT-STATUS.md) | Detailed implementation status |
-| [**KNOWN-ISSUES.md**](KNOWN-ISSUES.md) | Current bugs and investigations |
+| [**CURRENT-ISSUES.md**](CURRENT-ISSUES.md) | Current bugs verified against code (2025-10-13) |
 
 ### For Developers
 
 | Document | Purpose |
 |----------|---------|
 | [**CLAUDE.md**](../CLAUDE.md) | **Primary development reference** (architecture, patterns, roadmap) |
-| [**CURRENT-STATUS.md**](CURRENT-STATUS.md) | Current implementation status and known issues |
 | [**sessions/**](sessions/) | Development session notes and investigations |
+| [**NESdev Snapshots**](nesdev/) | Offline copies of key NES hardware docs |
+| [**Zig Reference**](zig/) | Offline copies of key Zig reference docs |
 
 ---
 
@@ -34,28 +34,17 @@
 ```
 docs/
 ├── README.md                          # This file - navigation hub
-├── KNOWN-ISSUES.md                    # Current bugs and investigations
-├── CODE-REVIEW-REMEDIATION-PLAN.md    # Phase 1-7 remediation tracking
+├── CURRENT-ISSUES.md                  # Current bugs verified against code (2025-10-13)
 │
 ├── sessions/                          # Active session documentation
-│   ├── debugger-quick-start.md        # Debugger usage guide (active)
-│   ├── smb-investigation-plan.md      # Super Mario Bros debugging (active)
-│   └── smb-nmi-handler-investigation.md  # SMB NMI analysis (active)
-│
+|    └── [Individual session files]
+|
 ├── architecture/                      # System architecture
 │   ├── apu.md                        # APU implementation (85% Phase 5 complete)
 │   ├── ppu-sprites.md                # PPU sprite system (complete)
 │   ├── codebase-inventory.md         # Complete file structure inventory
 │   └── threading.md                  # Thread model and mailbox communication
-│
-├── implementation/                    # Current implementation docs
-│   ├── video-subsystem.md            # Video system (Wayland + Vulkan, complete)
-│   ├── CPU-COMPREHENSIVE-AUDIT-2025-10-07.md
-│   ├── HARDWARE-ACCURACY-AUDIT-2025-10-07.md
-│   ├── INPUT-SYSTEM-AUDIT-2025-10-07.md
-│   ├── PPU-HARDWARE-ACCURACY-AUDIT.md
-│   └── design-decisions/             # Architecture decision records
-│
+|
 ├── api-reference/                     # API documentation
 │   ├── debugger-api.md
 │   └── snapshot-api.md
@@ -67,9 +56,6 @@ docs/
 │   └── CLAUDE-MD-ACCURACY-AUDIT-2025-10-07.md
 │
 └── archive/                           # Historical documentation
-    ├── sessions-2025-10-09-10/       # Oct 9-10 VBlank investigation (27 files)
-    ├── graphviz-audits/              # GraphViz audit artifacts (8 files)
-    ├── completed-phases/             # Archived phase documentation
     └── [Other historical archives]
 ```
 
@@ -80,8 +66,8 @@ RAMBO/
 ├── README.md                         # Project overview
 ├── CLAUDE.md                         # **Primary development reference**
 ├── QUICK-START.md                    # User quick start guide
-├── AGENTS.md                         # AI agent documentation
-└── docs/                            # Detailed documentation (see above)
+├── AGENTS.md                         # Codex agent documentation
+└── docs/                             # Detailed documentation (see above)
 ```
 
 ---
@@ -107,25 +93,7 @@ RAMBO/
 - Learning development patterns
 - Planning next work
 
-### 2. CURRENT-STATUS.md - Implementation Status
-
-**Single source of truth for current implementation status.**
-
-**Contains:**
-- Completion status by component
-- Test coverage breakdown
-- Known issues (critical and minor)
-- Hardware accuracy verification
-- Performance metrics
-- Next milestones
-
-**Use CURRENT-STATUS.md for:**
-- Quick status checks
-- Understanding what's implemented
-- Finding known issues
-- Checking test coverage
-
-### 3. QUICK-START.md - User Guide
+### 2. QUICK-START.md - User Guide
 
 **For end users getting started.**
 
@@ -142,6 +110,19 @@ RAMBO/
 - Running RAMBO
 - Solving common problems
 
+### 3. External Reference Snapshots
+
+Offline copies of key external resources are tracked for quick access:
+
+| Snapshot | Source |
+|----------|--------|
+| [`docs/nesdev/the-frame-and-nmis.md`](nesdev/the-frame-and-nmis.md) | NESdev “The frame and NMIs” |
+| [`docs/nesdev/nmi.md`](nesdev/nmi.md) | NESdev “NMI” overview |
+| [`docs/nesdev/ppu-frame-timing.md`](nesdev/ppu-frame-timing.md) | NESdev “PPU frame timing” |
+| [`docs/zig/zig-0.15.1.md`](zig/zig-0.15.1.md) | Zig 0.15.1 language reference |
+
+These snapshots are regenerated with `pandoc` to keep the documentation bundle self-contained.
+
 ---
 
 ## Component Documentation
@@ -155,30 +136,6 @@ RAMBO/
 | `apu.md` | Audio Processing Unit | ✅ 86% Complete (logic done, waveform pending) |
 | `ppu-sprites.md` | PPU Sprite System | ✅ Complete specification |
 | `threading.md` | Thread Architecture | ✅ Complete (3-thread model) |
-
-### Implementation Details
-
-**Location:** `docs/implementation/`
-
-| File | Component | Purpose |
-|------|-----------|---------|
-| `video-subsystem.md` | Video Display | Complete implementation docs (Wayland + Vulkan) |
-| `CPU-COMPREHENSIVE-AUDIT-2025-10-07.md` | CPU | Recent CPU audit findings |
-| `HARDWARE-ACCURACY-AUDIT-2025-10-07.md` | All Components | Hardware accuracy verification |
-| `INPUT-SYSTEM-AUDIT-2025-10-07.md` | Input System | Input system audit and fixes |
-| `PPU-HARDWARE-ACCURACY-AUDIT.md` | PPU | PPU hardware accuracy audit |
-
-### Design Decisions
-
-**Location:** `docs/implementation/design-decisions/`
-
-Documents explaining architectural choices:
-- `6502-hardware-timing-quirks.md` - CPU timing edge cases
-- `async-io-architecture.md` - Async I/O design
-- `cpu-execution-architecture.md` - CPU execution model
-- `final-hybrid-architecture.md` - State/Logic pattern
-- `memory-bus-implementation.md` - Bus architecture
-- `ppu-rendering-architecture.md` - PPU rendering pipeline
 
 ### API Reference
 
@@ -294,9 +251,8 @@ See **[Session Summary](sessions/session-summary-2025-10-09.md)** for complete d
 ### Before Making Changes
 
 1. Read [CLAUDE.md](../CLAUDE.md) for architecture patterns
-2. Check [CURRENT-STATUS.md](CURRENT-STATUS.md) for current state
-3. Run `zig build test` to verify tests pass
-4. Review relevant component documentation
+2. Run `zig build test` to verify tests pass
+3. Review relevant component documentation
 
 ### Making Changes
 
@@ -304,15 +260,14 @@ See **[Session Summary](sessions/session-summary-2025-10-09.md)** for complete d
 2. Write tests for new functionality
 3. Update documentation with code changes
 4. Ensure all tests pass
-5. Update CURRENT-STATUS.md if needed
+5. Update session notes
 
 ### Documentation Guidelines
 
-1. **Keep CURRENT-STATUS.md up to date** - Single source of truth
-2. **Update CLAUDE.md for major changes** - Primary reference
-3. **Create/update component docs** - In appropriate directories
-4. **Archive completed work** - Move to `docs/archive/completed-phases/`
-5. **No duplicates** - One source of truth per topic
+1. **Update CLAUDE.md for major changes** - Primary reference
+2. **Create/update component docs** - In appropriate directories
+3. **Archive completed work** - Move to `docs/archive/`
+4. **No duplicates** - One source of truth per topic
 
 ---
 
@@ -338,14 +293,13 @@ Historical documentation is preserved in `docs/archive/`:
 ### Resources
 
 - **Quick Start:** [QUICK-START.md](../QUICK-START.md)
-- **Status:** [CURRENT-STATUS.md](CURRENT-STATUS.md)
 - **Development:** [CLAUDE.md](../CLAUDE.md)
-- **Issues:** Check known issues in CURRENT-STATUS.md
+- **Issues:** Check known issues in CURRENT-ISSUES.md
 
 ### Getting Support
 
 1. Check QUICK-START.md troubleshooting section
-2. Review CURRENT-STATUS.md known issues
+2. Review CURRENT-ISSUES.md known issues
 3. Search existing documentation
 4. Create issue with full details (system info, ROM, error messages)
 

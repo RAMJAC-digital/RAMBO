@@ -1,6 +1,9 @@
 // Emulation Coordination Layer - Complete System Integration
 // Based on actual source code audit from docs/architecture/codebase-inventory.md
 // Shows how CPU, PPU, APU, Bus, Cartridge, DMA, and Debugger coordinate
+//
+// UPDATED: 2025-10-16 - VBlankLedger refactor (Phase 4) and race_hold fix
+// Changes: VBlankLedger is now pure data struct, PpuReadResult pattern added
 
 digraph Emulation_Coordination {
     // Graph settings
@@ -24,14 +27,14 @@ digraph Emulation_Coordination {
             label="Directly Owned Components";
             style=dashed;
 
-            owned_state [label="Direct Ownership:\nclock: MasterClock          // PPU cycle counter\ncpu: CpuState               // 6502 state\nppu: PpuState               // 2C02 state\napu: ApuState               // APU state\nbus: BusState               // RAM + open bus\ncart: ?AnyCartridge         // Tagged union\ndma: OamDma                 // OAM DMA state machine\ndmc_dma: DmcDma             // DMC DMA state machine\ncontroller: ControllerState // NES controller\ndebugger: ?Debugger         // Breakpoints/watchpoints\nvblank_ledger: VBlankLedger // NMI edge detection\n\nNo pointer wiring - all stack-allocated", fillcolor=lightcyan, shape=record];
+            owned_state [label="Direct Ownership:\nclock: MasterClock          // PPU cycle counter\ncpu: CpuState               // 6502 state\nppu: PpuState               // 2C02 state\napu: ApuState               // APU state\nbus: BusState               // RAM + open bus\ncart: ?AnyCartridge         // Tagged union\ndma: OamDma                 // OAM DMA state machine\ndmc_dma: DmcDma             // DMC DMA state machine\ncontroller: ControllerState // NES controller\ndebugger: ?Debugger         // Breakpoints/watchpoints\nvblank_ledger: VBlankLedger // VBlank timestamps (PURE DATA)\n\nNo pointer wiring - all stack-allocated", fillcolor=lightcyan, shape=record];
         }
 
         subgraph cluster_emulation_flags {
             label="Emulation Flags";
             style=dashed;
 
-            emu_flags [label="Runtime Flags:\nframe_complete: bool      // VBlank start\nodd_frame: bool           // Odd/even tracking\nrendering_enabled: bool   // PPU $2001 bits 3-4\nppu_a12_state: bool       // For MMC3 IRQ\ndebug_break_occurred: bool\n\nImmutable Configuration:\nconfig: *const Config     // Hardware config\n\nOptional Framebuffer:\nframebuffer: ?[]u32       // 256×240 RGBA", fillcolor=lightyellow, shape=record];
+            emu_flags [label="Runtime Flags:\nframe_complete: bool      // VBlank start\nodd_frame: bool           // Odd/even tracking\nrendering_enabled: bool   // PPU $2001 bits 3-4\ndebug_break_occurred: bool\n\nImmutable Configuration:\nconfig: *const Config     // Hardware config\n\nOptional Framebuffer:\nframebuffer: ?[]u32       // 256×240 RGBA", fillcolor=lightyellow, shape=record];
         }
 
         subgraph cluster_emulation_functions {
@@ -52,11 +55,18 @@ digraph Emulation_Coordination {
             label="Bus Routing (Inline Logic)";
             style=dashed;
 
-            bus_read [label="busRead(self, addr) u8\n// Route to component\n// Update open bus\n// Check debugger", fillcolor=wheat, shape=box3d];
-            bus_write [label="busWrite(self, addr, value)\n// Route to component\n// Track PPUCTRL writes\n// Record VBlank ledger\n// Check debugger", fillcolor=lightcoral, shape=box3d];
+            bus_read [label="busRead(self, addr) u8\n// Route to component\n// Capture PpuReadResult\n// Update VBlankLedger on $2002 read\n// Handle race_hold detection\n// Update open bus\n// Check debugger", fillcolor=wheat, shape=box3d];
+            bus_write [label="busWrite(self, addr, value)\n// Route to component\n// Update open bus\n// Check debugger\n// NOTE: No VBlankLedger tracking", fillcolor=lightcoral, shape=box3d];
             bus_read16 [label="busRead16(self, addr) u16\n// Little-endian read", fillcolor=wheat];
             bus_read16bug [label="busRead16Bug(self, addr) u16\n// JMP indirect page wrap", fillcolor=wheat];
             bus_peek [label="peekMemory(self, addr) u8\n// No side effects\n// Debugger-safe", fillcolor=lightgreen];
+        }
+
+        subgraph cluster_apply_ppu_result {
+            label="PPU Result Processing";
+            style=dashed;
+
+            apply_ppu_result [label="applyPpuCycleResult(result)\n// Process PPU events\n// VBLANK COORDINATION:\n// if (result.nmi_signal)\n//     vblank_ledger.last_set_cycle = clock.ppu_cycles\n// if (result.vblank_clear)\n//     vblank_ledger.last_clear_cycle = clock.ppu_cycles\n//     vblank_ledger.race_hold = false\n// Direct field assignment (no methods)", fillcolor=lightcoral, shape=box3d];
         }
     }
 
@@ -101,6 +111,17 @@ digraph Emulation_Coordination {
         apu_result [label="ApuCycleResult:\nframe_irq: bool      // Frame counter IRQ\ndmc_irq: bool        // DMC sample IRQ", fillcolor=lightyellow, shape=record];
     }
 
+    // ========== PPU READ RESULT (src/ppu/logic/registers.zig) ==========
+    subgraph cluster_ppu_read_result {
+        label="PPU Read Result (src/ppu/logic/registers.zig)\nPure Function Side-Effect Signaling";
+        style=filled;
+        fillcolor=lightcyan;
+
+        ppu_read_result_struct [label="PpuReadResult struct:\lvalue: u8           // Register value to return\lread_2002: bool     // True if $2002 was read\l\lPurpose:\lSignal $2002 read to EmulationState without mutating VBlankLedger\lEnables pure functional register read logic in PPU\lEmulationState updates VBlankLedger based on this flag\l", fillcolor=lightcyan, shape=box];
+
+        build_status_byte [label="buildStatusByte(\n  sprite_overflow: bool,\n  sprite_0_hit: bool,\n  vblank_flag: bool,\n  data_bus_latch: u8\n) u8\n// PURE HELPER: Construct $2002 value\n// Combines sprite flags + VBlank flag + open bus\n// VBlank flag computed from VBlankLedger timestamps", fillcolor=palegreen, shape=box3d];
+    }
+
     // ========== BUS STATE (src/emulation/state/BusState.zig) ==========
     subgraph cluster_bus_state {
         label="BusState (src/emulation/state/BusState.zig)\nMemory Bus Data";
@@ -110,27 +131,15 @@ digraph Emulation_Coordination {
         bus_state [label="BusState:\nram: [2048]u8       // 2KB, mirrored $0000-$1FFF\nopen_bus: u8        // Last bus value\ntest_ram: ?[]u8     // For tests (no cartridge)", fillcolor=wheat, shape=record];
     }
 
-    // ========== VBLANK LEDGER (src/emulation/state/VBlankLedger.zig) ==========
+    // ========== VBLANK LEDGER (src/emulation/VBlankLedger.zig) ==========
     subgraph cluster_vblank_ledger {
-        label="VBlankLedger (src/emulation/state/VBlankLedger.zig)\nCycle-Accurate NMI Edge Detection";
+        label="VBlankLedger (src/emulation/VBlankLedger.zig)\nPure Data Struct - Phase 4 Refactor";
         style=filled;
         fillcolor=lightcoral;
 
-        vblank_ledger_state [label="VBlankLedger:\lspan_active: bool = false           // VBlank period active\lnmi_edge_pending: bool = false      // Latched NMI edge\l\lTimestamp Fields (PPU cycles):\llast_set_cycle: u64 = 0            // @ scanline 241.1\llast_clear_cycle: u64 = 0          // @ 261.1 or $2002 read\llast_status_read_cycle: u64 = 0    // $2002 read time\llast_ctrl_toggle_cycle: u64 = 0    // $2000 write time\llast_cpu_ack_cycle: u64 = 0        // CPU interrupt ack\l\lDecouples NMI latch from readable VBlank flag\lRecords events with master clock timestamps\l", fillcolor=lightcoral, shape=box];
+        vblank_ledger_state [label="VBlankLedger (PURE DATA STRUCT):\l\lTimestamp Fields (u64 - PPU cycles):\llast_set_cycle = 0       // Scanline 241.1\llast_clear_cycle = 0     // Scanline 261.1 (timing)\llast_read_cycle = 0      // $2002 read time\llast_nmi_ack_cycle = 0   // CPU interrupt ack\l\lRace Condition Fix:\lrace_hold: bool = false  // Read on exact set cycle\l                          // Keeps flag visible\l                          // Cleared at 261.1\l\lONLY METHOD:\lreset(self) void         // Reset all fields\l\lArchitecture:\l• EmulationState ONLY mutates (single source of truth)\l• PPU reads by value (pure function)\l• Computes VBlank flag from timestamp comparison\l• No hidden side effects or complex methods\l", fillcolor=lightcoral, shape=box];
 
-        vblank_record_set [label="recordVBlankSet(cycle, nmi_enabled)\n// Called at scanline 241 dot 1\n// Sets span_active = true\n// Latch NMI edge if !was_active && nmi_enabled", fillcolor=lightcoral];
-
-        vblank_record_clear [label="recordVBlankClear(cycle)\n// Updates last_clear_cycle\n// Note: Does NOT clear nmi_edge_pending", fillcolor=lightcoral];
-
-        vblank_record_end [label="recordVBlankSpanEnd(cycle)\n// Called at scanline 261 dot 1\n// Sets span_active = false\n// Preserves nmi_edge_pending", fillcolor=lightcoral];
-
-        vblank_record_status [label="recordStatusRead(cycle)\n// $2002 read\n// Updates last_status_read_cycle\n// Updates last_clear_cycle\n// Note: span_active stays true until 261.1\n// Note: nmi_edge_pending NOT cleared", fillcolor=lightcoral];
-
-        vblank_record_ctrl [label="recordCtrlToggle(cycle, old_nmi, new_nmi)\n// Called on $2000 write\n// Latch edge if 0→1 transition during VBlank span\n// Hardware: toggling NMI enable can trigger multiple edges", fillcolor=lightcoral];
-
-        vblank_should_assert [label="shouldAssertNmiLine(cycle, nmi_en, vb_flag) bool\n// Query NMI line state\n// Combines edge (latched) + level (active) logic\n// Single source of truth for CPU NMI input", fillcolor=lightgreen];
-
-        vblank_acknowledge [label="acknowledgeCpu(cycle)\n// Called during CPU interrupt sequence\n// Clears nmi_edge_pending\n// Updates last_cpu_ack_cycle", fillcolor=wheat];
+        vblank_computation_note [label="VBlank Flag Computation (Pure Function):\l\lIn ppu/logic/registers.zig readRegister():\l\l  const vblank_active = \l    (ledger.last_set_cycle > ledger.last_clear_cycle) and\l    (ledger.race_hold or \l     (ledger.last_set_cycle > ledger.last_read_cycle))\l\lLogic:\l1. VBlank active if set more recently than cleared\l2. AND (race_hold OR set more recently than read)\l3. race_hold keeps flag visible after race condition\l4. Computed on-demand, not stored\l", fillcolor=lightyellow, shape=note];
     }
 
     // ========== OAM DMA (src/emulation/state/peripherals/OamDma.zig) ==========
@@ -178,33 +187,20 @@ digraph Emulation_Coordination {
         style=filled;
         fillcolor=lightgreen;
 
-        cpu_step_cycle [label="stepCycle(state) CpuCycleResult\n// Called every CPU tick\n// SIDE EFFECTS:\n// - Tick DMA state machines\n// - Query VBlank ledger for NMI\n// - Execute CPU cycle\n// - Poll mapper IRQ\n// Returns: mapper_irq flag", fillcolor=lightgreen, shape=box3d];
+        cpu_step_cycle [label="stepCycle(state) CpuCycleResult\n// Called every CPU tick\n// SIDE EFFECTS:\n// - Tick DMA state machines\n// - Execute CPU cycle\n// - Poll mapper IRQ\n// Returns: mapper_irq flag", fillcolor=lightgreen, shape=box3d];
 
         cpu_execute_cycle [label="executeCycle(state) void\n// Delegates to Logic.tick()\n// Implements 4-state machine", fillcolor=lightgreen];
     }
 
-    // ========== PPU RUNTIME (src/emulation/Ppu.zig) ==========
+    // ========== PPU RUNTIME (src/ppu/Logic.zig) ==========
     subgraph cluster_ppu_runtime {
-        label="PPU Runtime (src/emulation/Ppu.zig)\nPPU Orchestration";
+        label="PPU Runtime (src/ppu/Logic.zig)\nPPU Orchestration";
         style=filled;
         fillcolor=lightcoral;
 
-        ppu_tick [label="tick(ppu, scanline, dot, cart, fb) PpuFlags\n// Called every PPU cycle\n// Explicit timing coordinates\n// SIDE EFFECTS:\n// - Update VRAM/OAM/palette\n// - Render pixels to framebuffer\n// - Trigger NMI/VBlank events\n// Returns: rendering_enabled, frame_complete, nmi_signal, vblank_clear, a12_rising", fillcolor=lightcoral, shape=box3d];
-    }
+        ppu_tick [label="tick(ppu, scanline, dot, cart, fb) PpuFlags\n// Called every PPU cycle\n// Explicit timing coordinates\n// SIDE EFFECTS:\n// - Update VRAM/OAM/palette\n// - Render pixels to framebuffer\n// - Return event flags (no mutations)\n// Returns: rendering_enabled, frame_complete, nmi_signal, vblank_clear, a12_rising", fillcolor=lightcoral, shape=box3d];
 
-    // ========== BUS ROUTING (src/emulation/bus/routing.zig) ==========
-    subgraph cluster_bus_routing_logic {
-        label="Bus Routing Logic (src/emulation/bus/routing.zig)\nMemory Map Implementation";
-        style=filled;
-        fillcolor=wheat;
-
-        routing_read [label="busRead(state, addr) u8\n// Route by address:\n// $0000-$1FFF: RAM (mirrored)\n// $2000-$3FFF: PPU registers (mirrored)\n// $4000-$4017: APU/IO registers\n// $4018-$401F: Test mode (disabled)\n// $4020-$FFFF: Cartridge\n// Returns: value + updates open_bus", fillcolor=wheat, shape=record];
-
-        routing_write [label="busWrite(state, addr, value)\n// Route by address:\n// $0000-$1FFF: RAM\n// $2000-$3FFF: PPU registers\n// $4000-$4013: APU registers\n// $4014: OAM DMA trigger\n// $4015: APU control\n// $4016: Controller strobe\n// $4017: Frame counter\n// $4020-$FFFF: Cartridge\n// Updates: open_bus", fillcolor=wheat, shape=record];
-
-        routing_read16 [label="busRead16(state, addr) u16\n// Little-endian read\n// Low byte at addr, high at addr+1", fillcolor=wheat];
-
-        routing_read16bug [label="busRead16Bug(state, addr) u16\n// JMP ($xxFF) page wrap bug\n// High byte at ($xx00) not ($xx+100)", fillcolor=wheat];
+        ppu_read_register [label="readRegister(\n  ppu: *PpuState,\n  cart: ?*AnyCartridge,\n  address: u16,\n  vblank_ledger: VBlankLedger\n) PpuReadResult\n// PURE FUNCTION (regarding VBlankLedger)\n// Takes ledger by value (read-only)\n// Computes VBlank flag from timestamps\n// Returns PpuReadResult with value + read_2002 flag\n// EmulationState updates ledger based on flag", fillcolor=lightcyan, shape=box3d];
     }
 
     // ========== DMA LOGIC (src/emulation/dma/logic.zig) ==========
@@ -275,22 +271,25 @@ digraph Emulation_Coordination {
     emu_tick -> cpu_step_cycle [label="3. Tick CPU (if cpu_tick)", color=green, penwidth=2];
     cpu_step_cycle -> dma_tick_oam [label="tick DMA", color=orange];
     cpu_step_cycle -> dma_tick_dmc [label="tick DMC DMA", color=orange];
-    cpu_step_cycle -> vblank_should_assert [label="query NMI", color=purple];
     cpu_step_cycle -> cpu_execute_cycle [label="execute", color=green];
     cpu_step_cycle -> cpu_result [label="returns", color=green];
 
     emu_tick -> apu_result [ltail=cluster_emulation_state, label="4. Tick APU (if apu_tick)", color=orange];
 
-    // VBlank ledger coordination
-    ppu_result -> vblank_record_set [label="on nmi_signal", color=red];
-    ppu_result -> vblank_record_end [label="on vblank_clear", color=red];
-    bus_write -> vblank_record_ctrl [label="on $2000 write", color=orange];
+    // VBlank ledger coordination (UPDATED - direct assignment)
+    ppu_result -> apply_ppu_result [label="events", color=red];
+    apply_ppu_result -> vblank_ledger_state [label="direct field assignment:\nlast_set_cycle\nlast_clear_cycle\nrace_hold = false", color=purple, penwidth=2];
 
-    // Bus routing
-    bus_read -> routing_read [label="delegate", color=blue];
-    bus_write -> routing_write [label="delegate", color=blue];
-    bus_read16 -> routing_read16 [label="delegate", color=blue];
-    bus_read16bug -> routing_read16bug [label="delegate", color=blue];
+    // Bus routing with PpuReadResult pattern
+    bus_read -> ppu_read_register [label="$2000-$3FFF reads", color=blue];
+    ppu_read_register -> ppu_read_result_struct [label="returns", color=blue];
+    ppu_read_result_struct -> vblank_ledger_state [label="if (result.read_2002):\nlast_read_cycle = now\nif race: race_hold = true", color=purple, penwidth=2];
+
+    // buildStatusByte usage
+    ppu_read_register -> build_status_byte [label="uses for $2002", style=dashed];
+    vblank_ledger_state -> ppu_read_register [label="passed by value\n(read-only)", color=lightblue, style=dashed];
+
+    // Bus routing (no VBlank tracking in writes)
     bus_peek -> inspect_peek [label="delegate", color=green];
 
     // Debugger checks
@@ -299,7 +298,7 @@ digraph Emulation_Coordination {
     emu_tick -> debug_should_halt [label="check pause", style=dashed];
 
     // DMA triggers
-    routing_write -> oam_dma_trigger [label="$4014 write", color=orange];
+    bus_write -> oam_dma_trigger [label="$4014 write", color=orange];
     apu_result -> dmc_dma_trigger [ltail=cluster_apu_result, label="on sample needed", color=orange];
 
     // Helper delegation
@@ -322,7 +321,7 @@ digraph Emulation_Coordination {
         legend_red [label="Red: PPU coordination", color=red, penwidth=2];
         legend_green [label="Green: CPU execution", color=green, penwidth=2];
         legend_orange [label="Orange: DMA/APU coordination", color=orange];
-        legend_purple [label="Purple: Interrupt handling", color=purple];
+        legend_purple [label="Purple: VBlank coordination (Phase 4)", color=purple, penwidth=2];
         legend_dashed [label="Dashed: Query/lookup", style=dashed];
         legend_dotted [label="Dotted: Containment", style=dotted];
     }
@@ -336,9 +335,9 @@ digraph Emulation_Coordination {
 
         timing_odd_frame [label="Odd Frame Skip:\n- Occurs at scanline 261 dot 340\n- Only if odd frame + rendering enabled\n- Skips dot 0 of scanline 0\n- nextTimingStep() advances by 2 cycles\n- Manually sets frame_complete flag\n- Result: Odd frames are 89,341 cycles", fillcolor=yellow, shape=note];
 
-        timing_vblank [label="VBlank Timing:\n- Set @ scanline 241 dot 1 → recordVBlankSet()\n- Clear @ scanline 261 dot 1 → recordVBlankSpanEnd()\n- NMI edge latched in VBlankLedger\n- CPU queries shouldAssertNmiLine() each cycle\n- Edge persists until CPU latches NMI", fillcolor=yellow, shape=note];
+        timing_vblank [label="VBlank Timing (Phase 4 Architecture):\n- Set @ scanline 241.1 → vblank_ledger.last_set_cycle = clock.ppu_cycles\n- Clear @ scanline 261.1 → vblank_ledger.last_clear_cycle = clock.ppu_cycles\n- $2002 read → vblank_ledger.last_read_cycle = now\n- Race condition → vblank_ledger.race_hold = true\n- VBlank flag computed on-demand from timestamps\n- PPU readRegister() is PURE (no mutations)\n- EmulationState orchestrates all updates", fillcolor=yellow, shape=note];
 
-        timing_execution_order [label="Same-Cycle Execution Order:\n1. PPU (may trigger NMI)\n2. APU (may trigger IRQ, DMA)\n3. CPU (may read registers)\nOrder matters for correct emulation", fillcolor=yellow, shape=note];
+        timing_execution_order [label="Same-Cycle Execution Order:\n1. PPU (may trigger NMI via nmi_signal flag)\n2. APU (may trigger IRQ, DMA)\n3. CPU (may read registers)\nOrder matters for correct emulation", fillcolor=yellow, shape=note];
 
         timing_dma_priority [label="DMA Priority:\n1. OAM DMA (513/514 cycles)\n2. DMC DMA (4 cycles per byte)\nBoth stall CPU during transfer\nAPU DMC triggers DMC DMA", fillcolor=yellow, shape=note];
     }
@@ -350,11 +349,11 @@ digraph Emulation_Coordination {
         fillcolor=white;
         rank=sink;
 
-        own_emulation [label="EmulationState:\nDirect ownership of all components\nStack-allocated (no heap)\nNo pointer wiring (connectComponents eliminated)\nSingle source of truth architecture", fillcolor=lightcyan, shape=note];
+        own_emulation [label="EmulationState:\nDirect ownership of all components\nStack-allocated (no heap)\nNo pointer wiring (connectComponents eliminated)\nSingle source of truth architecture\nONLY entity that mutates VBlankLedger", fillcolor=lightcyan, shape=note];
 
         own_clock [label="MasterClock:\nSingle timing counter (ppu_cycles)\nAll other timing derived on demand\nComponents NEVER advance time\nModels single crystal oscillator", fillcolor=yellow, shape=note];
 
-        own_ledger [label="VBlankLedger:\nSingle source of NMI truth\nDecouples edge from readable flag\nTimestamp-based determinism\nNo legacy refreshPpuNmiLevel()", fillcolor=lightcoral, shape=note];
+        own_ledger [label="VBlankLedger (Phase 4 Refactor):\nPure data struct (5 fields, 1 method)\nSingle source of VBlank truth\nTimestamp-based determinism\nrace_hold flag for race condition fix\nEmulationState ONLY mutates\nPPU reads by value (pure function)\nNo complex methods or hidden state", fillcolor=lightcoral, shape=note];
     }
 
     // Side effects summary
@@ -366,9 +365,9 @@ digraph Emulation_Coordination {
 
         side_timing [label="Timing Mutation:\n- ONLY clock.advance() mutates time\n- Called ONLY by nextTimingStep()\n- All other timing is derived (pure functions)\n- Odd frame skip: advance(2) instead of advance(1)", fillcolor=lightyellow, shape=note];
 
-        side_state [label="State Mutation:\n- tick() → stepPpuCycle() → PpuLogic.tick()\n- tick() → stepCpuCycle() → CpuLogic.tick()\n- tick() → stepApuCycle() → ApuLogic.tick*()\n- DMA state machines progress\n- VBlank ledger records events", fillcolor=lightyellow, shape=note];
+        side_state [label="State Mutation:\n- tick() → stepPpuCycle() → PpuLogic.tick()\n- tick() → stepCpuCycle() → CpuLogic.tick()\n- tick() → stepApuCycle() → ApuLogic.tick*()\n- DMA state machines progress\n- VBlank ledger: direct field assignment", fillcolor=lightyellow, shape=note];
 
-        side_bus [label="Bus I/O:\n- busRead() updates open_bus\n- busWrite() updates open_bus\n- $2000 write → recordCtrlToggle()\n- $4014 write → trigger OAM DMA\n- PPU/APU register side effects", fillcolor=lightcoral, shape=note];
+        side_bus [label="Bus I/O:\n- busRead() updates open_bus\n- busWrite() updates open_bus\n- $2002 read → VBlankLedger update (last_read_cycle, race_hold)\n- $4014 write → trigger OAM DMA\n- PPU/APU register side effects\n- NOTE: $2000 writes NO LONGER tracked in VBlankLedger", fillcolor=lightcoral, shape=note];
 
         side_debugger [label="Debugger:\n- All bus ops check watchpoints\n- tick() checks shouldHalt()\n- No heap allocation in hot path\n- RT-safe by design", fillcolor=lightblue, shape=note];
     }
@@ -384,6 +383,16 @@ digraph Emulation_Coordination {
 
         hw_memory_map [label="NES Memory Map:\n$0000-$1FFF: RAM (2KB, mirrored 4×)\n$2000-$3FFF: PPU (8 registers, mirrored)\n$4000-$4013: APU channels\n$4014: OAM DMA trigger\n$4015: APU status/control\n$4016-$4017: Controllers + frame counter\n$4020-$FFFF: Cartridge (PRG-ROM/RAM)", fillcolor=wheat, shape=note];
 
-        hw_vblank [label="VBlank Duration:\nStarts: Scanline 241 dot 1\nEnds: Scanline 261 dot 1 (pre-render)\nDuration: 20.33 scanlines = 6933 PPU cycles\nNMI latched on rising edge (0→1 transition)\nPersists until CPU handles interrupt", fillcolor=wheat, shape=note];
+        hw_vblank [label="VBlank Duration:\nStarts: Scanline 241 dot 1\nEnds: Scanline 261 dot 1 (pre-render)\nDuration: 20.33 scanlines = 6933 PPU cycles\nRace Condition: Read on exact set cycle\n  → race_hold keeps flag visible\n  → Cleared at pre-render (261.1)", fillcolor=wheat, shape=note];
+    }
+
+    // Phase 4 refactor summary
+    subgraph cluster_phase4_refactor {
+        label="Phase 4 VBlankLedger Refactor Summary";
+        style=filled;
+        fillcolor=lightcyan;
+        rank=sink;
+
+        refactor_summary [label="Architecture Transition (Oct 15-16, 2025):\n\nBEFORE (Stateful):\n• VBlank flag in PpuStatus\n• readRegister() mutated ledger directly\n• Methods: recordVBlankSet(), recordVBlankClear(), etc.\n• Hidden side effects → race conditions\n\nAFTER (Pure Functional):\n• VBlank flag computed from timestamps\n• readRegister() PURE (no mutations)\n• Returns PpuReadResult to signal side effects\n• EmulationState orchestrates mutations\n• race_hold flag fixes race condition\n\nBenefits:\n• RT-safety (no hidden mutations)\n• Testability (pure functions)\n• Determinism (single source of truth)\n• Race condition prevention", fillcolor=lightcyan, shape=note, penwidth=2];
     }
 }

@@ -41,8 +41,7 @@ pub const OamDma = @import("state/peripherals/OamDma.zig").OamDma;
 pub const DmcDma = @import("state/peripherals/DmcDma.zig").DmcDma;
 pub const ControllerState = @import("state/peripherals/ControllerState.zig").ControllerState;
 
-// Bus routing logic
-const BusRouting = @import("bus/routing.zig");
+
 
 // CPU microstep functions
 const CpuMicrosteps = @import("cpu/microsteps.zig");
@@ -65,7 +64,7 @@ const TimingStep = Timing.TimingStep;
 const TimingHelpers = Timing.TimingHelpers;
 
 // VBlank timing ledger (exported for unit tests)
-pub const VBlankLedger = @import("state/VBlankLedger.zig").VBlankLedger;
+pub const VBlankLedger = @import("VBlankLedger.zig").VBlankLedger;
 
 /// Complete emulation state (pure data, no hidden state)
 /// This is the core of the RT emulation loop
@@ -243,16 +242,9 @@ pub const EmulationState = struct {
     // These functions coordinate VBlank flag changes with the VBlankLedger
     // to ensure tests properly simulate hardware behavior
 
-    /// TEST HELPER: Simulate PPUCTRL NMI enable toggle with ledger coordination
-    /// Use this in tests instead of manually setting ppu.ctrl.nmi_enable
+    /// TEST HELPER: Set PPUCTRL NMI enable
     pub fn testSetNmiEnable(self: *EmulationState, enabled: bool) void {
-        const old_enabled = self.ppu.ctrl.nmi_enable;
         self.ppu.ctrl.nmi_enable = enabled;
-        self.vblank_ledger.recordCtrlToggle(
-            self.clock.ppu_cycles,
-            old_enabled,
-            enabled,
-        );
     }
 
     // =========================================================================
@@ -262,7 +254,77 @@ pub const EmulationState = struct {
     /// Read from NES memory bus
     /// Routes to appropriate component and updates open bus
     pub inline fn busRead(self: *EmulationState, address: u16) u8 {
-        const value = BusRouting.busRead(self, address);
+        const cart_ptr = self.cartPtr();
+
+        // The result of the read. For PPU reads, this will be a struct.
+        var ppu_read_result: ?PpuLogic.PpuReadResult = null;
+        var update_open_bus: bool = true;
+
+        const value = switch (address) {
+            // RAM + mirrors ($0000-$1FFF)
+            0x0000...0x1FFF => self.bus.ram[address & 0x7FF],
+
+            // PPU registers + mirrors ($2000-$3FFF)
+            0x2000...0x3FFF => blk: {
+                const result = PpuLogic.readRegister(
+                    &self.ppu,
+                    cart_ptr,
+                    address,
+                    self.vblank_ledger,
+                );
+                ppu_read_result = result;
+                break :blk result.value;
+            },
+
+            // APU and I/O registers ($4000-$4017)
+            0x4000...0x4013 => self.bus.open_bus, // APU channels write-only
+            0x4014 => self.bus.open_bus, // OAMDMA write-only
+            0x4015 => blk: {
+                const status = ApuLogic.readStatus(&self.apu);
+                ApuLogic.clearFrameIrq(&self.apu);
+                // Open bus behavior: reading $4015 should NOT update open_bus
+                update_open_bus = false;
+                break :blk status;
+            },
+            0x4016 => self.controller.read1() | (self.bus.open_bus & 0xE0),
+            0x4017 => self.controller.read2() | (self.bus.open_bus & 0xE0),
+
+            // Cartridge space ($4020-$FFFF)
+            0x4020...0xFFFF => blk: {
+                if (self.cart) |*cart| {
+                    break :blk cart.cpuRead(address);
+                }
+                if (self.bus.test_ram) |test_ram| {
+                    if (address >= 0x8000) {
+                        break :blk test_ram[address - 0x8000];
+                    }
+                }
+                break :blk self.bus.open_bus;
+            },
+
+            else => self.bus.open_bus,
+        };
+
+        // If a PPU read occurred, check for the $2002 read side-effect.
+        if (ppu_read_result) |result| {
+            if (result.read_2002) {
+                const now = self.clock.ppu_cycles;
+                self.vblank_ledger.last_read_cycle = now;
+
+                // Race condition: read on the exact cycle VBlank is set
+                if (now == self.vblank_ledger.last_set_cycle and
+                    self.vblank_ledger.last_set_cycle > self.vblank_ledger.last_clear_cycle)
+                {
+                    self.vblank_ledger.race_hold = true;
+                }
+            }
+        }
+
+        // All reads update the open bus.
+        if (update_open_bus) {
+            self.bus.open_bus = value;
+        }
+
         self.debuggerCheckMemoryAccess(address, value, false);
         return value;
     }
@@ -296,20 +358,55 @@ pub const EmulationState = struct {
     /// Write to NES memory bus
     /// Routes to appropriate component and updates open bus
     pub inline fn busWrite(self: *EmulationState, address: u16, value: u8) void {
-        // Track PPUCTRL writes for VBlank ledger
-        // CRITICAL: Must capture old value BEFORE BusRouting.busWrite() updates ppu.ctrl
-        // Writing to $2000 can change nmi_enable, which affects NMI generation
-        // per nesdev.org: toggling NMI enable during VBlank can trigger NMI
-        const is_ppuctrl_write = (address >= 0x2000 and address <= 0x3FFF and (address & 0x07) == 0x00);
-        const old_nmi_enabled = if (is_ppuctrl_write) self.ppu.ctrl.nmi_enable else false;
+        const cart_ptr = self.cartPtr();
+        // Hardware: All writes update open bus
+        self.bus.open_bus = value;
 
-        BusRouting.busWrite(self, address, value);
+        switch (address) {
+            // RAM + mirrors ($0000-$1FFF)
+            0x0000...0x1FFF => {
+                self.bus.ram[address & 0x7FF] = value;
+            },
 
-        if (is_ppuctrl_write) {
-            const new_nmi_enabled = (value & 0x80) != 0;
-            self.vblank_ledger.recordCtrlToggle(self.clock.ppu_cycles, old_nmi_enabled, new_nmi_enabled);
-            // NOTE: Do NOT call refreshPpuNmiLevel() - ledger is single source of truth
-            // stepCycle() will query ledger on next CPU cycle
+            // PPU registers + mirrors ($2000-$3FFF)
+            0x2000...0x3FFF => |addr| {
+                const reg = addr & 0x07;
+                PpuLogic.writeRegister(&self.ppu, cart_ptr, reg, value);
+            },
+
+            // APU and I/O registers ($4000-$4017)
+            0x4000...0x4003 => |addr| ApuLogic.writePulse1(&self.apu, @intCast(addr & 0x03), value),
+            0x4004...0x4007 => |addr| ApuLogic.writePulse2(&self.apu, @intCast(addr & 0x03), value),
+            0x4008...0x400B => |addr| ApuLogic.writeTriangle(&self.apu, @intCast(addr & 0x03), value),
+            0x400C...0x400F => |addr| ApuLogic.writeNoise(&self.apu, @intCast(addr & 0x03), value),
+            0x4010...0x4013 => |addr| ApuLogic.writeDmc(&self.apu, @intCast(addr & 0x03), value),
+
+            0x4014 => {
+                const cpu_cycle = self.clock.ppu_cycles / 3;
+                const on_odd_cycle = (cpu_cycle & 1) != 0;
+                self.dma.trigger(value, on_odd_cycle);
+            },
+
+            0x4015 => ApuLogic.writeControl(&self.apu, value),
+
+            0x4016 => {
+                self.controller.writeStrobe(value);
+            },
+
+            0x4017 => ApuLogic.writeFrameCounter(&self.apu, value),
+
+            // Cartridge space ($4020-$FFFF)
+            0x4020...0xFFFF => {
+                if (self.cart) |*cart| {
+                    cart.cpuWrite(address, value);
+                } else if (self.bus.test_ram) |test_ram| {
+                    if (address >= 0x8000) {
+                        test_ram[address - 0x8000] = value;
+                    }
+                }
+            },
+
+            else => {},
         }
 
         self.debuggerCheckMemoryAccess(address, value, true);
@@ -318,13 +415,23 @@ pub const EmulationState = struct {
     /// Read 16-bit value (little-endian)
     /// Used for reading interrupt vectors and 16-bit operands
     pub inline fn busRead16(self: *EmulationState, address: u16) u16 {
-        return BusRouting.busRead16(self, address);
+        const low = self.busRead(address);
+        const high = self.busRead(address +% 1);
+        return (@as(u16, high) << 8) | @as(u16, low);
     }
 
     /// Read 16-bit value with JMP indirect page wrap bug
     /// The 6502 has a bug where JMP ($xxFF) wraps within the page
     pub inline fn busRead16Bug(self: *EmulationState, address: u16) u16 {
-        return BusRouting.busRead16Bug(self, address);
+        const low_addr = address;
+        const high_addr = if ((address & 0x00FF) == 0x00FF)
+            address & 0xFF00
+        else
+            address +% 1;
+
+        const low = self.busRead(low_addr);
+        const high = self.busRead(high_addr);
+        return (@as(u16, high) << 8) | @as(u16, low);
     }
 
     /// Peek memory without side effects (for debugging/inspection)
@@ -492,22 +599,16 @@ pub const EmulationState = struct {
             }
         }
 
-        // Handle VBlank events with timestamp ledger
-        // Post-refactor: Record events with master clock cycles for deterministic NMI
-        // Ledger is single source of truth - no local nmi_latched flag
+        // Handle VBlank events by updating the ledger's timestamps.
         if (result.nmi_signal) {
-            // VBlank flag set at scanline 241 dot 1
-            // Pass current NMI enable state for edge detection
-            // Ledger internally manages nmi_edge_pending flag
-            const nmi_enabled = self.ppu.ctrl.nmi_enable;
-            self.vblank_ledger.recordVBlankSet(self.clock.ppu_cycles, nmi_enabled);
+            // VBlank flag set at scanline 241 dot 1.
+            self.vblank_ledger.last_set_cycle = self.clock.ppu_cycles;
         }
 
         if (result.vblank_clear) {
-            // VBlank span ends at scanline 261 dot 1 (pre-render)
-            self.vblank_ledger.recordVBlankSpanEnd(self.clock.ppu_cycles);
-            // NOTE: Do NOT call refreshPpuNmiLevel() - ledger is single source of truth
-            // stepCycle() will query ledger on next CPU cycle
+            // VBlank span ends at scanline 261 dot 1 (pre-render).
+            self.vblank_ledger.last_clear_cycle = self.clock.ppu_cycles;
+            self.vblank_ledger.race_hold = false;
         }
     }
 

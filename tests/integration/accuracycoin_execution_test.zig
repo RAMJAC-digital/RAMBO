@@ -19,7 +19,7 @@ const RunConfig = RomTestRunner.RunConfig;
 const TestResult = RomTestRunner.TestResult;
 
 test "AccuracyCoin: Execute and extract test results" {
-    const accuracycoin_path = "AccuracyCoin/AccuracyCoin.nes";
+    const accuracycoin_path = "tests/data/AccuracyCoin.nes";
 
     // Configuration: Run for 10 seconds worth of frames (600 frames)
     // AccuracyCoin cycles through all tests continuously

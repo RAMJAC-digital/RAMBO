@@ -1,5 +1,10 @@
 // CPU Execution Flow - 6502 Cycle-Accurate State Machine
 // Shows the complete instruction execution pipeline with BIT $2002 example
+//
+// Updated: 2025-10-16 (Phase 3: File path corrections)
+// Phase 3 Changes:
+//   - Updated execution.zig path: execution.zig → src/emulation/cpu/execution.zig
+//   - Updated bus routing path: bus/routing.zig → src/emulation/bus/routing.zig
 
 digraph CPU_Execution_Flow {
     // Graph settings
@@ -15,7 +20,7 @@ digraph CPU_Execution_Flow {
 
     // ========== EXECUTION STATES ==========
     subgraph cluster_states {
-        label="CPU Execution States\n(execution.zig State Machine)";
+        label="CPU Execution States\n(src/emulation/cpu/execution.zig State Machine)";
         style=filled;
         fillcolor=lightcyan;
 
@@ -126,7 +131,7 @@ digraph CPU_Execution_Flow {
 
     // ========== BUS ROUTING ==========
     subgraph cluster_bus {
-        label="Bus Routing\n(bus/routing.zig)";
+        label="Bus Routing\n(src/emulation/bus/routing.zig)";
         style=filled;
         fillcolor=lightgoldenrodyellow;
 

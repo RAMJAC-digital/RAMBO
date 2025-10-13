@@ -30,13 +30,21 @@ pub const Harness = struct {
         };
     }
 
+    pub fn initWithRom(rom_data: []const u8) !Harness {
+        var harness = try Harness.init();
+        errdefer harness.deinit();
+
+        const cart = try NromCart.loadFromData(testing.allocator, rom_data);
+        harness.loadNromCartridge(cart);
+        // Reset to load PC from cartridge reset vector
+        harness.state.reset();
+
+        return harness;
+    }
+
     pub fn deinit(self: *Harness) void {
-        if (self.cart_loaded) {
-            if (self.state.cart) |*cart| {
-                cart.deinit();
-                self.state.cart = null;
-            }
-        }
+        // Always deinit emulation state (cleans up cartridge/resources if present)
+        self.state.deinit();
         self.config.deinit();
         testing.allocator.destroy(self.config);
     }
@@ -63,6 +71,32 @@ pub const Harness = struct {
         for (0..cycles) |_| self.tickPpu();
     }
 
+    pub fn tick(self: *Harness, count: u64) void {
+        for (0..count) |_| {
+            self.state.tick();
+        }
+    }
+
+    pub fn runCpuCycles(self: *Harness, count: u64) void {
+        _ = self.state.emulateCpuCycles(count);
+    }
+
+    /// Load a slice of bytes into RAM at a specific address.
+    pub fn loadRam(self: *Harness, data: []const u8, address: u16) void {
+        const base: usize = @intCast(address);
+        for (data, 0..) |byte, i| {
+            const dest = (base + i) & 0x07FF;
+            self.state.bus.ram[dest] = byte;
+        }
+    }
+
+    /// Seek the emulator to a specific PPU scanline and dot.
+    pub fn seekTo(self: *Harness, target_scanline: u16, target_dot: u16) void {
+        while (self.state.clock.scanline() != target_scanline or self.state.clock.dot() != target_dot) {
+            self.state.tick();
+        }
+    }
+
     pub fn tickPpuWithFramebuffer(self: *Harness, framebuffer: []u32) void {
         const scanline = self.state.clock.scanline();
         const dot = self.state.clock.dot();
@@ -71,18 +105,13 @@ pub const Harness = struct {
     }
 
     pub fn ppuReadRegister(self: *Harness, address: u16) u8 {
-        // VBlank Migration (Phase 2): Pass VBlankLedger and current_cycle
-        return PpuLogic.readRegister(
-            &self.state.ppu,
-            self.cartPtr(),
-            address,
-            &self.state.vblank_ledger,
-            self.state.clock.ppu_cycles,
-        );
+        // Route through EmulationState bus logic so side effects (e.g. VBlank ledger) remain consistent
+        return self.state.busRead(address);
     }
 
     pub fn ppuWriteRegister(self: *Harness, address: u16, value: u8) void {
-        PpuLogic.writeRegister(&self.state.ppu, self.cartPtr(), address, value);
+        // Use the orchestrated bus path to keep open-bus and side effects accurate
+        self.state.busWrite(address, value);
     }
 
     pub fn ppuReadVram(self: *Harness, address: u16) u8 {

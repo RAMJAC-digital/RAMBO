@@ -22,36 +22,18 @@
 const std = @import("std");
 const testing = std.testing;
 const RAMBO = @import("RAMBO");
+const Harness = RAMBO.TestHarness.Harness;
 const EmulationState = RAMBO.EmulationState.EmulationState;
-const Config = RAMBO.Config;
 
 // Import microsteps module for direct testing
 // NOTE: This is a white-box test - we're testing implementation internals
 // to ensure hardware spec compliance at the lowest level
 
-const TestHarness = struct {
-    config: *Config.Config,
-    state: EmulationState,
-    allocator: std.mem.Allocator,
-
-    pub fn deinit(self: *TestHarness) void {
-        self.config.deinit();
-        self.allocator.destroy(self.config);
-    }
-};
-
 /// Helper to set up EmulationState for JMP indirect testing
-fn setupState(allocator: std.mem.Allocator) !TestHarness {
-    const config = try allocator.create(Config.Config);
-    config.* = Config.Config.init(allocator);
-    var state = EmulationState.init(config);
-    state.reset();
-
-    return .{
-        .config = config,
-        .state = state,
-        .allocator = allocator,
-    };
+fn setupHarness() !Harness {
+    var h = try Harness.init();
+    h.state.reset();
+    return h;
 }
 
 /// Simulate jmpIndirectFetchHigh microstep
@@ -75,7 +57,7 @@ fn simulateJmpIndirectFetchHigh(state: *EmulationState) void {
 // ============================================================================
 
 test "JMP Indirect: Page boundary bug - pointer at $02FF reads high byte from $0200" {
-    var harness = try setupState(testing.allocator);
+    var harness = try setupHarness();
     defer harness.deinit();
     var state = &harness.state;
 
@@ -107,7 +89,7 @@ test "JMP Indirect: Page boundary bug - pointer at $02FF reads high byte from $0
 }
 
 test "JMP Indirect: No bug when pointer NOT at page boundary ($0280)" {
-    var harness = try setupState(testing.allocator);
+    var harness = try setupHarness();
     defer harness.deinit();
     var state = &harness.state;
 
@@ -132,7 +114,7 @@ test "JMP Indirect: No bug when pointer NOT at page boundary ($0280)" {
 }
 
 test "JMP Indirect: Bug exists at $00FF (zero page boundary)" {
-    var harness = try setupState(testing.allocator);
+    var harness = try setupHarness();
     defer harness.deinit();
     var state = &harness.state;
 
@@ -151,7 +133,7 @@ test "JMP Indirect: Bug exists at $00FF (zero page boundary)" {
 }
 
 test "JMP Indirect: Bug exists at $FFFF (highest address)" {
-    var harness = try setupState(testing.allocator);
+    var harness = try setupHarness();
     defer harness.deinit();
     var state = &harness.state;
 
@@ -174,7 +156,7 @@ test "JMP Indirect: Bug exists at $FFFF (highest address)" {
 // ============================================================================
 
 test "JMP Indirect: Bug exists at ALL 256 page boundaries ($00FF through $FFFF)" {
-    var harness = try setupState(testing.allocator);
+    var harness = try setupHarness();
     defer harness.deinit();
     var state = &harness.state;
 
@@ -209,7 +191,7 @@ test "JMP Indirect: Bug exists at ALL 256 page boundaries ($00FF through $FFFF)"
 // ============================================================================
 
 test "JMP Indirect: REGRESSION CHECK - Bug must exist (not accidentally fixed)" {
-    var harness = try setupState(testing.allocator);
+    var harness = try setupHarness();
     defer harness.deinit();
     var state = &harness.state;
 
@@ -237,7 +219,7 @@ test "JMP Indirect: REGRESSION CHECK - Bug must exist (not accidentally fixed)" 
 // ============================================================================
 
 test "JMP Indirect: Pointer at $xxFE - one byte before boundary (no bug)" {
-    var harness = try setupState(testing.allocator);
+    var harness = try setupHarness();
     defer harness.deinit();
     var state = &harness.state;
 
@@ -254,7 +236,7 @@ test "JMP Indirect: Pointer at $xxFE - one byte before boundary (no bug)" {
 }
 
 test "JMP Indirect: Pointer at $xx00 - start of page (no bug)" {
-    var harness = try setupState(testing.allocator);
+    var harness = try setupHarness();
     defer harness.deinit();
     var state = &harness.state;
 
@@ -275,7 +257,7 @@ test "JMP Indirect: Pointer at $xx00 - start of page (no bug)" {
 // ============================================================================
 
 test "JMP Indirect: Real-world bug scenario - indirect jump table at $1FF" {
-    var harness = try setupState(testing.allocator);
+    var harness = try setupHarness();
     defer harness.deinit();
     var state = &harness.state;
 
@@ -299,7 +281,7 @@ test "JMP Indirect: Real-world bug scenario - indirect jump table at $1FF" {
 }
 
 test "JMP Indirect: Bug can cause game crashes - wrong routine executed" {
-    var harness = try setupState(testing.allocator);
+    var harness = try setupHarness();
     defer harness.deinit();
     var state = &harness.state;
 
@@ -342,7 +324,7 @@ test "JMP Indirect: Spec compliance - nesdev.org Errata documentation" {
     //
     // This test verifies the "255 bytes earlier" claim
 
-    var harness = try setupState(testing.allocator);
+    var harness = try setupHarness();
     defer harness.deinit();
     var state = &harness.state;
 

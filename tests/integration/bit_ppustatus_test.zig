@@ -14,77 +14,78 @@ const RAMBO = @import("RAMBO");
 
 const Harness = RAMBO.TestHarness.Harness;
 
-test "BIT $2002: N flag reflects VBlank state before clearing" {
-    var harness = try Harness.init();
-    defer harness.deinit();
+test "BIT $2002: N flag reflects VBlank state" {
+    var h = try Harness.init();
+    defer h.deinit();
 
-    harness.state.reset();
+    // Setup: BIT $2002 instruction at 0x8000
+    h.loadRam(&[_]u8{ 0x2C, 0x02, 0x20 }, 0x0000); // BIT $2002
+    h.state.cpu.pc = 0x0000;
 
-    // Setup: BIT $2002 instruction at 0x0000
-    // Note: Integration test - direct state access required for CPU instruction setup
-    harness.state.bus.ram[0] = 0x2C; // BIT absolute
-    harness.state.bus.ram[1] = 0x02; // Low byte of $2002
-    harness.state.bus.ram[2] = 0x20; // High byte of $2002
-    harness.state.cpu.pc = 0x0000;
+    // --- Test 1: VBlank is clear ---
+    h.state.cpu.p.negative = true; // Pre-set flag to ensure it gets cleared
+    h.runCpuCycles(4); // BIT abs takes 4 cycles
+    try testing.expect(!h.state.cpu.p.negative); // N flag should be cleared
 
-    // Test 1: VBlank clear (no need to set - already clear after reset)
+    // --- Test 2: VBlank is set ---
+    // Align so BIT's memory read happens exactly at 241.1
+    h.seekTo(240, 330);
+    h.state.cpu.pc = 0x0000; // Reset PC
+    h.state.cpu.state = .fetch_opcode;
+    h.state.cpu.instruction_cycle = 0;
+    h.state.cpu.p.negative = false; // Pre-clear flag
+    h.runCpuCycles(4); // BIT abs takes 4 cycles
+    try testing.expect(h.state.cpu.p.negative); // N flag should be set
 
-    // Execute BIT $2002 (4 cycles)
-    var cycles: usize = 0;
-    while (cycles < 12) : (cycles += 1) { // 12 PPU cycles = 4 CPU cycles
-        harness.state.tick();
-    }
-
-    try testing.expect(!harness.state.cpu.p.negative); // N should be 0
-    try testing.expect(!harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles)); // VBlank should still be clear
-
-    // Test 2: VBlank set
-    harness.state.cpu.pc = 0x0000; // Reset PC
-    harness.state.vblank_ledger.recordVBlankSet(harness.state.clock.ppu_cycles, harness.state.ppu.ctrl.nmi_enable);
-
-    cycles = 0;
-    while (cycles < 12) : (cycles += 1) { // 12 PPU cycles = 4 CPU cycles
-        harness.state.tick();
-    }
-
-    try testing.expect(harness.state.cpu.p.negative); // N should be 1 (bit 7 was set)
-    try testing.expect(!harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles)); // VBlank should be cleared by read
-
+    // --- Test 3: Mid-VBlank clear-on-read behavior ---
+    // First, advance to timing clear to reset race-hold, then into next frame mid-VBlank
+    h.seekTo(261, 0);
+    h.tick(1); // 261.1: clear VBlank
+    // Align to a point well after the set edge in the next frame so a read clears VBlank
+    h.seekTo(245, 100);
+    h.state.cpu.pc = 0x0000;
+    h.state.cpu.state = .fetch_opcode;
+    h.state.cpu.instruction_cycle = 0;
+    h.runCpuCycles(4); // First read during mid-VBlank
+    try testing.expect(h.state.cpu.p.negative); // N set
+    // Next BIT should see cleared flag
+    h.state.cpu.pc = 0x0000;
+    h.state.cpu.state = .fetch_opcode;
+    h.state.cpu.instruction_cycle = 0;
+    h.runCpuCycles(4);
+    try testing.expect(!h.state.cpu.p.negative); // N cleared
 }
 
 test "BIT $2002 then BPL: Loop should exit when VBlank set" {
-    var harness = try Harness.init();
-    defer harness.deinit();
-
-    harness.state.reset();
+    var h = try Harness.init();
+    defer h.deinit();
 
     // Setup: BIT $2002, BPL -5 loop at 0x0000
-    // Note: Integration test - direct state access required for CPU instruction setup
-    harness.state.bus.ram[0] = 0x2C; // BIT absolute
-    harness.state.bus.ram[1] = 0x02; // $2002
-    harness.state.bus.ram[2] = 0x20;
-    harness.state.bus.ram[3] = 0x10; // BPL relative
-    harness.state.bus.ram[4] = 0xFB; // -5 (back to 0x0000)
-    harness.state.cpu.pc = 0x0000;
+    h.loadRam(&[_]u8{
+        0x2C, 0x02, 0x20, // BIT $2002
+        0x10, 0xFB,       // BPL -5 (jumps back to BIT)
+    }, 0x0000);
+    h.state.cpu.pc = 0x0000;
+    h.state.cpu.state = .fetch_opcode;
+    h.state.cpu.instruction_cycle = 0;
 
-    // Set VBlank
-    harness.state.vblank_ledger.recordVBlankSet(harness.state.clock.ppu_cycles, harness.state.ppu.ctrl.nmi_enable);
+    // --- Loop while VBlank is clear ---
+    // Ensure branch is taken at least once (pc not advanced past BPL)
+    h.runCpuCycles(10); // Run a few loops
+    try testing.expect(h.state.cpu.pc != 0x0005);
 
-    // Execute BIT $2002 (4 CPU cycles = 12 PPU cycles)
-    var ppu_cycles: usize = 0;
-    while (ppu_cycles < 12) : (ppu_cycles += 1) {
-        harness.state.tick();
-    }
+    // --- Set VBlank and see if it exits ---
+    // Align so BIT's read occurs at 241.1 again
+    h.seekTo(240, 330);
+    h.state.cpu.pc = 0x0000;
+    h.state.cpu.state = .fetch_opcode;
+    h.state.cpu.instruction_cycle = 0;
+    h.runCpuCycles(4);
+    try testing.expect(h.state.cpu.p.negative); // N flag is set
 
-    try testing.expect(harness.state.cpu.p.negative); // N should be 1
+    // Execute BPL (2 cycles, branch NOT taken)
+    h.runCpuCycles(2);
 
-    // Execute BPL (2 CPU cycles = 6 PPU cycles, branch not taken)
-    ppu_cycles = 0;
-    while (ppu_cycles < 6) : (ppu_cycles += 1) {
-        harness.state.tick();
-    }
-
-    // PC should have advanced past BPL (not branched)
-    try testing.expect(harness.state.cpu.pc == 0x0005); // BPL not taken, PC moved forward
-
+    // PC should have advanced past BPL
+    try testing.expect(h.state.cpu.pc == 0x0005);
 }

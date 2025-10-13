@@ -1,5 +1,7 @@
 // PPU Module Complete Structure - All Types, Functions, and Relationships
 // Based on actual source code audit from docs/architecture/codebase-inventory.md
+// Last Verified: 2025-10-13 (Phase 7: Fixed src/emulation/Ppu.zig reference - now correctly shows src/ppu/Logic.zig)
+// UPDATED: 2025-10-16 - VBlankLedger refactor (readRegister signature, PpuReadResult, buildStatusByte)
 
 digraph PPU_Module {
     // Graph settings
@@ -73,6 +75,8 @@ digraph PPU_Module {
             ppu_openbus [label="OpenBus struct:\lvalue: u8 = 0\ldecay_timer: u16 = 0\l\lMethods:\lwrite(self, value: u8) void\lread(self) u8\ldecay(self) void\l", fillcolor=wheat, shape=box];
 
             ppu_sprite_pixel [label="SpritePixel struct:\lpixel: u8\lpriority: bool\lsprite_0: bool\l\lReturned by getSpritePixel()\l", fillcolor=orchid, shape=box];
+
+            ppu_read_result [label="PpuReadResult struct:\lvalue: u8\lread_2002: bool = false\l\lReturned by readRegister()\lSignals $2002 read to EmulationState\l", fillcolor=lightcyan, shape=box];
         }
     }
 
@@ -100,15 +104,19 @@ digraph PPU_Module {
 
     // ========== REGISTER LOGIC (src/ppu/logic/registers.zig) ==========
     subgraph cluster_register_logic {
-        label="Register Logic (src/ppu/logic/registers.zig)\nCPU Register Access ($2000-$2007)";
+        label="Register Logic (src/ppu/logic/registers.zig)\nCPU Register Access ($2000-$2007)\nPhase 4: Pure functional VBlank reading";
         style=filled;
         fillcolor=lightyellow;
 
-        reg_read [label="readRegister(state, cart, addr) u8\n// SIDE EFFECTS:\n// - $2002: Clear vblank, reset toggle\n// - $2004: Read OAM\n// - $2007: Buffer read, increment v", fillcolor=lightyellow, shape=box3d];
+        reg_read [label="readRegister(\n  state: *PpuState,\n  cart: ?*AnyCartridge,\n  address: u16,\n  vblank_ledger: VBlankLedger\n) PpuReadResult\n\nPURE FUNCTION (regarding VBlankLedger):\n• Takes vblank_ledger by value (read-only)\n• Computes VBlank flag from timestamps\n• Returns PpuReadResult with value + read_2002 flag\n• EmulationState updates ledger based on flag\n\nLOCAL SIDE EFFECTS:\n• $2002: Reset write toggle, update open bus\n• $2004: Read OAM\n• $2007: Buffer read, increment v", fillcolor=lightyellow, shape=box3d];
+
+        build_status_byte [label="buildStatusByte(\n  sprite_overflow: bool,\n  sprite_0_hit: bool,\n  vblank_flag: bool,\n  data_bus_latch: u8\n) u8\n\nPURE HELPER: Construct $2002 value\n• Combines sprite flags + VBlank flag + open bus\n• VBlank flag computed from VBlankLedger:\n  vblank_active = (last_set > last_clear) and\n                  (race_hold or (last_set > last_read))", fillcolor=palegreen, shape=box3d];
 
         reg_write [label="writeRegister(state, cart, addr, val) void\n// SIDE EFFECTS:\n// - $2000: Update ctrl, may trigger NMI\n// - $2001: Update mask\n// - $2003: Set OAM addr\n// - $2004: Write OAM, increment addr\n// - $2005: Update t, x (2 writes)\n// - $2006: Update t, v (2 writes)\n// - $2007: Write VRAM, increment v", fillcolor=lightcoral, shape=box3d];
 
-        reg_table [label="Register Table:\n$2000: PPUCTRL (W)\n$2001: PPUMASK (W)\n$2002: PPUSTATUS (R, clears VBlank)\n$2003: OAMADDR (W)\n$2004: OAMDATA (RW)\n$2005: PPUSCROLL (W, 2x)\n$2006: PPUADDR (W, 2x)\n$2007: PPUDATA (RW, buffered)", fillcolor=wheat, shape=note];
+        reg_table [label="Register Table:\n$2000: PPUCTRL (W)\n$2001: PPUMASK (W)\n$2002: PPUSTATUS (R, signals read via PpuReadResult)\n$2003: OAMADDR (W)\n$2004: OAMDATA (RW)\n$2005: PPUSCROLL (W, 2x)\n$2006: PPUADDR (W, 2x)\n$2007: PPUDATA (RW, buffered)\n\nPhase 4 Architecture:\n• VBlank flag computed on-demand from VBlankLedger\n• readRegister() is PURE regarding VBlank\n• EmulationState orchestrates ledger updates\n• race_hold flag handles race conditions", fillcolor=wheat, shape=note];
+
+        vblank_computation [label="VBlank Flag Computation:\l\lIn readRegister() for $2002:\l  const vblank_active = \l    (vblank_ledger.last_set_cycle > vblank_ledger.last_clear_cycle) and\l    (vblank_ledger.race_hold or \l     (vblank_ledger.last_set_cycle > vblank_ledger.last_read_cycle))\l\lLogic:\l1. VBlank active if set more recently than cleared\l2. AND (race_hold OR set more recently than read)\l3. race_hold keeps flag visible after race condition\l4. Computed fresh on every read (not stored)\l", fillcolor=lightcyan, shape=note];
     }
 
     // ========== SCROLLING LOGIC (src/ppu/logic/scrolling.zig) ==========
@@ -158,13 +166,13 @@ digraph PPU_Module {
         sprite_timing [label="Sprite Timing:\nDots 1-64: Clear secondary OAM\nDot 65: Evaluate sprites (instant)\nDots 257-320: Fetch sprites (8x8 cycles)", fillcolor=wheat, shape=note];
     }
 
-    // ========== PPU RUNTIME (src/emulation/Ppu.zig) ==========
-    subgraph cluster_ppu_runtime {
-        label="PPU Runtime (src/emulation/Ppu.zig)\nTiming-Driven Orchestrator";
+    // ========== PPU ORCHESTRATION (Part of src/ppu/Logic.zig) ==========
+    subgraph cluster_ppu_orchestration {
+        label="PPU Orchestration (src/ppu/Logic.zig)\nTiming-Driven Tick Function";
         style=filled;
         fillcolor=mistyrose;
 
-        runtime_tick [label="tick(state, scanline, dot, cart, fb) TickFlags\n// One PPU cycle\n// SIDE EFFECTS:\n// - Calls all rendering logic\n// - Updates shift registers\n// - Writes framebuffer\n// - Sets/clears VBlank flag", fillcolor=lightcoral, shape=box3d];
+        runtime_tick [label="tick(state, scanline, dot, cart, fb) TickFlags\n// One PPU cycle\n// SIDE EFFECTS:\n// - Calls all rendering logic\n// - Updates shift registers\n// - Writes framebuffer\n// - Returns frame completion flags", fillcolor=lightcoral, shape=box3d];
 
         runtime_flags [label="TickFlags:\nframe_complete: bool\nrendering_enabled: bool\nnmi_signal: bool (241.1)\nvblank_clear: bool (261.1)", fillcolor=wheat, shape=record];
 

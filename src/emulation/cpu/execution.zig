@@ -74,15 +74,16 @@ const CpuCycleResult = CycleResults.CpuCycleResult;
 ///
 /// Returns: CpuCycleResult with mapper_irq flag
 pub fn stepCycle(state: anytype) CpuCycleResult {
-    // Query VBlankLedger for NMI line state (single source of truth)
-    // Combines edge (latched) and level (active) logic
-    // VBlank Migration (Phase 4): No longer pass vblank_flag - ledger tracks internally
-    const nmi_line = state.vblank_ledger.shouldAssertNmiLine(
-        state.clock.ppu_cycles,
-        state.ppu.ctrl.nmi_enable,
-    );
+    // Determine if an NMI should be asserted.
+    // This happens on the rising edge of VBlank if NMIs are enabled.
+    const nmi_conditions_met = (state.vblank_ledger.last_set_cycle > state.vblank_ledger.last_clear_cycle) and
+        (state.vblank_ledger.last_set_cycle > state.vblank_ledger.last_read_cycle) and
+        (state.vblank_ledger.last_set_cycle > state.vblank_ledger.last_nmi_ack_cycle) and
+        state.ppu.ctrl.nmi_enable;
 
-    state.cpu.nmi_line = nmi_line;
+    if (nmi_conditions_met) {
+        state.cpu.nmi_line = true;
+    }
 
     // If CPU is halted (JAM/KIL), do nothing until RESET
     if (state.cpu.halted) {
@@ -191,13 +192,11 @@ pub fn executeCycle(state: anytype) void {
                     @as(u16, state.cpu.operand_low);
 
                 // Acknowledge NMI before clearing pending_interrupt
-                const was_nmi = state.cpu.pending_interrupt == .nmi;
-                state.cpu.pending_interrupt = .none;
-
-                if (was_nmi) {
-                    // Acknowledge in ledger (single source of truth)
-                    state.vblank_ledger.acknowledgeCpu(state.clock.ppu_cycles);
+                if (state.cpu.pending_interrupt == .nmi) {
+                    state.vblank_ledger.last_nmi_ack_cycle = state.clock.ppu_cycles;
+                    state.cpu.nmi_line = false; // Lower the NMI line
                 }
+                state.cpu.pending_interrupt = .none;
 
                 break :blk true; // Complete
             },

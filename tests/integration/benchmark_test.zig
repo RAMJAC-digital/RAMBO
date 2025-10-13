@@ -11,7 +11,7 @@ const RomTestRunner = @import("rom_test_runner.zig").RomTestRunner;
 const RunConfig = @import("rom_test_runner.zig").RunConfig;
 
 test "Benchmark: AccuracyCoin emulation performance" {
-    const accuracycoin_path = "AccuracyCoin/AccuracyCoin.nes";
+    const accuracycoin_path = "tests/data/AccuracyCoin.nes";
 
     // Create benchmark runner
     var bench = Benchmark.Runner{};

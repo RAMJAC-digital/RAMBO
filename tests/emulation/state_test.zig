@@ -185,7 +185,9 @@ test "EmulationState: VBlank timing at scanline 241, dot 1" {
     state.tick();
     try testing.expectEqual(@as(u16, 241), state.clock.scanline());
     try testing.expectEqual(@as(u16, 1), state.clock.dot());
-    try testing.expect(state.vblank_ledger.isReadableFlagSet(state.clock.ppu_cycles)); // VBlank flag set at 241.1 (NOT frame_complete)
+    // Read $2002 to verify VBlank bit is set at the exact set cycle
+    const status = state.busRead(0x2002);
+    try testing.expect((status & 0x80) != 0); // VBlank flag set at 241.1 (NOT frame_complete)
 }
 
 test "EmulationState: odd frame skip when rendering enabled" {

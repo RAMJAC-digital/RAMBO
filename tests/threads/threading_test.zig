@@ -23,7 +23,7 @@ const AnyCartridge = RAMBO.AnyCartridge;
 
 // Helper to load AccuracyCoin ROM for testing
 fn loadAccuracyCoin(allocator: std.mem.Allocator, config: *Config) !EmulationState {
-    const rom_path = "AccuracyCoin/AccuracyCoin.nes";
+    const rom_path = "tests/data/AccuracyCoin.nes";
 
     // Load ROM
     const nrom_cart = NromCart.load(allocator, rom_path) catch |err| {

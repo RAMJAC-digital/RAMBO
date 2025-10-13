@@ -555,6 +555,11 @@ pub const Debugger = struct {
         return inspection.hasMemoryTriggers(&self.state);
     }
 
+    /// Fast check for any registered callbacks
+    pub inline fn hasCallbacks(self: *const Debugger) bool {
+        return inspection.hasCallbacks(&self.state);
+    }
+
     // ========================================================================
     // Internal Helper Functions
     // ========================================================================

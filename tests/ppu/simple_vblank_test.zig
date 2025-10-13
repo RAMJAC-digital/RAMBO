@@ -5,7 +5,7 @@ const std = @import("std");
 const testing = std.testing;
 const RAMBO = @import("RAMBO");
 
-const EmulationState = RAMBO.emulation.State;
+const EmulationState = RAMBO.EmulationState.EmulationState;
 
 test "Simple VBlank test: $2002 read clears flag" {
     var state = EmulationState.init(testing.allocator);
@@ -42,15 +42,17 @@ test "Simple VBlank test: $2002 read clears flag" {
 
         if (scanline == 241 and dot == 0) {
             // We're just before VBlank sets
-            const vblank_before = state.vblank_ledger.isReadableFlagSet(state.clock.ppu_cycles);
-            std.debug.print("At scanline 241 dot 0, VBlank={}\n", .{vblank_before});
-            try testing.expect(!vblank_before);
+            // At 241,0 VBlank should not yet be visible to CPU reads
+            const before = state.busRead(0x2002);
+            std.debug.print("At scanline 241 dot 0, PPUSTATUS=0x{X:0>2}\n", .{before});
+            try testing.expect((before & 0x80) == 0);
 
             // Tick once - VBlank should set
             state.tick();
-            const vblank_after = state.vblank_ledger.isReadableFlagSet(state.clock.ppu_cycles);
-            std.debug.print("After tick to 241.1, VBlank={}\n", .{vblank_after});
-            try testing.expect(vblank_after);
+            // After tick, VBlank should be set; a read should see bit 7 set
+            const after = state.busRead(0x2002);
+            std.debug.print("After tick to 241.1, PPUSTATUS=0x{X:0>2}\n", .{after});
+            try testing.expect((after & 0x80) != 0);
 
             found_vblank_set = true;
             break;
@@ -66,20 +68,22 @@ test "Simple VBlank test: $2002 read clears flag" {
     std.debug.print("\nExecuting LDA $2002 instruction...\n", .{});
 
     var ticks: usize = 0;
-    const vblank_before_instruction = state.vblank_ledger.isReadableFlagSet(state.clock.ppu_cycles);
-    try testing.expect(vblank_before_instruction); // Should be true
+    // VBlank was just set; ensure status reflects it at this point (non-destructive check)
+    var status_before = state.busRead(0x2002);
+    try testing.expect((status_before & 0x80) != 0);
 
     // Tick through the instruction (12 PPU ticks = 4 CPU cycles)
     while (ticks < 12) : (ticks += 1) {
         state.tick();
     }
 
-    const vblank_after_read = state.vblank_ledger.isReadableFlagSet(state.clock.ppu_cycles);
-    std.debug.print("After LDA execution, VBlank={}\n", .{vblank_after_read});
+    // After LDA $2002 executed, a subsequent read should find VBlank cleared
+    var status_after = state.busRead(0x2002);
+    std.debug.print("After LDA execution, PPUSTATUS=0x{X:0>2}\n", .{status_after});
     std.debug.print("CPU A register = 0x{X:0>2}\n", .{state.cpu.a});
 
     // After reading $2002, VBlank should be cleared
-    try testing.expect(!vblank_after_read);
+    try testing.expect((status_after & 0x80) == 0);
 
     // CPU A register should have captured VBlank bit (0x80 or higher)
     try testing.expect(state.cpu.a >= 0x80);

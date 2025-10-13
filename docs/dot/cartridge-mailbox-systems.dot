@@ -1,6 +1,13 @@
 // Cartridge and Mailbox Systems - Comptime Generics + Lock-Free Communication
 // Based on actual source code audit from docs/architecture/codebase-inventory.md
 // Shows zero-cost polymorphism and RT-safe inter-thread communication
+//
+// Updated: 2025-10-16 (Phase 3: Mailbox corrections + orphaned mailboxes)
+// Phase 3 Changes:
+//   - Fixed DebugCommandMailbox buffer size (32 → 64)
+//   - Fixed XdgWindowEventMailbox event types (3 → 5 events, removed non-existent .frame_done)
+//   - Fixed XdgInputEventMailbox (added modifiers field, corrected event names)
+//   - Added 4 orphaned mailboxes section (NOT integrated into Mailboxes.zig)
 
 digraph Cartridge_Mailbox_Systems {
     // Graph settings
@@ -177,7 +184,7 @@ digraph Cartridge_Mailbox_Systems {
             style=dashed;
             fillcolor=lightblue;
 
-            debug_command_mailbox [label="DebugCommandMailbox:\lMain → Emulation\l\lUsing SpscRingBuffer(DebugCommand, 32)\l\lDebugCommand union(enum):\l  .add_breakpoint(address, type)\l  .remove_breakpoint(address, type)\l  .add_watchpoint(address, size, watch_type)\l  .remove_watchpoint(address, watch_type)\l  .pause\l  .resume_execution\l  .step_instruction\l  .step_frame\l  .inspect\l  .reset\l\lLock-free SPSC ring buffer\l", fillcolor=lightblue, shape=box];
+            debug_command_mailbox [label="DebugCommandMailbox:\lMain → Emulation\l\lUsing SpscRingBuffer(DebugCommand, 64)\l\lDebugCommand union(enum):\l  .add_breakpoint(address, type)\l  .remove_breakpoint(address, type)\l  .add_watchpoint(address, size, watch_type)\l  .remove_watchpoint(address, watch_type)\l  .pause\l  .resume_execution\l  .step_instruction\l  .step_frame\l  .inspect\l  .reset\l\lLock-free SPSC ring buffer\l", fillcolor=lightblue, shape=box];
 
             debug_event_mailbox [label="DebugEventMailbox:\lEmulation → Main\l\lUsing SpscRingBuffer(DebugEvent, 32)\l\lDebugEvent union(enum):\l  .breakpoint_hit(address, bp_type)\l  .watchpoint_hit(address, value, is_write, watch_type)\l  .inspect_response(snapshot)\l\lCpuSnapshot struct:\lpc: u16, sp: u8\la: u8, x: u8, y: u8\lp: StatusFlags\lopcode: u8\ninstruction_cycle: u8\l\lLock-free SPSC ring buffer\l", fillcolor=lightblue, shape=box];
         }
@@ -188,9 +195,9 @@ digraph Cartridge_Mailbox_Systems {
             style=dashed;
             fillcolor=lavender;
 
-            xdg_window_mailbox [label="XdgWindowEventMailbox:\nRender → Main\n\nXdgWindowEvent enum:\n  .configure(width, height)\n  .close_requested\n  .frame_done\n\nUsing SpscRingBuffer", fillcolor=lavender, shape=record];
+            xdg_window_mailbox [label="XdgWindowEventMailbox:\nRender → Main\n\nUsing SpscRingBuffer(XdgWindowEvent, 64)\n\nXdgWindowEvent union(enum):\n  .window_resize{ width: u32, height: u32 }\n  .window_close\n  .window_focus{ focused: bool }\n  .window_focus_change{ focused: bool }\n  .window_state{ fullscreen: bool, maximized: bool }\n\nLock-free SPSC ring buffer", fillcolor=lavender, shape=record];
 
-            xdg_input_mailbox [label="XdgInputEventMailbox:\nRender → Main\n\nXdgInputEvent enum:\n  .key_press(key)\n  .key_release(key)\n  .pointer_motion(x, y)\n  .pointer_button(button, pressed)\n\nUsing SpscRingBuffer", fillcolor=lavender, shape=record];
+            xdg_input_mailbox [label="XdgInputEventMailbox:\nRender → Main\n\nUsing SpscRingBuffer(XdgInputEvent, 256)\n\nXdgInputEvent union(enum):\n  .key_press{ keycode: u32, modifiers: u32 }\n  .key_release{ keycode: u32, modifiers: u32 }\n  .mouse_move{ x: f64, y: f64 }\n  .mouse_button{ button: u32, pressed: bool }\n\nLock-free SPSC ring buffer", fillcolor=lavender, shape=record];
         }
 
         // ===== Emulation Command Mailbox =====
@@ -200,6 +207,23 @@ digraph Cartridge_Mailbox_Systems {
             fillcolor=wheat;
 
             emulation_command_mailbox [label="EmulationCommandMailbox:\nUsing SpscRingBuffer\n\nCommands:\n  .load_rom(path)\n  .reset\n  .save_state\n  .load_state\n  .set_speed(multiplier)\n\nEmulation thread polls and processes", fillcolor=wheat, shape=record];
+        }
+
+        // ===== ORPHANED MAILBOXES =====
+        subgraph cluster_orphaned_mailboxes {
+            label="⚠️ ORPHANED MAILBOXES (Not Integrated) ⚠️\nFiles exist in src/mailboxes/ but NOT in Mailboxes.zig";
+            style=dashed;
+            fillcolor=mistyrose;
+
+            orphaned_note [label="These mailboxes exist as implementation files\nbut are NOT integrated into Mailboxes.zig.\n\nThey are not used by the main emulation loop.\nMay be activated in future development.", fillcolor=yellow, shape=note, penwidth=2];
+
+            config_mailbox [label="ConfigMailbox ❌ NOT INTEGRATED\n\nConfigUpdate union(enum):\n  .set_speed{ ppu_hz: u64 }\n  .pause\n  .resume\n  .reset\n\nSingle-value atomic mailbox\n\nFile: src/mailboxes/ConfigMailbox.zig", fillcolor=lightgray, shape=box, style=dashed];
+
+            emulation_status_mailbox [label="EmulationStatusMailbox ❌ NOT INTEGRATED\n\nEmulationStatus struct:\n  fps: f64\n  frame_count: u64\n  is_running: bool\n  is_paused: bool\n  current_mode: SpeedMode\n  error_message: ?[]const u8\n\nAtomic status reporting\n\nFile: src/mailboxes/EmulationStatusMailbox.zig", fillcolor=lightgray, shape=box, style=dashed];
+
+            render_status_mailbox [label="RenderStatusMailbox ❌ NOT INTEGRATED\n\nRenderStatus struct:\n  render_fps: f64\n  frames_rendered: u64\n  frames_dropped: u64\n  is_vsync_enabled: bool\n\nAtomic render statistics\n\nFile: src/mailboxes/RenderStatusMailbox.zig", fillcolor=lightgray, shape=box, style=dashed];
+
+            speed_control_mailbox [label="SpeedControlMailbox ❌ NOT INTEGRATED\n\nSpeedControl struct:\n  mode: SpeedMode\n  target_fps: f64\n  speed_multiplier: f64\n\nSpeedMode enum:\n  .realtime\n  .fast_forward\n  .slow_motion\n  .custom\n\nAtomic speed control\n\nFile: src/mailboxes/SpeedControlMailbox.zig", fillcolor=lightgray, shape=box, style=dashed];
         }
     }
 

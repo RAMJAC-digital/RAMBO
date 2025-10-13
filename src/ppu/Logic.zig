@@ -16,6 +16,8 @@ const scrolling = @import("logic/scrolling.zig");
 const background = @import("logic/background.zig");
 const sprites = @import("logic/sprites.zig");
 
+pub const PpuReadResult = registers.PpuReadResult;
+
 /// Initialize PPU state to power-on values
 pub fn init() PpuState {
     return PpuState.init();
@@ -67,10 +69,9 @@ pub inline fn readRegister(
     state: *PpuState,
     cart: ?*AnyCartridge,
     address: u16,
-    vblank_ledger: *@import("../emulation/state/VBlankLedger.zig").VBlankLedger,
-    current_cycle: u64,
-) u8 {
-    return registers.readRegister(state, cart, address, vblank_ledger, current_cycle);
+    vblank_ledger: @import("../emulation/VBlankLedger.zig").VBlankLedger,
+) registers.PpuReadResult {
+    return registers.readRegister(state, cart, address, vblank_ledger);
 }
 
 /// Write to PPU register (via CPU memory bus)

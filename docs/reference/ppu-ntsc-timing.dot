@@ -1,7 +1,13 @@
-// PPU Timing Diagram - NTSC Frame Structure
-// Shows complete frame timing, VBlank periods, and synchronization
+// NTSC PPU Timing Reference - Hardware Specifications
+// NES 2C02 Picture Processing Unit Timing Constants
+//
+// This is a PERMANENT REFERENCE documenting NES hardware timing.
+// For historical investigations, see docs/archive/2025-10/
+//
+// Created: 2025-10-16 (extracted from investigation diagram)
+// Hardware: NTSC NES (2C02 PPU)
 
-digraph PPU_Timing {
+digraph PPU_NTSC_Timing_Reference {
     // Graph settings
     rankdir=TB;
     compound=true;
@@ -88,7 +94,7 @@ digraph PPU_Timing {
             set_timing [label="Scanline 241, Dot 1", fillcolor=yellow, shape=box3d];
             set_ppu_cycle [label="PPU Cycle: 82,181", fillcolor=wheat, shape=note];
             set_cpu_cycle [label="CPU Cycle: ~27,393", fillcolor=wheat, shape=note];
-            set_action [label="PPU Action:\nstatus.vblank = true\nIf NMI enabled → trigger", fillcolor=lightcoral, shape=note];
+            set_action [label="PPU Action:\nVBlank flag = true\nIf NMI enabled → trigger", fillcolor=lightcoral, shape=note];
         }
 
         subgraph cluster_vblank_clear {
@@ -99,15 +105,15 @@ digraph PPU_Timing {
             clear_timing [label="Scanline 261, Dot 1", fillcolor=lightblue, shape=box3d];
             clear_ppu_cycle [label="PPU Cycle: 89,001", fillcolor=wheat, shape=note];
             clear_cpu_cycle [label="CPU Cycle: ~29,667", fillcolor=wheat, shape=note];
-            clear_action [label="PPU Action:\nstatus.vblank = false\nstatus.sprite_0_hit = false\nstatus.sprite_overflow = false", fillcolor=lightsteelblue, shape=note];
+            clear_action [label="PPU Action:\nVBlank flag = false\nsprite_0_hit = false\nsprite_overflow = false", fillcolor=lightsteelblue, shape=note];
         }
 
         subgraph cluster_read_clear {
-            label="VBlank CLEAR (Read)";
+            label="VBlank Flag Clear on Read";
             style=dashed;
 
             read_timing [label="$2002 Read\n(Any Time)", fillcolor=lightyellow];
-            read_action [label="Read Side Effect:\nstatus.vblank = false\ninternal.resetToggle()\nNMI latch persists!", fillcolor=lightcoral, shape=note];
+            read_action [label="Read Side Effect:\nVBlank flag = false\n(via VBlankLedger update)\ninternal.resetToggle()\nNMI latch persists!", fillcolor=lightcoral, shape=note];
         }
     }
 
@@ -130,13 +136,11 @@ digraph PPU_Timing {
         style=filled;
         fillcolor=lightyellow;
 
-        wait_code [label="Assembly Code:\n:vblankwait1\n  BIT $2002\n  BPL vblankwait1", fillcolor=wheat, shape=note];
+        wait_code [label="Assembly Code:\n:vblankwait\n  BIT $2002\n  BPL vblankwait", fillcolor=wheat, shape=note];
 
-        wait_behavior [label="Loop Behavior:\n1. Read $2002 (clears VBlank)\n2. Test bit 7 (N flag)\n3. If N=0 (no VBlank), branch back\n4. If N=1 (VBlank), continue", fillcolor=lightyellow, shape=note];
+        wait_behavior [label="Loop Behavior:\n1. Read $2002 (clears VBlank flag)\n2. Test bit 7 (N flag)\n3. If N=0 (no VBlank), branch back\n4. If N=1 (VBlank), continue", fillcolor=lightyellow, shape=note];
 
-        wait_expected [label="Expected Timing:\nLoop until scanline 241.1\nVBlank sets, N=1, exit loop", fillcolor=lightgreen, shape=note];
-
-        wait_actual [label="CURRENT BUG:\nLoop never exits\nScans only reach 0-17\nVBlank never arrives!", fillcolor=lightcoral, shape=note];
+        wait_expected [label="Expected Execution:\nLoop polls $2002 until scanline 241.1\nVBlank sets → N=1 → exit loop", fillcolor=lightgreen, shape=note];
     }
 
     // ========== CPU/PPU SYNCHRONIZATION ==========
@@ -154,36 +158,6 @@ digraph PPU_Timing {
         sync_frame [label="Frame Pacing:\n262 scanlines\n= 89,342 PPU cycles\n= 29,780.67 CPU cycles\n= 16.667 ms @ 60 Hz", fillcolor=wheat, shape=note];
     }
 
-    // ========== INVESTIGATION FINDINGS ==========
-    subgraph cluster_findings {
-        label="Investigation Findings (2025-10-09)";
-        style=filled;
-        fillcolor=mistyrose;
-
-        finding_vblank_works [label="✅ VBlank Set/Clear\nTiming Correct\n(241.1 and 261.1)", fillcolor=lightgreen, shape=note];
-
-        finding_read_works [label="✅ $2002 Read\nClears VBlank\nCorrectly", fillcolor=lightgreen, shape=note];
-
-        finding_bit_works [label="✅ BIT $2002\nInstruction Timing\nCorrect", fillcolor=lightgreen, shape=note];
-
-        finding_timeout [label="❌ Tests Timeout\nBefore Scanline 241\nOnly reach 0-17", fillcolor=lightcoral, shape=note];
-
-        finding_root [label="ROOT CAUSE:\nFrame timing issue\nPPU not advancing\nfast enough", fillcolor=yellow, shape=box3d];
-    }
-
-    // ========== DIAGNOSTIC DATA ==========
-    subgraph cluster_diagnostic {
-        label="Diagnostic Data from Tests";
-        style=filled;
-        fillcolor=lightgray;
-
-        diag_expected [label="Expected:\nScanline 241 @ 82,181 PPU cycles\n= ~27,393 CPU cycles", fillcolor=lightgreen, shape=note];
-
-        diag_actual [label="Actual (Failing Tests):\nTimeout @ scanlines 0-17\n~5,797-11,594 PPU cycles\n= ~1,932-3,864 CPU cycles", fillcolor=lightcoral, shape=note];
-
-        diag_missing [label="Missing:\n~70,000 PPU cycles\n= ~23,333 CPU cycles\nNot being executed!", fillcolor=yellow, shape=note];
-    }
-
     // ========== MAIN FLOW ==========
 
     // Frame structure
@@ -197,7 +171,7 @@ digraph PPU_Timing {
     vblank_mid -> vblank_end;
     vblank_end -> prerender [label="scanline 261", color=blue, penwidth=2];
     prerender -> frame_end [label="end frame", color=blue];
-    frame_end -> frame_start [label="loop\n(odd frame skip)", style=dashed, color=blue];
+    frame_end -> frame_start [label="loop\n(odd frame: 340 dots)", style=dashed, color=blue];
 
     // Critical timing points
     vblank_start -> set_timing [label="VBlank SET", color=red, penwidth=2];
@@ -215,32 +189,13 @@ digraph PPU_Timing {
 
     // VBlank wait loop
     wait_code -> wait_behavior;
-    wait_behavior -> wait_expected [label="expected", color=green];
-    wait_behavior -> wait_actual [label="actual", color=red];
-
+    wait_behavior -> wait_expected [label="execution", color=green];
     set_timing -> wait_expected [label="arrive here", style=dashed, color=green];
-    wait_actual -> finding_timeout [color=red];
 
     // Synchronization
     sync_ratio -> sync_master;
     sync_master -> sync_tick;
     sync_tick -> sync_frame;
-
-    // Investigation findings
-    set_timing -> finding_vblank_works [style=dashed, color=green];
-    read_action -> finding_read_works [style=dashed, color=green];
-    wait_code -> finding_bit_works [style=dashed, color=green];
-
-    finding_timeout -> finding_root [color=red, penwidth=2];
-    wait_actual -> finding_root [color=red];
-
-    // Diagnostic data
-    set_ppu_cycle -> diag_expected;
-    wait_actual -> diag_actual;
-    diag_expected -> diag_missing [label="gap", color=red];
-    diag_actual -> diag_missing [label="gap", color=red];
-
-    diag_missing -> finding_root [label="evidence", color=orange, penwidth=2];
 
     // Legend
     subgraph cluster_legend {
@@ -252,8 +207,6 @@ digraph PPU_Timing {
         legend_visible [label="Visible Scanlines\n(Rendering)", fillcolor=lightgreen, shape=box];
         legend_vblank [label="VBlank Period\n(CPU Work Time)", fillcolor=lightcoral, shape=box];
         legend_critical [label="Critical Timing", fillcolor=yellow, shape=box3d];
-        legend_verified [label="✅ Verified", fillcolor=lightgreen, shape=note];
-        legend_broken [label="❌ Issue Found", fillcolor=lightcoral, shape=note];
     }
 
     // Hardware specs

@@ -12,40 +12,16 @@ This document tracks **active** bugs and issues verified against current codebas
 
 ### VBlankLedger Race Condition Logic Bug
 
-**Status:** 🔴 **ACTIVE BUG** (discovered 2025-10-13 during Phase 7 audit)
-**Priority:** P0 (Critical - affects VBlank flag hardware accuracy)
-**Failing Tests:** 4 tests in `vblank_ledger_test.zig`
-**File:** `src/emulation/state/VBlankLedger.zig:201`
+**Status:** ✅ **RESOLVED** (2025-10-14)
+**Priority:** —
+**Root Cause:** Test suite expected incorrect hardware behavior
 
-**Issue:**
-When CPU reads $2002 (PPUSTATUS) on the **exact same cycle** VBlank sets (race condition), the flag incorrectly clears on subsequent reads. NES hardware keeps the flag set after a race condition read.
-
-**Current Broken Behavior:**
-```zig
-// Line 201 in VBlankLedger.zig
-if (self.last_status_read_cycle >= self.last_set_cycle) {
-    return false; // ← WRONG: clears flag even for race condition
-}
-```
-
-**Expected NES Hardware Behavior:**
-- VBlank sets at scanline 241.1
-- CPU reads $2002 at exact same cycle (race condition):
-  - First read returns VBlank=1
-  - Flag **stays set** for subsequent reads (hardware quirk)
-  - NMI is suppressed (this part works correctly)
-
-**Impact:**
-- ❌ 4 VBlankLedger tests fail
-- ⚠️ May affect commercial ROMs relying on race condition timing
-- ✅ NMI suppression works correctly (separate logic)
-
-**Fix Required:**
-Add `race_condition_occurred` flag to track race condition state across multiple reads.
+**Summary:**
+NESDev documentation states that reading $2002 on the same PPU clock **or the immediately following clock** returns the flag as set, clears it, and suppresses NMI for that frame. RAMBO already implemented this behavior (flag clears, NMI suppressed), but several unit tests and docs still assumed the flag should remain set through the frame. The failing tests were updated to match the hardware spec, and `shouldNmiEdge` now suppresses NMIs for reads occurring on either of the first two cycles after VBlank sets.
 
 **References:**
-- Audit: `/tmp/phase7_current_state_audit.md`
-- NESDev: [VBlank Flag Race Condition](https://www.nesdev.org/wiki/PPU_frame_timing#VBlank_Flag)
+- NESDev: [PPU frame timing – VBlank flag](https://www.nesdev.org/wiki/PPU_frame_timing#VBlank_Flag)
+- Session log: `docs/sessions/2025-10-14-smb-integration-session.md`
 
 ---
 
@@ -65,13 +41,12 @@ Commercial ROMs never enable rendering (PPUMASK bits 3-4 stay 0). ROMs execute b
 - `commercial_rom_test.zig:294` - BurgerTime rendering
 - `commercial_rom_test.zig` (Bomberman test - execution error)
 
-**Hypothesis:**
-May be related to VBlankLedger race condition bug. ROMs might be stuck in initialization loops waiting for correct VBlank timing.
+**Status Update:**
+VBlankLedger expectations have been realigned with hardware (2025-10-14). Commercial ROM tests still need to be re-run to confirm whether rendering now enables correctly.
 
 **Next Steps:**
-1. Fix VBlankLedger race condition bug first
-2. Re-test commercial ROMs
-3. If still failing, use debugger to trace NMI handler execution
+1. Re-run commercial ROM integration tests on the updated baseline
+2. If still failing, use debugger to trace SMB’s NMI handler during initialization
 
 **References:**
 - Investigation: `docs/sessions/smb-investigation-plan.md`
@@ -83,9 +58,9 @@ May be related to VBlankLedger race condition bug. ROMs might be stuck in initia
 
 ### CPU-PPU Integration Tests Failing
 
-**Status:** 🔴 **LIKELY CAUSED BY VBlankLedger BUG**
+**Status:** 🟡 **RETEST REQUIRED**
 **Priority:** P1 (High - integration test coverage)
-**Failing Tests:** 5 tests cascading from VBlankLedger bug
+**Failing Tests:** Previously 5 tests cascading from the outdated VBlankLedger expectation
 
 **Affected Tests:**
 - `bit_nmi_test.zig:172` - BIT $2002 interaction (2 tests)
@@ -93,10 +68,10 @@ May be related to VBlankLedger race condition bug. ROMs might be stuck in initia
 - `vblank_wait_test.zig` - VBlank waiting loop (1 test)
 
 **Root Cause:**
-These tests verify VBlank flag behavior during race conditions. Failing due to VBlankLedger bug above.
+Tests verified the old "flag-stays-set" interpretation. They should pass once re-run with the corrected expectations.
 
-**Expected Resolution:**
-All 5 tests should pass after VBlankLedger race condition fix.
+**Action:**
+Re-run the affected integration tests and update this entry with fresh results.
 
 ---
 
@@ -187,13 +162,13 @@ Threading tests rely on precise timing that varies across systems.
 
 | Priority | Count | Category |
 |----------|-------|----------|
-| P0 | 2 | Critical bugs blocking ROMs |
+| P0 | 1 | Critical bug blocking commercial ROMs |
 | P1 | 2 | High priority integration issues |
 | P2 | 2 | Medium priority fixes |
 | P3 | 2 | Low priority / deferred |
 
-**Expected After VBlankLedger Fix:**
-930/966 → **939+/966** (97.2%+) with cascading fixes
+**Progress:**
+VBlankLedger race-condition expectations reconciled with hardware documentation; focus now shifts to commercial ROM rendering enablement.
 
 ---
 

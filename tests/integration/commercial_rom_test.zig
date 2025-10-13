@@ -157,11 +157,14 @@ fn runRomForFrames(
 test "Commercial ROM: AccuracyCoin.nes (baseline validation)" {
     const allocator = testing.allocator;
 
-    const result = try runRomForFrames(
+    const result = runRomForFrames(
         allocator,
         "AccuracyCoin/AccuracyCoin.nes",
         60, // 1 second of emulation
-    );
+    ) catch |err| {
+        if (err == error.FileNotFound) return error.SkipZigTest;
+        return err;
+    };
 
     // AccuracyCoin should enable rendering
     try testing.expect(result.ppumask != 0);

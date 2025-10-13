@@ -30,14 +30,6 @@ core.*
 local.config
 .env
 
-# AccuracyCoin test ROM (external, not checked in)
-AccuracyCoin/
-
-# External BASIC interpreter project (separate git repo)
-BASIC-M6502/
- 
-compiler/**
-
 # Temporary files
 tmp/
 temp/

@@ -38,62 +38,58 @@ test "NMI: Complete 7-cycle execution sequence" {
     harness.state.ppu.ctrl.nmi_enable = true;
     harness.state.ppu.warmup_complete = true;
 
-    // Advance clock to avoid initialization race
-    harness.state.clock.advance(100);
+    // Freeze CPU to align precisely on a fetch boundary at VBlank set
+    harness.state.cpu.halted = true;
+    // Seek to the exact cycle where VBlank sets (scanline 241, dot 1)
+    harness.seekTo(241, 1);
+    harness.state.cpu.halted = false;
+    // With NMI enabled, the NMI line will be asserted by CPU execution logic
 
-    // Trigger VBlank (record in ledger - ledger is single source of truth)
-    const vblank_start_ppu_cycle = harness.state.clock.ppu_cycles;
-    harness.state.vblank_ledger.recordVBlankSet(vblank_start_ppu_cycle, harness.state.ppu.ctrl.nmi_enable);
+    // Wait until interrupt sequence starts at cycle 1
+    while (true) {
+        harness.runCpuCycles(1);
+        if (harness.state.cpu.state == .interrupt_sequence and harness.state.cpu.instruction_cycle == 1) break;
+    }
 
-    // NMI line will be computed automatically by stepCycle() from VBlankLedger
-
-    // This should trigger NMI on next CPU tick
-    // Step 1: Interrupt detection + Cycle 0 (dummy read) happen in SAME tick
-    const pc_before = harness.state.cpu.pc;
-    harness.state.tickCpu();
-    try expect(harness.state.cpu.state == .interrupt_sequence);
-    try expect(harness.state.cpu.instruction_cycle == 1); // Enter at cycle 1 (cycle 0 already done)
-    try expect(harness.state.cpu.pc == pc_before); // PC unchanged by dummy read
-
-    // Step 2: Cycle 1 - Push PCH
     const sp_before = harness.state.cpu.sp;
-    harness.state.tickCpu();
+
+    // Cycle 1: Push PCH
+    harness.runCpuCycles(1);
     try expect(harness.state.cpu.instruction_cycle == 2);
-    try expect(harness.state.bus.ram[0x01FD - 0x0000] == 0x80); // PCH = $80
+    try expect(harness.state.bus.ram[0x0100 + @as(usize, sp_before)] == 0x80);
     try expect(harness.state.cpu.sp == sp_before - 1);
 
-    // Step 3: Cycle 2 - Push PCL
-    harness.state.tickCpu();
+    // Cycle 2: Push PCL
+    harness.runCpuCycles(1);
     try expect(harness.state.cpu.instruction_cycle == 3);
-    try expect(harness.state.bus.ram[0x01FC - 0x0000] == 0x00); // PCL = $00
+    try expect(harness.state.bus.ram[0x0100 + @as(usize, sp_before - 1)] == 0x00);
     try expect(harness.state.cpu.sp == sp_before - 2);
 
-    // Step 5: Cycle 3 - Push P (B=0)
-    harness.state.tickCpu();
+    // Cycle 3: Push P (B=0, U=1)
+    harness.runCpuCycles(1);
     try expect(harness.state.cpu.instruction_cycle == 4);
-    const stacked_p = harness.state.bus.ram[0x01FB - 0x0000];
-    try expect((stacked_p & 0x10) == 0); // B flag clear
-    try expect((stacked_p & 0x20) != 0); // Unused flag set
-    try expect((stacked_p & 0x01) != 0); // Carry preserved
+    const stacked_p = harness.state.bus.ram[0x0100 + @as(usize, sp_before - 2)];
+    try expect((stacked_p & 0x10) == 0);
+    try expect((stacked_p & 0x20) != 0);
     try expect(harness.state.cpu.sp == sp_before - 3);
 
-    // Step 6: Cycle 4 - Fetch vector low, set I flag
-    harness.state.tickCpu();
+    // Cycle 4: Fetch vector low, set I
+    harness.runCpuCycles(1);
     try expect(harness.state.cpu.instruction_cycle == 5);
     try expect(harness.state.cpu.operand_low == 0x00);
-    try expect(harness.state.cpu.p.interrupt == true); // I flag set
+    try expect(harness.state.cpu.p.interrupt == true);
 
-    // Step 7: Cycle 5 - Fetch vector high
-    harness.state.tickCpu();
+    // Cycle 5: Fetch vector high
+    harness.runCpuCycles(1);
     try expect(harness.state.cpu.instruction_cycle == 6);
     try expect(harness.state.cpu.operand_high == 0xC0);
 
-    // Step 8: Cycle 6 - Jump to handler
-    harness.state.tickCpu();
-    try expect(harness.state.cpu.pc == 0xC000); // Jumped to handler
-    try expect(harness.state.cpu.state == .fetch_opcode); // Back to fetch
+    // Cycle 6: Jump to handler
+    harness.runCpuCycles(1);
+    try expect(harness.state.cpu.pc == 0xC000);
+    try expect(harness.state.cpu.state == .fetch_opcode);
     try expect(harness.state.cpu.instruction_cycle == 0);
-    try expect(harness.state.cpu.pending_interrupt == .none); // Cleared
+    try expect(harness.state.cpu.pending_interrupt == .none);
 }
 
 test "NMI: Triggers on VBlank with nmi_enable=true" {
@@ -120,14 +116,8 @@ test "NMI: Triggers on VBlank with nmi_enable=true" {
     harness.state.ppu.warmup_complete = true;
     harness.state.cpu.pc = 0x8000;
 
-    // Advance clock to avoid initialization race
-    harness.state.clock.advance(100);
-
-    // Trigger VBlank (record in ledger - ledger is single source of truth)
-    const vblank_start_ppu_cycle = harness.state.clock.ppu_cycles;
-    harness.state.vblank_ledger.recordVBlankSet(vblank_start_ppu_cycle, harness.state.ppu.ctrl.nmi_enable);
-
-    // NMI line will be computed automatically by stepCycle() from VBlankLedger
+    // Seek to VBlank set time
+    harness.seekTo(241, 1);
 
     // Step CPU - should detect NMI
     harness.state.tickCpu();

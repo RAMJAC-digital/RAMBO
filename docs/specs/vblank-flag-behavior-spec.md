@@ -17,7 +17,7 @@
 ### Race Condition Case
 **Timeline:**
 1. Scanline 241 dot 1: VBlank flag sets
-2. **SAME CYCLE**: CPU reads $2002
+2. **SAME CYCLE OR NEXT PPU CYCLE**: CPU reads $2002
 3. Read returns: VBlank bit = 1 (set)
 4. Side effect: VBlank flag clears
 5. **Special:** NMI is SUPPRESSED (doesn't fire)
@@ -54,6 +54,7 @@ last_status_read_cycle: u64// When $2002 was last read
 | After normal read | TRUE | 100 | 150 | query(151) | FALSE | Flag cleared |
 | Race condition | TRUE | 100 | 0 | **read(100)** | **TRUE** | Read at exact set cycle |
 | After race read | TRUE | 100 | 100 | query(101) | FALSE | Flag cleared by race read |
+| Race window (next cycle) | TRUE | 100 | 101 | query(102) | FALSE | Read one cycle later, flag cleared |
 | Multiple reads | TRUE | 100 | 150 | query(200) | FALSE | Stays cleared |
 
 ## Implementation Logic
@@ -66,7 +67,7 @@ pub fn isReadableFlagSet(self: *const VBlankLedger, current_cycle: u64) bool {
     if (!self.span_active) return false;
 
     // 2. Has any $2002 read occurred since VBlank set?
-    // NOTE: Using >= because race condition read (at exact set cycle) ALSO clears
+    // NOTE: Using >= covers reads on the set cycle or the immediately following cycle
     if (self.last_status_read_cycle >= self.last_set_cycle) {
         return false;
     }
@@ -80,11 +81,7 @@ pub fn isReadableFlagSet(self: *const VBlankLedger, current_cycle: u64) bool {
 
 **The race condition does NOT prevent flag clearing!**
 
-The race condition affects **NMI suppression**, not flag clearing:
-- Normal read: Flag clears, NMI fires (if enabled)
-- Race read: Flag clears, NMI SUPPRESSED
-
-Both cases clear the flag. The difference is in `shouldNmiEdge()`, not `isReadableFlagSet()`.
+The race window covers the PPU cycle that sets VBlank and the immediately following cycle. Reads in this window clear the flag instantly and suppress NMI for the frame. Reads outside the window clear the flag but allow normal NMI delivery. The difference is captured in `shouldNmiEdge()`, not `isReadableFlagSet()`.
 
 ## Test Scenarios
 

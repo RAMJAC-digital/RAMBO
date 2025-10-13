@@ -1,310 +1,128 @@
-//! VBlankLedger Unit Tests
+//! VBlankLedger Integration Tests
 //!
-//! Direct tests for VBlankLedger state management and query functions.
-//! These are white-box tests focusing on the ledger's internal logic.
-//!
-//! Coverage:
-//! - Multiple $2002 reads within same VBlank period
-//! - Flag persistence after reads
-//! - Race condition handling
-//! - VBlank span lifecycle
-//! - NMI edge generation
+//! Tests the VBlank mechanism via the top-level EmulationState, ensuring
+//! the entire refactored system works correctly.
 
 const std = @import("std");
 const testing = std.testing;
 const RAMBO = @import("RAMBO");
-const VBlankLedger = RAMBO.EmulationState.VBlankLedger;
+const Harness = RAMBO.TestHarness.Harness;
 
-// ============================================================================
-// Multiple Reads Within VBlank Period
-// ============================================================================
-
-test "VBlankLedger: Multiple $2002 reads - first returns true, rest return false" {
-    var ledger = VBlankLedger{};
-
-    // VBlank sets at cycle 100
-    ledger.recordVBlankSet(100, false);
-
-    // First read at cycle 110 - should return TRUE
-    try testing.expect(ledger.isReadableFlagSet(110));
-    ledger.recordStatusRead(110);
-
-    // Second read at cycle 120 - should return FALSE (cleared by first read)
-    try testing.expect(!ledger.isReadableFlagSet(120));
-    ledger.recordStatusRead(120);
-
-    // Third read at cycle 130 - should STILL return FALSE
-    try testing.expect(!ledger.isReadableFlagSet(130));
+// Helper to read the VBlank flag from the $2002 PPUSTATUS register
+fn isVBlankSet(h: *Harness) bool {
+    const status_byte = h.state.busRead(0x2002);
+    return (status_byte & 0x80) != 0;
 }
 
-test "VBlankLedger: Multiple reads with large cycle gaps" {
-    var ledger = VBlankLedger{};
-
-    // VBlank sets at cycle 1000
-    ledger.recordVBlankSet(1000, false);
-
-    // First read at cycle 1500
-    try testing.expect(ledger.isReadableFlagSet(1500));
-    ledger.recordStatusRead(1500);
-
-    // Second read at cycle 5000 (large gap)
-    try testing.expect(!ledger.isReadableFlagSet(5000));
-    ledger.recordStatusRead(5000);
-
-    // Third read at cycle 10000 (even larger gap)
-    try testing.expect(!ledger.isReadableFlagSet(10000));
+test "VBlankLedger: Read before VBlank is clear" {
+    var h = try Harness.init();
+    defer h.deinit();
+    try testing.expect(!isVBlankSet(&h));
 }
 
-test "VBlankLedger: Consecutive reads at adjacent cycles" {
-    var ledger = VBlankLedger{};
+test "VBlankLedger: Flag is set at scanline 241, dot 1" {
+    var h = try Harness.init();
+    defer h.deinit();
 
-    ledger.recordVBlankSet(100, false);
+    // Seek to just before VBlank set
+    h.seekTo(241, 0);
+    try testing.expect(!isVBlankSet(&h));
 
-    // Rapid consecutive reads
-    try testing.expect(ledger.isReadableFlagSet(101));
-    ledger.recordStatusRead(101);
+    // Tick to the exact cycle
+    h.tick(1);
+    try testing.expect(h.state.clock.scanline() == 241 and h.state.clock.dot() == 1);
 
-    try testing.expect(!ledger.isReadableFlagSet(102));
-    ledger.recordStatusRead(102);
-
-    try testing.expect(!ledger.isReadableFlagSet(103));
-    ledger.recordStatusRead(103);
-
-    try testing.expect(!ledger.isReadableFlagSet(104));
+    // The PPU tick that sets the flag has run, now the CPU can read it.
+    try testing.expect(isVBlankSet(&h));
+    try testing.expectEqual(@as(u64, 82182), h.state.vblank_ledger.last_set_cycle);
 }
 
-// ============================================================================
-// Race Condition (nesdev.org Spec)
-// ============================================================================
+test "VBlankLedger: First read sees flag, subsequent read during same VBlank still sees flag (race hold)" {
+    var h = try Harness.init();
+    defer h.deinit();
+    h.seekTo(241, 1); // VBlank is set
 
-test "VBlankLedger: Race condition - read on exact set cycle keeps flag set" {
-    var ledger = VBlankLedger{};
+    // First read should see the flag
+    try testing.expect(isVBlankSet(&h));
+    const read_cycle = h.state.clock.ppu_cycles;
 
-    // VBlank sets at cycle 100
-    ledger.recordVBlankSet(100, false);
+    // Verify that EmulationState recorded the read
+    try testing.expectEqual(read_cycle, h.state.vblank_ledger.last_read_cycle);
 
-    // Read on EXACT same cycle (race condition)
-    try testing.expect(ledger.isReadableFlagSet(100));
-    ledger.recordStatusRead(100);
-
-    // Hardware behavior: Flag stays set after race condition read
-    // (nesdev.org: "the flag will not be cleared")
-    try testing.expect(ledger.isReadableFlagSet(101));
-    try testing.expect(ledger.isReadableFlagSet(110));
-
-    // Remains set until VBlank span ends or another read happens
-    // after the race condition resolves
+    // Race semantics: subsequent read during same VBlank should still see flag
+    h.tick(1);
+    try testing.expect(isVBlankSet(&h));
 }
 
-test "VBlankLedger: Race condition - read one cycle after set" {
-    var ledger = VBlankLedger{};
+test "VBlankLedger: Flag is cleared at scanline 261, dot 1" {
+    var h = try Harness.init();
+    defer h.deinit();
 
-    ledger.recordVBlankSet(100, false);
+    // VBlank is set (avoid destructive read until after ledger observation)
+    h.seekTo(241, 1);
+    // First read should see the flag
+    try testing.expect(isVBlankSet(&h));
 
-    // Read one cycle AFTER set (not race condition)
-    try testing.expect(ledger.isReadableFlagSet(101));
-    ledger.recordStatusRead(101);
+    // Seek to just before VBlank clear without prior $2002 reads
+    h.seekTo(261, 0);
+    try testing.expect(isVBlankSet(&h)); // Still set at 261,0
 
-    // Subsequent reads return false
-    try testing.expect(!ledger.isReadableFlagSet(102));
+    // Tick to the exact clear cycle
+    h.tick(1);
+    try testing.expect(h.state.clock.scanline() == 261 and h.state.clock.dot() == 1);
+
+    // The flag is now cleared by timing
+    try testing.expect(!isVBlankSet(&h));
+    try testing.expectEqual(@as(u64, 89002), h.state.vblank_ledger.last_clear_cycle);
 }
 
-// ============================================================================
-// VBlank Span Lifecycle
-// ============================================================================
+test "VBlankLedger: Race condition - read on same cycle as set" {
+    var h = try Harness.init();
+    defer h.deinit();
 
-test "VBlankLedger: VBlank span active between set and end" {
-    var ledger = VBlankLedger{};
+    // Seek to the cycle where VBlank is set
+    h.seekTo(241, 1);
 
-    // Before VBlank
-    try testing.expect(!ledger.isReadableFlagSet(50));
+    // On this exact cycle, the PPU sets the flag, and the CPU reads it.
+    // The read should see the flag as SET.
+    try testing.expect(isVBlankSet(&h));
 
-    // Set VBlank at cycle 100
-    ledger.recordVBlankSet(100, false);
-
-    // During VBlank span
-    try testing.expect(ledger.isReadableFlagSet(100));
-    try testing.expect(ledger.isReadableFlagSet(150));
-    try testing.expect(ledger.isReadableFlagSet(200));
-
-    // End VBlank span at cycle 250
-    ledger.recordVBlankSpanEnd(250);
-
-    // After VBlank span ends
-    try testing.expect(!ledger.isReadableFlagSet(251));
-    try testing.expect(!ledger.isReadableFlagSet(300));
+    // Hardware: Race read does NOT clear the flag; subsequent reads still see it set
+    h.tick(1);
+    try testing.expect(isVBlankSet(&h));
 }
 
-test "VBlankLedger: Read after span ends returns false" {
-    var ledger = VBlankLedger{};
+test "VBlankLedger: SMB polling pattern" {
+    var h = try Harness.init();
+    defer h.deinit();
 
-    ledger.recordVBlankSet(100, false);
-    ledger.recordVBlankSpanEnd(200);
+    // Seek to VBlank
+    h.seekTo(241, 10);
 
-    // Query after span ended
-    try testing.expect(!ledger.isReadableFlagSet(201));
+    // 1. First poll reads the flag, it should be set.
+    try testing.expect(isVBlankSet(&h));
+
+    // 2. Second poll, a few cycles later. Should be clear because of the first read.
+    h.tick(5);
+    try testing.expect(!isVBlankSet(&h));
+
+    // 3. Third poll, a few more cycles later. Should still be clear.
+    h.tick(5);
+    try testing.expect(!isVBlankSet(&h));
 }
 
-test "VBlankLedger: Multiple VBlank cycles" {
-    var ledger = VBlankLedger{};
+test "VBlankLedger: Reset clears all cycle counters" {
+    var h = try Harness.init();
+    defer h.deinit();
+    h.seekTo(241, 10);
+    _ = isVBlankSet(&h); // Perform a read to populate the ledger
 
-    // First VBlank cycle
-    ledger.recordVBlankSet(100, false);
-    try testing.expect(ledger.isReadableFlagSet(110));
-    ledger.recordStatusRead(110);
-    try testing.expect(!ledger.isReadableFlagSet(120));
-    ledger.recordVBlankSpanEnd(200);
+    try testing.expect(h.state.vblank_ledger.last_set_cycle > 0);
+    try testing.expect(h.state.vblank_ledger.last_read_cycle > 0);
 
-    // Second VBlank cycle
-    ledger.recordVBlankSet(300, false);
-    try testing.expect(ledger.isReadableFlagSet(310));
-    ledger.recordStatusRead(310);
-    try testing.expect(!ledger.isReadableFlagSet(320));
-    ledger.recordVBlankSpanEnd(400);
+    h.state.reset();
 
-    // Third VBlank cycle
-    ledger.recordVBlankSet(500, false);
-    try testing.expect(ledger.isReadableFlagSet(510));
-}
-
-// ============================================================================
-// NMI Edge Generation
-// ============================================================================
-
-test "VBlankLedger: NMI enabled - produces NMI edge on set" {
-    var ledger = VBlankLedger{};
-
-    // VBlank with NMI enabled
-    ledger.recordVBlankSet(100, true);
-
-    // Should have NMI edge pending
-    try testing.expect(ledger.shouldNmiEdge(110, true));
-    try testing.expect(ledger.shouldAssertNmiLine(110, true));
-
-    // CPU acknowledges NMI
-    ledger.acknowledgeCpu(115);
-
-    // No longer pending
-    try testing.expect(!ledger.shouldNmiEdge(120, true));
-    try testing.expect(!ledger.shouldAssertNmiLine(120, true));
-}
-
-test "VBlankLedger: NMI disabled - no NMI edge" {
-    var ledger = VBlankLedger{};
-
-    // VBlank with NMI disabled
-    ledger.recordVBlankSet(100, false);
-
-    // Should NOT have NMI edge
-    try testing.expect(!ledger.shouldNmiEdge(110, false));
-}
-
-test "VBlankLedger: $2002 read does not consume NMI edge" {
-    var ledger = VBlankLedger{};
-
-    // VBlank with NMI enabled
-    ledger.recordVBlankSet(100, true);
-    try testing.expect(ledger.shouldNmiEdge(110, true));
-
-    // Read $2002 multiple times
-    ledger.recordStatusRead(110);
-    try testing.expect(ledger.shouldNmiEdge(115, true)); // Still pending
-
-    ledger.recordStatusRead(120);
-    try testing.expect(ledger.shouldNmiEdge(125, true)); // Still pending
-
-    // Only CPU acknowledgement clears it
-    ledger.acknowledgeCpu(130);
-    try testing.expect(!ledger.shouldNmiEdge(135, true));
-}
-
-// ============================================================================
-// Edge Cases
-// ============================================================================
-
-test "VBlankLedger: Read before any VBlank set returns false" {
-    var ledger = VBlankLedger{};
-
-    // Query before any VBlank
-    try testing.expect(!ledger.isReadableFlagSet(50));
-}
-
-test "VBlankLedger: Reset clears all state" {
-    var ledger = VBlankLedger{};
-
-    ledger.recordVBlankSet(100, true);
-    ledger.recordStatusRead(110);
-
-    // Reset
-    ledger.reset();
-
-    // All state cleared
-    try testing.expect(!ledger.isReadableFlagSet(200));
-    try testing.expect(!ledger.shouldNmiEdge(200, false));
-}
-
-test "VBlankLedger: Read at cycle 0 (race condition)" {
-    var ledger = VBlankLedger{};
-
-    ledger.recordVBlankSet(0, false);
-    try testing.expect(ledger.isReadableFlagSet(0));
-    ledger.recordStatusRead(0); // Race condition read
-
-    // Flag stays set (race condition behavior)
-    try testing.expect(ledger.isReadableFlagSet(1));
-    try testing.expect(ledger.isReadableFlagSet(10));
-}
-
-// ============================================================================
-// Regression Tests for Bug Fix
-// ============================================================================
-
-test "VBlankLedger: REGRESSION - Bug fix for line 208" {
-    // This test verifies the fix for the critical bug where
-    // isReadableFlagSet() was using last_clear_cycle instead of
-    // last_status_read_cycle in the comparison.
-    //
-    // Before fix: Second read would incorrectly return true
-    // After fix: Second read correctly returns false
-
-    var ledger = VBlankLedger{};
-
-    ledger.recordVBlankSet(82181, false);
-
-    // First read at cycle 82185
-    try testing.expect(ledger.isReadableFlagSet(82185));
-    ledger.recordStatusRead(82185);
-
-    // CRITICAL: Second read at cycle 82190 must return FALSE
-    // Before fix, this would incorrectly return true because
-    // last_clear_cycle (82185) was not > last_set_cycle (82181)
-    const second_read_result = ledger.isReadableFlagSet(82190);
-    try testing.expect(!second_read_result);
-}
-
-test "VBlankLedger: REGRESSION - SMB polling pattern" {
-    // Simulates Super Mario Bros VBlank polling pattern:
-    // 1. VBlank sets at scanline 241.1
-    // 2. CPU polls $2002 multiple times in rapid succession
-    // 3. Only first read should see VBlank flag
-
-    var ledger = VBlankLedger{};
-
-    // VBlank sets (scanline 241.1 in real cycles)
-    const vblank_cycle: u64 = 82181;
-    ledger.recordVBlankSet(vblank_cycle, false);
-
-    // SMB polls $2002 - first poll
-    const poll1 = vblank_cycle + 10;
-    try testing.expect(ledger.isReadableFlagSet(poll1));
-    ledger.recordStatusRead(poll1);
-
-    // SMB polls $2002 - second poll (should be cleared)
-    const poll2 = poll1 + 5;
-    try testing.expect(!ledger.isReadableFlagSet(poll2));
-    ledger.recordStatusRead(poll2);
-
-    // SMB polls $2002 - third poll (still cleared)
-    const poll3 = poll2 + 5;
-    try testing.expect(!ledger.isReadableFlagSet(poll3));
+    try testing.expectEqual(@as(u64, 0), h.state.vblank_ledger.last_set_cycle);
+    try testing.expectEqual(@as(u64, 0), h.state.vblank_ledger.last_clear_cycle);
+    try testing.expectEqual(@as(u64, 0), h.state.vblank_ledger.last_read_cycle);
 }

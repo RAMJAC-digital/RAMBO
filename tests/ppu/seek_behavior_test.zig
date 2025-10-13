@@ -1,54 +1,35 @@
-//! Test to verify Harness seekToScanlineDot behavior
-//!
-//! Validates that seekToScanlineDot correctly positions at exact scanline.dot
-//! and that VBlank flag behavior is correct at boundary conditions.
+//! Test to verify Harness seekTo behavior
 
 const std = @import("std");
 const testing = std.testing;
 const RAMBO = @import("RAMBO");
-
 const Harness = RAMBO.TestHarness.Harness;
 
-test "Seek Behavior: Harness seekToScanlineDot(241,1) sets VBlank correctly" {
-    var harness = try Harness.init();
-    defer harness.deinit();
-
-    harness.state.ppu.warmup_complete = true;
-
-    // Seek to scanline 241, dot 0 (just before VBlank)
-    harness.seekToScanlineDot(241, 0);
-
-    // Verify position
-    try testing.expectEqual(@as(u16, 241), harness.getScanline());
-    try testing.expectEqual(@as(u16, 0), harness.getDot());
-
-    // VBlank should NOT be set (we're at dot 0, VBlank sets at dot 1)
-    try testing.expect(!harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles));
-
-    // Now tick ONCE to advance to 241.1
-    harness.state.tick();
-
-    // Verify position advanced
-    try testing.expectEqual(@as(u16, 241), harness.getScanline());
-    try testing.expectEqual(@as(u16, 1), harness.getDot());
-
-    // VBlank MUST be set at 241.1
-    try testing.expect(harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles));
+// Helper to read the VBlank flag from the $2002 PPUSTATUS register
+fn isVBlankSet(h: *Harness) bool {
+    const status_byte = h.state.busRead(0x2002);
+    return (status_byte & 0x80) != 0;
 }
 
-test "Seek Behavior: Harness seekToScanlineDot(241,1) direct positioning" {
-    var harness = try Harness.init();
-    defer harness.deinit();
+test "Seek Behavior: seekTo correctly positions emulator" {
+    var h = try Harness.init();
+    defer h.deinit();
 
-    harness.state.ppu.warmup_complete = true;
+    // --- Test 1: Seek to before VBlank ---
+    h.seekTo(241, 0);
+    try testing.expectEqual(@as(u16, 241), h.state.clock.scanline());
+    try testing.expectEqual(@as(u16, 0), h.state.clock.dot());
+    try testing.expect(!isVBlankSet(&h));
 
-    // Seek directly to 241.1 (where VBlank sets)
-    harness.seekToScanlineDot(241, 1);
+    // --- Test 2: Seek to exact VBlank set cycle ---
+    h.seekTo(241, 1);
+    try testing.expectEqual(@as(u16, 241), h.state.clock.scanline());
+    try testing.expectEqual(@as(u16, 1), h.state.clock.dot());
+    try testing.expect(isVBlankSet(&h));
 
-    // Verify exact position
-    try testing.expectEqual(@as(u16, 241), harness.getScanline());
-    try testing.expectEqual(@as(u16, 1), harness.getDot());
-
-    // VBlank MUST be set
-    try testing.expect(harness.state.vblank_ledger.isReadableFlagSet(harness.state.clock.ppu_cycles));
+    // --- Test 3: Seek to after VBlank clear ---
+    h.seekTo(261, 2);
+    try testing.expectEqual(@as(u16, 261), h.state.clock.scanline());
+    try testing.expectEqual(@as(u16, 2), h.state.clock.dot());
+    try testing.expect(!isVBlankSet(&h));
 }

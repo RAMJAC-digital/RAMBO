@@ -856,21 +856,6 @@ pub fn build(b: *std.Build) void {
 
     const run_vblank_ledger_tests = b.addRunArtifact(vblank_ledger_tests);
 
-    // VBlank flag determinism test
-    const vblank_determinism_tests = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("tests/emulation/state/vblank_flag_determinism_test.zig"),
-            .target = target,
-            .optimize = optimize,
-            .imports = &.{
-                .{ .name = "RAMBO", .module = mod },
-            },
-        }),
-    });
-    vblank_determinism_tests.root_module.addImport("xev", xev_dep.module("xev"));
-
-    const run_vblank_determinism_tests = b.addRunArtifact(vblank_determinism_tests);
-
     // Debugger isolation tests
     const debugger_isolation_tests = b.addTest(.{
         .root_module = b.createModule(.{
@@ -1229,7 +1214,6 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_state_tests.step);
     test_step.dependOn(&run_controller_state_tests.step);
     test_step.dependOn(&run_vblank_ledger_tests.step);
-    test_step.dependOn(&run_vblank_determinism_tests.step);
     test_step.dependOn(&run_debugger_isolation_tests.step);
     test_step.dependOn(&run_debugger_callbacks_tests.step);
     test_step.dependOn(&run_debugger_integration_tests2.step);

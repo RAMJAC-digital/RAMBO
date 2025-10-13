@@ -1,41 +1,44 @@
 const std = @import("std");
-const expect = std.testing.expect;
-const Harness = @import("../helpers/Harness.zig");
+const testing = std.testing;
+const RAMBO = @import("RAMBO");
+
+const Harness = RAMBO.TestHarness.Harness;
 
 test "NMI: Response latency is 7 cycles" {
-    var harness = try Harness.init();
-    defer harness.deinit();
+    var h = try Harness.init();
+    defer h.deinit();
 
-    // Setup: Enable NMI in PPUCTRL
-    harness.state.testSetNmiEnable(true);
+    // Provide test RAM for vector fetch ($FFFA/$FFFB via $8000 mapping)
+    const rom = try testing.allocator.alloc(u8, 0x8000);
+    defer testing.allocator.free(rom);
+    @memset(rom, 0xEA);
+    h.state.bus.test_ram = rom;
+    // Set NMI vector to $C000
+    rom[0x7FFA] = 0x00;
+    rom[0x7FFB] = 0xC0;
+    // Start CPU at $8000, SP at $FD
+    h.state.cpu.pc = 0x8000;
+    h.state.cpu.sp = 0xFD;
 
-    // Advance clock to a point before VBlank
-    harness.state.clock.advance(82180);
-    try expect(harness.state.vblank_ledger.shouldAssertNmiLine(harness.state.clock.ppu_cycles, true) == false);
+    // Enable NMI
+    h.state.busWrite(0x2000, 0x80);
+    h.state.ppu.warmup_complete = true;
 
-    // Trigger VBlank (scanline 241, dot 1)
-    // This should set the NMI edge pending in the ledger
-    harness.state.clock.advance(1);
-    const nmi_enabled = harness.state.ppu.ctrl.nmi_enable;
-    harness.state.vblank_ledger.recordVBlankSet(harness.state.clock.ppu_cycles, nmi_enabled);
-    try expect(harness.state.vblank_ledger.shouldAssertNmiLine(harness.state.clock.ppu_cycles, true));
+    // Align on fetch boundary exactly at VBlank set
+    h.state.cpu.halted = true;
+    h.seekTo(241, 1);
+    h.state.cpu.halted = false;
 
-    // Step 1 CPU cycle - should detect NMI and start the 7-cycle sequence
-    harness.state.tickCpuWithClock();
-    try expect(harness.state.cpu.state == .interrupt_sequence);
-    try expect(harness.state.cpu.instruction_cycle == 1); // Correctly starts at cycle 1
-
-    // Step 6 more CPU cycles to complete the interrupt sequence
-    var i: usize = 0;
-    while (i < 6) : (i += 1) {
-        harness.state.tickCpuWithClock();
+    // Wait until interrupt sequence starts at cycle 1
+    while (true) {
+        h.runCpuCycles(1);
+        if (h.state.cpu.state == .interrupt_sequence and h.state.cpu.instruction_cycle == 1) break;
     }
 
-    // After 7 total cycles, CPU should have jumped to the NMI vector
-    // and be ready to fetch the first instruction of the handler.
-    try expect(harness.state.cpu.state == .fetch_opcode);
+    // Complete remaining 6 cycles
+    h.runCpuCycles(6);
 
-    // Default NMI vector is $0000 in test harness, let's read it.
-    const nmi_vector = harness.state.busRead16(0xFFFA);
-    try expect(harness.state.cpu.pc == nmi_vector);
+    // Verify we've jumped to the handler
+    try testing.expectEqual(@as(u16, 0xC000), h.state.cpu.pc);
+    try testing.expect(h.state.cpu.state == .fetch_opcode);
 }

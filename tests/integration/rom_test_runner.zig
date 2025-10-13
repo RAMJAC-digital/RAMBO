@@ -292,7 +292,7 @@ pub fn printTestResult(result: TestResult) void {
 // ============================================================================
 
 test "RomTestRunner: basic initialization" {
-    const rom_path = "AccuracyCoin/AccuracyCoin.nes";
+    const rom_path = "tests/data/AccuracyCoin.nes";
 
     // Skip if ROM not available
     var runner = RomTestRunner.init(testing.allocator, rom_path, .{}) catch |err| {
@@ -309,7 +309,7 @@ test "RomTestRunner: basic initialization" {
 }
 
 test "RomTestRunner: memory read operations" {
-    const rom_path = "AccuracyCoin/AccuracyCoin.nes";
+    const rom_path = "tests/data/AccuracyCoin.nes";
 
     var runner = RomTestRunner.init(testing.allocator, rom_path, .{}) catch |err| {
         if (err == error.FileNotFound) {
@@ -329,7 +329,7 @@ test "RomTestRunner: memory read operations" {
 }
 
 test "RomTestRunner: extract error message" {
-    const rom_path = "AccuracyCoin/AccuracyCoin.nes";
+    const rom_path = "tests/data/AccuracyCoin.nes";
 
     var runner = RomTestRunner.init(testing.allocator, rom_path, .{}) catch |err| {
         if (err == error.FileNotFound) {

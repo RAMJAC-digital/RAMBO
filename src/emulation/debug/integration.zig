@@ -45,9 +45,9 @@ pub fn isPaused(state: anytype) bool {
 ///   - is_write: true for writes, false for reads
 pub fn checkMemoryAccess(state: anytype, address: u16, value: u8, is_write: bool) void {
     if (state.debugger) |*debugger| {
-        if (!debugger.hasMemoryTriggers()) {
-            return;
-        }
+        // Fast bail-out: no breakpoints/watchpoints and no callbacks registered
+        if (!debugger.hasMemoryTriggers() and !debugger.hasCallbacks()) return;
+
         const should_break = debugger.checkMemoryAccess(state, address, value, is_write) catch false;
         if (should_break) {
             state.debug_break_occurred = true;

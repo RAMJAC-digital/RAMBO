@@ -9,39 +9,10 @@ const RAMBO = @import("RAMBO");
 
 const NromCart = RAMBO.CartridgeType;
 const AnyCartridge = RAMBO.AnyCartridge;
-const EmulationState = RAMBO.EmulationState.EmulationState;
-const Config = RAMBO.Config;
-
-const TestHarness = struct {
-    config: *Config.Config,
-    state: EmulationState,
-
-    pub fn init() !TestHarness {
-        const cfg = try testing.allocator.create(Config.Config);
-        cfg.* = Config.Config.init(testing.allocator);
-
-        var emu_state = EmulationState.init(cfg);
-        emu_state.power_on();
-
-        return .{
-            .config = cfg,
-            .state = emu_state,
-        };
-    }
-
-    pub fn deinit(self: *TestHarness) void {
-        self.state.deinit(); // Clean up emulation state (including cartridge)
-        self.config.deinit();
-        testing.allocator.destroy(self.config);
-    }
-
-    pub fn statePtr(self: *TestHarness) *EmulationState {
-        return &self.state;
-    }
-};
+const Harness = RAMBO.TestHarness.Harness;
 
 test "Load AccuracyCoin.nes" {
-    const accuracycoin_path = "AccuracyCoin/AccuracyCoin.nes";
+    const accuracycoin_path = "tests/data/AccuracyCoin.nes";
 
     // Load cartridge from file
     var cart = NromCart.load(testing.allocator, accuracycoin_path) catch |err| {
@@ -61,7 +32,7 @@ test "Load AccuracyCoin.nes" {
     try testing.expect(!cart.header.hasTrainer());
 
     // Verify mirroring
-    try testing.expectEqual(RAMBO.MirroringType.horizontal, cart.mirroring);
+    try testing.expectEqual(RAMBO.Cartridge.Mirroring.horizontal, cart.mirroring);
 
     // Verify ROM data loaded
     try testing.expectEqual(@as(usize, 32768), cart.prg_rom.len);
@@ -83,7 +54,7 @@ test "Load AccuracyCoin.nes" {
 }
 
 test "Load AccuracyCoin.nes through Bus" {
-    const accuracycoin_path = "AccuracyCoin/AccuracyCoin.nes";
+    const accuracycoin_path = "tests/data/AccuracyCoin.nes";
 
     const nrom_cart = NromCart.load(testing.allocator, accuracycoin_path) catch |err| {
         if (err == error.FileNotFound) {
@@ -95,9 +66,9 @@ test "Load AccuracyCoin.nes through Bus" {
     // Wrap in AnyCartridge
     const cart = AnyCartridge{ .nrom = nrom_cart };
 
-    var harness = try TestHarness.init();
-    defer harness.deinit(); // Now properly cleans up cartridge via state.deinit()
-    const state = harness.statePtr();
+    var h = try Harness.init();
+    defer h.deinit();
+    const state = &h.state;
 
     state.loadCartridge(cart); // State takes ownership - cart is now invalid
 

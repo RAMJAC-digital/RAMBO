@@ -274,63 +274,59 @@ git commit -m "type(scope): description"
 
 ## Known Issues
 
-### CPU Timing Deviation (Medium Priority)
+**Current Status:** 930/966 tests passing (96.3%), 19 skipped, 17 failing
+**Last Verified:** 2025-10-13 (Phase 7 comprehensive audit)
+**Full Details:** See `docs/CURRENT-ISSUES.md` for complete issue tracking
 
-**Issue:** Absolute,X/Y reads without page crossing have +1 cycle deviation
-- **Hardware:** 4 cycles (dummy read IS the actual read)
-- **Implementation:** 5 cycles (separate addressing + execute states)
-- **Impact:** Functionally correct, timing slightly off
-- **Priority:** MEDIUM (defer to post-playability)
+### P0 - Critical Issues
 
-### Current Focus: VBlank Flag Race Condition (CRITICAL BUG FOUND)
+#### VBlankLedger Race Condition Logic Bug
+**Status:** 🔴 **ACTIVE BUG** (discovered 2025-10-13)
+**Failing Tests:** 4 tests in `vblank_ledger_test.zig`
+**File:** `src/emulation/state/VBlankLedger.zig:201`
 
-**Status:** 🔍 Root Cause Identified (2025-10-10)
-**Priority:** P0 (Critical - blocks Super Mario Bros and likely other games)
+When CPU reads $2002 on the exact cycle VBlank sets (race condition), the flag incorrectly clears on subsequent reads. NES hardware keeps the flag set after a race condition read.
 
-**Issue:** VBlank flag sets correctly at scanline 241 dot 1, but **immediately clears** before CPU can read it.
+**Fix Required:** Add `race_condition_occurred` flag to track state across multiple reads.
 
-**Root Cause:** $2002 (PPUSTATUS) read clears VBlank flag unconditionally, even on the same cycle it was set. This violates NES hardware behavior where:
-- VBlank flag should persist from scanline 241 dot 1 until scanline 261 dot 1 (pre-render)
-- Reading $2002 on exact cycle VBlank sets should suppress NMI but NOT clear the flag (nesdev.org race condition)
+#### Commercial ROMs: Rendering Never Enabled
+**Status:** 🔴 **UNDER INVESTIGATION**
+**Failing Tests:** 4 tests (Super Mario Bros, Donkey Kong, BurgerTime, Bomberman)
 
-**Evidence:**
-```
-[DEBUG] At 241.1: vblank_flag=false, about to set
-[DEBUG] VBlank flag NOW TRUE
-[$2002 READ] value=0x10, VBlank=false  ← Flag already cleared!
-```
+Commercial ROMs never enable rendering (PPUMASK bits 3-4 stay 0). May be related to VBlankLedger bug above.
 
-**Impact on SMB:**
-1. SMB enables NMI (PPUCTRL=$90), expecting to enter NMI handler
-2. VBlank flag clears before NMI can fire (no visible 0→1 transition)
-3. SMB thinks it entered handler, disables NMI (PPUCTRL=$10)
-4. SMB enters infinite polling loop waiting for VBlank that already passed
+### P3 - Low Priority / Deferred
 
-**Fix Required:** Modify `src/ppu/logic/registers.zig:46` to prevent clearing VBlank flag on the same cycle it was set. Need to track `last_vblank_set_cycle` and compare before clearing.
+#### CPU Timing Deviation (Absolute,X/Y No Page Cross)
+**Status:** 🟡 **KNOWN LIMITATION** (deferred)
 
-**See:** `docs/archive/sessions-2025-10-09-10/vblank-flag-race-condition-2025-10-10.md` for complete analysis
+Absolute,X/Y addressing takes 5 cycles instead of 4 when no page crossing occurs. Functionally correct, timing slightly off. AccuracyCoin passes despite this deviation.
 
-### Threading Tests (Low Priority)
+#### Threading Tests
+**Status:** 🟡 **TEST INFRASTRUCTURE ISSUE**
 
-3 threading tests fail (timing-sensitive), 7 tests skipped. This is a test infrastructure issue, not a functional problem.
+7 threading tests skipped (timing-sensitive). Not a functional problem - mailboxes work correctly in production.
 
 ## Test Coverage
 
 **Total:** 930/966 tests passing (96.3%), 19 skipped, 17 failing
+**AccuracyCoin:** ✅ PASSING (baseline CPU validation)
+**Expected After VBlankLedger Fix:** ~939+/966 (97.2%+)
 
-**Recent Fixes (2025-10-09):**
-- ✅ Fixed BRK flag masking in hardware interrupts
-- ✅ Fixed background fine_x panic guard
-- ✅ Fixed frame pacing precision (16ms→17ms rounding)
-- ✅ Fixed debugger output (was no-op)
-- ✅ Fixed sprite 0 hit detection (OAM source tracking)
+**Recent Work (Phase 7 - 2025-10-13):**
+- ✅ Complete documentation audit and cleanup
+- ✅ GraphViz diagram accuracy verification
+- ✅ Current issues verified against actual code
+- 🔍 VBlankLedger race condition bug identified
 
-**Known Failures:**
-- 7 integration tests (PPUSTATUS polling, VBlank wait) - test infrastructure issues
-- 3 threading tests (timing-sensitive) - not functional bugs
-- 2 VBlank edge case tests - expected/documented failures
+**Recent Fixes (Phases 1-6 - 2025-10-11 to 2025-10-13):**
+- ✅ Phase 5: APU State/Logic separation (Envelope, Sweep)
+- ✅ Phase 4: PPU finalization (facade removal, A12 state migration)
+- ✅ Phase 3: Cartridge cleanup (legacy system removal)
+- ✅ Phase 2: Config simplification
+- ✅ Phase 1: Legacy code removal
 
-See: `docs/KNOWN-ISSUES.md` for details
+See: `docs/CURRENT-ISSUES.md` for complete issue details and verification commands
 
 ### By Component
 
@@ -415,5 +411,5 @@ See `compiler/README.md` for details.
 **Version:** 0.2.0-alpha
 **Last Updated:** 2025-10-13
 **Status:** 930/966 tests passing (96.3%), AccuracyCoin PASSING ✅
-**Documentation:** Comprehensive audit completed 2025-10-11 (see docs/DOCUMENTATION-AUDIT-2025-10-11.md)
-**Current Task:** Phase 5 (APU State/Logic separation) completed. Phase 6 (documentation update) in progress.
+**Documentation:** Phase 7 complete - Current state verified, issues documented in `docs/CURRENT-ISSUES.md`
+**Current Focus:** VBlankLedger race condition bug fix (P0)

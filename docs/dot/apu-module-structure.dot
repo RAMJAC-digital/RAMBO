@@ -1,5 +1,12 @@
 // APU Module Complete Structure - All Types, Functions, and Relationships
 // Based on actual source code audit from docs/architecture/codebase-inventory.md
+//
+// Updated: 2025-10-16 (Phase 5: Envelope/Sweep pure functional patterns)
+// Phase 5 Changes:
+//   - Envelope.clock() now returns new Envelope (was: void mutation)
+//   - Sweep.clock() now returns SweepClockResult (was: void mutation)
+//   - Both use *const pointers (read-only input, new output)
+//   - Enables time-travel debugging and eliminates hidden state
 
 digraph APU_Module {
     // Graph settings
@@ -120,36 +127,38 @@ digraph APU_Module {
         logic_tick_dmc [label="tickDmc(state) bool\n// Returns true if DMA needed", fillcolor=yellow, shape=box3d];
     }
 
-    // ========== ENVELOPE (src/apu/Envelope.zig) ==========
+    // ========== ENVELOPE (src/apu/logic/envelope.zig) ==========
     subgraph cluster_envelope {
-        label="Envelope (src/apu/Envelope.zig)\nReusable Volume Control Component";
+        label="Envelope (src/apu/logic/envelope.zig)\nPure Functional Volume Control\n(Phase 5: State/Logic Separated)";
         style=filled;
         fillcolor=palegreen;
 
         envelope_struct [label="Envelope struct:\nstart_flag: bool       // Restart trigger\ndivider: u4            // Countdown (0-15)\ndecay_level: u4        // Output (0-15)\nloop_flag: bool        // Loop at 0 vs stay at 0\nconstant_volume: bool  // Constant or decay\nvolume_envelope: u4    // Volume value (0-15)", fillcolor=palegreen, shape=record];
 
-        envelope_clock [label="clock(envelope) void\n// Called @ 240 Hz (quarter-frame)\n// SIDE EFFECTS:\n// - Clears start_flag if set\n// - Decrements divider\n// - Decrements decay_level\n// - Loops decay_level if loop_flag", fillcolor=lightgreen, shape=box3d];
+        envelope_clock [label="clock(envelope: *const Envelope) Envelope\n// Called @ 240 Hz (quarter-frame)\n// PURE FUNCTION (Phase 5):\n// - Takes envelope by const pointer (read-only)\n// - Returns NEW Envelope instance\n// - No mutations of input\n// Updates:\n// - Clears start_flag if set\n// - Decrements divider\n// - Decrements decay_level\n// - Loops decay_level if loop_flag", fillcolor=lightgreen, shape=box3d];
 
-        envelope_get_volume [label="getVolume(envelope) u4\n// Returns constant or decay level\n// Pure: No side effects", fillcolor=palegreen];
+        envelope_get_volume [label="getVolume(envelope: *const Envelope) u4\n// Returns constant or decay level\n// Pure: No side effects", fillcolor=palegreen];
 
-        envelope_restart [label="restart(envelope) void\n// Sets start_flag\n// Called on $4003/$4007/$400F write", fillcolor=wheat];
+        envelope_restart [label="restart(envelope: *Envelope) void\n// Sets start_flag\n// Called on $4003/$4007/$400F write", fillcolor=wheat];
 
-        envelope_write [label="writeControl(envelope, value) void\n// Parse --LC VVVV format\n// L=loop, C=constant, V=volume", fillcolor=wheat];
+        envelope_write [label="writeControl(envelope: *Envelope, value: u8) void\n// Parse --LC VVVV format\n// L=loop, C=constant, V=volume", fillcolor=wheat];
     }
 
-    // ========== SWEEP (src/apu/Sweep.zig) ==========
+    // ========== SWEEP (src/apu/logic/sweep.zig) ==========
     subgraph cluster_sweep {
-        label="Sweep (src/apu/Sweep.zig)\nPulse Frequency Modulation";
+        label="Sweep (src/apu/logic/sweep.zig)\nPure Functional Frequency Modulation\n(Phase 5: State/Logic Separated)";
         style=filled;
         fillcolor=lightyellow;
 
         sweep_struct [label="Sweep struct:\nenabled: bool       // Bit 7 of $4001/$4005\ndivider: u3         // Countdown (0-7)\nperiod: u3          // Reload value (0-7)\nnegate: bool        // Decrease vs increase\nshift: u3           // Change amount (0-7)\nreload_flag: bool   // Set on register write", fillcolor=lightyellow, shape=record];
 
-        sweep_clock [label="clock(sweep, period, ones_complement) void\n// Called @ 120 Hz (half-frame)\n// Parameters:\n//   period: *u11 (modified if sweep triggers)\n//   ones_complement: true=Pulse1, false=Pulse2\n// SIDE EFFECTS:\n// - Modifies period if enabled/shift!=0/target valid\n// - Decrements divider\n// - Clears reload_flag", fillcolor=yellow, shape=box3d];
+        sweep_clock_result [label="SweepClockResult struct:\nsweep: Sweep        // New sweep state\nperiod: u11         // Potentially updated period", fillcolor=wheat, shape=record];
 
-        sweep_is_muting [label="isMuting(sweep, period, ones_complement) bool\n// Returns true if:\n//   period < 8 OR\n//   target > $7FF (when negate=0)\n// Pure: No side effects", fillcolor=lightyellow];
+        sweep_clock [label="clock(\n  sweep: *const Sweep,\n  current_period: u11,\n  ones_complement: bool\n) SweepClockResult\n\n// Called @ 120 Hz (half-frame)\n// PURE FUNCTION (Phase 5):\n// - Takes sweep by const pointer (read-only)\n// - Returns SweepClockResult with NEW instances\n// - No mutations of input\n// Parameters:\n//   ones_complement: true=Pulse1, false=Pulse2\n// Updates:\n// - Modifies period if enabled/shift!=0/target valid\n// - Decrements divider\n// - Clears reload_flag", fillcolor=yellow, shape=box3d];
 
-        sweep_write [label="writeControl(sweep, value) void\n// Parse EPPP NSSS format\n// Sets reload_flag", fillcolor=wheat];
+        sweep_is_muting [label="isMuting(\n  sweep: *const Sweep,\n  period: u11,\n  ones_complement: bool\n) bool\n\n// Returns true if:\n//   period < 8 OR\n//   target > $7FF (when negate=0)\n// Pure: No side effects", fillcolor=lightyellow];
+
+        sweep_write [label="writeControl(sweep: *Sweep, value: u8) void\n// Parse EPPP NSSS format\n// Sets reload_flag", fillcolor=wheat];
     }
 
     // ========== DMC (src/apu/Dmc.zig) ==========
@@ -325,6 +334,16 @@ digraph APU_Module {
         legend_side [label="Red: Mutation/side effect", color=red];
         legend_clock [label="Green: Periodic clocking", color=green];
         legend_config [label="Orange: Configuration/setup", color=orange];
+    }
+
+    // Phase 5 Architecture
+    subgraph cluster_phase5 {
+        label="Phase 5 Architecture (October 2025)";
+        style=filled;
+        fillcolor=lightgreen;
+        rank=sink;
+
+        phase5_overview [label="Pure Functional Components:\n\nEnvelope.clock():\n  • Input: *const Envelope (read-only)\n  • Output: Envelope (new instance)\n  • Zero mutations of input state\n\nSweep.clock():\n  • Input: *const Sweep (read-only)\n  • Output: SweepClockResult{sweep, period}\n  • Returns both new sweep and updated period\n\nBenefits:\n  • Time-travel debugging possible\n  • Easier unit testing (pure functions)\n  • No hidden state mutations\n  • RT-safe (predictable behavior)\n  • Referential transparency", fillcolor=palegreen, shape=note];
     }
 
     // Ownership annotation

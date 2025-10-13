@@ -50,8 +50,8 @@ CPU Cycle 1 (fetch_opcode): Before
 
 **Expected:** Reading $2002 on exact VBlank set cycle should:
 - Return value with bit 7 set (0x80)
-- Clear the VBlank flag
-- Suppress NMI (but flag stays set - special race condition)
+- Clear the VBlank flag immediately (flag does not remain set)
+- Suppress NMI for that frame
 
 **Actual:**
 ```
@@ -112,15 +112,9 @@ pub fn isReadableFlagSet(self: *const VBlankLedger, current_cycle: u64) bool {
     // VBlank flag is NOT active if span hasn't started yet
     if (!self.span_active) return false;
 
-    // Race condition: If $2002 read on exact cycle VBlank set,
-    // flag STAYS set (but NMI is suppressed)
-    if (self.last_status_read_cycle == self.last_set_cycle) {
-        return true;  // Stays set on race condition
-    }
-
     // Normal case: Check if flag was cleared by read
-    if (self.last_clear_cycle > self.last_set_cycle) {
-        return false; // Cleared by $2002 read
+    if (self.last_clear_cycle >= self.last_set_cycle) {
+        return false; // Cleared by $2002 read (including race window)
     }
 
     return true; // Flag is active
@@ -128,8 +122,8 @@ pub fn isReadableFlagSet(self: *const VBlankLedger, current_cycle: u64) bool {
 ```
 
 The "race condition at exact VBlank set point" test EXPECTS this behavior:
-- Read on exact cycle → flag stays set, NMI suppressed
-- But the test is FAILING because the read isn't happening at all
+- Read on exact cycle → flag clears, NMI suppressed
+- If the read isn't executed, the flag stays set and the test fails earlier
 
 ### Hypothesis 3: $2002 Read Not Routing to VBlankLedger
 
@@ -186,9 +180,9 @@ This logic appears sound.
 ## Verified Code Paths
 
 ### ✅ VBlankLedger Logic (Correct)
-- `isReadableFlagSet()` correctly checks `span_active`, race conditions, and clear timestamps
+- `isReadableFlagSet()` correctly checks `span_active`, race windows, and clear timestamps
 - `recordStatusRead()` correctly updates `last_clear_cycle`
-- Race condition handling is correct (flag stays set if read on exact set cycle)
+- Race condition handling is correct (flag clears immediately while NMI is suppressed)
 
 ### ✅ PPU Register Read Logic (Correct)
 - `readRegister()` correctly queries VBlankLedger

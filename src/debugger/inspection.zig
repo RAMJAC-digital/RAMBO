@@ -53,6 +53,11 @@ pub fn hasMemoryTriggers(state: anytype) bool {
     return state.memory_breakpoint_enabled_count > 0 or state.watchpoint_enabled_count > 0;
 }
 
+/// Fast check for any registered callbacks
+pub fn hasCallbacks(state: anytype) bool {
+    return state.callback_count > 0;
+}
+
 /// Get modification history
 pub fn getModifications(state: anytype) []const StateModification {
     return state.modifications.items;
