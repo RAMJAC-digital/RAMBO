@@ -23,17 +23,9 @@ cpu {
     // "PAL":  1.66 MHz (26.6017 MHz ÷ 16)
     region "NTSC"
 
-    // Unstable (unofficial) opcode behavior
-    // These opcodes have hardware-dependent behavior across CPU revisions
-    unstable_opcodes {
-        // SHA (AXA, AHX) opcode behavior differs between revisions
-        // Options: "RP2A03G" or "standard" (most common), "RP2A03H" (different AND result)
-        sha_behavior "standard"
-
-        // LXA (LAX #imm) magic constant - varies by chip
-        // Common values: 0x00, 0xEE (most common), 0xFF
-        lxa_magic 0xEE
-    }
+    // Note: Unstable (unofficial) opcode behavior is implemented in
+    // src/cpu/variants.zig as comptime constants per CPU revision.
+    // This provides zero-cost hardware-accurate behavior.
 }
 
 // PPU (Picture Processing Unit) Configuration

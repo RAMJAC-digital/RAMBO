@@ -89,29 +89,12 @@ pub const Config = struct {
         const parsed_config = try parser.parseKdl(content, allocator);
         defer parsed_config.deinit();
 
-        // Copy parsed values to self
-        self.copyFrom(parsed_config);
+        // Direct assignment - no need for copyFrom helper
+        self.* = parsed_config;
     }
 
-    /// Copy configuration values from another Config instance
-    /// Used after parsing to transfer values from temp config to self
-    fn copyFrom(self: *Config, other: Config) void {
-        self.console = other.console;
-        self.cpu = other.cpu;
-        self.ppu = other.ppu;
-        self.cic = other.cic;
-        self.controllers = other.controllers;
-        self.video = other.video;
-        self.audio = other.audio;
-        self.input = other.input;
-    }
-
-    /// Get current configuration (thread-safe read)
-    pub fn get(self: *const Config) Config {
-        // Since we parse once and don't mutate during runtime,
-        // reads are lock-free. Mutex only needed for reload.
-        return self.*;
-    }
+    // Configuration fields can be accessed directly: config.ppu.variant, config.video.backend, etc.
+    // No helper methods needed - direct field access is the idiomatic Zig approach.
 };
 
 // ============================================================================
@@ -166,9 +149,6 @@ test "Config: PPU timing calculations" {
 }
 
 test "Config: parse simple KDL" {
-    var config = Config.init(testing.allocator);
-    defer config.deinit();
-
     const kdl_content =
         \\ppu {
         \\    variant "RP2C02G"
@@ -182,11 +162,10 @@ test "Config: parse simple KDL" {
         \\}
     ;
 
-    // Parse using stateless parser
+    // Parse using stateless parser - use result directly
     const parser = @import("parser.zig");
-    var parsed = try parser.parseKdl(kdl_content, testing.allocator);
-    defer parsed.deinit();
-    config.copyFrom(parsed);
+    var config = try parser.parseKdl(kdl_content, testing.allocator);
+    defer config.deinit();
 
     try testing.expectEqual(PpuVariant.rp2c02g_ntsc, config.ppu.variant);
     try testing.expectEqual(VideoRegion.ntsc, config.ppu.region);
@@ -254,9 +233,6 @@ test "Config: Console variant parsing" {
 }
 
 test "Config: parse AccuracyCoin target configuration" {
-    var config = Config.init(testing.allocator);
-    defer config.deinit();
-
     const kdl_content =
         \\// AccuracyCoin target: NES NTSC front-loader
         \\console "NES-NTSC-FrontLoader"
@@ -284,9 +260,8 @@ test "Config: parse AccuracyCoin target configuration" {
     ;
 
     const parser = @import("parser.zig");
-    var parsed = try parser.parseKdl(kdl_content, testing.allocator);
-    defer parsed.deinit();
-    config.copyFrom(parsed);
+    var config = try parser.parseKdl(kdl_content, testing.allocator);
+    defer config.deinit();
 
     // Verify AccuracyCoin target configuration
     try testing.expectEqual(ConsoleVariant.nes_ntsc_frontloader, config.console);
@@ -302,9 +277,6 @@ test "Config: parse AccuracyCoin target configuration" {
 }
 
 test "Config: parse PAL configuration" {
-    var config = Config.init(testing.allocator);
-    defer config.deinit();
-
     const kdl_content =
         \\console "NES-PAL"
         \\
@@ -331,9 +303,8 @@ test "Config: parse PAL configuration" {
     ;
 
     const parser = @import("parser.zig");
-    var parsed = try parser.parseKdl(kdl_content, testing.allocator);
-    defer parsed.deinit();
-    config.copyFrom(parsed);
+    var config = try parser.parseKdl(kdl_content, testing.allocator);
+    defer config.deinit();
 
     try testing.expectEqual(ConsoleVariant.nes_pal, config.console);
     try testing.expectEqual(CpuVariant.rp2a07, config.cpu.variant);
@@ -345,9 +316,6 @@ test "Config: parse PAL configuration" {
 }
 
 test "Config: parse top-loader NES configuration" {
-    var config = Config.init(testing.allocator);
-    defer config.deinit();
-
     const kdl_content =
         \\console "NES-NTSC-TopLoader"
         \\
@@ -370,9 +338,8 @@ test "Config: parse top-loader NES configuration" {
     ;
 
     const parser = @import("parser.zig");
-    var parsed = try parser.parseKdl(kdl_content, testing.allocator);
-    defer parsed.deinit();
-    config.copyFrom(parsed);
+    var config = try parser.parseKdl(kdl_content, testing.allocator);
+    defer config.deinit();
 
     try testing.expectEqual(ConsoleVariant.nes_ntsc_toploader, config.console);
     try testing.expect(!config.cic.enabled);
@@ -380,9 +347,6 @@ test "Config: parse top-loader NES configuration" {
 }
 
 test "Config: parse Famicom configuration" {
-    var config = Config.init(testing.allocator);
-    defer config.deinit();
-
     const kdl_content =
         \\console "Famicom"
         \\
@@ -400,18 +364,14 @@ test "Config: parse Famicom configuration" {
     ;
 
     const parser = @import("parser.zig");
-    var parsed = try parser.parseKdl(kdl_content, testing.allocator);
-    defer parsed.deinit();
-    config.copyFrom(parsed);
+    var config = try parser.parseKdl(kdl_content, testing.allocator);
+    defer config.deinit();
 
     try testing.expectEqual(ConsoleVariant.famicom, config.console);
     try testing.expectEqual(ControllerType.famicom, config.controllers.type);
 }
 
 test "Config: complete hardware configuration" {
-    var config = Config.init(testing.allocator);
-    defer config.deinit();
-
     const kdl_content =
         \\console "NES-NTSC-FrontLoader"
         \\
@@ -449,9 +409,8 @@ test "Config: complete hardware configuration" {
     ;
 
     const parser = @import("parser.zig");
-    var parsed = try parser.parseKdl(kdl_content, testing.allocator);
-    defer parsed.deinit();
-    config.copyFrom(parsed);
+    var config = try parser.parseKdl(kdl_content, testing.allocator);
+    defer config.deinit();
 
     // Verify all sections parsed correctly
     try testing.expectEqual(ConsoleVariant.nes_ntsc_frontloader, config.console);

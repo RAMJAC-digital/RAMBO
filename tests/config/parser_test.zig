@@ -48,23 +48,6 @@ test "parseKdl: PPU configuration" {
     try testing.expectEqual(Config.AccuracyLevel.frame, config.ppu.accuracy);
 }
 
-test "parseKdl: unstable opcode configuration" {
-    const allocator = testing.allocator;
-    const kdl =
-        \\cpu {
-        \\    unstable_opcodes {
-        \\        sha_behavior "RP2A03H"
-        \\        lxa_magic 0xFF
-        \\    }
-        \\}
-    ;
-    const config = try parser.parseKdl(kdl, allocator);
-    defer config.deinit();
-
-    try testing.expectEqual(Config.SHABehavior.rp2a03h, config.cpu.unstable_opcodes.sha_behavior);
-    try testing.expectEqual(@as(u8, 0xFF), config.cpu.unstable_opcodes.lxa_magic);
-}
-
 test "parseKdl: complete AccuracyCoin configuration" {
     const allocator = testing.allocator;
     const kdl =
@@ -74,10 +57,6 @@ test "parseKdl: complete AccuracyCoin configuration" {
         \\cpu {
         \\    variant "RP2A03G"
         \\    region "NTSC"
-        \\    unstable_opcodes {
-        \\        sha_behavior "standard"
-        \\        lxa_magic 0xEE
-        \\    }
         \\}
         \\
         \\ppu {
@@ -92,8 +71,6 @@ test "parseKdl: complete AccuracyCoin configuration" {
     try testing.expectEqual(Config.ConsoleVariant.nes_ntsc_frontloader, config.console);
     try testing.expectEqual(Config.CpuVariant.rp2a03g, config.cpu.variant);
     try testing.expectEqual(Config.VideoRegion.ntsc, config.cpu.region);
-    try testing.expectEqual(Config.SHABehavior.rp2a03g, config.cpu.unstable_opcodes.sha_behavior);
-    try testing.expectEqual(@as(u8, 0xEE), config.cpu.unstable_opcodes.lxa_magic);
     try testing.expectEqual(Config.PpuVariant.rp2c02g_ntsc, config.ppu.variant);
     try testing.expectEqual(Config.AccuracyLevel.cycle, config.ppu.accuracy);
 }
@@ -134,23 +111,6 @@ test "parseKdl: handles empty lines and whitespace" {
     defer config.deinit();
 
     try testing.expectEqual(Config.CpuVariant.rp2a03g, config.cpu.variant);
-}
-
-test "parseKdl: malformed input doesn't crash - invalid number" {
-    const allocator = testing.allocator;
-    const kdl =
-        \\cpu {
-        \\    unstable_opcodes {
-        \\        lxa_magic abc
-        \\    }
-        \\}
-    ;
-    // Should not crash, should use default value
-    const config = try parser.parseKdl(kdl, allocator);
-    defer config.deinit();
-
-    // Should still have default magic value
-    try testing.expectEqual(@as(u8, 0xEE), config.cpu.unstable_opcodes.lxa_magic);
 }
 
 test "parseKdl: malformed input doesn't crash - unknown key" {
