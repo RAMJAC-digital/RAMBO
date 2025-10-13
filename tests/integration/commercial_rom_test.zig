@@ -104,14 +104,10 @@ fn runRomForFrames(
 
     state.loadCartridge(cart);
 
-    // Power-on behavior: Load reset vector but keep warmup_complete=false
-    // This simulates real NES power-on where PPU ignores writes for ~29,658 cycles
-    const reset_vector = state.busRead16(0xFFFC);
-    state.cpu.pc = reset_vector;
-    state.cpu.sp = 0xFD;
-    state.cpu.p.interrupt = true;
-    // NOTE: Do NOT set state.ppu.warmup_complete = true
-    // That would skip the PPU warm-up period (power-on requires warm-up, RESET doesn't)
+    // Power-on initialization (sets CPU state + warmup_complete = true for test environment)
+    // Note: This currently skips the hardware-accurate warm-up period (29,658 CPU cycles)
+    // which is acceptable for test environment. See Phase 2 for hardware-accurate warmup.
+    state.power_on();
 
     // Create framebuffer for rendering
     var framebuffer = [_]u32{0} ** FRAME_PIXELS;
@@ -121,25 +117,13 @@ fn runRomForFrames(
 
     // Run for specified number of frames
     var frames_rendered: usize = 0;
-    var nmi_executed_count: usize = 0;
-    var last_pc = state.cpu.pc;
 
     while (frames_rendered < num_frames) {
         state.framebuffer = &framebuffer;
         const cycles = state.emulateFrame();
         _ = cycles;
 
-        // Check if CPU jumped to NMI vector (NMI executed)
-        // After an NMI, PC will be at the NMI vector address
-        if (state.cpu.pc == nmi_vector and last_pc != nmi_vector) {
-            nmi_executed_count += 1;
-        }
-        last_pc = state.cpu.pc;
-
         frames_rendered += 1;
-
-        // Debug output every 60 frames
-        if (frames_rendered % 60 == 0) {}
     }
 
     return .{

@@ -74,15 +74,43 @@ const CpuCycleResult = CycleResults.CpuCycleResult;
 ///
 /// Returns: CpuCycleResult with mapper_irq flag
 pub fn stepCycle(state: anytype) CpuCycleResult {
-    // Determine if an NMI should be asserted.
-    // This happens on the rising edge of VBlank if NMIs are enabled.
-    const nmi_conditions_met = (state.vblank_ledger.last_set_cycle > state.vblank_ledger.last_clear_cycle) and
-        (state.vblank_ledger.last_set_cycle > state.vblank_ledger.last_read_cycle) and
-        (state.vblank_ledger.last_set_cycle > state.vblank_ledger.last_nmi_ack_cycle) and
-        state.ppu.ctrl.nmi_enable;
+    // Check PPU warm-up period completion (29,658 CPU cycles)
+    // Hardware: PPU ignores writes to $2000/$2001/$2005/$2006 during warmup
+    // Reference: nesdev.org/wiki/PPU_power_up_state
+    if (!state.ppu.warmup_complete and state.clock.cpuCycles() >= 29658) {
+        state.ppu.warmup_complete = true;
+    }
 
+    // Track PPUCTRL.NMI_ENABLE edge transitions (0→1)
+    // Hardware: Enabling NMI during active VBlank triggers NMI immediately
+    const nmi_enable_prev = state.cpu.nmi_enable_prev;
+    state.cpu.nmi_enable_prev = state.ppu.ctrl.nmi_enable;
+    const nmi_enable_edge = state.ppu.ctrl.nmi_enable and !nmi_enable_prev;
+
+    // Determine if an NMI should be asserted
+    // NMI triggers when:
+    // 1. VBlank is active (set more recently than cleared)
+    // 2. NMI not yet acknowledged (set more recently than last ack)
+    // 3. NMI enabled in PPUCTRL
+    // 4. NOT in race condition (race_hold suppresses NMI)
+    // 5. Either: new VBlank edge OR PPUCTRL edge during active VBlank
+    const vblank_active = (state.vblank_ledger.last_set_cycle > state.vblank_ledger.last_clear_cycle);
+    const vblank_edge = (state.vblank_ledger.last_set_cycle > state.vblank_ledger.last_nmi_ack_cycle);
+
+    const nmi_conditions_met = vblank_active and
+        state.ppu.ctrl.nmi_enable and
+        !state.vblank_ledger.race_hold and
+        (vblank_edge or nmi_enable_edge);
+
+    // NMI line must be ALWAYS explicitly set to avoid latching
+    // Bug: Previous code used `else if` which left nmi_line unchanged when:
+    // - VBlank active BUT NMI disabled (nmi_conditions_met = false)
+    // - VBlank not yet cleared (last_clear >= last_set = false)
+    // This caused NMI line to stay high even after disabling NMI in PPUCTRL
     if (nmi_conditions_met) {
         state.cpu.nmi_line = true;
+    } else {
+        state.cpu.nmi_line = false;
     }
 
     // If CPU is halted (JAM/KIL), do nothing until RESET

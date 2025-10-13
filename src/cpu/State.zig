@@ -161,6 +161,7 @@ pub const CpuState = struct {
     pending_interrupt: InterruptType = .none,
     nmi_line: bool = false,         // NMI input (level)
     nmi_edge_detected: bool = false, // NMI is edge-triggered
+    nmi_enable_prev: bool = false,  // Previous PPUCTRL.NMI_ENABLE for edge detection
     irq_line: bool = false,         // IRQ input (level-triggered)
 
     // ===== CPU Halt State (for JAM/KIL unofficial opcodes) =====

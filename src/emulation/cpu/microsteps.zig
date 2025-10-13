@@ -343,11 +343,12 @@ pub fn branchFixPch(state: anytype) bool {
     return true; // Branch complete
 }
 
-/// TODO make sure we are calculating this low byte correctly.
 /// Fetch low byte of JMP indirect target
 pub fn jmpIndirectFetchLow(state: anytype) bool {
     // Initialize effective_address from the indirect pointer base (fetched in cycles 0-1)
-    // state.cpu.effective_address = (@as(u16, state.cpu.operand_high) << 8) | @as(u16, state.cpu.operand_low);
+    // CRITICAL: Must set effective_address before reading from it!
+    // Bug: This line was commented out, causing reads from stale effective_address (often $0000)
+    state.cpu.effective_address = (@as(u16, state.cpu.operand_high) << 8) | @as(u16, state.cpu.operand_low);
 
     // Read low byte of target address from the computed pointer
     state.cpu.operand_low = state.busRead(state.cpu.effective_address);

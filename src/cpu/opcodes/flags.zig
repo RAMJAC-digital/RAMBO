@@ -40,6 +40,7 @@ pub fn cld(state: CpuState, _: u8) OpcodeResult {
 pub fn cli(state: CpuState, _: u8) OpcodeResult {
     var flags = state.p;
     flags.interrupt = false;
+
     return .{
         .flags = flags,
     };

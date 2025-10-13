@@ -41,8 +41,6 @@ pub const OamDma = @import("state/peripherals/OamDma.zig").OamDma;
 pub const DmcDma = @import("state/peripherals/DmcDma.zig").DmcDma;
 pub const ControllerState = @import("state/peripherals/ControllerState.zig").ControllerState;
 
-
-
 // CPU microstep functions
 const CpuMicrosteps = @import("cpu/microsteps.zig");
 
@@ -201,10 +199,11 @@ pub const EmulationState = struct {
         self.cpu.halted = false;
 
         PpuLogic.reset(&self.ppu);
-        self.ppu.warmup_complete = true;
+        self.ppu.warmup_complete = false;  // Hardware-accurate: warmup period required after power-on
 
         ApuLogic.reset(&self.apu);
         self.cpu.nmi_line = false;
+        self.cpu.irq_line = false; // Hardware-accurate: IRQ line low after power-on
     }
 
     /// Reset emulation to reset state
@@ -234,6 +233,7 @@ pub const EmulationState = struct {
 
         ApuLogic.reset(&self.apu);
         self.cpu.nmi_line = false;
+        self.cpu.irq_line = false; // Hardware-accurate: IRQ line low after reset
     }
 
     // =========================================================================
@@ -542,6 +542,8 @@ pub const EmulationState = struct {
 
         // Process PPU at the POST-advance position (current clock state)
         // VBlank/frame events happen at specific scanline/dot coordinates
+        // Hardware: Events trigger when clock IS AT the coordinate, not before
+        // PPU processes at (241, 1) to SET VBlank, not at (241, 0)
         const scanline = self.clock.scanline();
         const dot = self.clock.dot();
 
