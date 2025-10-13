@@ -4,8 +4,9 @@
 //! Following the hybrid architecture pattern: State contains data + convenience methods.
 
 const std = @import("std");
-const Mirroring = @import("../cartridge/ines/mod.zig").MirroringMode;
-const NromCart = @import("../cartridge/Cartridge.zig").NromCart;
+const Cartridge = @import("../cartridge/Cartridge.zig");
+const Mirroring = Cartridge.Mirroring;
+const NromCart = Cartridge.NromCart;
 
 /// PPU Control Register ($2000)
 /// VPHB SINN

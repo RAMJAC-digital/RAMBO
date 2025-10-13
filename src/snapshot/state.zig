@@ -13,7 +13,8 @@ const PpuCtrl = @import("../ppu/State.zig").PpuCtrl;
 const PpuMask = @import("../ppu/State.zig").PpuMask;
 const PpuStatus = @import("../ppu/State.zig").PpuStatus;
 const BusState = @import("../emulation/State.zig").BusState;
-const Mirroring = @import("../cartridge/ines/mod.zig").MirroringMode;
+const Cartridge = @import("../cartridge/Cartridge.zig");
+const Mirroring = Cartridge.Mirroring;
 
 /// Config values for serialization (skip arena and mutex)
 pub const ConfigValues = struct {

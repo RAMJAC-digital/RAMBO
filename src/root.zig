@@ -18,8 +18,7 @@ pub const Cartridge = @import("cartridge/Cartridge.zig");
 /// Configuration system
 pub const Config = @import("config/Config.zig");
 
-/// Stateless configuration parser
-pub const ConfigParser = @import("config/parser.zig");
+// ConfigParser removed - use Config.parser instead if needed
 
 /// PPU (Picture Processing Unit)
 pub const Ppu = @import("ppu/Ppu.zig");
@@ -35,8 +34,7 @@ pub const FrameTimer = @import("timing/FrameTimer.zig");
 
 /// Emulation state machine (RT loop)
 pub const EmulationState = @import("emulation/State.zig");
-/// Emulator runtime helpers (PPU orchestration)
-pub const EmulationPpu = @import("emulation/Ppu.zig");
+// EmulationPpu removed - internal to EmulationState only
 /// Shared test harness utilities
 pub const TestHarness = @import("test/Harness.zig");
 
@@ -52,8 +50,8 @@ pub const Mailboxes = @import("mailboxes/Mailboxes.zig");
 /// Benchmarking infrastructure for performance measurement
 pub const Benchmark = @import("benchmark/Benchmark.zig");
 
-/// iNES ROM format parser (stateless, separate from cartridge emulation)
-pub const iNES = @import("cartridge/ines/mod.zig");
+// iNES export removed - parser is internal to Cartridge module
+// Types available via Cartridge.Mirroring, Cartridge.InesHeader
 
 /// NES controller button state (8 buttons packed into 1 byte)
 pub const ButtonState = @import("input/ButtonState.zig").ButtonState;
@@ -78,19 +76,36 @@ pub const RenderThread = @import("threads/RenderThread.zig");
 /// CPU type (from Cpu module)
 pub const CpuType = Cpu.State.CpuState;
 
-/// CPU Status Flags
-pub const StatusFlags = Cpu.StatusFlags;
+// StatusFlags, ExecutionState, AddressingMode removed
+// Use Cpu.StatusFlags, Cpu.ExecutionState, Cpu.AddressingMode directly
 
-/// CPU State enum
-pub const ExecutionState = Cpu.ExecutionState;
-
-/// Addressing modes
-pub const AddressingMode = Cpu.AddressingMode;
-
-/// Cartridge types (from Cartridge module)
-/// - CartridgeType: NROM cartridge (Mapper 0) - for backward compatibility
-/// - AnyCartridge: Tagged union of all supported mappers (new unified system)
-/// - MapperRegistry: Mapper metadata and dispatch
+/// NROM Cartridge Type (Mapper 0 Only) - Backward Compatibility Alias
+///
+/// ⚠️  WARNING: This is NOT a generic cartridge type despite the name!
+/// This alias specifically refers to Mapper 0 (NROM) only and will NOT work
+/// with other mappers (MMC1, MMC3, etc.).
+///
+/// For new code, prefer one of these alternatives:
+/// - `Cartridge.NromCart` - Direct NROM usage (explicit, clear intent)
+/// - `AnyCartridge` - Polymorphic cartridge (supports all mappers via tagged union)
+///
+/// This alias exists purely for backward compatibility with existing test code.
+///
+/// Example usage:
+/// ```zig
+/// // Load NROM cartridge
+/// const nrom = try CartridgeType.load(allocator, "game.nes");
+/// defer nrom.deinit();
+///
+/// // Wrap in AnyCartridge for polymorphic use
+/// const any_cart = AnyCartridge{ .nrom = nrom };
+/// emu_state.loadCartridge(any_cart);
+/// ```
+///
+/// Migration guidance:
+/// - Test code: Can continue using `CartridgeType` (backward compatible)
+/// - Production code: Use `AnyCartridge` for flexibility
+/// - NROM-specific code: Use `Cartridge.NromCart` for clarity
 pub const CartridgeType = Cartridge.NromCart;
 
 /// Mapper registry and dispatch system
@@ -102,8 +117,7 @@ pub const AnyCartridge = MapperRegistry.AnyCartridge;
 /// Mapper ID enum
 pub const MapperId = MapperRegistry.MapperId;
 
-/// Nametable mirroring mode
-pub const MirroringType = Cartridge.Mirroring;
+// MirroringType removed - use Cartridge.Mirroring directly
 
 /// PPU type (from Ppu module)
 pub const PpuType = Ppu.State.PpuState;
@@ -129,5 +143,5 @@ test {
     _ = Snapshot;
     _ = Debugger;
     _ = Mailboxes;
-    _ = iNES;
+    // iNES test reference removed (export removed)
 }

@@ -126,13 +126,7 @@ fn mainExec(ctx: zli.CommandContext) !void {
     var emu_state = RAMBO.EmulationState.EmulationState.init(&config);
 
     // Load ROM from command line
-
-    const file = try std.fs.cwd().openFile(rom_path, .{});
-    defer file.close();
-    const rom_data = try file.readToEndAlloc(allocator, 1024 * 1024);
-    defer allocator.free(rom_data);
-
-    const nrom_cart = try RAMBO.CartridgeType.loadFromData(allocator, rom_data);
+    const nrom_cart = try RAMBO.Cartridge.NromCart.load(allocator, rom_path);
     const any_cart = RAMBO.AnyCartridge{ .nrom = nrom_cart };
     emu_state.loadCartridge(any_cart);
 

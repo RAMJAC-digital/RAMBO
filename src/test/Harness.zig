@@ -11,7 +11,7 @@ const Cartridge = @import("../cartridge/Cartridge.zig");
 const RegistryModule = @import("../cartridge/mappers/registry.zig");
 const AnyCartridge = RegistryModule.AnyCartridge;
 const NromCart = Cartridge.NromCart;
-const MirroringType = @import("../cartridge/ines/mod.zig").MirroringMode;
+const MirroringType = Cartridge.Mirroring;
 
 pub const Harness = struct {
     config: *Config.Config,

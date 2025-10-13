@@ -7,8 +7,9 @@
 //! - Open bus behavior
 
 const PpuState = @import("../State.zig").PpuState;
+const Cartridge = @import("../../cartridge/Cartridge.zig");
 const AnyCartridge = @import("../../cartridge/mappers/registry.zig").AnyCartridge;
-const Mirroring = @import("../../cartridge/ines/mod.zig").MirroringMode;
+const Mirroring = Cartridge.Mirroring;
 
 /// Mirror nametable address based on mirroring mode
 /// Returns address in 0-2047 range (2KB VRAM)
