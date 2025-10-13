@@ -1963,10 +1963,15 @@ Shift → Select
 
 ### APU
 - `/home/colin/Development/RAMBO/src/apu/State.zig` - APU channels + frame counter
-- `/home/colin/Development/RAMBO/src/apu/Logic.zig` - APU facade
-- `/home/colin/Development/RAMBO/src/apu/logic/*.zig` - Specialized logic (3 modules)
-- `/home/colin/Development/RAMBO/src/apu/Envelope.zig` - Envelope generator
-- `/home/colin/Development/RAMBO/src/apu/Sweep.zig` - Sweep unit
+- `/home/colin/Development/RAMBO/src/apu/Logic.zig` - APU orchestration
+- `/home/colin/Development/RAMBO/src/apu/logic/*.zig` - Specialized logic (5 modules)
+  - `envelope.zig` - **Envelope pure functions (Phase 5)**
+  - `sweep.zig` - **Sweep pure functions (Phase 5)**
+  - `frame_counter.zig` - Frame counter timing
+  - `registers.zig` - $4000-$4017 register handlers
+  - `tables.zig` - Lookup tables
+- `/home/colin/Development/RAMBO/src/apu/Envelope.zig` - Envelope state struct
+- `/home/colin/Development/RAMBO/src/apu/Sweep.zig` - Sweep state struct
 - `/home/colin/Development/RAMBO/src/apu/Dmc.zig` - DMC channel
 
 ### Cartridge
