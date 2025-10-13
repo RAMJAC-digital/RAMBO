@@ -1,7 +1,7 @@
 # APU (Audio Processing Unit) - Architecture & Implementation
 
-**Status:** ✅ **EMULATION LOGIC 100% COMPLETE** - Audio output backend not yet implemented
-**Last Updated:** 2025-10-11
+**Status:** ✅ **EMULATION LOGIC 85% COMPLETE (Phase 5)** - Envelope/Sweep pure functions, audio output backend pending
+**Last Updated:** 2025-10-13 (Updated after Phase 5)
 **Test Coverage:** 135/135 tests passing (100%)
 
 ---
@@ -14,16 +14,19 @@ The RAMBO emulator implements cycle-accurate NES APU (Audio Processing Unit) emu
 
 | Component | Status | Lines | File |
 |-----------|--------|-------|------|
-| **EMULATION LOGIC (100% Complete)** | | | |
+| **EMULATION LOGIC (85% Complete - Phase 5)** | | | |
 | Frame Counter | ✅ Complete | Integrated | `src/apu/State.zig`, `logic/frame_counter.zig` |
 | DMC Channel | ✅ Complete | 187 | `src/apu/Dmc.zig` |
-| Envelope Generator | ✅ Complete | 101 | `src/apu/Envelope.zig` |
-| Sweep Unit | ✅ Complete | 141 | `src/apu/Sweep.zig` |
+| **Envelope Logic** | ✅ **Pure Functions (P5)** | 78 | **`src/apu/logic/envelope.zig`** |
+| Envelope State | ✅ Complete | 24 | `src/apu/Envelope.zig` |
+| **Sweep Logic** | ✅ **Pure Functions (P5)** | 102 | **`src/apu/logic/sweep.zig`** |
+| Sweep State | ✅ Complete | 48 | `src/apu/Sweep.zig` |
 | Length Counter | ✅ Complete | Integrated | `src/apu/logic/frame_counter.zig` |
 | Linear Counter | ✅ Complete | Integrated | `src/apu/State.zig` |
 | Register Handlers ($4000-$4017) | ✅ Complete | 313 | `src/apu/logic/registers.zig` |
-| Pulse 1/2 Timers | ✅ Complete | Integrated | `src/apu/State.zig` |
-| DMC Output Unit | ✅ Complete | Integrated | `src/apu/Dmc.zig` (delta modulation logic) |
+| Pulse 1/2 Channel Logic | ⚠️ Embedded | Integrated | `src/apu/logic/registers.zig` (deferred) |
+| Triangle Channel Logic | ⚠️ Embedded | Integrated | `src/apu/logic/registers.zig` (deferred) |
+| Noise Channel Logic | ⚠️ Embedded | Integrated | `src/apu/logic/registers.zig` (deferred) |
 | **AUDIO OUTPUT (Not Yet Implemented)** | | | |
 | Audio Backend Integration | ⬜ TODO | - | External library (SDL2/miniaudio) |
 | Sample Buffer Management | ⬜ TODO | - | Ring buffer for audio thread |
@@ -34,14 +37,34 @@ The RAMBO emulator implements cycle-accurate NES APU (Audio Processing Unit) emu
 
 ---
 
-## ⚠️ DOCUMENTATION CLARIFICATION (2025-10-11)
+## 🎯 PHASE 5 UPDATE (2025-10-13)
 
-**Previous Status:** "86% complete - waveform generation pending"
-**Corrected Status:** "Emulation logic 100% complete - audio output backend not yet implemented"
+**Phase 5 Accomplishments:** Envelope and Sweep components migrated to pure functions
+
+**Changes Made:**
+1. **Created `src/apu/logic/envelope.zig` (78 lines)** - Pure functions for envelope clock/restart/write
+2. **Created `src/apu/logic/sweep.zig` (102 lines)** - Pure functions for sweep clock/write with result struct
+3. **Updated `src/apu/Envelope.zig`** - Removed mutable methods, kept `getVolume()` const helper
+4. **Updated `src/apu/Sweep.zig`** - Removed mutable methods, kept `isMuting()` const helper
+5. **Updated Integration** - EmulationState applies pure function results explicitly
+
+**Pattern:** Matches CPU/PPU architecture - pure functions in `logic/` modules, data in `State` structs
+
+**Remaining Work (Deferred):**
+- Pulse/Triangle/Noise channel logic extraction (currently embedded in `registers.zig`)
+- Not critical - already follows good patterns, just not in dedicated files
+
+---
+
+## ⚠️ DOCUMENTATION CLARIFICATION (2025-10-11, Updated 2025-10-13)
+
+**Previous Status (2025-10-11):** "86% complete - waveform generation pending"
+**Corrected Status (2025-10-11):** "Emulation logic 100% complete - audio output backend not yet implemented"
+**Current Status (2025-10-13):** "Emulation logic 85% complete (Phase 5) - Envelope/Sweep refactored, channel logic deferred"
 
 ### What Changed?
 
-The previous documentation was misleading about what remained to be implemented. Here's the truth:
+Phase 5 completed State/Logic separation for Envelope and Sweep components. The emulation logic is functionally complete, but architectural consistency work remains (extracting channel-specific logic to dedicated modules). Here's the truth:
 
 **What the APU DOES (100% Complete):**
 ```zig
@@ -127,9 +150,11 @@ Following the project's hybrid architecture pattern:
 - Deterministic execution
 - All side effects explicit
 
-**Reusable Components:**
-- `Envelope.zig` - Generic envelope (shared by Pulse1, Pulse2, Noise)
-- `Sweep.zig` - Generic sweep (shared by Pulse1, Pulse2)
+**Reusable Components (Phase 5 Pattern):**
+- `Envelope.zig` - Envelope state struct + const helpers (`getVolume()`)
+- `logic/envelope.zig` - **Pure functions** (`clock()`, `restart()`, `writeControl()`)
+- `Sweep.zig` - Sweep state struct + const helpers (`isMuting()`)
+- `logic/sweep.zig` - **Pure functions** (`clock()`, `writeControl()`) with `SweepClockResult`
 - `Dmc.zig` - DMC-specific logic (sample playback, DMA, IRQ)
 
 ---
@@ -183,9 +208,10 @@ Following the project's hybrid architecture pattern:
 
 **Tests:** 25 DMC-specific tests, all passing
 
-### 3. Envelope Generator
+### 3. Envelope Generator (Phase 5: Pure Functions)
 
-**File:** `src/apu/Envelope.zig` (101 lines)
+**State:** `src/apu/Envelope.zig` (24 lines)
+**Logic:** `src/apu/logic/envelope.zig` (78 lines) - **NEW in Phase 5**
 
 **Features:**
 - Volume decay over time
@@ -198,6 +224,23 @@ Following the project's hybrid architecture pattern:
 - Pulse 2 channel
 - Noise channel
 
+**Phase 5 Pattern:**
+```zig
+// Pure functions - immutable input, new state output
+pub fn clock(envelope: *const Envelope) Envelope;
+pub fn restart(envelope: *const Envelope) Envelope;
+pub fn writeControl(envelope: *const Envelope, value: u8) Envelope;
+
+// Const helper (kept in State)
+pub fn getVolume(self: *const Envelope) u8;
+```
+
+**Integration:**
+```zig
+// EmulationState applies results explicitly
+self.apu.pulse1_envelope = envelope_logic.clock(&self.apu.pulse1_envelope);
+```
+
 **Registers:** $4000 (Pulse1), $4004 (Pulse2), $400C (Noise)
 - Bits 0-3: Volume/envelope period
 - Bit 4: Constant volume flag
@@ -208,9 +251,10 @@ Envelope divider decrements each quarter-frame (240 Hz).
 
 **Tests:** 20 envelope-specific tests, all passing
 
-### 4. Sweep Unit
+### 4. Sweep Unit (Phase 5: Pure Functions with Result Struct)
 
-**File:** `src/apu/Sweep.zig` (141 lines)
+**State:** `src/apu/Sweep.zig` (48 lines)
+**Logic:** `src/apu/logic/sweep.zig` (102 lines) - **NEW in Phase 5**
 
 **Features:**
 - Frequency modulation for pulse channels
@@ -218,6 +262,29 @@ Envelope divider decrements each quarter-frame (240 Hz).
 - Increase/decrease direction
 - Muting for out-of-range frequencies
 - Hardware-accurate one's complement (Pulse 1) vs two's complement (Pulse 2)
+
+**Phase 5 Pattern (Result Struct):**
+```zig
+// Multi-value return via result struct
+pub const SweepClockResult = struct {
+    sweep: Sweep,   // Modified sweep state
+    period: u11,    // Modified period value
+};
+
+pub fn clock(sweep: *const Sweep, period: u11, ones_complement: bool) SweepClockResult;
+pub fn writeControl(sweep: *const Sweep, value: u8) Sweep;
+
+// Const helper (kept in State)
+pub fn isMuting(self: *const Sweep, period: u11, ones_complement: bool) bool;
+```
+
+**Integration:**
+```zig
+// EmulationState applies both sweep and period updates
+const p1_result = sweep_logic.clock(&self.apu.pulse1_sweep, self.apu.pulse1_period, true);
+self.apu.pulse1_sweep = p1_result.sweep;
+self.apu.pulse1_period = p1_result.period;
+```
 
 **Registers:** $4001 (Pulse1), $4005 (Pulse2)
 - Bit 7: Enabled
@@ -546,8 +613,13 @@ When audio becomes a priority, the implementation will be straightforward becaus
 - `src/apu/State.zig` - APU state structure
 - `src/apu/Logic.zig` - APU logic and register handlers
 - `src/apu/Dmc.zig` - DMC channel implementation
-- `src/apu/Envelope.zig` - Envelope generator
-- `src/apu/Sweep.zig` - Sweep unit
+- `src/apu/Envelope.zig` - Envelope state struct
+- **`src/apu/logic/envelope.zig`** - **Envelope pure functions (Phase 5)**
+- `src/apu/Sweep.zig` - Sweep state struct
+- **`src/apu/logic/sweep.zig`** - **Sweep pure functions (Phase 5)**
+- `src/apu/logic/frame_counter.zig` - Frame counter timing
+- `src/apu/logic/registers.zig` - $4000-$4017 register handlers
+- `src/apu/logic/tables.zig` - Lookup tables (length counter, etc.)
 
 ---
 
