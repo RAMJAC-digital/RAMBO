@@ -1,8 +1,8 @@
 # RAMBO Documentation Hub
 
-**Last Updated:** 2025-10-11
-**Test Status:** 949/986 passing (96.2%)
-**Documentation Audit:** ✅ Completed 2025-10-11 (see DOCUMENTATION-AUDIT-2025-10-11.md)
+**Last Updated:** 2025-10-13 (Phase 6 Documentation Remediation Complete)
+**Test Status:** 930/966 passing (96.3%)
+**Documentation Audit:** ✅ Completed 2025-10-11, remediated 2025-10-13 (see archive/2025-10/audits/)
 
 ---
 
@@ -35,7 +35,7 @@
 docs/
 ├── README.md                          # This file - navigation hub
 ├── KNOWN-ISSUES.md                    # Current bugs and investigations
-├── DOCUMENTATION-AUDIT-2025-10-11.md  # Comprehensive documentation audit report
+├── CODE-REVIEW-REMEDIATION-PLAN.md    # Phase 1-7 remediation tracking
 │
 ├── sessions/                          # Active session documentation
 │   ├── debugger-quick-start.md        # Debugger usage guide (active)
@@ -43,8 +43,9 @@ docs/
 │   └── smb-nmi-handler-investigation.md  # SMB NMI analysis (active)
 │
 ├── architecture/                      # System architecture
-│   ├── apu.md                        # APU implementation (86% complete)
+│   ├── apu.md                        # APU implementation (85% Phase 5 complete)
 │   ├── ppu-sprites.md                # PPU sprite system (complete)
+│   ├── codebase-inventory.md         # Complete file structure inventory
 │   └── threading.md                  # Thread model and mailbox communication
 │
 ├── implementation/                    # Current implementation docs
@@ -230,7 +231,7 @@ See **[Session Summary](sessions/session-summary-2025-10-09.md)** for complete d
 - ✅ Added 19 missing debugger API methods to debugger-api.md
 - ✅ Verified all GraphViz diagrams (95-98% accuracy)
 - ✅ Updated VBlank migration documentation in ppu-module-structure.dot
-- ✅ See: DOCUMENTATION-AUDIT-FINAL-REPORT-2025-10-11.md for complete details
+- ✅ See: archive/2025-10/audits/DOCUMENTATION-AUDIT-FINAL-REPORT-2025-10-11.md for complete details
 
 **Previous (2025-10-09):**
 - ✅ Updated CLAUDE.md with test counts
@@ -352,6 +353,6 @@ Historical documentation is preserved in `docs/archive/`:
 
 **Documentation Last Audited:** 2025-10-11
 **Audit Status:** ✅ Comprehensive audit completed
-**See:** DOCUMENTATION-AUDIT-2025-10-11.md for complete findings
+**See:** archive/2025-10/audits/DOCUMENTATION-AUDIT-2025-10-11.md for complete findings
 
 Happy emulating!
