@@ -102,20 +102,17 @@ fn timerCallback(
     const has_cart = hasValidCartridge(ctx.state);
 
     if (write_buffer) |buffer| {
-        // Buffer available - for thread safety in tests, avoid direct writes
-        // from PPU into the mailbox buffer. Render with framebuffer disabled
-        // and present a blank frame (mailbox still advances for timing).
-        ctx.state.framebuffer = null;
+        // Buffer available - render frame directly into mailbox buffer
+        ctx.state.framebuffer = buffer;
 
         if (has_cart) {
             // Emulate one frame (cycle-accurate execution)
             const cycles = ctx.state.emulateFrame();
             ctx.total_cycles += cycles;
-
             ctx.frame_count += 1;
             ctx.total_frames += 1;
         } else {
-            // Produce a black frame
+            // No cartridge loaded: present a black frame
             @memset(buffer, 0);
         }
     } else {
