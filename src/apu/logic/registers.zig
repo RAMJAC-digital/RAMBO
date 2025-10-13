@@ -10,6 +10,8 @@ const Envelope = @import("../Envelope.zig");
 const Sweep = @import("../Sweep.zig");
 const tables = @import("tables.zig");
 const frame_counter = @import("frame_counter.zig");
+const envelope_logic = @import("envelope.zig");
+const sweep_logic = @import("sweep.zig");
 
 // ============================================================================
 // Pulse Channel Register Writes
@@ -24,10 +26,10 @@ pub fn writePulse1(state: *ApuState, offset: u2, value: u8) void {
             // Bit 5: Length counter halt / Envelope loop
             state.pulse1_halt = (value & 0x20) != 0;
             // Bits 0-5: Envelope control
-            Envelope.writeControl(&state.pulse1_envelope, value);
+            state.pulse1_envelope = envelope_logic.writeControl(&state.pulse1_envelope, value);
         },
         1 => { // $4001: EPPP NSSS (Sweep control)
-            Sweep.writeControl(&state.pulse1_sweep, value);
+            state.pulse1_sweep = sweep_logic.writeControl(&state.pulse1_sweep, value);
         },
         2 => { // $4002: TTTT TTTT (Timer low 8 bits)
             // Update low 8 bits of period
@@ -43,7 +45,7 @@ pub fn writePulse1(state: *ApuState, offset: u2, value: u8) void {
             const timer_high = @as(u11, value & 0x07) << 8;
             state.pulse1_period = (state.pulse1_period & 0x0FF) | timer_high;
             // Restart envelope (sets start flag)
-            Envelope.restart(&state.pulse1_envelope);
+            state.pulse1_envelope = envelope_logic.restart(&state.pulse1_envelope);
         },
     }
 }
@@ -57,10 +59,10 @@ pub fn writePulse2(state: *ApuState, offset: u2, value: u8) void {
             // Bit 5: Length counter halt / Envelope loop
             state.pulse2_halt = (value & 0x20) != 0;
             // Bits 0-5: Envelope control
-            Envelope.writeControl(&state.pulse2_envelope, value);
+            state.pulse2_envelope = envelope_logic.writeControl(&state.pulse2_envelope, value);
         },
         1 => { // $4005: EPPP NSSS (Sweep control)
-            Sweep.writeControl(&state.pulse2_sweep, value);
+            state.pulse2_sweep = sweep_logic.writeControl(&state.pulse2_sweep, value);
         },
         2 => { // $4006: TTTT TTTT (Timer low 8 bits)
             // Update low 8 bits of period
@@ -76,7 +78,7 @@ pub fn writePulse2(state: *ApuState, offset: u2, value: u8) void {
             const timer_high = @as(u11, value & 0x07) << 8;
             state.pulse2_period = (state.pulse2_period & 0x0FF) | timer_high;
             // Restart envelope (sets start flag)
-            Envelope.restart(&state.pulse2_envelope);
+            state.pulse2_envelope = envelope_logic.restart(&state.pulse2_envelope);
         },
     }
 }
@@ -123,7 +125,7 @@ pub fn writeNoise(state: *ApuState, offset: u2, value: u8) void {
             // Bit 5: Length counter halt / Envelope loop
             state.noise_halt = (value & 0x20) != 0;
             // Bits 0-5: Envelope control
-            Envelope.writeControl(&state.noise_envelope, value);
+            state.noise_envelope = envelope_logic.writeControl(&state.noise_envelope, value);
         },
         3 => { // $400F: LLLL L---
             // Bits 3-7: Length counter table index (load if channel enabled)
@@ -132,7 +134,7 @@ pub fn writeNoise(state: *ApuState, offset: u2, value: u8) void {
                 state.noise_length = tables.LENGTH_TABLE[table_index];
             }
             // Restart envelope (sets start flag)
-            Envelope.restart(&state.noise_envelope);
+            state.noise_envelope = envelope_logic.restart(&state.noise_envelope);
         },
         else => {},
     }

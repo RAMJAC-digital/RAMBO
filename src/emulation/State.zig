@@ -204,7 +204,7 @@ pub const EmulationState = struct {
         PpuLogic.reset(&self.ppu);
         self.ppu.warmup_complete = true;
 
-        self.apu.reset();
+        ApuLogic.reset(&self.apu);
         self.cpu.nmi_line = false;
     }
 
@@ -233,7 +233,7 @@ pub const EmulationState = struct {
         PpuLogic.reset(&self.ppu);
         self.ppu.warmup_complete = true;
 
-        self.apu.reset();
+        ApuLogic.reset(&self.apu);
         self.cpu.nmi_line = false;
     }
 

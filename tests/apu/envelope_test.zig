@@ -4,6 +4,7 @@ const ApuModule = @import("RAMBO").Apu;
 const ApuState = ApuModule.State.ApuState;
 const ApuLogic = ApuModule.Logic;
 const Envelope = ApuModule.Envelope;
+const envelope_logic = @import("RAMBO").Apu.envelope_logic;
 
 // ============================================================================
 // Envelope Start Flag Tests
@@ -15,7 +16,7 @@ test "Envelope: Start flag triggers reload" {
     env.start_flag = true;
 
     // Clock - should clear start flag and reload
-    Envelope.clock(&env);
+    env = envelope_logic.clock(&env);
 
     try testing.expect(!env.start_flag);
     try testing.expectEqual(@as(u4, 15), env.decay_level);
@@ -25,7 +26,7 @@ test "Envelope: Start flag triggers reload" {
 test "Envelope: Restart sets start flag" {
     var env = Envelope.Envelope{};
 
-    Envelope.restart(&env);
+    env = envelope_logic.restart(&env);
 
     try testing.expect(env.start_flag);
 }
@@ -41,15 +42,15 @@ test "Envelope: Divider counts down" {
     env.decay_level = 10;
 
     // Clock - divider should decrement
-    Envelope.clock(&env);
+    env = envelope_logic.clock(&env);
     try testing.expectEqual(@as(u4, 2), env.divider);
     try testing.expectEqual(@as(u4, 10), env.decay_level); // No change yet
 
-    Envelope.clock(&env);
+    env = envelope_logic.clock(&env);
     try testing.expectEqual(@as(u4, 1), env.divider);
     try testing.expectEqual(@as(u4, 10), env.decay_level);
 
-    Envelope.clock(&env);
+    env = envelope_logic.clock(&env);
     try testing.expectEqual(@as(u4, 0), env.divider);
     try testing.expectEqual(@as(u4, 10), env.decay_level);
 }
@@ -61,7 +62,7 @@ test "Envelope: Divider reload and decay level decrement" {
     env.decay_level = 10;
 
     // Clock - should reload divider and decrement decay_level
-    Envelope.clock(&env);
+    env = envelope_logic.clock(&env);
 
     try testing.expectEqual(@as(u4, 2), env.divider); // Reloaded
     try testing.expectEqual(@as(u4, 9), env.decay_level); // Decremented
@@ -76,17 +77,17 @@ test "Envelope: Decay level counts down to zero" {
     env.volume_envelope = 0; // Divider always reloads to 0 (clocks every time)
     env.decay_level = 3;
 
-    Envelope.clock(&env);
+    env = envelope_logic.clock(&env);
     try testing.expectEqual(@as(u4, 2), env.decay_level);
 
-    Envelope.clock(&env);
+    env = envelope_logic.clock(&env);
     try testing.expectEqual(@as(u4, 1), env.decay_level);
 
-    Envelope.clock(&env);
+    env = envelope_logic.clock(&env);
     try testing.expectEqual(@as(u4, 0), env.decay_level);
 
     // Should stay at 0 (no loop)
-    Envelope.clock(&env);
+    env = envelope_logic.clock(&env);
     try testing.expectEqual(@as(u4, 0), env.decay_level);
 }
 
@@ -97,11 +98,11 @@ test "Envelope: Loop flag causes decay level reload" {
     env.loop_flag = true;
 
     // Decay to 0
-    Envelope.clock(&env);
+    env = envelope_logic.clock(&env);
     try testing.expectEqual(@as(u4, 0), env.decay_level);
 
     // Next clock should reload to 15 (loop mode)
-    Envelope.clock(&env);
+    env = envelope_logic.clock(&env);
     try testing.expectEqual(@as(u4, 15), env.decay_level);
 }
 
@@ -112,10 +113,10 @@ test "Envelope: No loop stays at zero" {
     env.loop_flag = false;
 
     // Should stay at 0
-    Envelope.clock(&env);
+    env = envelope_logic.clock(&env);
     try testing.expectEqual(@as(u4, 0), env.decay_level);
 
-    Envelope.clock(&env);
+    env = envelope_logic.clock(&env);
     try testing.expectEqual(@as(u4, 0), env.decay_level);
 }
 
@@ -151,13 +152,13 @@ test "Envelope: Volume changes as decay level decreases" {
 
     try testing.expectEqual(@as(u4, 3), Envelope.getVolume(&env));
 
-    Envelope.clock(&env);
+    env = envelope_logic.clock(&env);
     try testing.expectEqual(@as(u4, 2), Envelope.getVolume(&env));
 
-    Envelope.clock(&env);
+    env = envelope_logic.clock(&env);
     try testing.expectEqual(@as(u4, 1), Envelope.getVolume(&env));
 
-    Envelope.clock(&env);
+    env = envelope_logic.clock(&env);
     try testing.expectEqual(@as(u4, 0), Envelope.getVolume(&env));
 }
 
@@ -169,7 +170,7 @@ test "Envelope: writeControl sets all fields" {
     var env = Envelope.Envelope{};
 
     // Write: --LC VVVV = 0b00111010 (loop, constant, volume=10)
-    Envelope.writeControl(&env, 0b00111010);
+    env = envelope_logic.writeControl(&env, 0b00111010);
 
     try testing.expect(env.loop_flag);
     try testing.expect(env.constant_volume);
@@ -182,7 +183,7 @@ test "Envelope: writeControl clears loop and constant flags" {
     env.constant_volume = true;
 
     // Write: 0b00000101 (no loop, no constant, volume=5)
-    Envelope.writeControl(&env, 0b00000101);
+    env = envelope_logic.writeControl(&env, 0b00000101);
 
     try testing.expect(!env.loop_flag);
     try testing.expect(!env.constant_volume);
@@ -305,24 +306,24 @@ test "Envelope: Complete decay cycle with loop" {
     env.constant_volume = false;
 
     // Start envelope
-    Envelope.restart(&env);
-    Envelope.clock(&env); // Start flag cleared, decay=15, divider=1
+    env = envelope_logic.restart(&env);
+    env = envelope_logic.clock(&env); // Start flag cleared, decay=15, divider=1
 
     try testing.expectEqual(@as(u4, 15), env.decay_level);
 
     // Clock through full decay cycle
     // Each decay takes 2 clocks (divider=1)
     for (0..15) |_| {
-        Envelope.clock(&env); // Divider: 1 -> 0
-        Envelope.clock(&env); // Divider: reload, decay--
+        env = envelope_logic.clock(&env); // Divider: 1 -> 0
+        env = envelope_logic.clock(&env); // Divider: reload, decay--
     }
 
     // At this point decay_level = 0
     try testing.expectEqual(@as(u4, 0), env.decay_level);
 
     // One more clock cycle should trigger loop reload
-    Envelope.clock(&env); // Divider: 1 -> 0
-    Envelope.clock(&env); // Divider: reload, decay_level: 0 -> 15 (loop)
+    env = envelope_logic.clock(&env); // Divider: 1 -> 0
+    env = envelope_logic.clock(&env); // Divider: reload, decay_level: 0 -> 15 (loop)
 
     // Should have looped back to 15
     try testing.expectEqual(@as(u4, 15), env.decay_level);
@@ -334,17 +335,17 @@ test "Envelope: Complete decay cycle without loop" {
     env.loop_flag = false;
     env.constant_volume = false;
 
-    Envelope.restart(&env);
-    Envelope.clock(&env); // Start: decay=15
+    env = envelope_logic.restart(&env);
+    env = envelope_logic.clock(&env); // Start: decay=15
 
     // Decay to 0
     for (0..15) |_| {
-        Envelope.clock(&env);
+        env = envelope_logic.clock(&env);
     }
 
     try testing.expectEqual(@as(u4, 0), env.decay_level);
 
     // Should stay at 0
-    Envelope.clock(&env);
+    env = envelope_logic.clock(&env);
     try testing.expectEqual(@as(u4, 0), env.decay_level);
 }

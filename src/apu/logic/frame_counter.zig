@@ -12,6 +12,8 @@
 const ApuState = @import("../State.zig").ApuState;
 const Envelope = @import("../Envelope.zig");
 const Sweep = @import("../Sweep.zig");
+const envelope_logic = @import("envelope.zig");
+const sweep_logic = @import("sweep.zig");
 
 // ============================================================================
 // Frame Counter Timing Constants (NTSC)
@@ -94,9 +96,9 @@ pub fn clockLinearCounter(state: *ApuState) void {
 /// Runs at ~240 Hz (every 7457 CPU cycles)
 fn clockQuarterFrame(state: *ApuState) void {
     // Clock envelopes (pulse 1, pulse 2, noise)
-    Envelope.clock(&state.pulse1_envelope);
-    Envelope.clock(&state.pulse2_envelope);
-    Envelope.clock(&state.noise_envelope);
+    state.pulse1_envelope = envelope_logic.clock(&state.pulse1_envelope);
+    state.pulse2_envelope = envelope_logic.clock(&state.pulse2_envelope);
+    state.noise_envelope = envelope_logic.clock(&state.noise_envelope);
 
     // Clock triangle linear counter
     clockLinearCounter(state);
@@ -109,8 +111,13 @@ fn clockHalfFrame(state: *ApuState) void {
     clockLengthCounters(state);
 
     // Clock sweep units (pulse 1 uses one's complement, pulse 2 uses two's complement)
-    Sweep.clock(&state.pulse1_sweep, &state.pulse1_period, true);  // Pulse 1: one's complement
-    Sweep.clock(&state.pulse2_sweep, &state.pulse2_period, false); // Pulse 2: two's complement
+    const pulse1_result = sweep_logic.clock(&state.pulse1_sweep, state.pulse1_period, true);  // Pulse 1: one's complement
+    state.pulse1_sweep = pulse1_result.sweep;
+    state.pulse1_period = pulse1_result.period;
+
+    const pulse2_result = sweep_logic.clock(&state.pulse2_sweep, state.pulse2_period, false); // Pulse 2: two's complement
+    state.pulse2_sweep = pulse2_result.sweep;
+    state.pulse2_period = pulse2_result.period;
 }
 
 // ============================================================================

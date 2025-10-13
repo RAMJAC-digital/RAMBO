@@ -168,37 +168,4 @@ pub const ApuState = struct {
     pub fn init() ApuState {
         return .{};
     }
-
-    /// Reset APU (RESET button pressed)
-    /// Frame counter mode and IRQ inhibit are NOT reset
-    /// All channels silenced
-    pub fn reset(self: *ApuState) void {
-        // Reset channel enables
-        self.pulse1_enabled = false;
-        self.pulse2_enabled = false;
-        self.triangle_enabled = false;
-        self.noise_enabled = false;
-        self.dmc_enabled = false;
-
-        // Clear length counters
-        self.pulse1_length = 0;
-        self.pulse2_length = 0;
-        self.triangle_length = 0;
-        self.noise_length = 0;
-
-        // Clear IRQ flags
-        self.frame_irq_flag = false;
-        self.dmc_irq_flag = false;
-
-        // Reset DMC state
-        self.dmc_active = false;
-        self.dmc_bytes_remaining = 0;
-        self.dmc_sample_buffer_empty = true;
-        self.dmc_silence_flag = true;
-        self.dmc_bits_remaining = 0;
-        self.dmc_shift_register = 0;
-
-        // NOTE: frame_counter_mode and irq_inhibit are NOT reset
-        // This matches hardware behavior
-    }
 };

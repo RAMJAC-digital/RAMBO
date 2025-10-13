@@ -25,7 +25,33 @@ pub fn init() ApuState {
 
 /// Reset APU (RESET button pressed)
 pub fn reset(state: *ApuState) void {
-    state.reset();
+    // Reset channel enables
+    state.pulse1_enabled = false;
+    state.pulse2_enabled = false;
+    state.triangle_enabled = false;
+    state.noise_enabled = false;
+    state.dmc_enabled = false;
+
+    // Clear length counters
+    state.pulse1_length = 0;
+    state.pulse2_length = 0;
+    state.triangle_length = 0;
+    state.noise_length = 0;
+
+    // Clear IRQ flags
+    state.frame_irq_flag = false;
+    state.dmc_irq_flag = false;
+
+    // Reset DMC state
+    state.dmc_active = false;
+    state.dmc_bytes_remaining = 0;
+    state.dmc_sample_buffer_empty = true;
+    state.dmc_silence_flag = true;
+    state.dmc_bits_remaining = 0;
+    state.dmc_shift_register = 0;
+
+    // NOTE: frame_counter_mode and irq_inhibit are NOT reset
+    // This matches hardware behavior
 }
 
 // ============================================================================

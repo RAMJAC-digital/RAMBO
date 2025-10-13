@@ -5,6 +5,7 @@ const ApuState = ApuModule.State.ApuState;
 const ApuLogic = ApuModule.Logic;
 const SweepModule = ApuModule.Sweep;
 const Sweep = SweepModule.Sweep;
+const sweep_logic = @import("RAMBO").Apu.sweep_logic;
 
 // ============================================================================
 // Sweep Divider Tests
@@ -20,13 +21,19 @@ test "Sweep: Divider countdown" {
     sweep.shift = 1;
 
     // Clock 1-3: Divider counts down
-    SweepModule.clock(&sweep, &period, false);
+    var result = sweep_logic.clock(&sweep, period, false);
+    sweep = result.sweep;
+    period = result.period;
     try testing.expectEqual(@as(u3, 2), sweep.divider);
 
-    SweepModule.clock(&sweep, &period, false);
+    result = sweep_logic.clock(&sweep, period, false);
+    sweep = result.sweep;
+    period = result.period;
     try testing.expectEqual(@as(u3, 1), sweep.divider);
 
-    SweepModule.clock(&sweep, &period, false);
+    result = sweep_logic.clock(&sweep, period, false);
+    sweep = result.sweep;
+    period = result.period;
     try testing.expectEqual(@as(u3, 0), sweep.divider);
 }
 
@@ -39,7 +46,9 @@ test "Sweep: Divider reload on zero" {
     sweep.enabled = true;
     sweep.shift = 1;
 
-    SweepModule.clock(&sweep, &period, false);
+    const result = sweep_logic.clock(&sweep, period, false);
+    sweep = result.sweep;
+    period = result.period;
     try testing.expectEqual(@as(u3, 2), sweep.divider);
 }
 
@@ -51,7 +60,9 @@ test "Sweep: Reload flag triggers immediate reload" {
     sweep.divider = 3;
     sweep.reload_flag = true;
 
-    SweepModule.clock(&sweep, &period, false);
+    const result = sweep_logic.clock(&sweep, period, false);
+    sweep = result.sweep;
+    period = result.period;
     try testing.expectEqual(@as(u3, 5), sweep.divider);
     try testing.expect(!sweep.reload_flag);
 }
@@ -71,7 +82,9 @@ test "Sweep: Period increase (negate = false)" {
     sweep.shift = 1; // change_amount = 100 >> 1 = 50
 
     // Divider expires, should update period
-    SweepModule.clock(&sweep, &period, false);
+    const result = sweep_logic.clock(&sweep, period, false);
+    sweep = result.sweep;
+    period = result.period;
 
     // Expected: 100 + 50 = 150
     try testing.expectEqual(@as(u11, 150), period);
@@ -88,7 +101,9 @@ test "Sweep: Period decrease with two's complement (Pulse 2)" {
     sweep.shift = 2; // change_amount = 100 >> 2 = 25
 
     // Pulse 2 uses two's complement: 100 - 25 = 75
-    SweepModule.clock(&sweep, &period, false);
+    const result = sweep_logic.clock(&sweep, period, false);
+    sweep = result.sweep;
+    period = result.period;
 
     try testing.expectEqual(@as(u11, 75), period);
 }
@@ -104,7 +119,9 @@ test "Sweep: Period decrease with one's complement (Pulse 1)" {
     sweep.shift = 2; // change_amount = 100 >> 2 = 25
 
     // Pulse 1 uses one's complement: 100 - 25 - 1 = 74
-    SweepModule.clock(&sweep, &period, true);
+    const result = sweep_logic.clock(&sweep, period, true);
+    sweep = result.sweep;
+    period = result.period;
 
     try testing.expectEqual(@as(u11, 74), period);
 }
@@ -129,8 +146,13 @@ test "Sweep: One's complement vs two's complement difference" {
     sweep2.shift = 1;
 
     // Clock both with different complement modes
-    SweepModule.clock(&sweep1, &period1, true); // Pulse 1: one's complement
-    SweepModule.clock(&sweep2, &period2, false); // Pulse 2: two's complement
+    const result1 = sweep_logic.clock(&sweep1, period1, true); // Pulse 1: one's complement
+    sweep1 = result1.sweep;
+    period1 = result1.period;
+
+    const result2 = sweep_logic.clock(&sweep2, period2, false); // Pulse 2: two's complement
+    sweep2 = result2.sweep;
+    period2 = result2.period;
 
     // Pulse 1: 200 - 100 - 1 = 99
     // Pulse 2: 200 - 100 = 100
@@ -151,7 +173,9 @@ test "Sweep: No update when disabled" {
     sweep.enabled = false; // Disabled
     sweep.shift = 1;
 
-    SweepModule.clock(&sweep, &period, false);
+    const result = sweep_logic.clock(&sweep, period, false);
+    sweep = result.sweep;
+    period = result.period;
 
     // Period should not change
     try testing.expectEqual(@as(u11, 100), period);
@@ -166,7 +190,9 @@ test "Sweep: No update when shift is zero" {
     sweep.enabled = true;
     sweep.shift = 0; // Shift = 0
 
-    SweepModule.clock(&sweep, &period, false);
+    const result = sweep_logic.clock(&sweep, period, false);
+    sweep = result.sweep;
+    period = result.period;
 
     // Period should not change
     try testing.expectEqual(@as(u11, 100), period);
@@ -181,7 +207,9 @@ test "Sweep: No update when divider not zero" {
     sweep.enabled = true;
     sweep.shift = 1;
 
-    SweepModule.clock(&sweep, &period, false);
+    const result = sweep_logic.clock(&sweep, period, false);
+    sweep = result.sweep;
+    period = result.period;
 
     // Period should not change
     try testing.expectEqual(@as(u11, 100), period);
@@ -197,7 +225,9 @@ test "Sweep: No update when target exceeds $7FF" {
     sweep.negate = false; // Increasing
     sweep.shift = 1; // Would add 0x300, result = 0x900 > 0x7FF
 
-    SweepModule.clock(&sweep, &period, false);
+    const result = sweep_logic.clock(&sweep, period, false);
+    sweep = result.sweep;
+    period = result.period;
 
     // Period should not change (target > $7FF)
     try testing.expectEqual(@as(u11, 0x600), period);
@@ -265,7 +295,7 @@ test "Sweep: writeControl sets all fields" {
 
     // Write: EPPP NSSS = 0b10101101
     // E=1, PPP=010, N=1, SSS=101
-    SweepModule.writeControl(&sweep, 0b10101101);
+    sweep = sweep_logic.writeControl(&sweep, 0b10101101);
 
     try testing.expect(sweep.enabled);
     try testing.expectEqual(@as(u3, 2), sweep.period);
@@ -280,7 +310,7 @@ test "Sweep: writeControl clears flags" {
     sweep.negate = true;
 
     // Write: 0b00000000 (all disabled)
-    SweepModule.writeControl(&sweep, 0b00000000);
+    sweep = sweep_logic.writeControl(&sweep, 0b00000000);
 
     try testing.expect(!sweep.enabled);
     try testing.expectEqual(@as(u3, 0), sweep.period);
@@ -352,29 +382,37 @@ test "Sweep: Complete sweep cycle with period update" {
     var period: u11 = 200;
 
     // EPPP NSSS = 1_010_0_010 (E=1, PPP=010=2, N=0, SSS=010=2)
-    SweepModule.writeControl(&sweep, 0b10100010); // enabled, period=2, shift=2
+    sweep = sweep_logic.writeControl(&sweep, 0b10100010); // enabled, period=2, shift=2
 
     // First clock: Reload divider (reload_flag set by writeControl)
-    SweepModule.clock(&sweep, &period, false);
+    var result = sweep_logic.clock(&sweep, period, false);
+    sweep = result.sweep;
+    period = result.period;
     try testing.expectEqual(@as(u3, 2), sweep.divider);
     // change_amount = 200 >> 2 = 50
     // new_period = 200 + 50 = 250 (updated immediately on reload)
     try testing.expectEqual(@as(u11, 250), period);
 
     // Second clock: Divider 2 -> 1
-    SweepModule.clock(&sweep, &period, false);
+    result = sweep_logic.clock(&sweep, period, false);
+    sweep = result.sweep;
+    period = result.period;
     try testing.expectEqual(@as(u3, 1), sweep.divider);
     try testing.expectEqual(@as(u11, 250), period);
 
     // Third clock: Divider 1 -> 0
-    SweepModule.clock(&sweep, &period, false);
+    result = sweep_logic.clock(&sweep, period, false);
+    sweep = result.sweep;
+    period = result.period;
     try testing.expectEqual(@as(u3, 0), sweep.divider);
     try testing.expectEqual(@as(u11, 250), period);
 
     // Fourth clock: Divider expires, update period again
     // change_amount = 250 >> 2 = 62
     // new_period = 250 + 62 = 312
-    SweepModule.clock(&sweep, &period, false);
+    result = sweep_logic.clock(&sweep, period, false);
+    sweep = result.sweep;
+    period = result.period;
     try testing.expectEqual(@as(u11, 312), period);
     try testing.expectEqual(@as(u3, 2), sweep.divider); // Reloaded
 }
@@ -383,18 +421,24 @@ test "Sweep: Continuous sweep with multiple updates" {
     var sweep = Sweep{};
     var period: u11 = 100;
 
-    SweepModule.writeControl(&sweep, 0b10000001); // enabled, period=0, shift=1
+    sweep = sweep_logic.writeControl(&sweep, 0b10000001); // enabled, period=0, shift=1
 
     // First update: 100 + 50 = 150
-    SweepModule.clock(&sweep, &period, false);
+    var result = sweep_logic.clock(&sweep, period, false);
+    sweep = result.sweep;
+    period = result.period;
     try testing.expectEqual(@as(u11, 150), period);
 
     // Second update: 150 + 75 = 225
-    SweepModule.clock(&sweep, &period, false);
+    result = sweep_logic.clock(&sweep, period, false);
+    sweep = result.sweep;
+    period = result.period;
     try testing.expectEqual(@as(u11, 225), period);
 
     // Third update: 225 + 112 = 337
-    SweepModule.clock(&sweep, &period, false);
+    result = sweep_logic.clock(&sweep, period, false);
+    sweep = result.sweep;
+    period = result.period;
     try testing.expectEqual(@as(u11, 337), period);
 }
 
@@ -402,18 +446,24 @@ test "Sweep: Negate mode sweeping down" {
     var sweep = Sweep{};
     var period: u11 = 200;
 
-    SweepModule.writeControl(&sweep, 0b10001001); // enabled, period=0, negate=1, shift=1
+    sweep = sweep_logic.writeControl(&sweep, 0b10001001); // enabled, period=0, negate=1, shift=1
 
     // Updates with two's complement negate
     // First: 200 - 100 = 100
-    SweepModule.clock(&sweep, &period, false);
+    var result = sweep_logic.clock(&sweep, period, false);
+    sweep = result.sweep;
+    period = result.period;
     try testing.expectEqual(@as(u11, 100), period);
 
     // Second: 100 - 50 = 50
-    SweepModule.clock(&sweep, &period, false);
+    result = sweep_logic.clock(&sweep, period, false);
+    sweep = result.sweep;
+    period = result.period;
     try testing.expectEqual(@as(u11, 50), period);
 
     // Third: 50 - 25 = 25
-    SweepModule.clock(&sweep, &period, false);
+    result = sweep_logic.clock(&sweep, period, false);
+    sweep = result.sweep;
+    period = result.period;
     try testing.expectEqual(@as(u11, 25), period);
 }
