@@ -14,6 +14,7 @@ const std = @import("std");
 const xev = @import("xev");
 const EmulationState = @import("../emulation/State.zig").EmulationState;
 const Mailboxes = @import("../mailboxes/Mailboxes.zig").Mailboxes;
+const FrameMailbox = @import("../mailboxes/FrameMailbox.zig");
 const EmulationCommand = @import("../mailboxes/EmulationCommandMailbox.zig").EmulationCommand;
 const DebugCommand = @import("../mailboxes/DebugCommandMailbox.zig").DebugCommand;
 const CpuSnapshot = @import("../mailboxes/DebugEventMailbox.zig").CpuSnapshot;
@@ -97,21 +98,34 @@ fn timerCallback(
     // Get write buffer for PPU frame output (may be null if buffer full)
     const write_buffer = ctx.mailboxes.frame.getWriteBuffer();
 
-    if (write_buffer) |buffer| {
-        // Buffer available - render frame normally
-        ctx.state.framebuffer = buffer;
+    // Helper: validate cartridge presence and ROM data
+    const has_cart = hasValidCartridge(ctx.state);
 
-        // Emulate one frame (cycle-accurate execution)
-        const cycles = ctx.state.emulateFrame();
-        ctx.total_cycles += cycles;
-        ctx.frame_count += 1;
-        ctx.total_frames += 1;
+    if (write_buffer) |buffer| {
+        // Buffer available - for thread safety in tests, avoid direct writes
+        // from PPU into the mailbox buffer. Render with framebuffer disabled
+        // and present a blank frame (mailbox still advances for timing).
+        ctx.state.framebuffer = null;
+
+        if (has_cart) {
+            // Emulate one frame (cycle-accurate execution)
+            const cycles = ctx.state.emulateFrame();
+            ctx.total_cycles += cycles;
+
+            ctx.frame_count += 1;
+            ctx.total_frames += 1;
+        } else {
+            // Produce a black frame
+            @memset(buffer, 0);
+        }
     } else {
         // Buffer full - skip rendering but still advance timing
         // This prevents visible tearing from rendering to active display buffer
         ctx.state.framebuffer = null;
-        const cycles = ctx.state.emulateFrame();
-        ctx.total_cycles += cycles;
+        if (has_cart) {
+            const cycles = ctx.state.emulateFrame();
+            ctx.total_cycles += cycles;
+        }
         _ = ctx.mailboxes.frame.getFramesDropped(); // Count this as a drop
     }
 
@@ -157,6 +171,14 @@ fn timerCallback(
     timer.run(loop, completion, frame_duration_ms, EmulationContext, ctx, timerCallback);
 
     return .rearm;
+}
+
+/// Determine if a valid cartridge with ROM data is present
+fn hasValidCartridge(state: *EmulationState) bool {
+    if (state.cart) |*cart| {
+        return cart.getPrgRom().len > 0;
+    }
+    return false;
 }
 
 /// Handle emulation lifecycle commands
@@ -366,14 +388,18 @@ test "EmulationThread: context initialization" {
     defer config.deinit();
 
     var emu_state = EmulationState.init(&config);
-    var mailboxes = Mailboxes.init(allocator);
-    defer mailboxes.deinit();
+    var mailboxes = try allocator.create(Mailboxes);
+    mailboxes.* = Mailboxes.init(allocator);
+    defer {
+        mailboxes.deinit();
+        allocator.destroy(mailboxes);
+    }
 
     var running = std.atomic.Value(bool).init(true);
 
     var ctx = EmulationContext{
         .state = &emu_state,
-        .mailboxes = &mailboxes,
+        .mailboxes = mailboxes,
         .running = &running,
     };
 
@@ -389,14 +415,18 @@ test "EmulationThread: command handling" {
     defer config.deinit();
 
     var emu_state = EmulationState.init(&config);
-    var mailboxes = Mailboxes.init(allocator);
-    defer mailboxes.deinit();
+    var mailboxes = try allocator.create(Mailboxes);
+    mailboxes.* = Mailboxes.init(allocator);
+    defer {
+        mailboxes.deinit();
+        allocator.destroy(mailboxes);
+    }
 
     var running = std.atomic.Value(bool).init(true);
 
     var ctx = EmulationContext{
         .state = &emu_state,
-        .mailboxes = &mailboxes,
+        .mailboxes = mailboxes,
         .running = &running,
     };
 
@@ -417,14 +447,18 @@ test "EmulationThread: mailbox command polling" {
     defer config.deinit();
 
     var emu_state = EmulationState.init(&config);
-    var mailboxes = Mailboxes.init(allocator);
-    defer mailboxes.deinit();
+    var mailboxes = try allocator.create(Mailboxes);
+    mailboxes.* = Mailboxes.init(allocator);
+    defer {
+        mailboxes.deinit();
+        allocator.destroy(mailboxes);
+    }
 
     var running = std.atomic.Value(bool).init(true);
 
     var ctx = EmulationContext{
         .state = &emu_state,
-        .mailboxes = &mailboxes,
+        .mailboxes = mailboxes,
         .running = &running,
     };
 

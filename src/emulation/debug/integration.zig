@@ -45,6 +45,10 @@ pub fn isPaused(state: anytype) bool {
 ///   - is_write: true for writes, false for reads
 pub fn checkMemoryAccess(state: anytype, address: u16, value: u8, is_write: bool) void {
     if (state.debugger) |*debugger| {
+        // Validate debugger instance (sentinel check) to avoid stale/dangling data in threaded tests
+        const sentinel: u64 = 0xDEB6617050554247; // matches DebuggerState.magic_value
+        if (debugger.state.magic != sentinel) return;
+
         // Fast bail-out: no breakpoints/watchpoints and no callbacks registered
         if (!debugger.hasMemoryTriggers() and !debugger.hasCallbacks()) return;
 

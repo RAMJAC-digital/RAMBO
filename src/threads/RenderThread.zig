@@ -128,13 +128,17 @@ pub fn spawn(
 test "RenderThread: context initialization" {
     const allocator = std.testing.allocator;
 
-    var mailboxes = Mailboxes.init(allocator);
-    defer mailboxes.deinit();
+    var mailboxes = try allocator.create(Mailboxes);
+    mailboxes.* = Mailboxes.init(allocator);
+    defer {
+        mailboxes.deinit();
+        allocator.destroy(mailboxes);
+    }
 
     var running = std.atomic.Value(bool).init(true);
 
     var ctx = RenderContext{
-        .mailboxes = &mailboxes,
+        .mailboxes = mailboxes,
         .running = &running,
     };
 

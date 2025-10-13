@@ -83,7 +83,7 @@ pub const FrameMailbox = struct {
             return null; // Buffer full, skip frame
         }
 
-        return &self.buffers[current_write % RING_BUFFER_SIZE];
+        return self.buffers[current_write % RING_BUFFER_SIZE][0..];
     }
 
     /// Swap buffers after PPU completes frame
@@ -117,7 +117,7 @@ pub const FrameMailbox = struct {
     /// Returns const slice to current read buffer
     pub fn getReadBuffer(self: *const FrameMailbox) []const u32 {
         const index = self.read_index.load(.acquire);
-        return &self.buffers[index % RING_BUFFER_SIZE];
+        return self.buffers[index % RING_BUFFER_SIZE][0..];
     }
 
     /// Check if new frame available

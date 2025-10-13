@@ -54,13 +54,17 @@ test "Threading: spawn and join emulation thread" {
     defer config.deinit();
 
     var emu_state = EmulationState.init(&config);
-    var mailboxes = Mailboxes.init(allocator);
-    defer mailboxes.deinit();
+    var mailboxes = try allocator.create(Mailboxes);
+    mailboxes.* = Mailboxes.init(allocator);
+    defer {
+        mailboxes.deinit();
+        allocator.destroy(mailboxes);
+    }
 
     var running = std.atomic.Value(bool).init(true);
 
     // Spawn thread
-    const thread = try EmulationThread.spawn(&emu_state, &mailboxes, &running);
+    const thread = try EmulationThread.spawn(&emu_state, mailboxes, &running);
 
     // Let it run briefly
     std.Thread.sleep(100_000_000); // 100ms
@@ -78,15 +82,19 @@ test "Threading: spawn and join emulation thread" {
 test "Threading: spawn and join render thread (stub)" {
     const allocator = std.heap.c_allocator;
 
-    var mailboxes = Mailboxes.init(allocator);
-    defer mailboxes.deinit();
+    var mailboxes = try allocator.create(Mailboxes);
+    mailboxes.* = Mailboxes.init(allocator);
+    defer {
+        mailboxes.deinit();
+        allocator.destroy(mailboxes);
+    }
 
     var running = std.atomic.Value(bool).init(true);
 
     const render_config = RenderThread.ThreadConfig{};
 
     // Spawn thread
-    const thread = try RenderThread.spawn(&mailboxes, &running, render_config);
+    const thread = try RenderThread.spawn(mailboxes, &running, render_config);
 
     // Let it run briefly
     std.Thread.sleep(100_000_000); // 100ms
@@ -108,14 +116,18 @@ test "Threading: both threads run concurrently" {
     defer config.deinit();
 
     var emu_state = EmulationState.init(&config);
-    var mailboxes = Mailboxes.init(allocator);
-    defer mailboxes.deinit();
+    var mailboxes = try allocator.create(Mailboxes);
+    mailboxes.* = Mailboxes.init(allocator);
+    defer {
+        mailboxes.deinit();
+        allocator.destroy(mailboxes);
+    }
 
     var running = std.atomic.Value(bool).init(true);
 
     // Spawn both threads
-    const emu_thread = try EmulationThread.spawn(&emu_state, &mailboxes, &running);
-    const render_thread = try RenderThread.spawn(&mailboxes, &running, .{});
+    const emu_thread = try EmulationThread.spawn(&emu_state, mailboxes, &running);
+    const render_thread = try RenderThread.spawn(mailboxes, &running, .{});
 
     // Let both run
     std.Thread.sleep(200_000_000); // 200ms
@@ -141,8 +153,12 @@ test "Threading: emulation command mailbox (main → emulation)" {
     defer config.deinit();
 
     var emu_state = EmulationState.init(&config);
-    var mailboxes = Mailboxes.init(allocator);
-    defer mailboxes.deinit();
+    var mailboxes = try allocator.create(Mailboxes);
+    mailboxes.* = Mailboxes.init(allocator);
+    defer {
+        mailboxes.deinit();
+        allocator.destroy(mailboxes);
+    }
 
     var running = std.atomic.Value(bool).init(true);
 
@@ -151,7 +167,7 @@ test "Threading: emulation command mailbox (main → emulation)" {
     try mailboxes.emulation_command.postCommand(.reset);
 
     // Spawn thread (will poll and process commands)
-    const thread = try EmulationThread.spawn(&emu_state, &mailboxes, &running);
+    const thread = try EmulationThread.spawn(&emu_state, mailboxes, &running);
 
     // Give thread time to process
     std.Thread.sleep(100_000_000); // 100ms
@@ -179,14 +195,18 @@ test "Threading: frame mailbox communication (emulation → render, AccuracyCoin
     };
     defer emu_state.deinit(); // Clean up cartridge and state
 
-    var mailboxes = Mailboxes.init(allocator);
-    defer mailboxes.deinit();
+    var mailboxes = try allocator.create(Mailboxes);
+    mailboxes.* = Mailboxes.init(allocator);
+    defer {
+        mailboxes.deinit();
+        allocator.destroy(mailboxes);
+    }
 
     var running = std.atomic.Value(bool).init(true);
 
     // Spawn threads
-    const emu_thread = try EmulationThread.spawn(&emu_state, &mailboxes, &running);
-    const render_thread = try RenderThread.spawn(&mailboxes, &running, .{});
+    const emu_thread = try EmulationThread.spawn(&emu_state, mailboxes, &running);
+    const render_thread = try RenderThread.spawn(mailboxes, &running, .{});
 
     // Let emulation run and produce frames
     std.Thread.sleep(500_000_000); // 500ms (~30 frames at 60 FPS)
@@ -212,13 +232,17 @@ test "Threading: shutdown via command mailbox" {
     defer config.deinit();
 
     var emu_state = EmulationState.init(&config);
-    var mailboxes = Mailboxes.init(allocator);
-    defer mailboxes.deinit();
+    var mailboxes = try allocator.create(Mailboxes);
+    mailboxes.* = Mailboxes.init(allocator);
+    defer {
+        mailboxes.deinit();
+        allocator.destroy(mailboxes);
+    }
 
     var running = std.atomic.Value(bool).init(true);
 
     // Spawn thread
-    const thread = try EmulationThread.spawn(&emu_state, &mailboxes, &running);
+    const thread = try EmulationThread.spawn(&emu_state, mailboxes, &running);
 
     // Let it run briefly
     std.Thread.sleep(100_000_000); // 100ms
@@ -253,15 +277,19 @@ test "Threading: timer-driven emulation produces frames (AccuracyCoin)" {
     };
     defer emu_state.deinit(); // Clean up cartridge and state
 
-    var mailboxes = Mailboxes.init(allocator);
-    defer mailboxes.deinit();
+    var mailboxes = try allocator.create(Mailboxes);
+    mailboxes.* = Mailboxes.init(allocator);
+    defer {
+        mailboxes.deinit();
+        allocator.destroy(mailboxes);
+    }
 
     var running = std.atomic.Value(bool).init(true);
 
     const initial_count = mailboxes.frame.getFrameCount();
 
     // Spawn thread
-    const thread = try EmulationThread.spawn(&emu_state, &mailboxes, &running);
+    const thread = try EmulationThread.spawn(&emu_state, mailboxes, &running);
 
     // Run for ~1 second (should produce ~60 frames)
     std.Thread.sleep(1_000_000_000);
@@ -294,13 +322,17 @@ test "Threading: emulation maintains consistent frame rate (AccuracyCoin)" {
     };
     defer emu_state.deinit(); // Clean up cartridge and state
 
-    var mailboxes = Mailboxes.init(allocator);
-    defer mailboxes.deinit();
+    var mailboxes = try allocator.create(Mailboxes);
+    mailboxes.* = Mailboxes.init(allocator);
+    defer {
+        mailboxes.deinit();
+        allocator.destroy(mailboxes);
+    }
 
     var running = std.atomic.Value(bool).init(true);
 
     // Spawn thread
-    const thread = try EmulationThread.spawn(&emu_state, &mailboxes, &running);
+    const thread = try EmulationThread.spawn(&emu_state, mailboxes, &running);
     const initial_count = mailboxes.frame.getFrameCount();
 
     // Measure frame rate over 2 intervals to verify consistency
@@ -341,13 +373,17 @@ test "Threading: reset command clears frame counter" {
     defer config.deinit();
 
     var emu_state = EmulationState.init(&config);
-    var mailboxes = Mailboxes.init(allocator);
-    defer mailboxes.deinit();
+    var mailboxes = try allocator.create(Mailboxes);
+    mailboxes.* = Mailboxes.init(allocator);
+    defer {
+        mailboxes.deinit();
+        allocator.destroy(mailboxes);
+    }
 
     var running = std.atomic.Value(bool).init(true);
 
     // Spawn thread
-    const thread = try EmulationThread.spawn(&emu_state, &mailboxes, &running);
+    const thread = try EmulationThread.spawn(&emu_state, mailboxes, &running);
 
     // Let it run and produce some frames
     std.Thread.sleep(200_000_000); // 200ms
@@ -370,8 +406,12 @@ test "Threading: multiple commands processed in order" {
     defer config.deinit();
 
     var emu_state = EmulationState.init(&config);
-    var mailboxes = Mailboxes.init(allocator);
-    defer mailboxes.deinit();
+    var mailboxes = try allocator.create(Mailboxes);
+    mailboxes.* = Mailboxes.init(allocator);
+    defer {
+        mailboxes.deinit();
+        allocator.destroy(mailboxes);
+    }
 
     var running = std.atomic.Value(bool).init(true);
 
@@ -381,7 +421,7 @@ test "Threading: multiple commands processed in order" {
     try mailboxes.emulation_command.postCommand(.reset);
 
     // Spawn thread (will process all commands)
-    const thread = try EmulationThread.spawn(&emu_state, &mailboxes, &running);
+    const thread = try EmulationThread.spawn(&emu_state, mailboxes, &running);
 
     // Give thread time to process
     std.Thread.sleep(100_000_000); // 100ms
@@ -405,13 +445,17 @@ test "Threading: high-frequency command posting" {
     defer config.deinit();
 
     var emu_state = EmulationState.init(&config);
-    var mailboxes = Mailboxes.init(allocator);
-    defer mailboxes.deinit();
+    var mailboxes = try allocator.create(Mailboxes);
+    mailboxes.* = Mailboxes.init(allocator);
+    defer {
+        mailboxes.deinit();
+        allocator.destroy(mailboxes);
+    }
 
     var running = std.atomic.Value(bool).init(true);
 
     // Spawn thread
-    const thread = try EmulationThread.spawn(&emu_state, &mailboxes, &running);
+    const thread = try EmulationThread.spawn(&emu_state, mailboxes, &running);
 
     // Post commands rapidly (should not overflow buffer)
     var i: usize = 0;
@@ -446,13 +490,17 @@ test "Threading: long-running emulation stability (AccuracyCoin 3s)" {
     };
     defer emu_state.deinit(); // Clean up cartridge and state
 
-    var mailboxes = Mailboxes.init(allocator);
-    defer mailboxes.deinit();
+    var mailboxes = try allocator.create(Mailboxes);
+    mailboxes.* = Mailboxes.init(allocator);
+    defer {
+        mailboxes.deinit();
+        allocator.destroy(mailboxes);
+    }
 
     var running = std.atomic.Value(bool).init(true);
 
     // Spawn thread
-    const thread = try EmulationThread.spawn(&emu_state, &mailboxes, &running);
+    const thread = try EmulationThread.spawn(&emu_state, mailboxes, &running);
 
     // Run for 3 seconds to verify long-term stability
     std.Thread.sleep(3_000_000_000); // 3 seconds
@@ -479,14 +527,18 @@ test "Threading: atomic running flag coordination" {
     defer config.deinit();
 
     var emu_state = EmulationState.init(&config);
-    var mailboxes = Mailboxes.init(allocator);
-    defer mailboxes.deinit();
+    var mailboxes = try allocator.create(Mailboxes);
+    mailboxes.* = Mailboxes.init(allocator);
+    defer {
+        mailboxes.deinit();
+        allocator.destroy(mailboxes);
+    }
 
     var running = std.atomic.Value(bool).init(true);
 
     // Spawn both threads sharing the same running flag
-    const emu_thread = try EmulationThread.spawn(&emu_state, &mailboxes, &running);
-    const render_thread = try RenderThread.spawn(&mailboxes, &running, .{});
+    const emu_thread = try EmulationThread.spawn(&emu_state, mailboxes, &running);
+    const render_thread = try RenderThread.spawn(mailboxes, &running, .{});
 
     // Verify flag starts as true
     try std.testing.expect(running.load(.acquire));
@@ -518,14 +570,18 @@ test "Threading: clean shutdown under load" {
     defer config.deinit();
 
     var emu_state = EmulationState.init(&config);
-    var mailboxes = Mailboxes.init(allocator);
-    defer mailboxes.deinit();
+    var mailboxes = try allocator.create(Mailboxes);
+    mailboxes.* = Mailboxes.init(allocator);
+    defer {
+        mailboxes.deinit();
+        allocator.destroy(mailboxes);
+    }
 
     var running = std.atomic.Value(bool).init(true);
 
     // Spawn threads
-    const emu_thread = try EmulationThread.spawn(&emu_state, &mailboxes, &running);
-    const render_thread = try RenderThread.spawn(&mailboxes, &running, .{});
+    const emu_thread = try EmulationThread.spawn(&emu_state, mailboxes, &running);
+    const render_thread = try RenderThread.spawn(mailboxes, &running, .{});
 
     // Post commands while running
     var i: usize = 0;
