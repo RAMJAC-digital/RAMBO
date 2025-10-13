@@ -1,6 +1,6 @@
 // RAMBO NES Emulator - System Architecture
 // Generated: 2025-10-09
-// Updated: 2025-10-11 (mailbox count corrected: 7 active, not 9)
+// Updated: 2025-10-13 (Phase 5: Config module removed, APU State/Logic separation complete)
 // This diagram shows the complete system architecture with all major components
 
 digraph RAMBO_Architecture {
@@ -109,13 +109,15 @@ digraph RAMBO_Architecture {
         }
 
         subgraph cluster_apu {
-            label="APU (Audio)";
+            label="APU (Audio)\n(Phase 5: State/Logic Separated)";
             style=filled;
             fillcolor=plum;
 
-            apu_state [label="ApuState\n(Channels)", fillcolor=plum];
+            apu_state [label="ApuState\n(Pure Data)", fillcolor=plum];
             apu_logic [label="ApuLogic\n(Pure Functions)", fillcolor=orchid];
-            apu_channels [label="Pulse/Triangle/Noise/DMC\n(Sound Synthesis)", fillcolor=orchid];
+            apu_envelope [label="logic/envelope.zig\n(Pure Functions)", fillcolor=orchid];
+            apu_sweep [label="logic/sweep.zig\n(Pure Functions)", fillcolor=orchid];
+            apu_channels [label="Pulse/Triangle/Noise/DMC\n(5 Channels)", fillcolor=orchid];
         }
 
         subgraph cluster_peripherals {
@@ -181,7 +183,6 @@ digraph RAMBO_Architecture {
         style=filled;
         fillcolor=lightgray;
 
-        config [label="Config\n(TOML Parser)", fillcolor=lightgray];
         snapshot [label="Snapshot\n(Save States)", fillcolor=lightgray];
         timing [label="FrameTimer\n(60 FPS Pacing)", fillcolor=lightgray];
     }
@@ -230,8 +231,10 @@ digraph RAMBO_Architecture {
     ppu_emu -> ppu_state [label="tick()", color=red];
     ppu_emu -> ppu_logic [label="helpers", color=red, style=dashed];
 
-    // APU internal connections
+    // APU internal connections (Phase 5: Pure Functions)
     apu_state -> apu_logic [label="delegate", color=purple];
+    apu_logic -> apu_envelope [label="clock()", color=purple];
+    apu_logic -> apu_sweep [label="clock()", color=purple];
     apu_logic -> apu_channels [label="tick", color=purple];
 
     // Bus routing connections
@@ -259,7 +262,6 @@ digraph RAMBO_Architecture {
     vulkan_logic -> shaders [label="load", color=red];
 
     // Utility connections
-    main -> config [label="parse", color=blue];
     emu_state -> snapshot [label="save/load", style=dashed];
     render_thread -> timing [label="pace", color=red];
 

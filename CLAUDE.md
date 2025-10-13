@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **RAMBO** is a cycle-accurate NES emulator written in Zig 0.15.1, targeting hardware-accurate 6502/2C02 emulation with cycle-level precision validated against the AccuracyCoin test suite.
 
-**Current Status:** ~99% complete, 949/986 tests passing (96.2%), AccuracyCoin PASSING ✅
+**Current Status:** ~99% complete, 930/966 tests passing (96.3%), AccuracyCoin PASSING ✅
 
 ## Build Commands
 
@@ -15,7 +15,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 zig build
 
 # Run tests
-zig build test              # All tests (949/986 passing)
+zig build test              # All tests (930/966 passing)
 zig build test-unit         # Unit tests only (fast)
 zig build test-integration  # Integration tests only
 zig build bench-release     # Release-optimized benchmarks
@@ -231,7 +231,6 @@ src/
 ├── threads/          # Threading system
 │   ├── EmulationThread.zig# RT-safe emulation loop
 │   └── RenderThread.zig  # Wayland + Vulkan rendering
-├── config/           # Configuration management
 ├── timing/           # Frame timing utilities
 ├── benchmark/        # Performance benchmarking
 ├── memory/           # Memory adapters
@@ -252,7 +251,7 @@ src/
 
 ```bash
 # Before committing
-zig build test  # Must pass (949/986 expected, 12 failing - see KNOWN-ISSUES.md)
+zig build test  # Must pass (930/966 expected, 17 failing - see KNOWN-ISSUES.md)
 
 # Verify no regressions
 git diff --stat
@@ -317,7 +316,7 @@ git commit -m "type(scope): description"
 
 ## Test Coverage
 
-**Total:** 949/986 tests passing (96.2%), 25 skipped, 12 failing
+**Total:** 930/966 tests passing (96.3%), 19 skipped, 17 failing
 
 **Recent Fixes (2025-10-09):**
 - ✅ Fixed BRK flag masking in hardware interrupts
@@ -395,8 +394,8 @@ See `compiler/README.md` for details.
 ### Documentation
 
 - **[Documentation Hub](docs/README.md)** - Start here
-- **[Current Status](docs/CURRENT-STATUS.md)** - Implementation status
-- **[Architecture Details](docs/code-review/01-architecture.md)** - Deep dive into patterns
+- **[Current Status](docs/KNOWN-ISSUES.md)** - Known issues and status
+- **[Architecture Details](docs/code-review/OVERALL_ASSESSMENT.md)** - Deep dive into patterns
 
 ### NES Hardware
 
@@ -414,7 +413,7 @@ See `compiler/README.md` for details.
 **Key Principle:** Hardware accuracy first. Cycle-accurate execution over performance optimization.
 
 **Version:** 0.2.0-alpha
-**Last Updated:** 2025-10-11
-**Status:** 949/986 tests passing (96.2%), AccuracyCoin PASSING ✅
+**Last Updated:** 2025-10-13
+**Status:** 930/966 tests passing (96.3%), AccuracyCoin PASSING ✅
 **Documentation:** Comprehensive audit completed 2025-10-11 (see docs/DOCUMENTATION-AUDIT-2025-10-11.md)
-**Current Task:** Super Mario Bros blank screen investigation (VBlank migration Phases 1-4 completed)
+**Current Task:** Phase 5 (APU State/Logic separation) completed. Phase 6 (documentation update) in progress.
