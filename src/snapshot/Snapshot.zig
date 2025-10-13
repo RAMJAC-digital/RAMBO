@@ -247,7 +247,6 @@ pub fn loadBinary(
         .frame_complete = flags.frame_complete,
         .odd_frame = flags.odd_frame,
         .rendering_enabled = flags.rendering_enabled,
-        .ppu_a12_state = false, // Will be recalculated on next tick
     };
 
     // Connect cartridge (cartridge is already wrapped in AnyCartridge union)

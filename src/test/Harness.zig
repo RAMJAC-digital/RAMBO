@@ -6,7 +6,6 @@ const EmulationState = EmulationModule.EmulationState;
 const Config = @import("../config/Config.zig");
 const Ppu = @import("../ppu/Ppu.zig");
 const PpuLogic = Ppu.Logic;
-const PpuRuntime = @import("../emulation/Ppu.zig");
 const Cartridge = @import("../cartridge/Cartridge.zig");
 const RegistryModule = @import("../cartridge/mappers/registry.zig");
 const AnyCartridge = RegistryModule.AnyCartridge;
@@ -56,7 +55,7 @@ pub const Harness = struct {
     pub fn tickPpu(self: *Harness) void {
         const scanline = self.state.clock.scanline();
         const dot = self.state.clock.dot();
-        _ = PpuRuntime.tick(&self.state.ppu, scanline, dot, self.cartPtr(), null);
+        _ = PpuLogic.tick(&self.state.ppu, scanline, dot, self.cartPtr(), null);
         self.state.clock.advance(1);
     }
 
@@ -67,7 +66,7 @@ pub const Harness = struct {
     pub fn tickPpuWithFramebuffer(self: *Harness, framebuffer: []u32) void {
         const scanline = self.state.clock.scanline();
         const dot = self.state.clock.dot();
-        _ = PpuRuntime.tick(&self.state.ppu, scanline, dot, self.cartPtr(), framebuffer);
+        _ = PpuLogic.tick(&self.state.ppu, scanline, dot, self.cartPtr(), framebuffer);
         self.state.clock.advance(1);
     }
 
@@ -97,7 +96,6 @@ pub const Harness = struct {
     pub fn resetPpu(self: *Harness) void {
         PpuLogic.reset(&self.state.ppu);
         self.state.clock.reset();
-        self.state.ppu_a12_state = false;
     }
 
     pub fn loadCartridge(self: *Harness, cart: AnyCartridge) void {

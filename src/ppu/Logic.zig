@@ -34,6 +34,8 @@ pub fn reset(state: *PpuState) void {
     state.internal.t = 0;
     // RESET skips the warm-up period (PPU already initialized)
     state.warmup_complete = true;
+    // Reset A12 state (will be recalculated on next tick)
+    state.a12_state = false;
 }
 
 /// Decay open bus value (called once per frame)
@@ -151,4 +153,189 @@ pub inline fn getSpritePixel(state: *PpuState, pixel_x: u16) SpritePixel {
 /// Evaluate sprites for the current scanline
 pub inline fn evaluateSprites(state: *PpuState, scanline: u16) void {
     sprites.evaluateSprites(state, scanline);
+}
+
+// ============================================================================
+// PPU Orchestration (main tick function)
+// ============================================================================
+
+/// Result flags produced by a single PPU tick
+/// These are EVENT signals (edge-triggered), not level signals
+pub const TickFlags = struct {
+    frame_complete: bool = false,
+    rendering_enabled: bool,
+    nmi_signal: bool = false,      // Scanline 241, dot 1 - NMI edge detection (VBlank starts)
+    vblank_clear: bool = false,    // Scanline 261, dot 1 - VBlank period ends
+    a12_rising: bool = false,      // A12 rising edge (0→1) for MMC3 IRQ timing
+};
+
+/// Advance the PPU by one cycle.
+/// Timing is externally controlled - this function receives current scanline/dot
+/// as read-only parameters and performs pure state updates.
+///
+/// Hardware correspondence (nesdev.org):
+/// - PPU runs at 5.369318 MHz (NTSC)
+/// - 341 dots per scanline (0-340)
+/// - 262 scanlines per frame (0-261)
+/// - Scanlines 0-239: Visible (240 scanlines)
+/// - Scanline 240: Post-render
+/// - Scanlines 241-260: VBlank (20 scanlines)
+/// - Scanline 261: Pre-render
+///
+/// Returns tick flags indicating frame boundary and rendering state.
+pub fn tick(
+    state: *PpuState,
+    scanline: u16,
+    dot: u16,
+    cart: ?*AnyCartridge,
+    framebuffer: ?[]u32,
+) TickFlags {
+    var flags = TickFlags{
+        .frame_complete = false,
+        .rendering_enabled = state.mask.renderingEnabled(),
+    };
+
+    // No timing advancement - timing is externally controlled
+    const is_visible = scanline < 240;
+    const is_prerender = scanline == 261;
+    const is_rendering_line = is_visible or is_prerender;
+    const rendering_enabled = state.mask.renderingEnabled();
+
+    // === A12 Edge Detection (for MMC3 IRQ timing) ===
+    // A12 is bit 12 of PPU address bus (derived from v register during tile fetches)
+    // MMC3 watches for rising edges (0→1) during background and sprite pattern fetches
+    // Hardware reference: nesdev.org/wiki/MMC3#IRQ_Specifics
+    if (is_rendering_line and rendering_enabled) {
+        // Check A12 state during tile fetch cycles
+        // Background: dots 1-256, 321-336
+        // Sprite: dots 257-320
+        const is_fetch_cycle = (dot >= 1 and dot <= 256) or (dot >= 257 and dot <= 320) or (dot >= 321 and dot <= 336);
+
+        if (is_fetch_cycle) {
+            const current_a12 = (state.internal.v & 0x1000) != 0;
+
+            // Detect rising edge (0→1 transition)
+            if (!state.a12_state and current_a12) {
+                flags.a12_rising = true;
+            }
+
+            state.a12_state = current_a12;
+        }
+    }
+
+    // === Background Pipeline ===
+    if (is_rendering_line and rendering_enabled) {
+        if (dot >= 1 and dot <= 256) {
+            state.bg_state.shift();
+        }
+
+        if ((dot >= 1 and dot <= 256) or (dot >= 321 and dot <= 336)) {
+            fetchBackgroundTile(state, cart, dot);
+        }
+
+        if (dot == 338 or dot == 340) {
+            const nt_addr = 0x2000 | (state.internal.v & 0x0FFF);
+            _ = readVram(state, cart, nt_addr);
+        }
+
+        if (dot == 256) {
+            incrementScrollY(state);
+        }
+
+        if (dot == 257) {
+            copyScrollX(state);
+        }
+
+        if (is_prerender and dot >= 280 and dot <= 304) {
+            copyScrollY(state);
+        }
+    }
+
+    // === Sprite Evaluation ===
+    if (dot >= 1 and dot <= 64) {
+        const clear_index = dot - 1;
+        if (clear_index < 32) {
+            state.secondary_oam[clear_index] = 0xFF;
+        }
+    }
+
+    if (is_visible and rendering_enabled and dot == 65) {
+        evaluateSprites(state, scanline);
+    }
+
+    // === Sprite Fetching ===
+    if (is_rendering_line and rendering_enabled and dot >= 257 and dot <= 320) {
+        fetchSprites(state, cart, scanline, dot);
+    }
+
+    // === Pixel Output ===
+    if (is_visible and dot >= 1 and dot <= 256) {
+        const pixel_x = dot - 1;
+        const pixel_y = scanline;
+
+        const bg_pixel = getBackgroundPixel(state, pixel_x);
+        const sprite_result = getSpritePixel(state, pixel_x);
+
+        var final_palette_index: u8 = 0;
+        if (bg_pixel == 0 and sprite_result.pixel == 0) {
+            final_palette_index = 0;
+        } else if (bg_pixel == 0 and sprite_result.pixel != 0) {
+            final_palette_index = sprite_result.pixel;
+        } else if (bg_pixel != 0 and sprite_result.pixel == 0) {
+            final_palette_index = bg_pixel;
+        } else {
+            final_palette_index = if (sprite_result.priority) bg_pixel else sprite_result.pixel;
+            if (sprite_result.sprite_0 and pixel_x < 255 and dot >= 2) {
+                state.status.sprite_0_hit = true;
+            }
+        }
+
+        const color = getPaletteColor(state, final_palette_index);
+        if (framebuffer) |fb| {
+            const fb_index = pixel_y * 256 + pixel_x;
+            fb[fb_index] = color;
+        }
+    }
+
+    // === VBlank Flag Management ===
+    // Hardware behavior:
+    // - VBlank flag SET at scanline 241, dot 1 (PPU cycle 82,181)
+    // - VBlank flag CLEARED at scanline 261, dot 1 (PPU cycle 89,001)
+    // - Also CLEARED when $2002 is read (handled in readRegister)
+
+    // === VBlank Signal Management ===
+    // VBlank Migration (Phase 3): VBlank flag is now managed by VBlankLedger only
+    // We only signal the events; ledger handles the actual flag state
+
+    // Signal VBlank start (scanline 241 dot 1)
+    if (scanline == 241 and dot == 1) {
+        // Signal NMI edge detection to CPU
+        // VBlankLedger.recordVBlankSet() will be called in EmulationState
+        flags.nmi_signal = true;
+    }
+
+    // Clear sprite flags and signal VBlank end (scanline 261 dot 1)
+    if (scanline == 261 and dot == 1) {
+        // Clear sprite flags (these are NOT managed by VBlankLedger)
+        state.status.sprite_0_hit = false;
+        state.status.sprite_overflow = false;
+
+        // Signal end of VBlank period
+        // VBlankLedger.recordVBlankSpanEnd() will be called in EmulationState
+        flags.vblank_clear = true;
+    }
+
+    // === Frame Complete ===
+    // Frame ends at the last dot of scanline 261 (just before wrapping to scanline 0)
+    if (scanline == 261 and dot == 340) {
+        flags.frame_complete = true;
+
+        // Note: Diagnostic logging moved to EmulationState where frame number is available
+        if (rendering_enabled and !state.rendering_was_enabled) {
+            state.rendering_was_enabled = true;
+        }
+    }
+
+    flags.rendering_enabled = rendering_enabled;
+    return flags;
 }

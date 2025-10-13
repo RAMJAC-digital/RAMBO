@@ -348,6 +348,13 @@ pub const PpuState = struct {
     /// Sprite rendering state (shift registers, X counters, attributes)
     sprite_state: SpriteState = .{},
 
+    /// PPU A12 State (for MMC3 IRQ timing)
+    /// Tracks bit 12 of PPU address bus - toggles during tile fetches
+    /// MMC3 mapper IRQ counter decrements on rising edge (0→1)
+    /// Hardware reference: nesdev.org/wiki/MMC3#IRQ_Specifics
+    /// Moved from EmulationState (Phase 4b remediation)
+    a12_state: bool = false,
+
     /// Initialize PPU state to power-on values
     pub fn init() PpuState {
         return .{};

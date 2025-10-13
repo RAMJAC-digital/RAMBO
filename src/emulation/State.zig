@@ -18,7 +18,6 @@ const CpuLogic = CpuModule.Logic;
 const PpuModule = @import("../ppu/Ppu.zig");
 const PpuState = PpuModule.State.PpuState;
 const PpuLogic = PpuModule.Logic;
-const PpuRuntime = @import("Ppu.zig");
 const ApuModule = @import("../apu/Apu.zig");
 const ApuState = ApuModule.State.ApuState;
 const ApuLogic = ApuModule.Logic;
@@ -88,12 +87,6 @@ pub const EmulationState = struct {
     /// Records VBlank set/clear, $2002 reads, PPUCTRL writes with master clock timestamps
     /// Decouples CPU NMI latch from readable PPU status flag
     vblank_ledger: VBlankLedger = .{},
-
-    /// PPU A12 state (for MMC3 IRQ detection)
-    /// Bit 12 of PPU address - transitions during tile fetches
-    /// MMC3 IRQ counter decrements on rising edge (0→1)
-    /// Moved here from old ppu_timing struct (timing now in MasterClock)
-    ppu_a12_state: bool = false,
 
     /// Memory bus state (RAM, open bus, optional test RAM)
     bus: BusState = .{},
@@ -193,7 +186,6 @@ pub const EmulationState = struct {
         self.frame_complete = false;
         self.odd_frame = false;
         self.rendering_enabled = false;
-        self.ppu_a12_state = false;
         self.bus.open_bus = 0;
         self.dma.reset();
         self.dmc_dma.reset();
@@ -223,7 +215,6 @@ pub const EmulationState = struct {
         self.frame_complete = false;
         self.odd_frame = false;
         self.rendering_enabled = false;
-        self.ppu_a12_state = false;
         self.bus.open_bus = 0;
         self.dma.reset();
         self.dmc_dma.reset();
@@ -527,14 +518,10 @@ pub const EmulationState = struct {
         var result = PpuCycleResult{};
         const cart_ptr = self.cartPtr();
 
-        const old_a12 = self.ppu_a12_state;
-        const flags = PpuRuntime.tick(&self.ppu, scanline, dot, cart_ptr, self.framebuffer);
+        const flags = PpuLogic.tick(&self.ppu, scanline, dot, cart_ptr, self.framebuffer);
 
-        const new_a12 = (self.ppu.internal.v & 0x1000) != 0;
-        self.ppu_a12_state = new_a12;
-        if (!old_a12 and new_a12) {
-            result.a12_rising = true;
-        }
+        // A12 edge detection now handled by PpuLogic.tick()
+        result.a12_rising = flags.a12_rising;
 
         result.rendering_enabled = flags.rendering_enabled;
         if (flags.frame_complete) {
