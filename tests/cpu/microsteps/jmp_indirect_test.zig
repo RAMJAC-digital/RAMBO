@@ -303,6 +303,134 @@ test "JMP Indirect: Bug can cause game crashes - wrong routine executed" {
 }
 
 // ============================================================================
+// Regression Tests: effective_address Initialization Bug
+// ============================================================================
+//
+// BUG FIXED: 2025-10-13
+// File: src/emulation/cpu/microsteps.zig:351
+// Issue: jmpIndirectFetchLow() was reading from effective_address before initializing it
+// Cause: Line 350 (effective_address initialization) was commented out
+// Impact: Commercial ROMs (Super Mario Bros, etc.) jumped to invalid addresses
+//
+// These tests verify effective_address is correctly initialized BEFORE use.
+
+test "JMP Indirect: REGRESSION - effective_address initialized before fetch" {
+    var harness = try setupHarness();
+    defer harness.deinit();
+    var state = &harness.state;
+
+    // Setup: JMP ($8000)
+    // Cycles 0-1 already fetched pointer address into operand_high/low
+    state.cpu.operand_high = 0x80; // High byte of pointer location
+    state.cpu.operand_low = 0x00;  // Low byte of pointer location
+
+    // Set effective_address to garbage (simulate uninitialized state)
+    state.cpu.effective_address = 0xDEAD;
+
+    // Place target address at $8000
+    state.busWrite(0x8000, 0x34); // Low byte of jump target
+    state.busWrite(0x8001, 0x12); // High byte of jump target
+
+    // Simulate jmpIndirectFetchLow - MUST initialize effective_address first
+    // Bug was: this read from 0xDEAD (garbage) instead of 0x8000
+    const CpuMicrosteps = @import("RAMBO").CpuMicrosteps;
+    _ = CpuMicrosteps.jmpIndirectFetchLow(state);
+
+    // Verify operand_low was read from CORRECT address (0x8000), not garbage
+    try testing.expectEqual(@as(u8, 0x34), state.cpu.operand_low);
+
+    // Verify effective_address was properly set (should be 0x8000, not 0xDEAD)
+    try testing.expectEqual(@as(u16, 0x8000), state.cpu.effective_address);
+}
+
+test "JMP Indirect: REGRESSION - stale effective_address doesn't affect fetch" {
+    var harness = try setupHarness();
+    defer harness.deinit();
+    var state = &harness.state;
+
+    // Scenario: Previous instruction left effective_address at $0000
+    // JMP ($C000) should NOT read from $0000
+
+    state.cpu.operand_high = 0xC0;
+    state.cpu.operand_low = 0x00;
+    state.cpu.effective_address = 0x0000; // Stale from previous instruction
+
+    // Setup memory: Different values at $0000 vs $C000
+    state.busWrite(0x0000, 0xFF); // Stale location (should NOT read)
+    state.busWrite(0xC000, 0x42); // Correct location (should read)
+
+    const CpuMicrosteps = @import("RAMBO").CpuMicrosteps;
+    _ = CpuMicrosteps.jmpIndirectFetchLow(state);
+
+    // MUST read from $C000 (correct), NOT $0000 (stale)
+    try testing.expectEqual(@as(u8, 0x42), state.cpu.operand_low);
+    try testing.expect(state.cpu.operand_low != 0xFF);
+}
+
+test "JMP Indirect: REGRESSION - high address bits preserved during initialization" {
+    var harness = try setupHarness();
+    defer harness.deinit();
+    var state = &harness.state;
+
+    // Test addresses across different pages to ensure high byte is correctly used
+    const test_cases = [_]struct { high: u8, low: u8, expected_addr: u16 }{
+        .{ .high = 0x00, .low = 0x10, .expected_addr = 0x0010 },
+        .{ .high = 0x80, .low = 0xFF, .expected_addr = 0x80FF },
+        .{ .high = 0xFF, .low = 0x00, .expected_addr = 0xFF00 },
+        .{ .high = 0x12, .low = 0x34, .expected_addr = 0x1234 },
+    };
+
+    const CpuMicrosteps = @import("RAMBO").CpuMicrosteps;
+
+    for (test_cases) |case| {
+        state.cpu.operand_high = case.high;
+        state.cpu.operand_low = case.low;
+        state.cpu.effective_address = 0xBEEF; // Garbage
+
+        // Place test data at correct address
+        state.busWrite(case.expected_addr, 0xAA);
+
+        _ = CpuMicrosteps.jmpIndirectFetchLow(state);
+
+        // Verify effective_address was correctly computed
+        try testing.expectEqual(case.expected_addr, state.cpu.effective_address);
+        try testing.expectEqual(@as(u8, 0xAA), state.cpu.operand_low);
+    }
+}
+
+test "JMP Indirect: REGRESSION - commercial ROM scenario (Super Mario Bros)" {
+    var harness = try setupHarness();
+    defer harness.deinit();
+    var state = &harness.state;
+
+    // Real-world scenario: Super Mario Bros uses JMP indirect
+    // Bug caused PC to jump to $0000 instead of correct address
+
+    // Simulate: JMP ($90D8) - typical SMB address
+    state.cpu.operand_high = 0x90;
+    state.cpu.operand_low = 0xD8;
+    state.cpu.effective_address = 0x0000; // Stale (bug caused read from here)
+
+    // Setup: $0000 contains 0x00 (BRK), $90D8 contains valid address
+    state.busWrite(0x0000, 0x00); // BRK opcode (caused infinite loop in bug)
+    state.busWrite(0x90D8, 0x82); // Low byte of actual jump target
+    state.busWrite(0x90D9, 0x80); // High byte of actual jump target
+
+    const CpuMicrosteps = @import("RAMBO").CpuMicrosteps;
+    _ = CpuMicrosteps.jmpIndirectFetchLow(state);
+
+    // MUST read from $90D8 (correct), NOT $0000 (bug)
+    try testing.expectEqual(@as(u8, 0x82), state.cpu.operand_low);
+    try testing.expect(state.cpu.operand_low != 0x00); // NOT BRK
+
+    // Complete the fetch (high byte)
+    simulateJmpIndirectFetchHigh(state);
+
+    // Should end up at $8082 (valid NMI handler), NOT $0000 (BRK loop)
+    try testing.expectEqual(@as(u16, 0x8082), state.cpu.effective_address);
+}
+
+// ============================================================================
 // Hardware Spec Compliance Documentation Tests
 // ============================================================================
 
