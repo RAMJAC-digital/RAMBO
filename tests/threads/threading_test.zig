@@ -44,6 +44,34 @@ fn loadAccuracyCoin(allocator: std.mem.Allocator, config: *Config) !EmulationSta
 }
 
 // ============================================================================
+// Diagnostic Tests
+// ============================================================================
+
+test "Threading: verify AccuracyCoin loads correctly" {
+    const allocator = std.heap.c_allocator;
+
+    var config = Config.init(allocator);
+    defer config.deinit();
+
+    // Load AccuracyCoin ROM
+    var emu_state = loadAccuracyCoin(allocator, &config) catch |err| {
+        if (err == error.FileNotFound) {
+            return error.SkipZigTest;
+        }
+        return err;
+    };
+    defer emu_state.deinit();
+
+    // Verify cartridge loaded
+    try std.testing.expect(emu_state.cart != null);
+    if (emu_state.cart) |*cart| {
+        const prg_rom = cart.getPrgRom();
+        try std.testing.expect(prg_rom.len > 0);
+        std.debug.print("AccuracyCoin PRG ROM: {d} bytes\n", .{prg_rom.len});
+    }
+}
+
+// ============================================================================
 // Basic Thread Lifecycle Tests
 // ============================================================================
 

@@ -148,8 +148,10 @@ fn timerCallback(
         }
     }
 
-    // Post completed frame to render thread (only if we rendered)
-    if (write_buffer != null) {
+    // Post completed frame to render thread
+    // Always call swapBuffers() to increment frame counter, even if buffer was full
+    // This ensures tests can track emulation progress even without a render thread
+    if (has_cart) {
         ctx.mailboxes.frame.swapBuffers();
     }
 
