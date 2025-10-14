@@ -15,6 +15,7 @@
 const std = @import("std");
 const Cartridge = @import("../Cartridge.zig").Cartridge;
 const Mapper0 = @import("Mapper0.zig").Mapper0;
+const Mapper3 = @import("Mapper3.zig").Mapper3;
 
 /// Mapper ID enum - all supported NES mappers
 ///
@@ -29,16 +30,20 @@ pub const MapperId = enum(u8) {
     /// 248 games - Super Mario Bros., Donkey Kong, Ice Climber
     nrom = 0,
 
+    /// Mapper 3: CNROM (CHR banking only)
+    /// 155 games - Arkanoid, Gradius, Donkey Kong 3
+    cnrom = 3,
+
     // Future mappers (Phase 1):
     // mmc1 = 1,   // Mapper 1: MMC1 (SxROM) - Metroid, Zelda, Mega Man 2
     // uxrom = 2,  // Mapper 2: UxROM - Mega Man, Castlevania
-    // cnrom = 3,  // Mapper 3: CNROM - simple CHR banking
     // mmc3 = 4,   // Mapper 4: MMC3 (TxROM) - Super Mario Bros. 3, Kirby's Adventure
 
     /// Get mapper name
     pub fn name(self: MapperId) []const u8 {
         return switch (self) {
             .nrom => "NROM",
+            .cnrom => "CNROM",
         };
     }
 
@@ -46,6 +51,7 @@ pub const MapperId = enum(u8) {
     pub fn description(self: MapperId) []const u8 {
         return switch (self) {
             .nrom => "No mapper - fixed 16KB or 32KB PRG ROM",
+            .cnrom => "Simple CHR banking - 8KB CHR banks, fixed PRG",
         };
     }
 
@@ -53,6 +59,7 @@ pub const MapperId = enum(u8) {
     pub fn nesdevLink(self: MapperId) []const u8 {
         return switch (self) {
             .nrom => "https://www.nesdev.org/wiki/NROM",
+            .cnrom => "https://www.nesdev.org/wiki/CNROM",
         };
     }
 
@@ -60,6 +67,7 @@ pub const MapperId = enum(u8) {
     pub fn gameCount(self: MapperId) u16 {
         return switch (self) {
             .nrom => 248,
+            .cnrom => 155,
         };
     }
 
@@ -67,6 +75,7 @@ pub const MapperId = enum(u8) {
     pub fn supportsIrq(self: MapperId) bool {
         return switch (self) {
             .nrom => false,
+            .cnrom => false,
             // mmc3 => true,  // MMC3 has IRQ via A12 edge detection
         };
     }
@@ -108,10 +117,12 @@ pub const AnyCartridge = union(MapperId) {
     /// NROM cartridge (Mapper 0)
     nrom: Cartridge(Mapper0),
 
+    /// CNROM cartridge (Mapper 3)
+    cnrom: Cartridge(Mapper3),
+
     // Future mappers:
     // mmc1: Cartridge(Mapper1),
     // uxrom: Cartridge(Mapper2),
-    // cnrom: Cartridge(Mapper3),
     // mmc3: Cartridge(Mapper4),
 
     // ========================================================================

@@ -94,9 +94,16 @@ pub fn Cartridge(comptime MapperType: type) type {
 
             // Verify mapper matches expected type
             const mapper_num = header.getMapperNumber();
-            if (mapper_num != 0) {
-                // For now, only Mapper 0 supported
-                // Future: Dynamic mapper selection or compile-time validation
+
+            // Validate mapper number matches MapperType
+            // This is a compile-time validation - MapperType must match ROM
+            const expected_mapper = comptime blk: {
+                if (MapperType == Mapper0) break :blk 0;
+                if (MapperType == @import("mappers/Mapper3.zig").Mapper3) break :blk 3;
+                @compileError("Unknown mapper type");
+            };
+
+            if (mapper_num != expected_mapper) {
                 return CartridgeError.UnsupportedMapper;
             }
 
