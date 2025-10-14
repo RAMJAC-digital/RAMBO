@@ -43,12 +43,15 @@ pub const NES_PALETTE_RGB = [64]u32{
     0xA0D6E4, 0xA0A2A0, 0x000000, 0x000000,
 };
 
-/// Convert RGB888 to RGBA8888 (add alpha channel)
+/// Convert RGB888 to BGRA8888 (add alpha channel)
+/// Vulkan expects VK_FORMAT_B8G8R8A8_UNORM format where alpha is in the high byte
+/// Input:  0x00RRGGBB (NES palette RGB)
+/// Output: 0xAABBGGRR (BGRA with alpha in high byte)
 pub fn rgbToRgba(rgb: u32) u32 {
-    return (rgb << 8) | 0xFF; // Shift RGB left 8 bits, add alpha 0xFF
+    return rgb | 0xFF000000; // Add alpha 0xFF in high byte for BGRA format
 }
 
-/// Get NES color as RGBA8888
+/// Get NES color as BGRA8888 for Vulkan rendering
 pub inline fn getNesColorRgba(nes_color_index: u8) u32 {
     return rgbToRgba(NES_PALETTE_RGB[nes_color_index & 0x3F]);
 }
