@@ -1,12 +1,12 @@
 # Mapper Implementation Plan - RAMBO NES Emulator
 
 **Date Started:** 2025-10-14
-**Status:** 🟢 IN PROGRESS (1/5 complete)
+**Status:** 🟢 IN PROGRESS (2/5 complete)
 **Goal:** Implement 5 additional NES mappers (CNROM, AxROM, UxROM, MMC1, MMC3)
-**Estimated Time:** 32-48 hours total (2-3 hours spent)
-**Current Mappers:** 2 (Mapper 0 - NROM, Mapper 3 - CNROM ✅)
+**Estimated Time:** 32-48 hours total (4-6 hours spent)
+**Current Mappers:** 3 (Mapper 0 - NROM, Mapper 3 - CNROM ✅, Mapper 7 - AxROM ✅)
 **Target Mappers:** 6 total (covers ~85% of NES library)
-**Library Coverage:** 5% (NROM) + 6% (CNROM) = 11% total
+**Library Coverage:** 5% (NROM) + 6% (CNROM) + 2% (AxROM) = 13% total
 
 ---
 
@@ -544,10 +544,48 @@ tests/cartridge/
 
 ---
 
-**Status:** 🟢 1/5 mappers complete (20%)
-**Next Action:** Begin Phase A for AxROM (Mapper 7)
-**Remaining Time:** ~30-45 hours
-**Updated Library Coverage:** 11% (NROM 5% + CNROM 6%)
+### ✅ Mapper 7 (AxROM) - COMPLETE
+
+**Implementation Date:** 2025-10-14
+**Time Spent:** ~2-3 hours
+**Status:** ✅ All phases complete
+
+**Files Created/Modified:**
+- `src/cartridge/mappers/Mapper7.zig` - Complete implementation with 10 test cases
+- `src/cartridge/mappers/registry.zig` - Added AxROM to MapperId enum and AnyCartridge union
+- `src/cartridge/Cartridge.zig` - Added Mapper 7 to compile-time validation
+
+**Test Results:**
+- **Unit Tests:** 10/10 passing (Mapper7.zig built-in tests)
+- **Integration Tests:** All registry tests passing
+- **Overall:** 948/955 tests passing (99.3%)
+
+**Available Test ROMs (Mapper 7):**
+- Cabal (USA).nes
+- Captain Skyhawk (USA) (Rev 1).nes
+- Marble Madness (USA).nes
+- Wizards & Warriors (USA) (Rev 1).nes
+
+**Technical Highlights:**
+- PRG banking: 8 banks × 32KB (3-bit bank register)
+- CHR RAM: 8KB (writable, unlike CNROM's CHR ROM)
+- Single-screen mirroring: Software-controlled via bit 4
+- No PRG RAM or IRQ support
+- Bus conflicts noted (ANROM/AN1ROM avoid, AMROM/AOROM have conflicts)
+- Register format: xxxM xPPP (bit 4 = mirroring, bits 0-2 = PRG bank)
+
+**Lessons Learned:**
+- CHR RAM vs CHR ROM distinction is critical (write vs read-only)
+- Single-screen mirroring adds complexity to nametable addressing
+- Bit masking tests need careful validation of expected values
+- The comptime pattern continues to scale perfectly
+
+---
+
+**Status:** 🟢 2/5 mappers complete (40%)
+**Next Action:** Begin Phase A for UxROM (Mapper 2)
+**Remaining Time:** ~28-42 hours
+**Updated Library Coverage:** 13% (NROM 5% + CNROM 6% + AxROM 2%)
 
 ---
 

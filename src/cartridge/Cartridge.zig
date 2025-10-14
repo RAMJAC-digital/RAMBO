@@ -100,6 +100,7 @@ pub fn Cartridge(comptime MapperType: type) type {
             const expected_mapper = comptime blk: {
                 if (MapperType == Mapper0) break :blk 0;
                 if (MapperType == @import("mappers/Mapper3.zig").Mapper3) break :blk 3;
+                if (MapperType == @import("mappers/Mapper7.zig").Mapper7) break :blk 7;
                 @compileError("Unknown mapper type");
             };
 

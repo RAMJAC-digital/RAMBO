@@ -16,6 +16,7 @@ const std = @import("std");
 const Cartridge = @import("../Cartridge.zig").Cartridge;
 const Mapper0 = @import("Mapper0.zig").Mapper0;
 const Mapper3 = @import("Mapper3.zig").Mapper3;
+const Mapper7 = @import("Mapper7.zig").Mapper7;
 
 /// Mapper ID enum - all supported NES mappers
 ///
@@ -34,6 +35,10 @@ pub const MapperId = enum(u8) {
     /// 155 games - Arkanoid, Gradius, Donkey Kong 3
     cnrom = 3,
 
+    /// Mapper 7: AxROM (PRG banking + single-screen mirroring)
+    /// ~50 games - Battletoads, Wizards & Warriors, Marble Madness
+    axrom = 7,
+
     // Future mappers (Phase 1):
     // mmc1 = 1,   // Mapper 1: MMC1 (SxROM) - Metroid, Zelda, Mega Man 2
     // uxrom = 2,  // Mapper 2: UxROM - Mega Man, Castlevania
@@ -44,6 +49,7 @@ pub const MapperId = enum(u8) {
         return switch (self) {
             .nrom => "NROM",
             .cnrom => "CNROM",
+            .axrom => "AxROM",
         };
     }
 
@@ -52,6 +58,7 @@ pub const MapperId = enum(u8) {
         return switch (self) {
             .nrom => "No mapper - fixed 16KB or 32KB PRG ROM",
             .cnrom => "Simple CHR banking - 8KB CHR banks, fixed PRG",
+            .axrom => "32KB PRG banking + single-screen mirroring, CHR RAM",
         };
     }
 
@@ -60,6 +67,7 @@ pub const MapperId = enum(u8) {
         return switch (self) {
             .nrom => "https://www.nesdev.org/wiki/NROM",
             .cnrom => "https://www.nesdev.org/wiki/CNROM",
+            .axrom => "https://www.nesdev.org/wiki/AxROM",
         };
     }
 
@@ -68,6 +76,7 @@ pub const MapperId = enum(u8) {
         return switch (self) {
             .nrom => 248,
             .cnrom => 155,
+            .axrom => 50,
         };
     }
 
@@ -76,6 +85,7 @@ pub const MapperId = enum(u8) {
         return switch (self) {
             .nrom => false,
             .cnrom => false,
+            .axrom => false,
             // mmc3 => true,  // MMC3 has IRQ via A12 edge detection
         };
     }
@@ -119,6 +129,9 @@ pub const AnyCartridge = union(MapperId) {
 
     /// CNROM cartridge (Mapper 3)
     cnrom: Cartridge(Mapper3),
+
+    /// AxROM cartridge (Mapper 7)
+    axrom: Cartridge(Mapper7),
 
     // Future mappers:
     // mmc1: Cartridge(Mapper1),

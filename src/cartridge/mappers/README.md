@@ -1,6 +1,6 @@
 # NES Mapper Implementations
 
-**Status:** ✅ 2/6 mappers implemented (11% library coverage)
+**Status:** ✅ 3/6 mappers implemented (13% library coverage)
 **Priority:** HIGH (game compatibility)
 **Reference:** `docs/sessions/2025-10-14-mapper-implementation-plan.md`, `CLAUDE.md`
 
@@ -11,14 +11,14 @@ Mapper implementations for RAMBO NES Emulator using comptime generics.
 **Implemented Mappers:**
 - ✅ **Mapper 0 (NROM)** - `src/cartridge/mappers/Mapper0.zig` - 5% coverage (248 games)
 - ✅ **Mapper 3 (CNROM)** - `src/cartridge/mappers/Mapper3.zig` - 6% coverage (155 games)
+- ✅ **Mapper 7 (AxROM)** - `src/cartridge/mappers/Mapper7.zig` - 2% coverage (~50 games)
 
-**Total Coverage:** 11% of NES library (403 games)
+**Total Coverage:** 13% of NES library (~453 games)
 
 **Planned Mappers** (priority order):
-1. **AxROM** (Mapper 7) - 2% coverage, 2-3 hours
-2. **UxROM** (Mapper 2) - 10% coverage, 4-6 hours
-3. **MMC1** (Mapper 1) - 28% coverage, 6-8 hours
-4. **MMC3** (Mapper 4) - 25% coverage, 12-16 hours
+1. **UxROM** (Mapper 2) - 10% coverage, 4-6 hours
+2. **MMC1** (Mapper 1) - 28% coverage, 6-8 hours
+3. **MMC3** (Mapper 4) - 25% coverage, 12-16 hours
 
 **Target Coverage:** ~85% of NES library
 
@@ -94,6 +94,86 @@ pub const Mapper3 = struct {
 - `tests/data/Mickey Mousecapade (USA).nes`
 - `tests/data/Moai-kun (Japan).nes`
 - `tests/data/Paperboy (USA).nes`
+
+---
+
+### Mapper 7: AxROM
+
+**Status:** ✅ Implemented (2025-10-14)
+**Games:** Battletoads, Wizards & Warriors, Marble Madness, Cabal, Captain Skyhawk
+**nesdev.org:** https://www.nesdev.org/wiki/AxROM
+
+**Hardware:**
+- **PRG ROM:** Up to 256KB (8 banks × 32KB, switchable)
+- **CHR RAM:** 8KB (writable, not ROM)
+- **PRG Banking:** 3-bit register at $8000-$FFFF (bits 0-2)
+- **Mirroring:** Single-screen (software-controlled via bit 4)
+- **PRG RAM:** None
+- **IRQ:** None
+
+**Implementation:**
+```zig
+pub const Mapper7 = struct {
+    prg_bank: u3 = 0,      // PRG bank select (0-7)
+    mirroring: u1 = 0,     // Single-screen select (0=lower, 1=upper)
+
+    // Any write to $8000-$FFFF sets bank + mirroring
+    // Register format: xxxM xPPP
+    //   Bits 0-2: PRG bank
+    //   Bit 4: Mirroring (0 = $2000, 1 = $2400)
+    pub fn cpuWrite(self: *Mapper7, _: anytype, address: u16, value: u8) void {
+        if (address >= 0x8000) {
+            self.prg_bank = @truncate(value & 0x07);
+            self.mirroring = @truncate((value >> 4) & 0x01);
+        }
+    }
+
+    // PRG banking: (prg_bank * 0x8000) + (address - 0x8000)
+    pub fn cpuRead(_: *const Mapper7, cart: anytype, address: u16) u8 {
+        if (address >= 0x8000) {
+            const bank_offset: usize = @as(usize, cart.mapper.prg_bank) * 0x8000;
+            const addr_offset: usize = @as(usize, address - 0x8000);
+            return cart.prg_rom[bank_offset + addr_offset];
+        }
+        return 0xFF;
+    }
+
+    // CHR RAM is writable (unlike CNROM's CHR ROM)
+    pub fn ppuWrite(_: *Mapper7, cart: anytype, address: u16, value: u8) void {
+        const chr_addr = @as(usize, address & 0x1FFF);
+        if (chr_addr < cart.chr_data.len) {
+            cart.chr_data[chr_addr] = value;
+        }
+    }
+};
+```
+
+**Single-Screen Mirroring:** AxROM provides single-screen mirroring where all 4 nametable addresses ($2000, $2400, $2800, $2C00) map to a single 1KB nametable. Bit 4 of the register selects which nametable:
+- 0: Use lower nametable at $2000
+- 1: Use upper nametable at $2400
+
+**Bus Conflicts:** AxROM variants handle bus conflicts differently:
+- **ANROM/AN1ROM:** Use 74HC02 logic to prevent bus conflicts
+- **AMROM/AOROM:** May have bus conflicts (ROM value read during write)
+
+Implementation writes regardless of ROM value for maximum compatibility.
+
+**Test Coverage:** 10 built-in tests
+- Power-on state
+- PRG bank switching (8 banks)
+- Single-screen mirroring switching
+- Bank and mirroring together
+- Bit masking (3-bit PRG, 1-bit mirror)
+- CHR RAM writes (writable)
+- Reset behavior
+- No PRG RAM support
+- IRQ interface stubs
+
+**Available Test ROMs:**
+- `tests/data/Cabal (USA).nes`
+- `tests/data/Captain Skyhawk (USA) (Rev 1).nes`
+- `tests/data/Marble Madness (USA).nes`
+- `tests/data/Wizards & Warriors (USA) (Rev 1).nes`
 
 ---
 
