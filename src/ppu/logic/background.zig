@@ -117,8 +117,11 @@ pub fn getBackgroundPixel(state: *PpuState, pixel_x: u16) u8 {
     if (pattern == 0) return 0; // Transparent
 
     // Extract palette bits from attribute shift registers
-    const attr_bit0 = (state.bg_state.attribute_shift_lo >> 7) & 1;
-    const attr_bit1 = (state.bg_state.attribute_shift_hi >> 7) & 1;
+    // Hardware: Attribute shift registers shift LEFT each cycle (State.zig:289)
+    // After left-shift, current pixel data is in bit 0 (rightmost), not bit 7
+    // Reference: nesdev.org/wiki/PPU_rendering
+    const attr_bit0 = state.bg_state.attribute_shift_lo & 1;
+    const attr_bit1 = state.bg_state.attribute_shift_hi & 1;
     const palette_select: u8 = @intCast((attr_bit1 << 1) | attr_bit0);
 
     // Combine into palette RAM index ($00-$0F for background)
