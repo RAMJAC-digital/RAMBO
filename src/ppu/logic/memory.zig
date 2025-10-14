@@ -29,51 +29,46 @@ fn mirrorNametableAddress(address: u16, mirroring: Mirroring) u16 {
     const addr = address & 0x0FFF; // Mask to $0000-$0FFF (4KB logical space)
     const nametable = (addr >> 10) & 0x03; // Extract nametable index (0-3)
 
-    // Defensive: Validate mirroring enum value is in valid range
-    // This catches uninitialized memory or corruption
+    // Defensive: Use integer comparison instead of switch to avoid Zig's enum validation
+    // This allows us to handle corrupt enum values gracefully
     const mirroring_value = @intFromEnum(mirroring);
-    if (mirroring_value > 3) {
-        // Invalid mirroring value - default to horizontal
+
+    // Horizontal mirroring (value 0)
+    if (mirroring_value == 0) {
+        // Horizontal mirroring (top/bottom)
+        // NT0, NT1 -> VRAM $0000-$03FF
+        // NT2, NT3 -> VRAM $0400-$07FF
         if (nametable < 2) {
-            return addr & 0x03FF;
+            return addr & 0x03FF; // First 1KB
         } else {
-            return 0x0400 | (addr & 0x03FF);
+            return 0x0400 | (addr & 0x03FF); // Second 1KB
         }
     }
 
-    return switch (mirroring) {
-        .horizontal => blk: {
-            // Horizontal mirroring (top/bottom)
-            // NT0, NT1 -> VRAM $0000-$03FF
-            // NT2, NT3 -> VRAM $0400-$07FF
-            if (nametable < 2) {
-                break :blk addr & 0x03FF; // First 1KB
-            } else {
-                break :blk 0x0400 | (addr & 0x03FF); // Second 1KB
-            }
-        },
-        .vertical => blk: {
-            // Vertical mirroring (left/right)
-            // NT0, NT2 -> VRAM $0000-$03FF
-            // NT1, NT3 -> VRAM $0400-$07FF
-            if (nametable == 0 or nametable == 2) {
-                break :blk addr & 0x03FF; // First 1KB
-            } else {
-                break :blk 0x0400 | (addr & 0x03FF); // Second 1KB
-            }
-        },
-        .four_screen => blk: {
-            // Four-screen VRAM (no mirroring)
-            // Requires 4KB external VRAM on cartridge
-            // For now, mirror to 2KB (will need cartridge support later)
-            break :blk addr & 0x07FF;
-        },
-        .single_screen => blk: {
-            // Single-screen mirroring (all map to same 1KB)
-            // Used by some mapper configurations
-            break :blk addr & 0x03FF; // First 1KB only
-        },
-    };
+    // Vertical mirroring (value 1)
+    if (mirroring_value == 1) {
+        // Vertical mirroring (left/right)
+        // NT0, NT2 -> VRAM $0000-$03FF
+        // NT1, NT3 -> VRAM $0400-$07FF
+        if (nametable == 0 or nametable == 2) {
+            return addr & 0x03FF; // First 1KB
+        } else {
+            return 0x0400 | (addr & 0x03FF); // Second 1KB
+        }
+    }
+
+    // Four-screen VRAM (value 2)
+    if (mirroring_value == 2) {
+        // Four-screen VRAM (no mirroring)
+        // Requires 4KB external VRAM on cartridge
+        // For now, mirror to 2KB (will need cartridge support later)
+        return addr & 0x07FF;
+    }
+
+    // Single-screen mirroring (value 3) OR invalid value (default to single-screen)
+    // Single-screen mirroring (all map to same 1KB)
+    // Used by some mapper configurations
+    return addr & 0x03FF; // First 1KB only
 }
 
 /// Mirror palette RAM address (handles backdrop mirroring)
