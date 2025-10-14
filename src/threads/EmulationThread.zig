@@ -111,52 +111,51 @@ fn timerCallback(
             ctx.total_cycles += cycles;
             ctx.frame_count += 1;
             ctx.total_frames += 1;
+
+            // Check if debug break occurred during frame execution
+            if (ctx.state.debug_break_occurred) {
+                ctx.state.debug_break_occurred = false; // Clear flag
+
+                if (ctx.state.debugger) |*debugger| {
+                    const reason = debugger.getBreakReason() orelse "Unknown break";
+                    const snapshot = captureSnapshot(ctx);
+
+                    // Copy reason string to event buffer
+                    var reason_buf: [128]u8 = undefined;
+                    const reason_len = @min(reason.len, 128);
+                    @memcpy(reason_buf[0..reason_len], reason[0..reason_len]);
+
+                    // Post breakpoint hit event
+                    _ = ctx.mailboxes.debug_event.postEvent(.{ .breakpoint_hit = .{
+                        .reason = reason_buf,
+                        .reason_len = reason_len,
+                        .snapshot = snapshot,
+                    } });
+                }
+            }
+
+            // Post completed frame to render thread (only when we rendered game content)
+            ctx.mailboxes.frame.swapBuffers();
         } else {
-            // No cartridge loaded: present a black frame
+            // No cartridge loaded: fill buffer with black but don't swap
+            // Don't increment frame counter when no game is running
             @memset(buffer, 0);
         }
+
+        // Clear framebuffer reference
+        ctx.state.framebuffer = null;
     } else {
-        // Buffer full - skip rendering but still advance timing
-        // This prevents visible tearing from rendering to active display buffer
+        // Buffer full - still emulate but don't render
+        // Game logic continues (CPU/PPU cycles advance) but no framebuffer output
+        // This prevents game from freezing when render thread falls behind
         ctx.state.framebuffer = null;
         if (has_cart) {
             const cycles = ctx.state.emulateFrame();
             ctx.total_cycles += cycles;
         }
-        _ = ctx.mailboxes.frame.getFramesDropped(); // Count this as a drop
+        // Don't call swapBuffers() - no frame was rendered
+        _ = ctx.mailboxes.frame.getFramesDropped(); // Increment drop counter
     }
-
-    // Check if debug break occurred during frame execution
-    if (ctx.state.debug_break_occurred) {
-        ctx.state.debug_break_occurred = false; // Clear flag
-
-        if (ctx.state.debugger) |*debugger| {
-            const reason = debugger.getBreakReason() orelse "Unknown break";
-            const snapshot = captureSnapshot(ctx);
-
-            // Copy reason string to event buffer
-            var reason_buf: [128]u8 = undefined;
-            const reason_len = @min(reason.len, 128);
-            @memcpy(reason_buf[0..reason_len], reason[0..reason_len]);
-
-            // Post breakpoint hit event
-            _ = ctx.mailboxes.debug_event.postEvent(.{ .breakpoint_hit = .{
-                .reason = reason_buf,
-                .reason_len = reason_len,
-                .snapshot = snapshot,
-            } });
-        }
-    }
-
-    // Post completed frame to render thread
-    // Always call swapBuffers() to increment frame counter, even if buffer was full
-    // This ensures tests can track emulation progress even without a render thread
-    if (has_cart) {
-        ctx.mailboxes.frame.swapBuffers();
-    }
-
-    // Clear framebuffer reference
-    ctx.state.framebuffer = null;
 
     // FPS reporting (periodic diagnostics)
     reportProgress(ctx);
