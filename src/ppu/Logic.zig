@@ -299,8 +299,10 @@ pub fn tick(
 
         const color = getPaletteColor(state, final_palette_index);
         if (framebuffer) |fb| {
-            const fb_index = pixel_y * 256 + pixel_x;
-            if (fb_index < fb.len) {
+            // Defensive: validate framebuffer dimensions and pixel coordinates
+            // Expected: 256×240 = 61,440 pixels
+            if (fb.len >= 61_440 and pixel_x < 256 and pixel_y < 240) {
+                const fb_index = pixel_y * 256 + pixel_x;
                 fb[fb_index] = color;
             }
         }
