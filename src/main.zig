@@ -124,6 +124,7 @@ fn mainExec(ctx: zli.CommandContext) !void {
 
     // Initialize emulation state (bus is now flattened into EmulationState)
     var emu_state = RAMBO.EmulationState.EmulationState.init(&config);
+    defer emu_state.deinit();
 
     // Load ROM from command line
     const nrom_cart = try RAMBO.Cartridge.NromCart.load(allocator, rom_path);
