@@ -92,10 +92,13 @@ test "NES palette: white color" {
     try testing.expectEqual(@as(u32, 0xECEEEC), NES_PALETTE_RGB[0x30]);
 }
 
-test "NES palette: RGBA conversion" {
+test "NES palette: BGRA conversion" {
     const rgb = 0x123456;
-    const rgba = rgbToRgba(rgb);
-    try testing.expectEqual(@as(u32, 0x123456FF), rgba);
+    const bgra = rgbToRgba(rgb);
+    // BGRA format: alpha in high byte
+    // Input:  0x00123456 (RGB)
+    // Output: 0xFF123456 (BGRA with alpha=0xFF)
+    try testing.expectEqual(@as(u32, 0xFF123456), bgra);
 }
 
 test "NES palette: color index masking" {
