@@ -90,13 +90,19 @@ pub fn threadMain(
         // 2. Check for new frame from emulation thread
         if (mailboxes.frame.hasNewFrame()) {
             const frame_buffer = mailboxes.frame.getReadBuffer();
-            mailboxes.frame.consumeFrameFlag();
-            ctx.frame_count += 1;
 
             // Upload frame to Vulkan and render
+            // CRITICAL: consumeFrame() must be called AFTER renderFrame() succeeds
+            // to prevent race condition where emulation thread reuses buffer during @memcpy
             VulkanLogic.renderFrame(&vulkan, frame_buffer) catch {
-                // Continue on errors - might be transient (e.g., window resize)
+                // On error, don't consume frame - will retry next iteration
+                // This prevents frame loss when Vulkan operations fail transiently
+                continue;
             };
+
+            // Only consume frame after successful render (buffer no longer needed)
+            mailboxes.frame.consumeFrameFlag();
+            ctx.frame_count += 1;
 
             // Report rendering FPS every second
             const now = std.time.nanoTimestamp();

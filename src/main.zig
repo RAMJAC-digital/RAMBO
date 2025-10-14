@@ -198,11 +198,8 @@ fn mainExec(ctx: zli.CommandContext) !void {
     // Initialize keyboard mapper (converts Wayland keycodes to NES buttons)
     var keyboard_mapper = RAMBO.KeyboardMapper{};
 
-    // Run for 60 seconds to check for delayed initialization
-    const start_time = std.time.nanoTimestamp();
-    const duration_ns: i128 = 60_000_000_000; // 60 seconds
-
-    while (std.time.nanoTimestamp() - start_time < duration_ns and running.load(.acquire)) {
+    // Main coordination loop - runs until window closes or shutdown signal
+    while (running.load(.acquire)) {
         // Process window events (from render thread)
         var window_events: [16]RAMBO.Mailboxes.XdgWindowEvent = undefined;
         const window_count = mailboxes.xdg_window_event.drainEvents(&window_events);

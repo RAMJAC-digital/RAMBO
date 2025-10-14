@@ -256,10 +256,11 @@ pub const BackgroundState = struct {
     pattern_shift_lo: u16 = 0,
     pattern_shift_hi: u16 = 0,
 
-    /// Attribute shift registers (8 bits with internal latch)
-    /// Duplicates attribute bits for 8 pixels
-    attribute_shift_lo: u8 = 0,
-    attribute_shift_hi: u8 = 0,
+    /// Attribute shift registers (16 bits to match pattern registers)
+    /// Hardware: 8-bit registers with input feeding, functionally equivalent to 16-bit
+    /// NESDev: "next tile's attribute bits connected to shift register inputs"
+    attribute_shift_lo: u16 = 0,
+    attribute_shift_hi: u16 = 0,
 
     /// Tile data latches (loaded during fetch, transferred to shift regs)
     nametable_latch: u8 = 0, // Tile index from nametable
@@ -274,10 +275,13 @@ pub const BackgroundState = struct {
         self.pattern_shift_lo = (self.pattern_shift_lo & 0xFF00) | self.pattern_latch_lo;
         self.pattern_shift_hi = (self.pattern_shift_hi & 0xFF00) | self.pattern_latch_hi;
 
-        // Extend attribute bits to cover 8 pixels
-        // Each attribute bit controls 8 pixels, so duplicate it
-        self.attribute_shift_lo = if ((self.attribute_latch & 0x01) != 0) 0xFF else 0x00;
-        self.attribute_shift_hi = if ((self.attribute_latch & 0x02) != 0) 0xFF else 0x00;
+        // Load attribute bits into low 8 bits (preserving high 8 bits)
+        // Each attribute bit controls 8 pixels, so duplicate it across all 8 bits
+        // This matches hardware behavior where next tile's attribute feeds shift register input
+        const attr_lo: u8 = if ((self.attribute_latch & 0x01) != 0) 0xFF else 0x00;
+        const attr_hi: u8 = if ((self.attribute_latch & 0x02) != 0) 0xFF else 0x00;
+        self.attribute_shift_lo = (self.attribute_shift_lo & 0xFF00) | attr_lo;
+        self.attribute_shift_hi = (self.attribute_shift_hi & 0xFF00) | attr_hi;
     }
 
     /// Shift registers by 1 pixel
