@@ -139,20 +139,36 @@ pub fn readRegister(
             const addr = state.internal.v;
             const buffered_value = state.internal.read_buffer;
 
-            // Update buffer with current VRAM value
-            state.internal.read_buffer = memory.readVram(state, cart, addr);
+            // Palette reads are NOT buffered (return immediately)
+            // BUT the buffer is filled with the underlying nametable address
+            // Hardware quirk: $3F00-$3FFF reads fill buffer from $2F00-$2FFF (nametable mirror)
+            if (addr >= 0x3F00) {
+                // Read palette value directly (unbuffered)
+                const palette_value = memory.readVram(state, cart, addr);
 
-            // Increment VRAM address after read
-            state.internal.v +%= state.ctrl.vramIncrementAmount();
+                // Fill buffer with underlying nametable ($3Fxx - $1000 = $2Fxx)
+                const nametable_addr = addr & 0x2FFF; // Map $3F00-$3FFF to $2F00-$2FFF
+                state.internal.read_buffer = memory.readVram(state, cart, nametable_addr);
 
-            // Palette reads are NOT buffered (return current, not buffered)
-            // All other reads return the buffered value
-            const vram_value = if (addr >= 0x3F00) state.internal.read_buffer else buffered_value;
+                // Increment VRAM address after read
+                state.internal.v +%= state.ctrl.vramIncrementAmount();
 
-            // Update open bus
-            state.open_bus.write(vram_value);
+                // Update open bus
+                state.open_bus.write(palette_value);
 
-            result.value = vram_value;
+                result.value = palette_value;
+            } else {
+                // Normal buffered read: return old buffer, update buffer with new value
+                state.internal.read_buffer = memory.readVram(state, cart, addr);
+
+                // Increment VRAM address after read
+                state.internal.v +%= state.ctrl.vramIncrementAmount();
+
+                // Update open bus
+                state.open_bus.write(buffered_value);
+
+                result.value = buffered_value;
+            }
         },
         else => unreachable,
     }

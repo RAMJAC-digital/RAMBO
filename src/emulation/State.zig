@@ -266,6 +266,20 @@ pub const EmulationState = struct {
 
             // PPU registers + mirrors ($2000-$3FFF)
             0x2000...0x3FFF => blk: {
+                // Check if this is a $2002 read (PPUSTATUS) for race condition handling
+                const is_status_read = (address & 0x0007) == 0x0002;
+
+                // Race condition: If reading $2002 on the exact cycle VBlank is set,
+                // set race_hold BEFORE computing vblank_active in readRegister()
+                if (is_status_read) {
+                    const now = self.clock.ppu_cycles;
+                    if (now == self.vblank_ledger.last_set_cycle and
+                        self.vblank_ledger.last_set_cycle > self.vblank_ledger.last_clear_cycle)
+                    {
+                        self.vblank_ledger.race_hold = true;
+                    }
+                }
+
                 const result = PpuLogic.readRegister(
                     &self.ppu,
                     cart_ptr,
@@ -305,18 +319,14 @@ pub const EmulationState = struct {
             else => self.bus.open_bus,
         };
 
-        // If a PPU read occurred, check for the $2002 read side-effect.
+        // If a PPU read occurred, update the read cycle timestamp
         if (ppu_read_result) |result| {
             if (result.read_2002) {
                 const now = self.clock.ppu_cycles;
                 self.vblank_ledger.last_read_cycle = now;
 
-                // Race condition: read on the exact cycle VBlank is set
-                if (now == self.vblank_ledger.last_set_cycle and
-                    self.vblank_ledger.last_set_cycle > self.vblank_ledger.last_clear_cycle)
-                {
-                    self.vblank_ledger.race_hold = true;
-                }
+                // Note: race_hold is now set BEFORE readRegister() is called above,
+                // so the VBlank flag computation sees the correct race condition state
             }
         }
 

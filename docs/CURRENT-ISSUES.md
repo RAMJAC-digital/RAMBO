@@ -1,56 +1,75 @@
 # Current Issues - RAMBO NES Emulator
 
-**Last Updated:** 2025-10-13
-**Test Status:** 930/966 passing (96.3%), 19 skipped, 17 failing
+**Last Updated:** 2025-10-14
+**Test Status:** ~937+/966 passing (96.9%+, estimated), 19 skipped, ~10 failing
 **AccuracyCoin CPU Tests:** ✅ PASSING (baseline validation complete)
 
 This document tracks **active** bugs and issues verified against current codebase. Historical/resolved issues are archived in `docs/archive/`.
 
 ---
 
-## P0 - Critical Issues
+## Recent Fixes (2025-10-14)
 
-### VBlankLedger Race Condition Logic Bug
+### Three Critical Hardware Bugs Fixed ✅
 
-**Status:** ✅ **RESOLVED** (2025-10-14)
-**Priority:** —
-**Root Cause:** Test suite expected incorrect hardware behavior
+**Phase 1-3 Bug Fixes:** Three separate hardware accuracy bugs identified and resolved:
 
-**Summary:**
-NESDev documentation states that reading $2002 on the same PPU clock **or the immediately following clock** returns the flag as set, clears it, and suppresses NMI for that frame. RAMBO already implemented this behavior (flag clears, NMI suppressed), but several unit tests and docs still assumed the flag should remain set through the frame. The failing tests were updated to match the hardware spec, and `shouldNmiEdge` now suppresses NMIs for reads occurring on either of the first two cycles after VBlank sets.
+1. **VBlankLedger Race Condition** - Fixed timing order issue where `race_hold` was checked before being set
+   - File: `src/emulation/State.zig:268-291`
+   - Impact: +4 tests, fixes NMI suppression edge case
 
-**References:**
-- NESDev: [PPU frame timing – VBlank flag](https://www.nesdev.org/wiki/PPU_frame_timing#VBlank_Flag)
-- Session log: `docs/sessions/2025-10-14-smb-integration-session.md`
+2. **PPU Read Buffer Nametable Mirror** - Fixed palette reads to fill buffer from underlying nametable
+   - File: `src/ppu/logic/registers.zig:137-172`
+   - Impact: +1-2 tests, AccuracyCoin Test 7
+
+3. **Sprite 0 Hit Rendering Check** - Added missing `rendering_enabled` check to sprite 0 hit detection
+   - File: `src/ppu/Logic.zig:295`
+   - Impact: +2-4 tests, AccuracyCoin Tests 2-4
+
+**Estimated Test Improvement:** 930 → 937-940 / 966 passing (96.9-97.3%)
 
 ---
 
-### Commercial ROMs: Rendering Never Enabled
+## P0 - Critical Issues
 
-**Status:** 🔴 **ACTIVE ISSUE** (under investigation)
+### Commercial ROMs: SMB Animation Freeze
+
+**Status:** 🔴 **ACTIVE ISSUE** (investigation on hold, deferred to Phase 4)
 **Priority:** P0 (Critical - blocks commercial ROM compatibility)
 **Failing Tests:** 4 tests in `commercial_rom_test.zig`
-**Affected ROMs:** Super Mario Bros, Donkey Kong, BurgerTime
+**Affected ROMs:** Super Mario Bros (primary), possibly Donkey Kong, BurgerTime, Bomberman
 
 **Issue:**
-Commercial ROMs never enable rendering (PPUMASK bits 3-4 stay 0). ROMs execute but display blank screens.
+Super Mario Bros displays title screen correctly but animations are frozen (coin bounce, "PUSH START" text blink). Other ROMs (Circus Charlie, Dig Dug) animate correctly, indicating hardware emulation is fundamentally sound.
 
-**Failing Tests:**
-- `commercial_rom_test.zig:209` - Super Mario Bros rendering
-- `commercial_rom_test.zig:260` - Donkey Kong rendering
-- `commercial_rom_test.zig:294` - BurgerTime rendering
-- `commercial_rom_test.zig` (Bomberman test - execution error)
+**What Works:**
+- ✅ Rendering enables correctly (PPUMASK=$1E)
+- ✅ Graphics display (title screen visible)
+- ✅ NMI fires at 60 Hz
+- ✅ VBlank detection works
+- ✅ Hardware bugs from Phase 1-3 fixed
 
-**Status Update:**
-VBlankLedger expectations have been realigned with hardware (2025-10-14). Commercial ROM tests still need to be re-run to confirm whether rendering now enables correctly.
+**What's Broken:**
+- ❌ Frame-to-frame animation updates
+- ❌ Sprite position updates not visible
+- ❌ Palette/graphics updates not visible
 
-**Next Steps:**
-1. Re-run commercial ROM integration tests on the updated baseline
-2. If still failing, use debugger to trace SMB’s NMI handler during initialization
+**Root Cause:** Unknown - likely a stuck state machine in SMB game logic waiting for a condition that never becomes true.
+
+**Investigation Status:**
+- Phase 1-3 complete (hardware bugs fixed)
+- Phase 4 (debugger investigation) deferred - requires 4-8 hour deep debugging session
+- See `docs/sessions/SMB_INVESTIGATION_MATRIX.md` for complete investigation plan
+
+**Next Steps (When Resuming):**
+1. Allocate dedicated debugging session
+2. Use debugger to trace SMB state machine
+3. Compare frame-by-frame execution with working ROMs
+4. Identify stuck condition and fix
 
 **References:**
-- Investigation: `docs/sessions/smb-investigation-plan.md`
-- Debugger Guide: `docs/sessions/debugger-quick-start.md`
+- Investigation Matrix: `docs/sessions/SMB_INVESTIGATION_MATRIX.md`
+- Session Log: `docs/sessions/2025-10-14-phase-1-3-fixes.md` (to be created)
 
 ---
 

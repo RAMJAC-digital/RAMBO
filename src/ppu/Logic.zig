@@ -286,7 +286,13 @@ pub fn tick(
             final_palette_index = bg_pixel;
         } else {
             final_palette_index = if (sprite_result.priority) bg_pixel else sprite_result.pixel;
-            if (sprite_result.sprite_0 and pixel_x < 255 and dot >= 2) {
+            // Sprite 0 hit occurs when:
+            // - Both BG and sprite pixels are opaque (checked above: bg_pixel != 0 and sprite_result.pixel != 0)
+            // - Rendering is enabled (both BG and sprite rendering must be on)
+            // - X coordinate is 0-254 (X=255 cannot trigger hit)
+            // - Dot is >= 2 (sprite 0 hit timing requirement)
+            // - Scanline is 0-239 (visible scanlines only, implicitly enforced by is_visible check)
+            if (sprite_result.sprite_0 and rendering_enabled and pixel_x < 255 and dot >= 2) {
                 state.status.sprite_0_hit = true;
             }
         }
