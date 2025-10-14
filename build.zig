@@ -191,6 +191,25 @@ pub fn build(b: *std.Build) void {
     // by passing `--prefix` or `-p`.
     b.installArtifact(exe);
 
+    // SMB RAM test runner (standalone executable for quick testing)
+    const smb_ram_runner = b.addExecutable(.{
+        .name = "test_smb_ram",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("scripts/test_smb_ram.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+
+    smb_ram_runner.linkLibC();
+
+    const run_smb_ram_step = b.step("test-smb-ram", "Run SMB RAM initialization pattern test");
+    const run_smb_ram = b.addRunArtifact(smb_ram_runner);
+    run_smb_ram_step.dependOn(&run_smb_ram.step);
+
     // Install shaders as part of default build
     b.getInstallStep().dependOn(&install_vert.step);
     b.getInstallStep().dependOn(&install_frag.step);
@@ -684,6 +703,20 @@ pub fn build(b: *std.Build) void {
     });
 
     const run_commercial_rom_tests = b.addRunArtifact(commercial_rom_tests);
+
+    // SMB RAM initialization pattern tests
+    const smb_ram_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/smb_ram_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+
+    const run_smb_ram_tests = b.addRunArtifact(smb_ram_tests);
 
     // PPU CHR integration tests
     const chr_integration_tests = b.addTest(.{
@@ -1217,6 +1250,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_accuracycoin_prg_ram_tests.step);
     test_step.dependOn(&run_framebuffer_validator_tests.step);
     test_step.dependOn(&run_commercial_rom_tests.step);
+    test_step.dependOn(&run_smb_ram_tests.step);
     test_step.dependOn(&run_chr_integration_tests.step);
     test_step.dependOn(&run_sprite_evaluation_tests.step);
     test_step.dependOn(&run_sprite_rendering_tests.step);
@@ -1290,6 +1324,7 @@ pub fn build(b: *std.Build) void {
     integration_test_step.dependOn(&run_accuracycoin_prg_ram_tests.step);
     integration_test_step.dependOn(&run_framebuffer_validator_tests.step);
     integration_test_step.dependOn(&run_commercial_rom_tests.step);
+    integration_test_step.dependOn(&run_smb_ram_tests.step);
     integration_test_step.dependOn(&run_chr_integration_tests.step);
     integration_test_step.dependOn(&run_sprite_evaluation_tests.step);
     integration_test_step.dependOn(&run_sprite_rendering_tests.step);
