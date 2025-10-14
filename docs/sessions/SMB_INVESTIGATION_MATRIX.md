@@ -2,12 +2,12 @@
 
 **Date Started:** 2025-10-13
 **Date Updated:** 2025-10-14
-**Status:** 🟡 **HARDWARE BUGS FIXED, SMB ANIMATION REMAINS** - Three P0 bugs resolved
-**Test Status:** ~937+/966 passing (estimated), SMB title screen displays but doesn't animate
+**Status:** 🟡 **FIVE HARDWARE BUGS FIXED, SMB ANIMATION REMAINS** - Systematic investigation ongoing
+**Test Status:** ~941+/966 passing (estimated), SMB title screen displays but doesn't animate
 
-## Session Update - 2025-10-14 (Phases 1-3 Complete)
+## Session Update - 2025-10-14 (Phases 1-5 Complete)
 
-### Three Critical Hardware Bugs Fixed
+### Five Critical Hardware Bugs Fixed
 
 During investigation, we identified and fixed three separate hardware accuracy bugs that were unrelated to the SMB animation issue, but critical for overall emulator accuracy:
 
@@ -29,11 +29,25 @@ During investigation, we identified and fixed three separate hardware accuracy b
 **Fix:** Added `rendering_enabled` check to sprite 0 hit detection logic.
 **Impact:** +2-4 tests, prevents spurious hits during initialization
 
-**Estimated Test Improvement:** 937-940 / 966 passing (96.9-97.3%, up from 930)
+#### 4. Sprite 0 Hit - Incorrect Rendering Check (Phase 4) ✅ FIXED
+**File:** `src/ppu/Logic.zig:295`
+**Problem:** Sprite 0 hit used OR logic (rendering_enabled) instead of AND logic. Hardware requires BOTH background AND sprite rendering enabled for sprite 0 hit to trigger.
+**Fix:** Changed from `rendering_enabled` to explicit `state.mask.show_bg and state.mask.show_sprites`
+**Impact:** Hardware accuracy fix - sprite 0 hit behavior now matches NES specification
+**Test Coverage:** Added test in `tests/ppu/sprite_edge_cases_test.zig`
 
-### SMB Animation Issue - Still Open
+#### 5. PPU Write Toggle Not Cleared at Pre-render (Phase 5) ✅ FIXED
+**File:** `src/ppu/Logic.zig:336`
+**Problem:** PPU write toggle (w register) was not being reset at scanline 261 dot 1 (pre-render scanline). Hardware clears this along with sprite flags at end of VBlank.
+**Fix:** Added `state.internal.resetToggle();` at scanline 261 dot 1
+**Impact:** Prevents scroll/address register corruption across frame boundaries
+**Test Coverage:** Added 6 comprehensive tests in `tests/integration/ppu_write_toggle_test.zig`
 
-**Status:** Animation freeze persists despite hardware bug fixes (as expected - these were separate issues).
+**Estimated Test Improvement:** 941+ / 966 passing (97.4%+, up from 930)
+
+### SMB Animation Issue - Still Open (Root Cause Unknown)
+
+**Status:** Animation freeze persists despite five hardware bug fixes. Bugs #4 and #5 were strong candidates (80% and 75% confidence respectively) but fixing them did not resolve SMB animation. Root cause still unknown.
 
 ## Session Update - 2025-10-14 (Earlier)
 

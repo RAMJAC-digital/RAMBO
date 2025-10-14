@@ -288,11 +288,11 @@ pub fn tick(
             final_palette_index = if (sprite_result.priority) bg_pixel else sprite_result.pixel;
             // Sprite 0 hit occurs when:
             // - Both BG and sprite pixels are opaque (checked above: bg_pixel != 0 and sprite_result.pixel != 0)
-            // - Rendering is enabled (both BG and sprite rendering must be on)
+            // - Rendering is enabled (BOTH BG AND sprite rendering must be on - hardware requirement)
             // - X coordinate is 0-254 (X=255 cannot trigger hit)
             // - Dot is >= 2 (sprite 0 hit timing requirement)
             // - Scanline is 0-239 (visible scanlines only, implicitly enforced by is_visible check)
-            if (sprite_result.sprite_0 and rendering_enabled and pixel_x < 255 and dot >= 2) {
+            if (sprite_result.sprite_0 and state.mask.show_bg and state.mask.show_sprites and pixel_x < 255 and dot >= 2) {
                 state.status.sprite_0_hit = true;
             }
         }
@@ -330,6 +330,10 @@ pub fn tick(
         // Clear sprite flags (these are NOT managed by VBlankLedger)
         state.status.sprite_0_hit = false;
         state.status.sprite_overflow = false;
+
+        // Reset PPU write toggle (w register) - hardware behavior per NESDev spec
+        // The write toggle is cleared at the end of VBlank along with sprite flags
+        state.internal.resetToggle();
 
         // Signal end of VBlank period
         // VBlankLedger.recordVBlankSpanEnd() will be called in EmulationState

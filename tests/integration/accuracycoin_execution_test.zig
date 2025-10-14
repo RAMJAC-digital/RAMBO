@@ -14,6 +14,7 @@ const std = @import("std");
 const testing = std.testing;
 const RomTestRunner = @import("rom_test_runner.zig");
 const RAMBO = @import("RAMBO");
+const Harness = RAMBO.TestHarness.Harness;
 
 const RunConfig = RomTestRunner.RunConfig;
 const TestResult = RomTestRunner.TestResult;
@@ -63,8 +64,8 @@ test "AccuracyCoin: Execute and extract test results" {
 // ============================================================================
 // ROM Rendering Diagnosis Tests
 // ============================================================================
-// Compare PPU initialization between working ROMs (AccuracyCoin, Bomberman)
-// and non-working ROMs (Mario, BurgerTime)
+// Verify that all commercial ROMs enable rendering when using proper Harness
+// infrastructure with framebuffer support
 
 test "ROM Diagnosis: Compare PPU initialization sequences" {
     const roms = [_]struct {
@@ -72,48 +73,47 @@ test "ROM Diagnosis: Compare PPU initialization sequences" {
         name: []const u8,
         expected_working: bool,
     }{
-        // AccuracyCoin is a hardware test ROM that doesn't enable rendering
-        // It runs CPU tests and outputs via controller port, not graphics
-        .{ .path = "tests/data/AccuracyCoin.nes", .name = "AccuracyCoin", .expected_working = false },
+        // All ROMs enable rendering when framebuffer is provided via Harness
+        .{ .path = "tests/data/AccuracyCoin.nes", .name = "AccuracyCoin", .expected_working = true },
         .{ .path = "tests/data/Bomberman/Bomberman (USA).nes", .name = "Bomberman", .expected_working = true },
-        .{ .path = "tests/data/Mario/Super Mario Bros. (World).nes", .name = "Mario Bros", .expected_working = false },
-        .{ .path = "tests/data/BurgerTime (USA).nes", .name = "BurgerTime", .expected_working = false },
+        .{ .path = "tests/data/Mario/Super Mario Bros. (World).nes", .name = "Mario Bros", .expected_working = true },
+        .{ .path = "tests/data/BurgerTime (USA).nes", .name = "BurgerTime", .expected_working = true },
     };
 
     for (roms) |rom_info| {
-        var runner = RomTestRunner.RomTestRunner.init(
-            testing.allocator,
-            rom_info.path,
-            .{ .max_frames = 300, .verbose = false }, // 5 seconds
-        ) catch |err| {
+        // Load ROM using proper test infrastructure
+        const cart = RAMBO.CartridgeType.load(testing.allocator, rom_info.path) catch |err| {
             if (err == error.FileNotFound) {
+                // Skip if ROM file not available
                 continue;
             }
             return err;
         };
-        defer runner.deinit();
 
-        // Sample PPU state at key frames (limited to max_frames to prevent hangs)
-        // This is a diagnostic test - ROM's 939 opcode tests are the real validation
-        const sample_frames = [_]usize{ 1, 5, 10, 30, 60, 120, 180, 240, 300 };
+        var h = try Harness.init();
+        defer h.deinit();
+
+        h.loadNromCartridge(cart);
+        h.state.reset();
 
         var rendering_enabled_frame: ?u64 = null;
+        var framebuffer: [256 * 240]u32 = undefined;
 
-        for (sample_frames) |target_frame| {
-            // Run until target frame (with safety check for max_frames)
-            while (runner.state.clock.frame() < target_frame) {
-                _ = try runner.runFrame();
-                // Stop if max_frames reached (checked by clock.frame)
-                if (runner.state.clock.frame() >= 300) break;
-            }
+        // Run for 300 frames (5 seconds) checking for rendering
+        var frame: usize = 0;
+        while (frame < 300) : (frame += 1) {
+            // Provide framebuffer for PPU rendering
+            h.state.framebuffer = &framebuffer;
+            _ = h.state.emulateFrame();
+            h.state.framebuffer = null;
 
-            const frame = runner.state.clock.frame();
-            // Check if rendering just became enabled
-            if (rendering_enabled_frame == null and runner.state.rendering_enabled) {
-                rendering_enabled_frame = frame;
+            // Check if rendering enabled
+            if (rendering_enabled_frame == null and h.state.rendering_enabled) {
+                rendering_enabled_frame = h.state.clock.frame();
             }
         }
 
+        // Verify rendering state matches expectations
         if (rom_info.expected_working) {
             try testing.expect(rendering_enabled_frame != null);
         } else {

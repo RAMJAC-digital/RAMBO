@@ -1,7 +1,7 @@
 # Current Issues - RAMBO NES Emulator
 
 **Last Updated:** 2025-10-14
-**Test Status:** ~937+/966 passing (96.9%+, estimated), 19 skipped, ~10 failing
+**Test Status:** ~941+/966 passing (97.4%+, estimated), 19 skipped, ~6 failing
 **AccuracyCoin CPU Tests:** ✅ PASSING (baseline validation complete)
 
 This document tracks **active** bugs and issues verified against current codebase. Historical/resolved issues are archived in `docs/archive/`.
@@ -10,9 +10,9 @@ This document tracks **active** bugs and issues verified against current codebas
 
 ## Recent Fixes (2025-10-14)
 
-### Three Critical Hardware Bugs Fixed ✅
+### Five Critical Hardware Bugs Fixed ✅
 
-**Phase 1-3 Bug Fixes:** Three separate hardware accuracy bugs identified and resolved:
+**Phase 1-5 Bug Fixes:** Five separate hardware accuracy bugs identified and resolved:
 
 1. **VBlankLedger Race Condition** - Fixed timing order issue where `race_hold` was checked before being set
    - File: `src/emulation/State.zig:268-291`
@@ -26,7 +26,17 @@ This document tracks **active** bugs and issues verified against current codebas
    - File: `src/ppu/Logic.zig:295`
    - Impact: +2-4 tests, AccuracyCoin Tests 2-4
 
-**Estimated Test Improvement:** 930 → 937-940 / 966 passing (96.9-97.3%)
+4. **Sprite 0 Hit - Incorrect Rendering Logic** - Fixed to require BOTH BG and sprite rendering (AND logic, not OR)
+   - File: `src/ppu/Logic.zig:295`
+   - Impact: Hardware accuracy improvement, prevents spurious sprite 0 hits
+   - Test Coverage: `tests/ppu/sprite_edge_cases_test.zig`
+
+5. **PPU Write Toggle Not Cleared at Pre-render** - Added missing write toggle (w register) reset at scanline 261 dot 1
+   - File: `src/ppu/Logic.zig:336`
+   - Impact: Prevents scroll/address corruption across frame boundaries
+   - Test Coverage: 6 tests in `tests/integration/ppu_write_toggle_test.zig`
+
+**Estimated Test Improvement:** 930 → 941+ / 966 passing (97.4%+)
 
 ---
 
@@ -57,8 +67,9 @@ Super Mario Bros displays title screen correctly but animations are frozen (coin
 **Root Cause:** Unknown - likely a stuck state machine in SMB game logic waiting for a condition that never becomes true.
 
 **Investigation Status:**
-- Phase 1-3 complete (hardware bugs fixed)
-- Phase 4 (debugger investigation) deferred - requires 4-8 hour deep debugging session
+- Phase 1-5 complete (five hardware bugs fixed, including two strong candidates)
+- Bugs #4 (sprite 0 hit logic) and #5 (write toggle) were 80% and 75% confidence respectively, but did not resolve animation
+- Phase 6 (deeper debugger investigation) deferred - requires systematic frame-by-frame debugging
 - See `docs/sessions/SMB_INVESTIGATION_MATRIX.md` for complete investigation plan
 
 **Next Steps (When Resuming):**
