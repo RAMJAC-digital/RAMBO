@@ -163,6 +163,11 @@ pub fn getSpritePixel(state: *PpuState, pixel_x: u16) SpritePixel {
     }
 
     // Find first opaque sprite pixel
+    // Hardware: Must shift ALL active sprites each pixel, not just the one being rendered
+    // Reference: nesdev.org/wiki/PPU_rendering - sprite shift registers shift every cycle
+    var result: SpritePixel = .{ .pixel = 0, .priority = false, .sprite_0 = false };
+    var found_sprite = false;
+
     for (0..state.sprite_state.sprite_count) |i| {
         // Check if sprite is active (X counter reached 0)
         if (state.sprite_state.x_counters[i] == 0) {
@@ -171,7 +176,8 @@ pub fn getSpritePixel(state: *PpuState, pixel_x: u16) SpritePixel {
             const bit1 = (state.sprite_state.pattern_shift_hi[i] >> 7) & 1;
             const pattern: u8 = (bit1 << 1) | bit0;
 
-            if (pattern != 0) {
+            // Check if this is the first opaque sprite pixel (sprite priority)
+            if (!found_sprite and pattern != 0) {
                 // Non-transparent sprite pixel found
                 const palette_select = state.sprite_state.attributes[i] & 0x03;
                 const priority_behind = (state.sprite_state.attributes[i] & 0x20) != 0;
@@ -180,14 +186,16 @@ pub fn getSpritePixel(state: *PpuState, pixel_x: u16) SpritePixel {
                 // Sprite palette indices are $10-$1F
                 const palette_index = 0x10 | (palette_select << 2) | pattern;
 
-                return .{
+                result = .{
                     .pixel = palette_index,
                     .priority = priority_behind,
                     .sprite_0 = is_sprite_0,
                 };
+                found_sprite = true;
             }
 
-            // Shift this sprite's registers
+            // CRITICAL: Shift ALL active sprites every pixel, not just the one rendered
+            // Bug: Previously only shifted if sprite was transparent, causing horizontal lines
             state.sprite_state.pattern_shift_lo[i] <<= 1;
             state.sprite_state.pattern_shift_hi[i] <<= 1;
         } else if (state.sprite_state.x_counters[i] < 0xFF) {
@@ -196,7 +204,7 @@ pub fn getSpritePixel(state: *PpuState, pixel_x: u16) SpritePixel {
         }
     }
 
-    return .{ .pixel = 0, .priority = false, .sprite_0 = false };
+    return result;
 }
 
 /// Evaluate sprites for the current scanline
