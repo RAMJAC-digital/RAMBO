@@ -113,7 +113,7 @@ fn runRomForFrames(
     var framebuffer = [_]u32{0} ** FRAME_PIXELS;
 
     // Get NMI vector address to track NMI execution
-    const nmi_vector = state.busRead16(0xFFFA);
+    _ = state.busRead16(0xFFFA); // nmi_vector unused but read for side effects
 
     // Run for specified number of frames
     var frames_rendered: usize = 0;

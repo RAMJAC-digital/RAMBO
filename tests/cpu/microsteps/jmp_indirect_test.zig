@@ -32,8 +32,24 @@ const EmulationState = RAMBO.EmulationState.EmulationState;
 /// Helper to set up EmulationState for JMP indirect testing
 fn setupHarness() !Harness {
     var h = try Harness.init();
+
+    // Allocate test RAM for cartridge space ($8000-$FFFF)
+    // Required for busWrite/busRead to work correctly in tests
+    const test_ram = try testing.allocator.alloc(u8, 0x8000);
+    @memset(test_ram, 0x00);
+    h.state.bus.test_ram = test_ram;
+
     h.state.reset();
     return h;
+}
+
+/// Helper to clean up test harness and free test_ram
+fn cleanupHarness(h: *Harness) void {
+    if (h.state.bus.test_ram) |test_ram| {
+        testing.allocator.free(test_ram);
+        h.state.bus.test_ram = null;
+    }
+    h.deinit();
 }
 
 /// Simulate jmpIndirectFetchHigh microstep
@@ -58,7 +74,7 @@ fn simulateJmpIndirectFetchHigh(state: *EmulationState) void {
 
 test "JMP Indirect: Page boundary bug - pointer at $02FF reads high byte from $0200" {
     var harness = try setupHarness();
-    defer harness.deinit();
+    defer cleanupHarness(&harness);
     var state = &harness.state;
 
     // Setup: JMP ($02FF)
@@ -90,7 +106,7 @@ test "JMP Indirect: Page boundary bug - pointer at $02FF reads high byte from $0
 
 test "JMP Indirect: No bug when pointer NOT at page boundary ($0280)" {
     var harness = try setupHarness();
-    defer harness.deinit();
+    defer cleanupHarness(&harness);
     var state = &harness.state;
 
     // Setup: JMP ($0280)
@@ -115,7 +131,7 @@ test "JMP Indirect: No bug when pointer NOT at page boundary ($0280)" {
 
 test "JMP Indirect: Bug exists at $00FF (zero page boundary)" {
     var harness = try setupHarness();
-    defer harness.deinit();
+    defer cleanupHarness(&harness);
     var state = &harness.state;
 
     // Edge case: Pointer at $00FF (zero page boundary)
@@ -134,7 +150,7 @@ test "JMP Indirect: Bug exists at $00FF (zero page boundary)" {
 
 test "JMP Indirect: Bug exists at $FFFF (highest address)" {
     var harness = try setupHarness();
-    defer harness.deinit();
+    defer cleanupHarness(&harness);
     var state = &harness.state;
 
     // Edge case: Pointer at $FFFF
@@ -157,7 +173,7 @@ test "JMP Indirect: Bug exists at $FFFF (highest address)" {
 
 test "JMP Indirect: Bug exists at ALL 256 page boundaries ($00FF through $FFFF)" {
     var harness = try setupHarness();
-    defer harness.deinit();
+    defer cleanupHarness(&harness);
     var state = &harness.state;
 
     // Test every single page boundary to ensure consistent bug behavior
@@ -192,7 +208,7 @@ test "JMP Indirect: Bug exists at ALL 256 page boundaries ($00FF through $FFFF)"
 
 test "JMP Indirect: REGRESSION CHECK - Bug must exist (not accidentally fixed)" {
     var harness = try setupHarness();
-    defer harness.deinit();
+    defer cleanupHarness(&harness);
     var state = &harness.state;
 
     // This test FAILS if the bug is "fixed" (becomes correct behavior)
@@ -220,7 +236,7 @@ test "JMP Indirect: REGRESSION CHECK - Bug must exist (not accidentally fixed)" 
 
 test "JMP Indirect: Pointer at $xxFE - one byte before boundary (no bug)" {
     var harness = try setupHarness();
-    defer harness.deinit();
+    defer cleanupHarness(&harness);
     var state = &harness.state;
 
     // $02FE is NOT at boundary, should work correctly
@@ -237,7 +253,7 @@ test "JMP Indirect: Pointer at $xxFE - one byte before boundary (no bug)" {
 
 test "JMP Indirect: Pointer at $xx00 - start of page (no bug)" {
     var harness = try setupHarness();
-    defer harness.deinit();
+    defer cleanupHarness(&harness);
     var state = &harness.state;
 
     // $0200 is at start of page, should work correctly
@@ -258,7 +274,7 @@ test "JMP Indirect: Pointer at $xx00 - start of page (no bug)" {
 
 test "JMP Indirect: Real-world bug scenario - indirect jump table at $1FF" {
     var harness = try setupHarness();
-    defer harness.deinit();
+    defer cleanupHarness(&harness);
     var state = &harness.state;
 
     // Scenario: Jump table stored at page boundaries
@@ -282,7 +298,7 @@ test "JMP Indirect: Real-world bug scenario - indirect jump table at $1FF" {
 
 test "JMP Indirect: Bug can cause game crashes - wrong routine executed" {
     var harness = try setupHarness();
-    defer harness.deinit();
+    defer cleanupHarness(&harness);
     var state = &harness.state;
 
     // Scenario: Pointer at $3CFF intended to jump to $A000
@@ -316,7 +332,7 @@ test "JMP Indirect: Bug can cause game crashes - wrong routine executed" {
 
 test "JMP Indirect: REGRESSION - effective_address initialized before fetch" {
     var harness = try setupHarness();
-    defer harness.deinit();
+    defer cleanupHarness(&harness);
     var state = &harness.state;
 
     // Setup: JMP ($8000)
@@ -345,7 +361,7 @@ test "JMP Indirect: REGRESSION - effective_address initialized before fetch" {
 
 test "JMP Indirect: REGRESSION - stale effective_address doesn't affect fetch" {
     var harness = try setupHarness();
-    defer harness.deinit();
+    defer cleanupHarness(&harness);
     var state = &harness.state;
 
     // Scenario: Previous instruction left effective_address at $0000
@@ -369,7 +385,7 @@ test "JMP Indirect: REGRESSION - stale effective_address doesn't affect fetch" {
 
 test "JMP Indirect: REGRESSION - high address bits preserved during initialization" {
     var harness = try setupHarness();
-    defer harness.deinit();
+    defer cleanupHarness(&harness);
     var state = &harness.state;
 
     // Test addresses across different pages to ensure high byte is correctly used
@@ -400,7 +416,7 @@ test "JMP Indirect: REGRESSION - high address bits preserved during initializati
 
 test "JMP Indirect: REGRESSION - commercial ROM scenario (Super Mario Bros)" {
     var harness = try setupHarness();
-    defer harness.deinit();
+    defer cleanupHarness(&harness);
     var state = &harness.state;
 
     // Real-world scenario: Super Mario Bros uses JMP indirect
@@ -453,7 +469,7 @@ test "JMP Indirect: Spec compliance - nesdev.org Errata documentation" {
     // This test verifies the "255 bytes earlier" claim
 
     var harness = try setupHarness();
-    defer harness.deinit();
+    defer cleanupHarness(&harness);
     var state = &harness.state;
 
     const boundary: u16 = 0x05FF;

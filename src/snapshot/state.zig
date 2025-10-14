@@ -188,11 +188,11 @@ pub fn writePpuState(writer: anytype, ppu: *const PpuState) !void {
     try writer.writeByte(@intFromBool(ppu.internal.w));
     try writer.writeByte(ppu.internal.read_buffer);
 
-    // Background state (10 bytes)
+    // Background state (12 bytes - attribute registers now u16)
     try writer.writeInt(u16, ppu.bg_state.pattern_shift_lo, .little);
     try writer.writeInt(u16, ppu.bg_state.pattern_shift_hi, .little);
-    try writer.writeByte(ppu.bg_state.attribute_shift_lo);
-    try writer.writeByte(ppu.bg_state.attribute_shift_hi);
+    try writer.writeInt(u16, ppu.bg_state.attribute_shift_lo, .little);
+    try writer.writeInt(u16, ppu.bg_state.attribute_shift_hi, .little);
     try writer.writeByte(ppu.bg_state.nametable_latch);
     try writer.writeByte(ppu.bg_state.attribute_latch);
     try writer.writeByte(ppu.bg_state.pattern_latch_lo);
@@ -234,8 +234,8 @@ pub fn readPpuState(reader: anytype) !PpuState {
     // Background state
     ppu.bg_state.pattern_shift_lo = try reader.readInt(u16, .little);
     ppu.bg_state.pattern_shift_hi = try reader.readInt(u16, .little);
-    ppu.bg_state.attribute_shift_lo = try reader.readByte();
-    ppu.bg_state.attribute_shift_hi = try reader.readByte();
+    ppu.bg_state.attribute_shift_lo = try reader.readInt(u16, .little);
+    ppu.bg_state.attribute_shift_hi = try reader.readInt(u16, .little);
     ppu.bg_state.nametable_latch = try reader.readByte();
     ppu.bg_state.attribute_latch = try reader.readByte();
     ppu.bg_state.pattern_latch_lo = try reader.readByte();
