@@ -79,6 +79,14 @@ pub fn stepCycle(state: anytype) CpuCycleResult {
     // Reference: nesdev.org/wiki/PPU_power_up_state
     if (!state.ppu.warmup_complete and state.clock.cpuCycles() >= 29658) {
         state.ppu.warmup_complete = true;
+
+        // Apply buffered $2001 write if ROM wrote to it during warmup
+        // Hardware: ROMs often write to PPUMASK before warmup completes
+        // We buffer the last write and apply it here
+        if (state.ppu.warmup_ppumask_buffer) |buffered_value| {
+            state.ppu.mask = @import("../../ppu/State.zig").PpuMask.fromByte(buffered_value);
+            state.ppu.warmup_ppumask_buffer = null;
+        }
     }
 
     // Track PPUCTRL.NMI_ENABLE edge transitions (0→1)

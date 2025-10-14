@@ -184,8 +184,9 @@ pub fn writeRegister(state: *PpuState, cart: ?*AnyCartridge, address: u16, value
         },
         0x0001 => {
             // $2001 PPUMASK
-            // Ignored during warm-up period (first ~29,658 CPU cycles)
+            // Buffered during warm-up period (first ~29,658 CPU cycles)
             if (!state.warmup_complete) {
+                state.warmup_ppumask_buffer = value;
                 return;
             }
 

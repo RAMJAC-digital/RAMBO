@@ -343,6 +343,10 @@ pub const PpuState = struct {
     /// Reference: nesdev.org/wiki/PPU_power_up_state
     warmup_complete: bool = false,
 
+    /// Buffered $2001 write during warmup (applied when warmup completes)
+    /// ROMs often write to $2001 before warmup completes, so we buffer the last write
+    warmup_ppumask_buffer: ?u8 = null,
+
     /// Debug flag: Track when rendering first enables (for logging)
     rendering_was_enabled: bool = false,
 
