@@ -18,6 +18,7 @@ const Mapper0 = @import("Mapper0.zig").Mapper0;
 const Mapper1 = @import("Mapper1.zig").Mapper1;
 const Mapper2 = @import("Mapper2.zig").Mapper2;
 const Mapper3 = @import("Mapper3.zig").Mapper3;
+const Mapper4 = @import("Mapper4.zig").Mapper4;
 const Mapper7 = @import("Mapper7.zig").Mapper7;
 
 /// Mapper ID enum - all supported NES mappers
@@ -45,14 +46,13 @@ pub const MapperId = enum(u8) {
     /// 155 games - Arkanoid, Gradius, Donkey Kong 3
     cnrom = 3,
 
+    /// Mapper 4: MMC3 (Switchable PRG/CHR, scanline IRQ)
+    /// 600 games - Super Mario Bros. 3, Mega Man 3-6, Kirby's Adventure
+    mmc3 = 4,
+
     /// Mapper 7: AxROM (PRG banking + single-screen mirroring)
     /// ~50 games - Battletoads, Wizards & Warriors, Marble Madness
     axrom = 7,
-
-    // Future mappers (Phase 1):
-    // mmc1 = 1,   // Mapper 1: MMC1 (SxROM) - Metroid, Zelda, Mega Man 2
-    // uxrom = 2,  // Mapper 2: UxROM - Mega Man, Castlevania
-    // mmc3 = 4,   // Mapper 4: MMC3 (TxROM) - Super Mario Bros. 3, Kirby's Adventure
 
     /// Get mapper name
     pub fn name(self: MapperId) []const u8 {
@@ -61,6 +61,7 @@ pub const MapperId = enum(u8) {
             .mmc1 => "MMC1",
             .uxrom => "UxROM",
             .cnrom => "CNROM",
+            .mmc3 => "MMC3",
             .axrom => "AxROM",
         };
     }
@@ -72,6 +73,7 @@ pub const MapperId = enum(u8) {
             .mmc1 => "Shift register, multiple PRG/CHR modes, PRG RAM",
             .uxrom => "16KB switchable + 16KB fixed PRG, 8KB CHR",
             .cnrom => "Simple CHR banking - 8KB CHR banks, fixed PRG",
+            .mmc3 => "Switchable 8KB PRG banks, scanline counter IRQ",
             .axrom => "32KB PRG banking + single-screen mirroring, CHR RAM",
         };
     }
@@ -83,6 +85,7 @@ pub const MapperId = enum(u8) {
             .mmc1 => "https://www.nesdev.org/wiki/MMC1",
             .uxrom => "https://www.nesdev.org/wiki/UxROM",
             .cnrom => "https://www.nesdev.org/wiki/CNROM",
+            .mmc3 => "https://www.nesdev.org/wiki/MMC3",
             .axrom => "https://www.nesdev.org/wiki/AxROM",
         };
     }
@@ -94,6 +97,7 @@ pub const MapperId = enum(u8) {
             .mmc1 => 681,
             .uxrom => 270,
             .cnrom => 155,
+            .mmc3 => 600,
             .axrom => 50,
         };
     }
@@ -105,8 +109,8 @@ pub const MapperId = enum(u8) {
             .mmc1 => false,
             .uxrom => false,
             .cnrom => false,
+            .mmc3 => true, // MMC3 has IRQ via A12 edge detection
             .axrom => false,
-            // mmc3 => true,  // MMC3 has IRQ via A12 edge detection
         };
     }
 };
@@ -156,11 +160,11 @@ pub const AnyCartridge = union(MapperId) {
     /// CNROM cartridge (Mapper 3)
     cnrom: Cartridge(Mapper3),
 
+    /// MMC3 cartridge (Mapper 4)
+    mmc3: Cartridge(Mapper4),
+
     /// AxROM cartridge (Mapper 7)
     axrom: Cartridge(Mapper7),
-
-    // Future mappers:
-    // mmc3: Cartridge(Mapper4),
 
     // ========================================================================
     // CPU Interface
