@@ -147,6 +147,21 @@ pub const Mapper7 = struct {
         self.mirroring = 0; // Lower nametable ($2000)
     }
 
+    /// Get current mirroring mode (dynamic for Mapper7)
+    ///
+    /// Returns mirroring mode as u3:
+    /// - 4 = single_screen_lower (mirroring bit 0)
+    /// - 5 = single_screen_upper (mirroring bit 1)
+    ///
+    /// This allows Battletoads and other AxROM games to dynamically change
+    /// which nametable is active during gameplay.
+    ///
+    /// Note: Duck-typed return - Cartridge.getMirroring() will cast to proper enum
+    pub fn getMirroring(self: *const Mapper7) u3 {
+        // Return 4 (single_screen_lower) or 5 (single_screen_upper)
+        return if (self.mirroring == 0) 4 else 5;
+    }
+
     // ========================================================================
     // IRQ Interface (AxROM doesn't support IRQ - all stubs)
     // ========================================================================

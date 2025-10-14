@@ -201,6 +201,28 @@ pub const Mapper4 = struct {
     }
 
     /// Get CHR bank number for PPU address (1KB granularity)
+    ///
+    /// CHR Mode 0 ($8000.D7=0):
+    ///   $0000-$03FF: R0 (2KB, even)
+    ///   $0400-$07FF: R0 (2KB, odd)
+    ///   $0800-$0BFF: R1 (2KB, even)
+    ///   $0C00-$0FFF: R1 (2KB, odd)
+    ///   $1000-$13FF: R2 (1KB)
+    ///   $1400-$17FF: R3 (1KB)
+    ///   $1800-$1BFF: R4 (1KB)
+    ///   $1C00-$1FFF: R5 (1KB)
+    ///
+    /// CHR Mode 1 ($8000.D7=1):
+    ///   $0000-$03FF: R2 (1KB)
+    ///   $0400-$07FF: R3 (1KB)
+    ///   $0800-$0BFF: R4 (1KB)
+    ///   $0C00-$0FFF: R5 (1KB)
+    ///   $1000-$13FF: R0 (2KB, even)
+    ///   $1400-$17FF: R0 (2KB, odd)
+    ///   $1800-$1BFF: R1 (2KB, even)
+    ///   $1C00-$1FFF: R1 (2KB, odd)
+    ///
+    /// Reference: https://www.nesdev.org/wiki/MMC3#CHR_Banks
     fn getChrBank(self: *const Mapper4, address: u16) u8 {
         const addr = address & 0x1FFF;
 
@@ -208,23 +230,33 @@ pub const Mapper4 = struct {
         if (!self.chr_mode) {
             // Mode 0: 2KB banks at $0000-$0FFF, 1KB banks at $1000-$1FFF
             return switch (addr) {
-                0x0000...0x07FF => self.chr_banks[0] & 0xFE, // R0: 2KB bank (even)
-                0x0800...0x0FFF => self.chr_banks[0] | 0x01, // R0: 2KB bank (odd)
-                0x1000...0x13FF => self.chr_banks[1] & 0xFE, // R1: 2KB bank (even)
-                0x1400...0x17FF => self.chr_banks[1] | 0x01, // R1: 2KB bank (odd)
-                0x1800...0x1BFF => self.chr_banks[2], // R2: 1KB bank
-                0x1C00...0x1FFF => self.chr_banks[3], // R3: 1KB bank
+                // R0: 2KB bank at $0000-$07FF
+                0x0000...0x03FF => self.chr_banks[0] & 0xFE,
+                0x0400...0x07FF => self.chr_banks[0] | 0x01,
+                // R1: 2KB bank at $0800-$0FFF
+                0x0800...0x0BFF => self.chr_banks[1] & 0xFE,
+                0x0C00...0x0FFF => self.chr_banks[1] | 0x01,
+                // R2-R5: 1KB banks at $1000-$1FFF
+                0x1000...0x13FF => self.chr_banks[2], // R2
+                0x1400...0x17FF => self.chr_banks[3], // R3
+                0x1800...0x1BFF => self.chr_banks[4], // R4
+                0x1C00...0x1FFF => self.chr_banks[5], // R5
                 else => 0,
             };
         } else {
             // Mode 1: 2KB banks at $1000-$1FFF, 1KB banks at $0000-$0FFF
             return switch (addr) {
-                0x0000...0x03FF => self.chr_banks[2], // R2: 1KB bank
-                0x0400...0x07FF => self.chr_banks[3], // R3: 1KB bank
-                0x0800...0x0BFF => self.chr_banks[4], // R4: 1KB bank
-                0x0C00...0x0FFF => self.chr_banks[5], // R5: 1KB bank
-                0x1000...0x17FF => self.chr_banks[0] & 0xFE, // R0: 2KB bank (even)
-                0x1800...0x1FFF => self.chr_banks[0] | 0x01, // R0: 2KB bank (odd)
+                // R2-R5: 1KB banks at $0000-$0FFF
+                0x0000...0x03FF => self.chr_banks[2], // R2
+                0x0400...0x07FF => self.chr_banks[3], // R3
+                0x0800...0x0BFF => self.chr_banks[4], // R4
+                0x0C00...0x0FFF => self.chr_banks[5], // R5
+                // R0: 2KB bank at $1000-$17FF
+                0x1000...0x13FF => self.chr_banks[0] & 0xFE,
+                0x1400...0x17FF => self.chr_banks[0] | 0x01,
+                // R1: 2KB bank at $1800-$1FFF
+                0x1800...0x1BFF => self.chr_banks[1] & 0xFE,
+                0x1C00...0x1FFF => self.chr_banks[1] | 0x01,
                 else => 0,
             };
         }
@@ -465,4 +497,79 @@ test "Mapper4: Reset clears state" {
     try testing.expectEqual(false, mapper.irq_enabled);
     try testing.expectEqual(false, mapper.irq_pending);
     try testing.expectEqual(@as(u8, 0), mapper.irq_counter);
+}
+
+test "Mapper4: CHR Mode 0 bank mapping" {
+    var mapper = Mapper4{};
+    mapper.chr_mode = false; // Mode 0
+
+    // Setup registers
+    mapper.chr_banks[0] = 0x10; // R0
+    mapper.chr_banks[1] = 0x20; // R1
+    mapper.chr_banks[2] = 0x30; // R2
+    mapper.chr_banks[3] = 0x40; // R3
+    mapper.chr_banks[4] = 0x50; // R4
+    mapper.chr_banks[5] = 0x60; // R5
+
+    // R0 at $0000-$07FF (2KB bank)
+    try testing.expectEqual(@as(u8, 0x10), mapper.getChrBank(0x0000)); // Even
+    try testing.expectEqual(@as(u8, 0x11), mapper.getChrBank(0x0400)); // Odd
+
+    // R1 at $0800-$0FFF (2KB bank)
+    try testing.expectEqual(@as(u8, 0x20), mapper.getChrBank(0x0800)); // Even
+    try testing.expectEqual(@as(u8, 0x21), mapper.getChrBank(0x0C00)); // Odd
+
+    // R2-R5 at $1000-$1FFF (1KB banks)
+    try testing.expectEqual(@as(u8, 0x30), mapper.getChrBank(0x1000)); // R2
+    try testing.expectEqual(@as(u8, 0x40), mapper.getChrBank(0x1400)); // R3
+    try testing.expectEqual(@as(u8, 0x50), mapper.getChrBank(0x1800)); // R4
+    try testing.expectEqual(@as(u8, 0x60), mapper.getChrBank(0x1C00)); // R5
+}
+
+test "Mapper4: CHR Mode 1 bank mapping" {
+    var mapper = Mapper4{};
+    mapper.chr_mode = true; // Mode 1
+
+    // Setup registers
+    mapper.chr_banks[0] = 0x10; // R0
+    mapper.chr_banks[1] = 0x20; // R1
+    mapper.chr_banks[2] = 0x30; // R2
+    mapper.chr_banks[3] = 0x40; // R3
+    mapper.chr_banks[4] = 0x50; // R4
+    mapper.chr_banks[5] = 0x60; // R5
+
+    // R2-R5 at $0000-$0FFF (1KB banks)
+    try testing.expectEqual(@as(u8, 0x30), mapper.getChrBank(0x0000)); // R2
+    try testing.expectEqual(@as(u8, 0x40), mapper.getChrBank(0x0400)); // R3
+    try testing.expectEqual(@as(u8, 0x50), mapper.getChrBank(0x0800)); // R4
+    try testing.expectEqual(@as(u8, 0x60), mapper.getChrBank(0x0C00)); // R5
+
+    // R0 at $1000-$17FF (2KB bank)
+    try testing.expectEqual(@as(u8, 0x10), mapper.getChrBank(0x1000)); // Even
+    try testing.expectEqual(@as(u8, 0x11), mapper.getChrBank(0x1400)); // Odd
+
+    // R1 at $1800-$1FFF (2KB bank)
+    try testing.expectEqual(@as(u8, 0x20), mapper.getChrBank(0x1800)); // Even
+    try testing.expectEqual(@as(u8, 0x21), mapper.getChrBank(0x1C00)); // Odd
+}
+
+test "Mapper4: CHR 2KB bank bit masking" {
+    var mapper = Mapper4{};
+    mapper.chr_mode = false; // Mode 0
+
+    // R0/R1 should ignore bit 0 (2KB banks use even addresses)
+    mapper.chr_banks[0] = 0xFF; // Odd value
+    mapper.chr_banks[1] = 0x55; // Odd value
+
+    // First 1KB of R0 should be 0xFE (bit 0 cleared)
+    try testing.expectEqual(@as(u8, 0xFE), mapper.getChrBank(0x0000));
+
+    // Second 1KB of R0 should be 0xFF (bit 0 set)
+    try testing.expectEqual(@as(u8, 0xFF), mapper.getChrBank(0x0400));
+
+    // First 1KB of R1 should be 0x54 (bit 0 cleared)
+    try testing.expectEqual(@as(u8, 0x54), mapper.getChrBank(0x0800));
+
+    // Second 1KB of R1 should be 0x55 (bit 0 set)
+    try testing.expectEqual(@as(u8, 0x55), mapper.getChrBank(0x0C00));
 }

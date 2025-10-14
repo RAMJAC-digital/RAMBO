@@ -25,15 +25,19 @@ pub const Format = enum(u8) {
 };
 
 /// Nametable mirroring mode
-pub const MirroringMode = enum(u2) {
+pub const MirroringMode = enum(u3) {
     /// Horizontal mirroring (vertical arrangement)
     horizontal = 0,
     /// Vertical mirroring (horizontal arrangement)
     vertical = 1,
     /// Four-screen VRAM (cartridge provides extra 2KB)
     four_screen = 2,
-    /// Single-screen mirroring (mapper-controlled)
+    /// Single-screen mirroring (mapper-controlled) - deprecated, use lower/upper
     single_screen = 3,
+    /// Single-screen mirroring - all nametables map to lower screen ($2000)
+    single_screen_lower = 4,
+    /// Single-screen mirroring - all nametables map to upper screen ($2400)
+    single_screen_upper = 5,
 
     pub fn toString(self: MirroringMode) []const u8 {
         return switch (self) {
@@ -41,6 +45,8 @@ pub const MirroringMode = enum(u2) {
             .vertical => "Vertical",
             .four_screen => "Four-Screen",
             .single_screen => "Single-Screen",
+            .single_screen_lower => "Single-Screen (Lower)",
+            .single_screen_upper => "Single-Screen (Upper)",
         };
     }
 };
@@ -193,8 +199,34 @@ pub const InesHeader = packed struct(u128) {
     }
 
     /// Get format version
+    ///
+    /// Distinguishes between iNES 1.0 and NES 2.0 formats.
+    /// NES 2.0 requires bits 2-3 of byte 7 to be 0b10 AND bytes 12-15 to follow
+    /// NES 2.0 specification (not all zeros, which indicates iNES 1.0 with garbage).
+    ///
+    /// Many old ROMs have garbage in bytes 12-15 and accidentally set bits 2-3 of byte 7
+    /// to 0b10, causing false NES 2.0 detection. This method validates that bytes 12-15
+    /// are mostly zero before accepting NES 2.0 format.
     pub fn getFormat(self: *const InesHeader) Format {
-        return self.flags7.getFormat();
+        const format_bits = self.flags7.getFormat();
+
+        // If format bits indicate NES 2.0, validate that it's not a false positive
+        if (format_bits == .nes_2_0) {
+            // Check if bytes 12-15 look like iNES 1.0 garbage (non-zero values)
+            // A true NES 2.0 ROM should have specific patterns in these bytes
+            // For now, if ANY of bytes 12-15 are non-zero, assume iNES 1.0
+            const has_garbage = self.padding0 != 0 or
+                                self.padding1 != 0 or
+                                self.padding2 != 0 or
+                                self.padding3 != 0;
+
+            if (has_garbage) {
+                // False positive - treat as iNES 1.0
+                return .ines_1_0;
+            }
+        }
+
+        return format_bits;
     }
 
     /// Get mapper number (8-bit for iNES 1.0, 12-bit for NES 2.0)

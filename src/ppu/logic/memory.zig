@@ -65,9 +65,22 @@ fn mirrorNametableAddress(address: u16, mirroring: Mirroring) u16 {
         return addr & 0x07FF;
     }
 
-    // Single-screen mirroring (value 3) OR invalid value (default to single-screen)
-    // Single-screen mirroring (all map to same 1KB)
-    // Used by some mapper configurations
+    // Single-screen mirroring - lower nametable (value 4)
+    if (mirroring_value == 4) {
+        // All nametables map to lower screen ($2000 = first 1KB of VRAM)
+        // Used by Mapper 7 (AxROM) when bit 4 = 0
+        return addr & 0x03FF; // First 1KB only
+    }
+
+    // Single-screen mirroring - upper nametable (value 5)
+    if (mirroring_value == 5) {
+        // All nametables map to upper screen ($2400 = second 1KB of VRAM)
+        // Used by Mapper 7 (AxROM) when bit 4 = 1
+        return 0x0400 | (addr & 0x03FF); // Second 1KB
+    }
+
+    // Single-screen mirroring (value 3, deprecated) OR invalid value
+    // Default to lower nametable for backward compatibility
     return addr & 0x03FF; // First 1KB only
 }
 

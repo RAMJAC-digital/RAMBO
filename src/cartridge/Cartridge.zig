@@ -210,6 +210,25 @@ pub fn Cartridge(comptime MapperType: type) type {
         pub fn reset(self: *Self) void {
             self.mapper.reset(self);
         }
+
+        /// Get current mirroring mode
+        ///
+        /// For most mappers, this returns the static mirroring field set at load time.
+        /// For mappers with dynamic mirroring (e.g., Mapper7/AxROM), this queries
+        /// the mapper's current state.
+        ///
+        /// This allows the PPU to reflect runtime mirroring changes made by the game.
+        pub fn getMirroring(self: *const Self) Mirroring {
+            // Check if mapper has dynamic mirroring (getMirroring method)
+            if (comptime @hasDecl(MapperType, "getMirroring")) {
+                // Mapper has dynamic mirroring - query it and cast to enum
+                const mirroring_value = self.mapper.getMirroring();
+                return @enumFromInt(mirroring_value);
+            } else {
+                // Static mirroring - return fixed value from header
+                return self.mirroring;
+            }
+        }
     };
 }
 

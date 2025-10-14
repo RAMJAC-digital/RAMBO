@@ -409,6 +409,11 @@ pub const EmulationState = struct {
             0x4020...0xFFFF => {
                 if (self.cart) |*cart| {
                     cart.cpuWrite(address, value);
+
+                    // Sync PPU mirroring after cartridge write
+                    // Some mappers (e.g., Mapper7/AxROM) can change mirroring dynamically
+                    // This ensures the PPU reflects the current mirroring state
+                    self.ppu.mirroring = cart.getMirroring();
                 } else if (self.bus.test_ram) |test_ram| {
                     if (address >= 0x8000) {
                         test_ram[address - 0x8000] = value;
