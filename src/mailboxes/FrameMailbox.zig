@@ -155,12 +155,6 @@ pub const FrameMailbox = struct {
     pub fn resetStatistics(self: *FrameMailbox) void {
         self.frames_dropped.store(0, .monotonic);
     }
-
-    /// Legacy API compatibility - kept for existing tests
-    /// Marked deprecated - use consumeFrame() instead
-    pub fn consumeFrameFlag(self: *FrameMailbox) void {
-        self.consumeFrame();
-    }
 };
 
 // ============================================================================

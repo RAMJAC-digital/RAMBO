@@ -101,7 +101,7 @@ pub fn threadMain(
             };
 
             // Only consume frame after successful render (buffer no longer needed)
-            mailboxes.frame.consumeFrameFlag();
+            mailboxes.frame.consumeFrame();
             ctx.frame_count += 1;
 
             // Report rendering FPS every second
