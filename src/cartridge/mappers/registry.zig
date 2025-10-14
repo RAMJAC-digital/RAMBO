@@ -15,6 +15,7 @@
 const std = @import("std");
 const Cartridge = @import("../Cartridge.zig").Cartridge;
 const Mapper0 = @import("Mapper0.zig").Mapper0;
+const Mapper2 = @import("Mapper2.zig").Mapper2;
 const Mapper3 = @import("Mapper3.zig").Mapper3;
 const Mapper7 = @import("Mapper7.zig").Mapper7;
 
@@ -30,6 +31,10 @@ pub const MapperId = enum(u8) {
     /// Mapper 0: NROM (No mapper)
     /// 248 games - Super Mario Bros., Donkey Kong, Ice Climber
     nrom = 0,
+
+    /// Mapper 2: UxROM (16KB switchable + 16KB fixed PRG)
+    /// 270 games - Mega Man, Castlevania, Contra, Duck Tales
+    uxrom = 2,
 
     /// Mapper 3: CNROM (CHR banking only)
     /// 155 games - Arkanoid, Gradius, Donkey Kong 3
@@ -48,6 +53,7 @@ pub const MapperId = enum(u8) {
     pub fn name(self: MapperId) []const u8 {
         return switch (self) {
             .nrom => "NROM",
+            .uxrom => "UxROM",
             .cnrom => "CNROM",
             .axrom => "AxROM",
         };
@@ -57,6 +63,7 @@ pub const MapperId = enum(u8) {
     pub fn description(self: MapperId) []const u8 {
         return switch (self) {
             .nrom => "No mapper - fixed 16KB or 32KB PRG ROM",
+            .uxrom => "16KB switchable + 16KB fixed PRG, 8KB CHR",
             .cnrom => "Simple CHR banking - 8KB CHR banks, fixed PRG",
             .axrom => "32KB PRG banking + single-screen mirroring, CHR RAM",
         };
@@ -66,6 +73,7 @@ pub const MapperId = enum(u8) {
     pub fn nesdevLink(self: MapperId) []const u8 {
         return switch (self) {
             .nrom => "https://www.nesdev.org/wiki/NROM",
+            .uxrom => "https://www.nesdev.org/wiki/UxROM",
             .cnrom => "https://www.nesdev.org/wiki/CNROM",
             .axrom => "https://www.nesdev.org/wiki/AxROM",
         };
@@ -75,6 +83,7 @@ pub const MapperId = enum(u8) {
     pub fn gameCount(self: MapperId) u16 {
         return switch (self) {
             .nrom => 248,
+            .uxrom => 270,
             .cnrom => 155,
             .axrom => 50,
         };
@@ -84,6 +93,7 @@ pub const MapperId = enum(u8) {
     pub fn supportsIrq(self: MapperId) bool {
         return switch (self) {
             .nrom => false,
+            .uxrom => false,
             .cnrom => false,
             .axrom => false,
             // mmc3 => true,  // MMC3 has IRQ via A12 edge detection
@@ -127,6 +137,9 @@ pub const AnyCartridge = union(MapperId) {
     /// NROM cartridge (Mapper 0)
     nrom: Cartridge(Mapper0),
 
+    /// UxROM cartridge (Mapper 2)
+    uxrom: Cartridge(Mapper2),
+
     /// CNROM cartridge (Mapper 3)
     cnrom: Cartridge(Mapper3),
 
@@ -135,7 +148,6 @@ pub const AnyCartridge = union(MapperId) {
 
     // Future mappers:
     // mmc1: Cartridge(Mapper1),
-    // uxrom: Cartridge(Mapper2),
     // mmc3: Cartridge(Mapper4),
 
     // ========================================================================

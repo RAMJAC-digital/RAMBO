@@ -1,12 +1,12 @@
 # Mapper Implementation Plan - RAMBO NES Emulator
 
 **Date Started:** 2025-10-14
-**Status:** 🟢 IN PROGRESS (2/5 complete)
+**Status:** 🟢 IN PROGRESS (3/5 complete)
 **Goal:** Implement 5 additional NES mappers (CNROM, AxROM, UxROM, MMC1, MMC3)
-**Estimated Time:** 32-48 hours total (4-6 hours spent)
-**Current Mappers:** 3 (Mapper 0 - NROM, Mapper 3 - CNROM ✅, Mapper 7 - AxROM ✅)
+**Estimated Time:** 32-48 hours total (8-12 hours spent)
+**Current Mappers:** 4 (Mapper 0 - NROM, Mapper 2 - UxROM ✅, Mapper 3 - CNROM ✅, Mapper 7 - AxROM ✅)
 **Target Mappers:** 6 total (covers ~85% of NES library)
-**Library Coverage:** 5% (NROM) + 6% (CNROM) + 2% (AxROM) = 13% total
+**Library Coverage:** 5% (NROM) + 10% (UxROM) + 6% (CNROM) + 2% (AxROM) = 23% total
 
 ---
 
@@ -582,10 +582,56 @@ tests/cartridge/
 
 ---
 
-**Status:** 🟢 2/5 mappers complete (40%)
-**Next Action:** Begin Phase A for UxROM (Mapper 2)
-**Remaining Time:** ~28-42 hours
-**Updated Library Coverage:** 13% (NROM 5% + CNROM 6% + AxROM 2%)
+### ✅ Mapper 2 (UxROM) - COMPLETE
+
+**Implementation Date:** 2025-10-14
+**Time Spent:** ~4-6 hours
+**Status:** ✅ All phases complete
+
+**Files Created/Modified:**
+- `src/cartridge/mappers/Mapper2.zig` - Complete implementation with 11 test cases
+- `src/cartridge/mappers/registry.zig` - Added UxROM to MapperId enum and AnyCartridge union
+- `src/cartridge/Cartridge.zig` - Added Mapper 2 to compile-time validation
+
+**Test Results:**
+- **Unit Tests:** 11/11 passing (Mapper2.zig built-in tests)
+- **Integration Tests:** All registry tests passing
+- **Overall:** All tests passing (100%)
+
+**Available Test ROMs (Mapper 2):**
+- Commando (USA).nes
+- DuckTales (USA).nes
+- Ghosts'n Goblins (USA).nes
+- Guardian Legend, The (USA).nes
+- Gun.Smoke (USA).nes
+- Jackal (USA).nes
+- Life Force (USA) (Rev 1).nes
+- Little Mermaid, The (USA).nes
+- Metal Gear (USA).nes
+- Prince of Persia (USA).nes
+- Rush'n Attack (USA).nes
+- Rygar (USA) (Rev 1).nes
+
+**Technical Highlights:**
+- Split banking: 16KB switchable ($8000-$BFFF) + 16KB fixed to last bank ($C000-$FFFF)
+- Fixed bank contains reset vector (critical for boot)
+- 4-bit bank register (up to 16 banks, 256KB PRG ROM)
+- CHR RAM/ROM support: Distinguishes writable CHR RAM from read-only CHR ROM
+- No PRG RAM or IRQ support
+- Bus conflicts noted (like CNROM)
+
+**Lessons Learned:**
+- Split banking pattern common for NES (code in banks, vectors in fixed area)
+- Last bank calculation: `(rom_size + 0x3FFF) / 0x4000 - 1`
+- CHR RAM detection via header: `chr_rom_size == 0` means CHR RAM
+- Most complex banking logic so far (switchable + fixed)
+
+---
+
+**Status:** 🟢 3/5 mappers complete (60%)
+**Next Action:** Begin Phase A for MMC1 (Mapper 1)
+**Remaining Time:** ~18-24 hours
+**Updated Library Coverage:** 23% (NROM 5% + UxROM 10% + CNROM 6% + AxROM 2%)
 
 ---
 

@@ -1,6 +1,6 @@
 # NES Mapper Implementations
 
-**Status:** ✅ 3/6 mappers implemented (13% library coverage)
+**Status:** ✅ 4/6 mappers implemented (23% library coverage)
 **Priority:** HIGH (game compatibility)
 **Reference:** `docs/sessions/2025-10-14-mapper-implementation-plan.md`, `CLAUDE.md`
 
@@ -10,15 +10,15 @@ Mapper implementations for RAMBO NES Emulator using comptime generics.
 
 **Implemented Mappers:**
 - ✅ **Mapper 0 (NROM)** - `src/cartridge/mappers/Mapper0.zig` - 5% coverage (248 games)
+- ✅ **Mapper 2 (UxROM)** - `src/cartridge/mappers/Mapper2.zig` - 10% coverage (270 games)
 - ✅ **Mapper 3 (CNROM)** - `src/cartridge/mappers/Mapper3.zig` - 6% coverage (155 games)
 - ✅ **Mapper 7 (AxROM)** - `src/cartridge/mappers/Mapper7.zig` - 2% coverage (~50 games)
 
-**Total Coverage:** 13% of NES library (~453 games)
+**Total Coverage:** 23% of NES library (~723 games)
 
 **Planned Mappers** (priority order):
-1. **UxROM** (Mapper 2) - 10% coverage, 4-6 hours
-2. **MMC1** (Mapper 1) - 28% coverage, 6-8 hours
-3. **MMC3** (Mapper 4) - 25% coverage, 12-16 hours
+1. **MMC1** (Mapper 1) - 28% coverage, 6-8 hours
+2. **MMC3** (Mapper 4) - 25% coverage, 12-16 hours
 
 **Target Coverage:** ~85% of NES library
 
@@ -174,6 +174,102 @@ Implementation writes regardless of ROM value for maximum compatibility.
 - `tests/data/Captain Skyhawk (USA) (Rev 1).nes`
 - `tests/data/Marble Madness (USA).nes`
 - `tests/data/Wizards & Warriors (USA) (Rev 1).nes`
+
+---
+
+### Mapper 2: UxROM
+
+**Status:** ✅ Implemented (2025-10-14)
+**Games:** Mega Man, Castlevania, Contra, Duck Tales, Metal Gear, Prince of Persia
+**nesdev.org:** https://www.nesdev.org/wiki/UxROM
+
+**Hardware:**
+- **PRG ROM:** Up to 256KB (16 banks × 16KB)
+  - $8000-$BFFF: 16KB switchable bank (bank select via register)
+  - $C000-$FFFF: 16KB fixed to **last bank** (contains reset vector)
+- **CHR:** 8KB CHR RAM or CHR ROM (no banking)
+- **PRG Banking:** 4-bit register at $8000-$FFFF (bits 0-3)
+- **Mirroring:** Fixed by solder pads (H/V, not software-controlled)
+- **PRG RAM:** None
+- **IRQ:** None
+
+**Implementation:**
+```zig
+pub const Mapper2 = struct {
+    prg_bank: u4 = 0,  // PRG bank select (0-15)
+
+    // Switchable bank: $8000-$BFFF
+    pub fn cpuRead(self: *const Mapper2, cart: anytype, address: u16) u8 {
+        if (address >= 0x8000 and address < 0xC000) {
+            const bank_offset: usize = @as(usize, cart.mapper.prg_bank) * 0x4000;
+            const addr_offset: usize = @as(usize, address - 0x8000);
+            return cart.prg_rom[bank_offset + addr_offset];
+        }
+
+        // Fixed last bank: $C000-$FFFF
+        if (address >= 0xC000) {
+            const num_banks = (cart.prg_rom.len + 0x3FFF) / 0x4000;
+            const last_bank = if (num_banks > 0) num_banks - 1 else 0;
+            const bank_offset: usize = last_bank * 0x4000;
+            const addr_offset: usize = @as(usize, address - 0xC000);
+            return cart.prg_rom[bank_offset + addr_offset];
+        }
+
+        return 0xFF;
+    }
+
+    // Any write to $8000-$FFFF sets bank (bits 0-3)
+    pub fn cpuWrite(self: *Mapper2, _: anytype, address: u16, value: u8) void {
+        if (address >= 0x8000) {
+            self.prg_bank = @truncate(value & 0x0F);
+        }
+    }
+};
+```
+
+**Split Banking Pattern:** UxROM uses a common NES pattern where:
+- **Switchable bank** ($8000-$BFFF): Contains level data, graphics, variable code
+- **Fixed last bank** ($C000-$FFFF): Contains reset vector ($FFFC-$FFFD), NMI/IRQ vectors, and common routines
+
+This allows games to switch out content while keeping boot code and core routines always accessible.
+
+**CHR RAM vs CHR ROM:** UxROM detects CHR type via header:
+- `header.chr_rom_size == 0`: CHR RAM (writable)
+- `header.chr_rom_size > 0`: CHR ROM (read-only, writes ignored)
+
+**Bus Conflicts:** Like CNROM, UxROM is subject to bus conflicts where the CPU reads the ROM value during write. Games typically write values that match ROM contents.
+
+**Variants:**
+- **UNROM:** 3-bit bank select (8 banks, 128KB)
+- **UOROM:** 4-bit bank select (16 banks, 256KB)
+
+Implementation supports full 4-bit register for maximum compatibility.
+
+**Test Coverage:** 11 built-in tests
+- Power-on state
+- PRG bank switching (switchable area)
+- Fixed last bank (always bank 15)
+- PRG bank masking (4 bits)
+- 128KB ROM (8 banks)
+- CHR RAM writes (writable mode)
+- CHR ROM writes ignored (read-only mode)
+- Reset behavior
+- No PRG RAM support
+- IRQ interface stubs
+
+**Available Test ROMs:**
+- `tests/data/Commando (USA).nes`
+- `tests/data/DuckTales (USA).nes`
+- `tests/data/Ghosts'n Goblins (USA).nes`
+- `tests/data/Guardian Legend, The (USA).nes`
+- `tests/data/Gun.Smoke (USA).nes`
+- `tests/data/Jackal (USA).nes`
+- `tests/data/Life Force (USA) (Rev 1).nes`
+- `tests/data/Little Mermaid, The (USA).nes`
+- `tests/data/Metal Gear (USA).nes`
+- `tests/data/Prince of Persia (USA).nes`
+- `tests/data/Rush'n Attack (USA).nes`
+- `tests/data/Rygar (USA) (Rev 1).nes`
 
 ---
 
