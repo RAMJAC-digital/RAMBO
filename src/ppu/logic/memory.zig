@@ -29,6 +29,18 @@ fn mirrorNametableAddress(address: u16, mirroring: Mirroring) u16 {
     const addr = address & 0x0FFF; // Mask to $0000-$0FFF (4KB logical space)
     const nametable = (addr >> 10) & 0x03; // Extract nametable index (0-3)
 
+    // Defensive: Validate mirroring enum value is in valid range
+    // This catches uninitialized memory or corruption
+    const mirroring_value = @intFromEnum(mirroring);
+    if (mirroring_value > 3) {
+        // Invalid mirroring value - default to horizontal
+        if (nametable < 2) {
+            return addr & 0x03FF;
+        } else {
+            return 0x0400 | (addr & 0x03FF);
+        }
+    }
+
     return switch (mirroring) {
         .horizontal => blk: {
             // Horizontal mirroring (top/bottom)
