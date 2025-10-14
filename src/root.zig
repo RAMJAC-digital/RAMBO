@@ -18,6 +18,9 @@ pub const CpuMicrosteps = @import("emulation/cpu/microsteps.zig");
 /// Cartridge/ROM loader
 pub const Cartridge = @import("cartridge/Cartridge.zig");
 
+/// Cartridge file loader (dynamic and static)
+pub const CartridgeLoader = @import("cartridge/loader.zig");
+
 /// Configuration system
 pub const Config = @import("config/Config.zig");
 

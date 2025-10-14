@@ -8,10 +8,69 @@
 
 const std = @import("std");
 const Cartridge = @import("Cartridge.zig").Cartridge;
+const AnyCartridge = @import("mappers/registry.zig").AnyCartridge;
 const Mapper0 = @import("mappers/Mapper0.zig").Mapper0;
+const Mapper1 = @import("mappers/Mapper1.zig").Mapper1;
+const Mapper2 = @import("mappers/Mapper2.zig").Mapper2;
+const Mapper3 = @import("mappers/Mapper3.zig").Mapper3;
+const Mapper4 = @import("mappers/Mapper4.zig").Mapper4;
+const Mapper7 = @import("mappers/Mapper7.zig").Mapper7;
+const ines = @import("ines/mod.zig");
 
 /// Maximum ROM file size (1MB - reasonable limit for NES ROMs)
 const MAX_ROM_SIZE: usize = 1024 * 1024;
+
+/// Load any supported cartridge from file path (dynamic dispatch)
+///
+/// Reads the iNES header to determine mapper type, then loads the appropriate
+/// cartridge variant into an AnyCartridge union.
+///
+/// Returns error.UnsupportedMapper if the ROM uses a mapper we don't support.
+pub fn loadAnyCartridgeFile(
+    allocator: std.mem.Allocator,
+    path: []const u8,
+) !AnyCartridge {
+    // Open file and read data
+    const file = try std.fs.cwd().openFile(path, .{});
+    defer file.close();
+
+    const data = try file.readToEndAlloc(allocator, MAX_ROM_SIZE);
+    defer allocator.free(data);
+
+    // Parse header to determine mapper
+    if (data.len < 16) return error.InvalidRomSize;
+    const header = try ines.parseHeader(data[0..16]);
+    const mapper_num = header.getMapperNumber();
+
+    // Load appropriate cartridge type based on mapper
+    return switch (mapper_num) {
+        0 => {
+            const cart = try Cartridge(Mapper0).loadFromData(allocator, data);
+            return AnyCartridge{ .nrom = cart };
+        },
+        1 => {
+            const cart = try Cartridge(Mapper1).loadFromData(allocator, data);
+            return AnyCartridge{ .mmc1 = cart };
+        },
+        2 => {
+            const cart = try Cartridge(Mapper2).loadFromData(allocator, data);
+            return AnyCartridge{ .uxrom = cart };
+        },
+        3 => {
+            const cart = try Cartridge(Mapper3).loadFromData(allocator, data);
+            return AnyCartridge{ .cnrom = cart };
+        },
+        4 => {
+            const cart = try Cartridge(Mapper4).loadFromData(allocator, data);
+            return AnyCartridge{ .mmc3 = cart };
+        },
+        7 => {
+            const cart = try Cartridge(Mapper7).loadFromData(allocator, data);
+            return AnyCartridge{ .axrom = cart };
+        },
+        else => error.UnsupportedMapper,
+    };
+}
 
 /// Load cartridge from file path (synchronous)
 /// Reads entire file into memory, then parses as iNES format

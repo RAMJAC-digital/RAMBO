@@ -126,9 +126,8 @@ fn mainExec(ctx: zli.CommandContext) !void {
     var emu_state = RAMBO.EmulationState.EmulationState.init(&config);
     defer emu_state.deinit();
 
-    // Load ROM from command line
-    const nrom_cart = try RAMBO.Cartridge.NromCart.load(allocator, rom_path);
-    const any_cart = RAMBO.AnyCartridge{ .nrom = nrom_cart };
+    // Load ROM from command line (auto-detect mapper from iNES header)
+    const any_cart = try RAMBO.CartridgeLoader.loadAnyCartridgeFile(allocator, rom_path);
     emu_state.loadCartridge(any_cart);
 
     // Reset CPU to load reset vector and initialize state
