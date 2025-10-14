@@ -1163,12 +1163,27 @@ pub fn build(b: *std.Build) void {
 
     const run_keyboard_mapper_tests = b.addRunArtifact(keyboard_mapper_tests);
 
+    // PPUMASK warmup unit tests
+    const ppumask_warmup_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/unit/ppumask_warmup_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+
+    const run_ppumask_warmup_tests = b.addRunArtifact(ppumask_warmup_tests);
+
     // ========================================================================
     // Test Step Configuration
     // ========================================================================
 
     const test_step = b.step("test", "Run all tests");
     test_step.dependOn(&run_mod_tests.step);
+    test_step.dependOn(&run_ppumask_warmup_tests.step);
     test_step.dependOn(&run_cpu_integration_tests.step);
     test_step.dependOn(&run_arithmetic_opcode_tests.step);
     test_step.dependOn(&run_loadstore_opcode_tests.step);
@@ -1242,6 +1257,7 @@ pub fn build(b: *std.Build) void {
     unit_test_step.dependOn(&run_state_tests.step);
     unit_test_step.dependOn(&run_controller_state_tests.step);
     unit_test_step.dependOn(&run_vblank_ledger_tests.step);
+    unit_test_step.dependOn(&run_ppumask_warmup_tests.step);
     unit_test_step.dependOn(&run_apu_tests.step);
     unit_test_step.dependOn(&run_apu_length_counter_tests.step);
     unit_test_step.dependOn(&run_apu_dmc_tests.step);
@@ -1293,6 +1309,31 @@ pub fn build(b: *std.Build) void {
 
     const benchmark_release_step = b.step("bench-release", "Run release-optimized benchmark suite");
     benchmark_release_step.dependOn(&run_benchmark_release_tests.step);
+
+    // ========================================================================
+    // Diagnostic Tools
+    // ========================================================================
+
+    // Super Mario Bros execution flow diagnostic
+    const smb_diagnostic = b.addExecutable(.{
+        .name = "smb_diagnostic",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/unit/smb_diagnostic.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+
+    b.installArtifact(smb_diagnostic);
+
+    const run_smb_diagnostic = b.addRunArtifact(smb_diagnostic);
+    run_smb_diagnostic.step.dependOn(b.getInstallStep());
+
+    const smb_diagnostic_step = b.step("smb-diagnostic", "Run Super Mario Bros execution flow diagnostic");
+    smb_diagnostic_step.dependOn(&run_smb_diagnostic.step);
 
     // Just like flags, top level steps are also listed in the `--help` menu.
     //

@@ -14,6 +14,7 @@ pub const State = @import("State.zig");
 pub const Logic = @import("Logic.zig");
 pub const opcodes = @import("opcodes/mod.zig");
 pub const dispatch = @import("dispatch.zig");
+pub const decode = @import("decode.zig");
 
 pub const CpuState = State.CpuState;
 pub const StatusFlags = State.StatusFlags;

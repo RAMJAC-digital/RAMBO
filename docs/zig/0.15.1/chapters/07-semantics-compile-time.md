@@ -1,0 +1,933 @@
+<!-- Auto-generated chapter from docs/zig/0.15.1/zig-0.15.1.md -->
+[Back to chapters index](../CHAPTERS.md)  |  Split sections: ../README.md  |  Full reference: ../zig-0.15.1.md
+
+# Semantics & Compile-Time
+
+Included sections:
+- Result Location Semantics
+- comptime
+
+## [Result Location Semantics](../zig-0.15.1.md#toc-Result-Location-Semantics) <a href="../zig-0.15.1.md#Result-Location-Semantics" class="hdr">§</a>
+
+During compilation, every Zig expression and sub-expression is assigned optional result location
+information. This information dictates what type the expression should have (its result type), and
+where the resulting value should be placed in memory (its result location). The information is
+optional in the sense that not every expression has this information: assignment to
+`_`, for instance, does not provide any information about the type of an
+expression, nor does it provide a concrete memory location to place it in.
+
+As a motivating example, consider the statement <span class="tok-kw">`const`</span>` x: `<span class="tok-type">`u32`</span>` = `<span class="tok-number">`42`</span>`;`. The type
+annotation here provides a result type of <span class="tok-type">`u32`</span> to the initialization expression
+<span class="tok-number">`42`</span>, instructing the compiler to coerce this integer (initially of type
+<span class="tok-type">`comptime_int`</span>) to this type. We will see more examples shortly.
+
+This is not an implementation detail: the logic outlined above is codified into the Zig language
+specification, and is the primary mechanism of type inference in the language. This system is
+collectively referred to as "Result Location Semantics".
+
+### [Result Types](../zig-0.15.1.md#toc-Result-Types) <a href="../zig-0.15.1.md#Result-Types" class="hdr">§</a>
+
+Result types are propagated recursively through expressions where possible. For instance, if the
+expression `&e` has result type `*`<span class="tok-type">`u32`</span>, then
+`e` is given a result type of <span class="tok-type">`u32`</span>, allowing the
+language to perform this coercion before taking a reference.
+
+The result type mechanism is utilized by casting builtins such as <span class="tok-builtin">`@intCast`</span>.
+Rather than taking as an argument the type to cast to, these builtins use their result type to
+determine this information. The result type is often known from context; where it is not, the
+<span class="tok-builtin">`@as`</span> builtin can be used to explicitly provide a result type.
+
+We can break down the result types for each component of a simple expression as follows:
+
+<figure>
+<pre><code>const expectEqual = @import(&quot;std&quot;).testing.expectEqual;
+test &quot;result type propagates through struct initializer&quot; {
+    const S = struct { x: u32 };
+    const val: u64 = 123;
+    const s: S = .{ .x = @intCast(val) };
+    // .{ .x = @intCast(val) }   has result type `S` due to the type annotation
+    //         @intCast(val)     has result type `u32` due to the type of the field `S.x`
+    //                  val      has no result type, as it is permitted to be any integer type
+    try expectEqual(@as(u32, 123), s.x);
+}</code></pre>
+<figcaption>result_type_propagation.zig</figcaption>
+</figure>
+
+<figure>
+<pre><code>$ zig test result_type_propagation.zig
+1/1 result_type_propagation.test.result type propagates through struct initializer...OK
+All 1 tests passed.</code></pre>
+<figcaption>Shell</figcaption>
+</figure>
+
+This result type information is useful for the aforementioned cast builtins, as well as to avoid
+the construction of pre-coercion values, and to avoid the need for explicit type coercions in some
+cases. The following table details how some common expressions propagate result types, where
+`x` and `y` are arbitrary sub-expressions.
+
+<div class="table-wrapper">
+
+| Expression | Parent Result Type | Sub-expression Result Type |
+|----|----|----|
+| <span class="tok-kw">`const`</span>` val: T = x` | \- | `x` is a `T` |
+| <span class="tok-kw">`var`</span>` val: T = x` | \- | `x` is a `T` |
+| `val = x` | \- | `x` is a <span class="tok-builtin">`@TypeOf`</span>`(val)` |
+| <span class="tok-builtin">`@as`</span>`(T, x)` | \- | `x` is a `T` |
+| `&x` | `*T` | `x` is a `T` |
+| `&x` | `[]T` | `x` is some array of `T` |
+| `f(x)` | \- | `x` has the type of the first parameter of `f` |
+| `.{x}` | `T` | `x` is a <span class="tok-builtin">`@FieldType`</span>`(T, `<span class="tok-str">`"0"`</span>`)` |
+| `.{ .a = x }` | `T` | `x` is a <span class="tok-builtin">`@FieldType`</span>`(T, `<span class="tok-str">`"a"`</span>`)` |
+| `T{x}` | \- | `x` is a <span class="tok-builtin">`@FieldType`</span>`(T, `<span class="tok-str">`"0"`</span>`)` |
+| `T{ .a = x }` | \- | `x` is a <span class="tok-builtin">`@FieldType`</span>`(T, `<span class="tok-str">`"a"`</span>`)` |
+| <span class="tok-builtin">`@Type`</span>`(x)` | \- | `x` is a `std.builtin.Type` |
+| <span class="tok-builtin">`@typeInfo`</span>`(x)` | \- | `x` is a <span class="tok-type">`type`</span> |
+| `x << y` | \- | `y` is a `std.math.Log2IntCeil(`<span class="tok-builtin">`@TypeOf`</span>`(x))` |
+
+</div>
+
+### [Result Locations](../zig-0.15.1.md#toc-Result-Locations) <a href="../zig-0.15.1.md#Result-Locations" class="hdr">§</a>
+
+In addition to result type information, every expression may be optionally assigned a result
+location: a pointer to which the value must be directly written. This system can be used to prevent
+intermediate copies when initializing data structures, which can be important for types which must
+have a fixed memory address ("pinned" types).
+
+When compiling the simple assignment expression `x = e`, many languages would
+create the temporary value `e` on the stack, and then assign it to
+`x`, potentially performing a type coercion in the process. Zig approaches this
+differently. The expression `e` is given a result type matching the type of
+`x`, and a result location of `&x`. For many syntactic
+forms of `e`, this has no practical impact. However, it can have important
+semantic effects when working with more complex syntax forms.
+
+For instance, if the expression `.{ .a = x, .b = y }` has a result location of
+`ptr`, then `x` is given a result location of
+`&ptr.a`, and `y` a result location of `&ptr.b`.
+Without this system, this expression would construct a temporary struct value entirely on the stack, and
+only then copy it to the destination address. In essence, Zig desugars the assignment
+`foo = .{ .a = x, .b = y }` to the two statements `foo.a = x; foo.b = y;`.
+
+This can sometimes be important when assigning an aggregate value where the initialization
+expression depends on the previous value of the aggregate. The easiest way to demonstrate this is by
+attempting to swap fields of a struct or array - the following logic looks sound, but in fact is not:
+
+<figure>
+<pre><code>const expect = @import(&quot;std&quot;).testing.expect;
+test &quot;attempt to swap array elements with array initializer&quot; {
+    var arr: [2]u32 = .{ 1, 2 };
+    arr = .{ arr[1], arr[0] };
+    // The previous line is equivalent to the following two lines:
+    //   arr[0] = arr[1];
+    //   arr[1] = arr[0];
+    // So this fails!
+    try expect(arr[0] == 2); // succeeds
+    try expect(arr[1] == 1); // fails
+}</code></pre>
+<figcaption>result_location_interfering_with_swap.zig</figcaption>
+</figure>
+
+<figure>
+<pre><code>$ zig test result_location_interfering_with_swap.zig
+1/1 result_location_interfering_with_swap.test.attempt to swap array elements with array initializer...FAIL (TestUnexpectedResult)
+/home/andy/dev/zig/lib/std/testing.zig:607:14: 0x102f019 in expect (std.zig)
+    if (!ok) return error.TestUnexpectedResult;
+             ^
+/home/andy/dev/zig/doc/langref/result_location_interfering_with_swap.zig:10:5: 0x102f144 in test.attempt to swap array elements with array initializer (result_location_interfering_with_swap.zig)
+    try expect(arr[1] == 1); // fails
+    ^
+0 passed; 0 skipped; 1 failed.
+error: the following test command failed with exit code 1:
+/home/andy/dev/zig/.zig-cache/o/a8056b54531d62dabec9b7d39a01cdc4/test --seed=0x22452da4</code></pre>
+<figcaption>Shell</figcaption>
+</figure>
+
+The following table details how some common expressions propagate result locations, where
+`x` and `y` are arbitrary sub-expressions. Note that
+some expressions cannot provide meaningful result locations to sub-expressions, even if they
+themselves have a result location.
+
+<div class="table-wrapper">
+
+| Expression | Result Location | Sub-expression Result Locations |
+|----|----|----|
+| <span class="tok-kw">`const`</span>` val: T = x` | \- | `x` has result location `&val` |
+| <span class="tok-kw">`var`</span>` val: T = x` | \- | `x` has result location `&val` |
+| `val = x` | \- | `x` has result location `&val` |
+| <span class="tok-builtin">`@as`</span>`(T, x)` | `ptr` | `x` has no result location |
+| `&x` | `ptr` | `x` has no result location |
+| `f(x)` | `ptr` | `x` has no result location |
+| `.{x}` | `ptr` | `x` has result location `&ptr[`<span class="tok-number">`0`</span>`]` |
+| `.{ .a = x }` | `ptr` | `x` has result location `&ptr.a` |
+| `T{x}` | `ptr` | `x` has no result location (typed initializers do not propagate result locations) |
+| `T{ .a = x }` | `ptr` | `x` has no result location (typed initializers do not propagate result locations) |
+| <span class="tok-builtin">`@Type`</span>`(x)` | `ptr` | `x` has no result location |
+| <span class="tok-builtin">`@typeInfo`</span>`(x)` | `ptr` | `x` has no result location |
+| `x << y` | `ptr` | `x` and `y` do not have result locations |
+
+</div>
+
+## [comptime](../zig-0.15.1.md#toc-comptime) <a href="../zig-0.15.1.md#comptime" class="hdr">§</a>
+
+Zig places importance on the concept of whether an expression is known at compile-time.
+There are a few different places this concept is used, and these building blocks are used
+to keep the language small, readable, and powerful.
+
+### [Introducing the Compile-Time Concept](../zig-0.15.1.md#toc-Introducing-the-Compile-Time-Concept) <a href="../zig-0.15.1.md#Introducing-the-Compile-Time-Concept" class="hdr">§</a>
+
+#### [Compile-Time Parameters](../zig-0.15.1.md#toc-Compile-Time-Parameters) <a href="../zig-0.15.1.md#Compile-Time-Parameters" class="hdr">§</a>
+
+Compile-time parameters is how Zig implements generics. It is compile-time duck typing.
+
+<figure>
+<pre><code>fn max(comptime T: type, a: T, b: T) T {
+    return if (a &gt; b) a else b;
+}
+fn gimmeTheBiggerFloat(a: f32, b: f32) f32 {
+    return max(f32, a, b);
+}
+fn gimmeTheBiggerInteger(a: u64, b: u64) u64 {
+    return max(u64, a, b);
+}</code></pre>
+<figcaption>compile-time_duck_typing.zig</figcaption>
+</figure>
+
+In Zig, types are first-class citizens. They can be assigned to variables, passed as parameters to functions,
+and returned from functions. However, they can only be used in expressions which are known at *compile-time*,
+which is why the parameter `T` in the above snippet must be marked with <span class="tok-kw">`comptime`</span>.
+
+A <span class="tok-kw">`comptime`</span> parameter means that:
+
+- At the callsite, the value must be known at compile-time, or it is a compile error.
+- In the function definition, the value is known at compile-time.
+
+For example, if we were to introduce another function to the above snippet:
+
+<figure>
+<pre><code>fn max(comptime T: type, a: T, b: T) T {
+    return if (a &gt; b) a else b;
+}
+test &quot;try to pass a runtime type&quot; {
+    foo(false);
+}
+fn foo(condition: bool) void {
+    const result = max(if (condition) f32 else u64, 1234, 5678);
+    _ = result;
+}</code></pre>
+<figcaption>test_unresolved_comptime_value.zig</figcaption>
+</figure>
+
+<figure>
+<pre><code>$ zig test test_unresolved_comptime_value.zig
+/home/andy/dev/zig/doc/langref/test_unresolved_comptime_value.zig:8:28: error: unable to resolve comptime value
+    const result = max(if (condition) f32 else u64, 1234, 5678);
+                           ^~~~~~~~~
+/home/andy/dev/zig/doc/langref/test_unresolved_comptime_value.zig:8:24: note: argument to comptime parameter must be comptime-known
+    const result = max(if (condition) f32 else u64, 1234, 5678);
+                       ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/andy/dev/zig/doc/langref/test_unresolved_comptime_value.zig:1:8: note: parameter declared comptime here
+fn max(comptime T: type, a: T, b: T) T {
+       ^~~~~~~~
+referenced by:
+    test.try to pass a runtime type: /home/andy/dev/zig/doc/langref/test_unresolved_comptime_value.zig:5:8
+</code></pre>
+<figcaption>Shell</figcaption>
+</figure>
+
+This is an error because the programmer attempted to pass a value only known at run-time
+to a function which expects a value known at compile-time.
+
+Another way to get an error is if we pass a type that violates the type checker when the
+function is analyzed. This is what it means to have *compile-time duck typing*.
+
+For example:
+
+<figure>
+<pre><code>fn max(comptime T: type, a: T, b: T) T {
+    return if (a &gt; b) a else b;
+}
+test &quot;try to compare bools&quot; {
+    _ = max(bool, true, false);
+}</code></pre>
+<figcaption>test_comptime_mismatched_type.zig</figcaption>
+</figure>
+
+<figure>
+<pre><code>$ zig test test_comptime_mismatched_type.zig
+/home/andy/dev/zig/doc/langref/test_comptime_mismatched_type.zig:2:18: error: operator &gt; not allowed for type &#39;bool&#39;
+    return if (a &gt; b) a else b;
+               ~~^~~
+referenced by:
+    test.try to compare bools: /home/andy/dev/zig/doc/langref/test_comptime_mismatched_type.zig:5:12
+</code></pre>
+<figcaption>Shell</figcaption>
+</figure>
+
+On the flip side, inside the function definition with the <span class="tok-kw">`comptime`</span> parameter, the
+value is known at compile-time. This means that we actually could make this work for the bool type
+if we wanted to:
+
+<figure>
+<pre><code>fn max(comptime T: type, a: T, b: T) T {
+    if (T == bool) {
+        return a or b;
+    } else if (a &gt; b) {
+        return a;
+    } else {
+        return b;
+    }
+}
+test &quot;try to compare bools&quot; {
+    try @import(&quot;std&quot;).testing.expect(max(bool, false, true) == true);
+}</code></pre>
+<figcaption>test_comptime_max_with_bool.zig</figcaption>
+</figure>
+
+<figure>
+<pre><code>$ zig test test_comptime_max_with_bool.zig
+1/1 test_comptime_max_with_bool.test.try to compare bools...OK
+All 1 tests passed.</code></pre>
+<figcaption>Shell</figcaption>
+</figure>
+
+This works because Zig implicitly inlines <span class="tok-kw">`if`</span> expressions when the condition
+is known at compile-time, and the compiler guarantees that it will skip analysis of
+the branch not taken.
+
+This means that the actual function generated for `max` in this situation looks like
+this:
+
+<figure>
+<pre><code>fn max(a: bool, b: bool) bool {
+    {
+        return a or b;
+    }
+}</code></pre>
+<figcaption>compiler_generated_function.zig</figcaption>
+</figure>
+
+All the code that dealt with compile-time known values is eliminated and we are left with only
+the necessary run-time code to accomplish the task.
+
+This works the same way for <span class="tok-kw">`switch`</span> expressions - they are implicitly inlined
+when the target expression is compile-time known.
+
+#### [Compile-Time Variables](../zig-0.15.1.md#toc-Compile-Time-Variables) <a href="../zig-0.15.1.md#Compile-Time-Variables" class="hdr">§</a>
+
+In Zig, the programmer can label variables as <span class="tok-kw">`comptime`</span>. This guarantees to the compiler
+that every load and store of the variable is performed at compile-time. Any violation of this results in a
+compile error.
+
+This combined with the fact that we can <span class="tok-kw">`inline`</span> loops allows us to write
+a function which is partially evaluated at compile-time and partially at run-time.
+
+For example:
+
+<figure>
+<pre><code>const expect = @import(&quot;std&quot;).testing.expect;
+
+const CmdFn = struct {
+    name: []const u8,
+    func: fn (i32) i32,
+};
+
+const cmd_fns = [_]CmdFn{
+    CmdFn{ .name = &quot;one&quot;, .func = one },
+    CmdFn{ .name = &quot;two&quot;, .func = two },
+    CmdFn{ .name = &quot;three&quot;, .func = three },
+};
+fn one(value: i32) i32 {
+    return value + 1;
+}
+fn two(value: i32) i32 {
+    return value + 2;
+}
+fn three(value: i32) i32 {
+    return value + 3;
+}
+
+fn performFn(comptime prefix_char: u8, start_value: i32) i32 {
+    var result: i32 = start_value;
+    comptime var i = 0;
+    inline while (i &lt; cmd_fns.len) : (i += 1) {
+        if (cmd_fns[i].name[0] == prefix_char) {
+            result = cmd_fns[i].func(result);
+        }
+    }
+    return result;
+}
+
+test &quot;perform fn&quot; {
+    try expect(performFn(&#39;t&#39;, 1) == 6);
+    try expect(performFn(&#39;o&#39;, 0) == 1);
+    try expect(performFn(&#39;w&#39;, 99) == 99);
+}</code></pre>
+<figcaption>test_comptime_evaluation.zig</figcaption>
+</figure>
+
+<figure>
+<pre><code>$ zig test test_comptime_evaluation.zig
+1/1 test_comptime_evaluation.test.perform fn...OK
+All 1 tests passed.</code></pre>
+<figcaption>Shell</figcaption>
+</figure>
+
+This example is a bit contrived, because the compile-time evaluation component is unnecessary;
+this code would work fine if it was all done at run-time. But it does end up generating
+different code. In this example, the function `performFn` is generated three different times,
+for the different values of `prefix_char` provided:
+
+<figure>
+<pre><code>// From the line:
+// expect(performFn(&#39;t&#39;, 1) == 6);
+fn performFn(start_value: i32) i32 {
+    var result: i32 = start_value;
+    result = two(result);
+    result = three(result);
+    return result;
+}</code></pre>
+<figcaption>performFn_1</figcaption>
+</figure>
+
+<figure>
+<pre><code>// From the line:
+// expect(performFn(&#39;o&#39;, 0) == 1);
+fn performFn(start_value: i32) i32 {
+    var result: i32 = start_value;
+    result = one(result);
+    return result;
+}</code></pre>
+<figcaption>performFn_2</figcaption>
+</figure>
+
+<figure>
+<pre><code>// From the line:
+// expect(performFn(&#39;w&#39;, 99) == 99);
+fn performFn(start_value: i32) i32 {
+    var result: i32 = start_value;
+    _ = &amp;result;
+    return result;
+}</code></pre>
+<figcaption>performFn_3</figcaption>
+</figure>
+
+Note that this happens even in a debug build.
+This is not a way to write more optimized code, but it is a way to make sure that what *should* happen
+at compile-time, *does* happen at compile-time. This catches more errors and allows expressiveness
+that in other languages requires using macros, generated code, or a preprocessor to accomplish.
+
+#### [Compile-Time Expressions](../zig-0.15.1.md#toc-Compile-Time-Expressions) <a href="../zig-0.15.1.md#Compile-Time-Expressions" class="hdr">§</a>
+
+In Zig, it matters whether a given expression is known at compile-time or run-time. A programmer can
+use a <span class="tok-kw">`comptime`</span> expression to guarantee that the expression will be evaluated at compile-time.
+If this cannot be accomplished, the compiler will emit an error. For example:
+
+<figure>
+<pre><code>extern fn exit() noreturn;
+
+test &quot;foo&quot; {
+    comptime {
+        exit();
+    }
+}</code></pre>
+<figcaption>test_comptime_call_extern_function.zig</figcaption>
+</figure>
+
+<figure>
+<pre><code>$ zig test test_comptime_call_extern_function.zig
+/home/andy/dev/zig/doc/langref/test_comptime_call_extern_function.zig:5:13: error: comptime call of extern function
+        exit();
+        ~~~~^~
+/home/andy/dev/zig/doc/langref/test_comptime_call_extern_function.zig:4:5: note: &#39;comptime&#39; keyword forces comptime evaluation
+    comptime {
+    ^~~~~~~~
+</code></pre>
+<figcaption>Shell</figcaption>
+</figure>
+
+It doesn't make sense that a program could call `exit()` (or any other external function)
+at compile-time, so this is a compile error. However, a <span class="tok-kw">`comptime`</span> expression does much
+more than sometimes cause a compile error.
+
+Within a <span class="tok-kw">`comptime`</span> expression:
+
+- All variables are <span class="tok-kw">`comptime`</span> variables.
+- All <span class="tok-kw">`if`</span>, <span class="tok-kw">`while`</span>, <span class="tok-kw">`for`</span>, and <span class="tok-kw">`switch`</span>
+  expressions are evaluated at compile-time, or emit a compile error if this is not possible.
+- All <span class="tok-kw">`return`</span> and <span class="tok-kw">`try`</span> expressions are invalid (unless the function itself is called at compile-time).
+- All code with runtime side effects or depending on runtime values emits a compile error.
+- All function calls cause the compiler to interpret the function at compile-time, emitting a
+  compile error if the function tries to do something that has global runtime side effects.
+
+This means that a programmer can create a function which is called both at compile-time and run-time, with
+no modification to the function required.
+
+Let's look at an example:
+
+<figure>
+<pre><code>const expect = @import(&quot;std&quot;).testing.expect;
+
+fn fibonacci(index: u32) u32 {
+    if (index &lt; 2) return index;
+    return fibonacci(index - 1) + fibonacci(index - 2);
+}
+
+test &quot;fibonacci&quot; {
+    // test fibonacci at run-time
+    try expect(fibonacci(7) == 13);
+
+    // test fibonacci at compile-time
+    try comptime expect(fibonacci(7) == 13);
+}</code></pre>
+<figcaption>test_fibonacci_recursion.zig</figcaption>
+</figure>
+
+<figure>
+<pre><code>$ zig test test_fibonacci_recursion.zig
+1/1 test_fibonacci_recursion.test.fibonacci...OK
+All 1 tests passed.</code></pre>
+<figcaption>Shell</figcaption>
+</figure>
+
+Imagine if we had forgotten the base case of the recursive function and tried to run the tests:
+
+<figure>
+<pre><code>const expect = @import(&quot;std&quot;).testing.expect;
+
+fn fibonacci(index: u32) u32 {
+    //if (index &lt; 2) return index;
+    return fibonacci(index - 1) + fibonacci(index - 2);
+}
+
+test &quot;fibonacci&quot; {
+    try comptime expect(fibonacci(7) == 13);
+}</code></pre>
+<figcaption>test_fibonacci_comptime_overflow.zig</figcaption>
+</figure>
+
+<figure>
+<pre><code>$ zig test test_fibonacci_comptime_overflow.zig
+/home/andy/dev/zig/doc/langref/test_fibonacci_comptime_overflow.zig:5:28: error: overflow of integer type &#39;u32&#39; with value &#39;-1&#39;
+    return fibonacci(index - 1) + fibonacci(index - 2);
+                     ~~~~~~^~~
+/home/andy/dev/zig/doc/langref/test_fibonacci_comptime_overflow.zig:5:21: note: called at comptime here (7 times)
+    return fibonacci(index - 1) + fibonacci(index - 2);
+           ~~~~~~~~~^~~~~~~~~~~
+/home/andy/dev/zig/doc/langref/test_fibonacci_comptime_overflow.zig:9:34: note: called at comptime here
+    try comptime expect(fibonacci(7) == 13);
+                        ~~~~~~~~~^~~
+</code></pre>
+<figcaption>Shell</figcaption>
+</figure>
+
+The compiler produces an error which is a stack trace from trying to evaluate the
+function at compile-time.
+
+Luckily, we used an unsigned integer, and so when we tried to subtract 1 from 0, it triggered
+[Illegal Behavior](../zig-0.15.1.md#Illegal-Behavior), which is always a compile error if the compiler knows it happened.
+But what would have happened if we used a signed integer?
+
+<figure>
+<pre><code>const assert = @import(&quot;std&quot;).debug.assert;
+
+fn fibonacci(index: i32) i32 {
+    //if (index &lt; 2) return index;
+    return fibonacci(index - 1) + fibonacci(index - 2);
+}
+
+test &quot;fibonacci&quot; {
+    try comptime assert(fibonacci(7) == 13);
+}</code></pre>
+<figcaption>fibonacci_comptime_infinite_recursion.zig</figcaption>
+</figure>
+
+The compiler is supposed to notice that evaluating this function at
+compile-time took more than 1000 branches, and thus emits an error and
+gives up. If the programmer wants to increase the budget for compile-time
+computation, they can use a built-in function called
+[@setEvalBranchQuota](../zig-0.15.1.md#setEvalBranchQuota) to change the default number 1000 to
+something else.
+
+However, there is a [design
+flaw in the compiler](https://github.com/ziglang/zig/issues/13724) causing it to stack overflow instead of having the proper
+behavior here. I'm terribly sorry about that. I hope to get this resolved
+before the next release.
+
+What if we fix the base case, but put the wrong value in the
+`expect` line?
+
+<figure>
+<pre><code>const assert = @import(&quot;std&quot;).debug.assert;
+
+fn fibonacci(index: i32) i32 {
+    if (index &lt; 2) return index;
+    return fibonacci(index - 1) + fibonacci(index - 2);
+}
+
+test &quot;fibonacci&quot; {
+    try comptime assert(fibonacci(7) == 99999);
+}</code></pre>
+<figcaption>test_fibonacci_comptime_unreachable.zig</figcaption>
+</figure>
+
+<figure>
+<pre><code>$ zig test test_fibonacci_comptime_unreachable.zig
+/home/andy/dev/zig/lib/std/debug.zig:559:14: error: reached unreachable code
+    if (!ok) unreachable; // assertion failure
+             ^~~~~~~~~~~
+/home/andy/dev/zig/doc/langref/test_fibonacci_comptime_unreachable.zig:9:24: note: called at comptime here
+    try comptime assert(fibonacci(7) == 99999);
+                 ~~~~~~^~~~~~~~~~~~~~~~~~~~~~~
+</code></pre>
+<figcaption>Shell</figcaption>
+</figure>
+
+At [container](../zig-0.15.1.md#Containers) level (outside of any function), all expressions are implicitly
+<span class="tok-kw">`comptime`</span> expressions. This means that we can use functions to
+initialize complex static data. For example:
+
+<figure>
+<pre><code>const first_25_primes = firstNPrimes(25);
+const sum_of_first_25_primes = sum(&amp;first_25_primes);
+
+fn firstNPrimes(comptime n: usize) [n]i32 {
+    var prime_list: [n]i32 = undefined;
+    var next_index: usize = 0;
+    var test_number: i32 = 2;
+    while (next_index &lt; prime_list.len) : (test_number += 1) {
+        var test_prime_index: usize = 0;
+        var is_prime = true;
+        while (test_prime_index &lt; next_index) : (test_prime_index += 1) {
+            if (test_number % prime_list[test_prime_index] == 0) {
+                is_prime = false;
+                break;
+            }
+        }
+        if (is_prime) {
+            prime_list[next_index] = test_number;
+            next_index += 1;
+        }
+    }
+    return prime_list;
+}
+
+fn sum(numbers: []const i32) i32 {
+    var result: i32 = 0;
+    for (numbers) |x| {
+        result += x;
+    }
+    return result;
+}
+
+test &quot;variable values&quot; {
+    try @import(&quot;std&quot;).testing.expect(sum_of_first_25_primes == 1060);
+}</code></pre>
+<figcaption>test_container-level_comptime_expressions.zig</figcaption>
+</figure>
+
+<figure>
+<pre><code>$ zig test test_container-level_comptime_expressions.zig
+1/1 test_container-level_comptime_expressions.test.variable values...OK
+All 1 tests passed.</code></pre>
+<figcaption>Shell</figcaption>
+</figure>
+
+When we compile this program, Zig generates the constants
+with the answer pre-computed. Here are the lines from the generated LLVM IR:
+
+``` llvm
+@0 = internal unnamed_addr constant [25 x i32] [i32 2, i32 3, i32 5, i32 7, i32 11, i32 13, i32 17, i32 19, i32 23, i32 29, i32 31, i32 37, i32 41, i32 43, i32 47, i32 53, i32 59, i32 61, i32 67, i32 71, i32 73, i32 79, i32 83, i32 89, i32 97]
+@1 = internal unnamed_addr constant i32 1060
+```
+
+Note that we did not have to do anything special with the syntax of these functions. For example,
+we could call the `sum` function as is with a slice of numbers whose length and values were
+only known at run-time.
+
+### [Generic Data Structures](../zig-0.15.1.md#toc-Generic-Data-Structures) <a href="../zig-0.15.1.md#Generic-Data-Structures" class="hdr">§</a>
+
+Zig uses comptime capabilities to implement generic data structures without introducing any
+special-case syntax.
+
+Here is an example of a generic `List` data structure.
+
+<figure>
+<pre><code>fn List(comptime T: type) type {
+    return struct {
+        items: []T,
+        len: usize,
+    };
+}
+
+// The generic List data structure can be instantiated by passing in a type:
+var buffer: [10]i32 = undefined;
+var list = List(i32){
+    .items = &amp;buffer,
+    .len = 0,
+};</code></pre>
+<figcaption>generic_data_structure.zig</figcaption>
+</figure>
+
+That's it. It's a function that returns an anonymous <span class="tok-kw">`struct`</span>.
+For the purposes of error messages and debugging, Zig infers the name
+<span class="tok-str">`"List(i32)"`</span> from the function name and parameters invoked when creating
+the anonymous struct.
+
+To explicitly give a type a name, we assign it to a constant.
+
+<figure>
+<pre><code>const Node = struct {
+    next: ?*Node,
+    name: []const u8,
+};
+
+var node_a = Node{
+    .next = null,
+    .name = &quot;Node A&quot;,
+};
+
+var node_b = Node{
+    .next = &amp;node_a,
+    .name = &quot;Node B&quot;,
+};</code></pre>
+<figcaption>anonymous_struct_name.zig</figcaption>
+</figure>
+
+In this example, the `Node` struct refers to itself.
+This works because all top level declarations are order-independent.
+As long as the compiler can determine the size of the struct, it is free to refer to itself.
+In this case, `Node` refers to itself as a pointer, which has a
+well-defined size at compile time, so it works fine.
+
+### [Case Study: print in Zig](../zig-0.15.1.md#toc-Case-Study-print-in-Zig) <a href="../zig-0.15.1.md#Case-Study-print-in-Zig" class="hdr">§</a>
+
+Putting all of this together, let's see how `print` works in Zig.
+
+<figure>
+<pre><code>const print = @import(&quot;std&quot;).debug.print;
+
+const a_number: i32 = 1234;
+const a_string = &quot;foobar&quot;;
+
+pub fn main() void {
+    print(&quot;here is a string: &#39;{s}&#39; here is a number: {}\n&quot;, .{ a_string, a_number });
+}</code></pre>
+<figcaption>print.zig</figcaption>
+</figure>
+
+<figure>
+<pre><code>$ zig build-exe print.zig
+$ ./print
+here is a string: &#39;foobar&#39; here is a number: 1234</code></pre>
+<figcaption>Shell</figcaption>
+</figure>
+
+Let's crack open the implementation of this and see how it works:
+
+<figure>
+<pre><code>const Writer = struct {
+    /// Calls print and then flushes the buffer.
+    pub fn print(self: *Writer, comptime format: []const u8, args: anytype) anyerror!void {
+        const State = enum {
+            start,
+            open_brace,
+            close_brace,
+        };
+
+        comptime var start_index: usize = 0;
+        comptime var state = State.start;
+        comptime var next_arg: usize = 0;
+
+        inline for (format, 0..) |c, i| {
+            switch (state) {
+                State.start =&gt; switch (c) {
+                    &#39;{&#39; =&gt; {
+                        if (start_index &lt; i) try self.write(format[start_index..i]);
+                        state = State.open_brace;
+                    },
+                    &#39;}&#39; =&gt; {
+                        if (start_index &lt; i) try self.write(format[start_index..i]);
+                        state = State.close_brace;
+                    },
+                    else =&gt; {},
+                },
+                State.open_brace =&gt; switch (c) {
+                    &#39;{&#39; =&gt; {
+                        state = State.start;
+                        start_index = i;
+                    },
+                    &#39;}&#39; =&gt; {
+                        try self.printValue(args[next_arg]);
+                        next_arg += 1;
+                        state = State.start;
+                        start_index = i + 1;
+                    },
+                    &#39;s&#39; =&gt; {
+                        continue;
+                    },
+                    else =&gt; @compileError(&quot;Unknown format character: &quot; ++ [1]u8{c}),
+                },
+                State.close_brace =&gt; switch (c) {
+                    &#39;}&#39; =&gt; {
+                        state = State.start;
+                        start_index = i;
+                    },
+                    else =&gt; @compileError(&quot;Single &#39;}&#39; encountered in format string&quot;),
+                },
+            }
+        }
+        comptime {
+            if (args.len != next_arg) {
+                @compileError(&quot;Unused arguments&quot;);
+            }
+            if (state != State.start) {
+                @compileError(&quot;Incomplete format string: &quot; ++ format);
+            }
+        }
+        if (start_index &lt; format.len) {
+            try self.write(format[start_index..format.len]);
+        }
+        try self.flush();
+    }
+
+    fn write(self: *Writer, value: []const u8) !void {
+        _ = self;
+        _ = value;
+    }
+    pub fn printValue(self: *Writer, value: anytype) !void {
+        _ = self;
+        _ = value;
+    }
+    fn flush(self: *Writer) !void {
+        _ = self;
+    }
+};</code></pre>
+<figcaption>poc_print_fn.zig</figcaption>
+</figure>
+
+This is a proof of concept implementation; the actual function in the standard library has more
+formatting capabilities.
+
+Note that this is not hard-coded into the Zig compiler; this is userland code in the standard library.
+
+When this function is analyzed from our example code above, Zig partially evaluates the function
+and emits a function that actually looks like this:
+
+<figure>
+<pre><code>pub fn print(self: *Writer, arg0: []const u8, arg1: i32) !void {
+    try self.write(&quot;here is a string: &#39;&quot;);
+    try self.printValue(arg0);
+    try self.write(&quot;&#39; here is a number: &quot;);
+    try self.printValue(arg1);
+    try self.write(&quot;\n&quot;);
+    try self.flush();
+}</code></pre>
+<figcaption>Emitted print Function</figcaption>
+</figure>
+
+`printValue` is a function that takes a parameter of any type, and does different things depending
+on the type:
+
+<figure>
+<pre><code>const Writer = struct {
+    pub fn printValue(self: *Writer, value: anytype) !void {
+        switch (@typeInfo(@TypeOf(value))) {
+            .int =&gt; {
+                return self.writeInt(value);
+            },
+            .float =&gt; {
+                return self.writeFloat(value);
+            },
+            .pointer =&gt; {
+                return self.write(value);
+            },
+            else =&gt; {
+                @compileError(&quot;Unable to print type &#39;&quot; ++ @typeName(@TypeOf(value)) ++ &quot;&#39;&quot;);
+            },
+        }
+    }
+
+    fn write(self: *Writer, value: []const u8) !void {
+        _ = self;
+        _ = value;
+    }
+    fn writeInt(self: *Writer, value: anytype) !void {
+        _ = self;
+        _ = value;
+    }
+    fn writeFloat(self: *Writer, value: anytype) !void {
+        _ = self;
+        _ = value;
+    }
+};</code></pre>
+<figcaption>poc_printValue_fn.zig</figcaption>
+</figure>
+
+And now, what happens if we give too many arguments to `print`?
+
+<figure>
+<pre><code>const print = @import(&quot;std&quot;).debug.print;
+
+const a_number: i32 = 1234;
+const a_string = &quot;foobar&quot;;
+
+test &quot;print too many arguments&quot; {
+    print(&quot;here is a string: &#39;{s}&#39; here is a number: {}\n&quot;, .{
+        a_string,
+        a_number,
+        a_number,
+    });
+}</code></pre>
+<figcaption>test_print_too_many_args.zig</figcaption>
+</figure>
+
+<figure>
+<pre><code>$ zig test test_print_too_many_args.zig
+/home/andy/dev/zig/lib/std/Io/Writer.zig:717:18: error: unused argument in &#39;here is a string: &#39;{s}&#39; here is a number: {}
+                                                        &#39;
+            1 =&gt; @compileError(&quot;unused argument in &#39;&quot; ++ fmt ++ &quot;&#39;&quot;),
+                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+referenced by:
+    print__anon_454: /home/andy/dev/zig/lib/std/debug.zig:231:23
+    test.print too many arguments: /home/andy/dev/zig/doc/langref/test_print_too_many_args.zig:7:10
+</code></pre>
+<figcaption>Shell</figcaption>
+</figure>
+
+Zig gives programmers the tools needed to protect themselves against their own mistakes.
+
+Zig doesn't care whether the format argument is a string literal,
+only that it is a compile-time known value that can be coerced to a `[]`<span class="tok-kw">`const`</span>` `<span class="tok-type">`u8`</span>:
+
+<figure>
+<pre><code>const print = @import(&quot;std&quot;).debug.print;
+
+const a_number: i32 = 1234;
+const a_string = &quot;foobar&quot;;
+const fmt = &quot;here is a string: &#39;{s}&#39; here is a number: {}\n&quot;;
+
+pub fn main() void {
+    print(fmt, .{ a_string, a_number });
+}</code></pre>
+<figcaption>print_comptime-known_format.zig</figcaption>
+</figure>
+
+<figure>
+<pre><code>$ zig build-exe print_comptime-known_format.zig
+$ ./print_comptime-known_format
+here is a string: &#39;foobar&#39; here is a number: 1234</code></pre>
+<figcaption>Shell</figcaption>
+</figure>
+
+This works fine.
+
+Zig does not special case string formatting in the compiler and instead exposes enough power to accomplish this
+task in userland. It does so without introducing another language on top of Zig, such as
+a macro language or a preprocessor language. It's Zig all the way down.
+
+See also:
+
+- [inline while](../zig-0.15.1.md#inline-while)
+- [inline for](../zig-0.15.1.md#inline-for)
+
+

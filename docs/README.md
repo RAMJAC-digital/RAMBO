@@ -119,7 +119,9 @@ Offline copies of key external resources are tracked for quick access:
 | [`docs/nesdev/the-frame-and-nmis.md`](nesdev/the-frame-and-nmis.md) | NESdev “The frame and NMIs” |
 | [`docs/nesdev/nmi.md`](nesdev/nmi.md) | NESdev “NMI” overview |
 | [`docs/nesdev/ppu-frame-timing.md`](nesdev/ppu-frame-timing.md) | NESdev “PPU frame timing” |
-| [`docs/zig/zig-0.15.1.md`](zig/zig-0.15.1.md) | Zig 0.15.1 language reference |
+| [`docs/zig/0.15.1/zig-0.15.1.md`](zig/0.15.1/zig-0.15.1.md) | Zig 0.15.1 language reference (one-page) |
+| [`docs/zig/0.15.1/README.md`](zig/0.15.1/README.md) | Zig 0.15.1 reference (per-section index) |
+| [`docs/zig/0.15.1/CHAPTERS.md`](zig/0.15.1/CHAPTERS.md) | Zig 0.15.1 reference (chapters index) |
 
 These snapshots are regenerated with `pandoc` to keep the documentation bundle self-contained.
 
