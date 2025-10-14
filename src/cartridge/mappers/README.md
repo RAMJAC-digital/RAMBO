@@ -1,6 +1,6 @@
 # NES Mapper Implementations
 
-**Status:** ✅ 4/6 mappers implemented (23% library coverage)
+**Status:** ✅ 5/6 mappers implemented (51% library coverage)
 **Priority:** HIGH (game compatibility)
 **Reference:** `docs/sessions/2025-10-14-mapper-implementation-plan.md`, `CLAUDE.md`
 
@@ -10,15 +10,15 @@ Mapper implementations for RAMBO NES Emulator using comptime generics.
 
 **Implemented Mappers:**
 - ✅ **Mapper 0 (NROM)** - `src/cartridge/mappers/Mapper0.zig` - 5% coverage (248 games)
+- ✅ **Mapper 1 (MMC1)** - `src/cartridge/mappers/Mapper1.zig` - 28% coverage (681 games)
 - ✅ **Mapper 2 (UxROM)** - `src/cartridge/mappers/Mapper2.zig` - 10% coverage (270 games)
 - ✅ **Mapper 3 (CNROM)** - `src/cartridge/mappers/Mapper3.zig` - 6% coverage (155 games)
 - ✅ **Mapper 7 (AxROM)** - `src/cartridge/mappers/Mapper7.zig` - 2% coverage (~50 games)
 
-**Total Coverage:** 23% of NES library (~723 games)
+**Total Coverage:** 51% of NES library (~1,404 games)
 
 **Planned Mappers** (priority order):
-1. **MMC1** (Mapper 1) - 28% coverage, 6-8 hours
-2. **MMC3** (Mapper 4) - 25% coverage, 12-16 hours
+1. **MMC3** (Mapper 4) - 25% coverage, 12-16 hours
 
 **Target Coverage:** ~85% of NES library
 
@@ -40,6 +40,181 @@ pub const Mmc1Cart = Cartridge(Mmc1);
 ```
 
 ## Mapper Details
+
+### Mapper 1: MMC1
+
+**Status:** ✅ Implemented (2025-10-14)
+**Games:** The Legend of Zelda, Metroid, Mega Man 2, Kid Icarus, Final Fantasy
+**nesdev.org:** https://www.nesdev.org/wiki/MMC1
+
+**Hardware:**
+- **PRG ROM:** Up to 512KB (32 banks × 16KB)
+- **CHR ROM/RAM:** Up to 128KB (16 banks × 8KB)
+- **PRG RAM:** Up to 32KB at $6000-$7FFF (battery-backed for saves)
+- **Banking Modes:** Multiple PRG/CHR modes via control register
+- **Mirroring:** Software-controlled (H/V/single-screen)
+- **Protocol:** 5-bit shift register (serial writes)
+- **IRQ:** None
+
+**Serial Protocol:**
+MMC1 uses a unique 5-bit shift register protocol requiring 5 sequential writes:
+
+```zig
+// Each write shifts in bit 0 (LSB-first)
+// Write 5: xxxx xPPP -> bits 0-2 become PRG bank
+// Write 4: xxxx xCCC -> bits 0-2 shift left
+// Write 3: xxxx xBBB -> bits 0-2 shift left
+// Write 2: xxxx xAAA -> bits 0-2 shift left
+// Write 1: xxxx xDDD -> bits 0-2 shift left
+
+// Bit 7 set = reset shift register
+if ((value & 0x80) != 0) {
+    shift_register = 0;
+    shift_count = 0;
+    control |= 0x0C;  // Default: PRG mode 3
+}
+```
+
+**Banking Modes:**
+
+*PRG Modes (control bits 2-3):*
+- **Mode 0/1:** 32KB bank at $8000 (ignore low bit of bank select)
+- **Mode 2:** Fixed first 16KB bank at $8000, switchable at $C000
+- **Mode 3:** Switchable 16KB bank at $8000, fixed last at $C000 (most common)
+
+*CHR Modes (control bit 4):*
+- **8KB mode:** Single 8KB bank (ignore chr_bank_1)
+- **4KB mode:** Two separate 4KB banks at $0000 and $1000
+
+**Implementation:**
+```zig
+pub const Mapper1 = struct {
+    // Shift register state
+    shift_register: u5 = 0,
+    shift_count: u3 = 0,
+
+    // Internal registers (loaded after 5 writes)
+    control: u5 = 0x0C,      // PRG mode, CHR mode, mirroring
+    chr_bank_0: u5 = 0,      // CHR bank $0000-$0FFF (4KB) or $0000-$1FFF (8KB)
+    chr_bank_1: u5 = 0,      // CHR bank $1000-$1FFF (4KB mode only)
+    prg_bank: u5 = 0,        // PRG bank select + PRG RAM enable
+
+    pub fn cpuWrite(self: *Mapper1, cart: anytype, address: u16, value: u8) void {
+        if (address < 0x8000) return;
+
+        // Check for reset (bit 7)
+        if ((value & 0x80) != 0) {
+            self.shift_register = 0;
+            self.shift_count = 0;
+            self.control |= 0x0C;  // Default PRG mode
+            return;
+        }
+
+        // Shift in bit 0
+        const bit: u5 = @truncate(value & 0x01);
+        self.shift_register = (self.shift_register >> 1) | (bit << 4);
+        self.shift_count += 1;
+
+        if (self.shift_count == 5) {
+            // Load target register based on address
+            if (address < 0xA000) {
+                self.control = self.shift_register;
+            } else if (address < 0xC000) {
+                self.chr_bank_0 = self.shift_register;
+            } else if (address < 0xE000) {
+                self.chr_bank_1 = self.shift_register;
+            } else {
+                self.prg_bank = self.shift_register;
+            }
+
+            // Reset for next load
+            self.shift_register = 0;
+            self.shift_count = 0;
+
+            // Update cartridge mirroring
+            cart.updateMirroring();
+        }
+    }
+
+    pub fn cpuRead(self: *const Mapper1, cart: anytype, address: u16) u8 {
+        // PRG RAM at $6000-$7FFF (if enabled and present)
+        if (address >= 0x6000 and address < 0x8000) {
+            if (cart.prg_ram) |ram| {
+                const prg_ram_enabled = (self.prg_bank & 0x10) == 0;
+                if (prg_ram_enabled) {
+                    return ram[@as(usize, address - 0x6000)];
+                }
+            }
+            return 0xFF;  // Open bus
+        }
+
+        // PRG ROM banking (4 modes)
+        if (address >= 0x8000) {
+            const prg_mode = (self.control >> 2) & 0x03;
+            const prg_bank_num = self.prg_bank & 0x0F;
+
+            return switch (prg_mode) {
+                0, 1 => /* 32KB mode */,
+                2 => /* Fixed first, switchable at $C000 */,
+                3 => /* Switchable at $8000, fixed last */,
+                else => 0xFF,
+            };
+        }
+
+        return 0xFF;
+    }
+};
+```
+
+**PRG RAM Support:** MMC1 provides battery-backed PRG RAM at $6000-$7FFF for game saves (Zelda, Metroid). Bit 4 of prg_bank register enables/disables access (0 = enabled, 1 = disabled).
+
+**Mirroring Control:** Bits 0-1 of control register set mirroring:
+- 0: Single-screen lower bank
+- 1: Single-screen upper bank
+- 2: Vertical
+- 3: Horizontal
+
+**Common Variants:**
+- **SxROM:** Standard MMC1 (Zelda, Metroid)
+- **SUROM:** 512KB PRG ROM support
+- **SXROM:** 32KB PRG RAM support
+
+**Test Coverage:** 8 built-in tests
+- Power-on state (control = $0C, PRG mode 3)
+- Shift register protocol (5 writes required)
+- Reset clears shift register (bit 7 set)
+- PRG banking mode 3 (switchable + fixed last)
+- CHR 4KB banking mode
+- PRG RAM enable/disable
+- IRQ interface stubs
+
+**Available Test ROMs:** (26 MMC1 titles found)
+- `tests/data/Adventures of Lolo (USA).nes`
+- `tests/data/Adventures of Rad Gravity, The (USA).nes`
+- `tests/data/Battle of Olympus, The (USA).nes`
+- `tests/data/Bionic Commando (USA).nes`
+- `tests/data/Bubble Bobble (USA).nes`
+- `tests/data/Chip 'n Dale - Rescue Rangers (USA).nes`
+- `tests/data/Clash at Demonhead (USA).nes`
+- `tests/data/Darkwing Duck (USA).nes`
+- `tests/data/Die Hard (USA).nes`
+- `tests/data/Faxanadu (USA) (Rev 1).nes`
+- `tests/data/Guerrilla War (USA).nes`
+- `tests/data/Journey to Silius (USA).nes`
+- `tests/data/Kid Icarus (USA, Europe) (Rev 1).nes` ⭐
+- `tests/data/Lemmings (USA).nes`
+- `tests/data/Magic of Scheherazade, The (USA).nes`
+- `tests/data/Maniac Mansion (USA).nes`
+- `tests/data/Metroid (USA).nes` ⭐
+- `tests/data/Pirates! (USA).nes`
+- `tests/data/Princess Tomato in the Salad Kingdom (USA).nes`
+- `tests/data/Rescue - The Embassy Mission (USA).nes`
+- `tests/data/Robin Hood - Prince of Thieves (USA) (Rev 1).nes`
+- `tests/data/S.C.A.T. - Special Cybernetic Attack Team (USA).nes`
+- `tests/data/Snake Rattle n Roll (USA).nes`
+- `tests/data/Strider (USA).nes`
+
+---
 
 ### Mapper 3: CNROM
 

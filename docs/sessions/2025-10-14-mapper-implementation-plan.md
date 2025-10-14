@@ -1,12 +1,12 @@
 # Mapper Implementation Plan - RAMBO NES Emulator
 
 **Date Started:** 2025-10-14
-**Status:** 🟢 IN PROGRESS (3/5 complete)
+**Status:** 🟢 IN PROGRESS (4/5 complete)
 **Goal:** Implement 5 additional NES mappers (CNROM, AxROM, UxROM, MMC1, MMC3)
-**Estimated Time:** 32-48 hours total (8-12 hours spent)
-**Current Mappers:** 4 (Mapper 0 - NROM, Mapper 2 - UxROM ✅, Mapper 3 - CNROM ✅, Mapper 7 - AxROM ✅)
+**Estimated Time:** 32-48 hours total (14-20 hours spent)
+**Current Mappers:** 5 (Mapper 0 - NROM, Mapper 1 - MMC1 ✅, Mapper 2 - UxROM ✅, Mapper 3 - CNROM ✅, Mapper 7 - AxROM ✅)
 **Target Mappers:** 6 total (covers ~85% of NES library)
-**Library Coverage:** 5% (NROM) + 10% (UxROM) + 6% (CNROM) + 2% (AxROM) = 23% total
+**Library Coverage:** 5% (NROM) + 28% (MMC1) + 10% (UxROM) + 6% (CNROM) + 2% (AxROM) = 51% total
 
 ---
 

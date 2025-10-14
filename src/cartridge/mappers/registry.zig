@@ -15,6 +15,7 @@
 const std = @import("std");
 const Cartridge = @import("../Cartridge.zig").Cartridge;
 const Mapper0 = @import("Mapper0.zig").Mapper0;
+const Mapper1 = @import("Mapper1.zig").Mapper1;
 const Mapper2 = @import("Mapper2.zig").Mapper2;
 const Mapper3 = @import("Mapper3.zig").Mapper3;
 const Mapper7 = @import("Mapper7.zig").Mapper7;
@@ -31,6 +32,10 @@ pub const MapperId = enum(u8) {
     /// Mapper 0: NROM (No mapper)
     /// 248 games - Super Mario Bros., Donkey Kong, Ice Climber
     nrom = 0,
+
+    /// Mapper 1: MMC1 (Shift register, multiple PRG/CHR modes, PRG RAM)
+    /// 681 games - Zelda, Metroid, Mega Man 2, Kid Icarus, Final Fantasy
+    mmc1 = 1,
 
     /// Mapper 2: UxROM (16KB switchable + 16KB fixed PRG)
     /// 270 games - Mega Man, Castlevania, Contra, Duck Tales
@@ -53,6 +58,7 @@ pub const MapperId = enum(u8) {
     pub fn name(self: MapperId) []const u8 {
         return switch (self) {
             .nrom => "NROM",
+            .mmc1 => "MMC1",
             .uxrom => "UxROM",
             .cnrom => "CNROM",
             .axrom => "AxROM",
@@ -63,6 +69,7 @@ pub const MapperId = enum(u8) {
     pub fn description(self: MapperId) []const u8 {
         return switch (self) {
             .nrom => "No mapper - fixed 16KB or 32KB PRG ROM",
+            .mmc1 => "Shift register, multiple PRG/CHR modes, PRG RAM",
             .uxrom => "16KB switchable + 16KB fixed PRG, 8KB CHR",
             .cnrom => "Simple CHR banking - 8KB CHR banks, fixed PRG",
             .axrom => "32KB PRG banking + single-screen mirroring, CHR RAM",
@@ -73,6 +80,7 @@ pub const MapperId = enum(u8) {
     pub fn nesdevLink(self: MapperId) []const u8 {
         return switch (self) {
             .nrom => "https://www.nesdev.org/wiki/NROM",
+            .mmc1 => "https://www.nesdev.org/wiki/MMC1",
             .uxrom => "https://www.nesdev.org/wiki/UxROM",
             .cnrom => "https://www.nesdev.org/wiki/CNROM",
             .axrom => "https://www.nesdev.org/wiki/AxROM",
@@ -83,6 +91,7 @@ pub const MapperId = enum(u8) {
     pub fn gameCount(self: MapperId) u16 {
         return switch (self) {
             .nrom => 248,
+            .mmc1 => 681,
             .uxrom => 270,
             .cnrom => 155,
             .axrom => 50,
@@ -93,6 +102,7 @@ pub const MapperId = enum(u8) {
     pub fn supportsIrq(self: MapperId) bool {
         return switch (self) {
             .nrom => false,
+            .mmc1 => false,
             .uxrom => false,
             .cnrom => false,
             .axrom => false,
@@ -137,6 +147,9 @@ pub const AnyCartridge = union(MapperId) {
     /// NROM cartridge (Mapper 0)
     nrom: Cartridge(Mapper0),
 
+    /// MMC1 cartridge (Mapper 1)
+    mmc1: Cartridge(Mapper1),
+
     /// UxROM cartridge (Mapper 2)
     uxrom: Cartridge(Mapper2),
 
@@ -147,7 +160,6 @@ pub const AnyCartridge = union(MapperId) {
     axrom: Cartridge(Mapper7),
 
     // Future mappers:
-    // mmc1: Cartridge(Mapper1),
     // mmc3: Cartridge(Mapper4),
 
     // ========================================================================

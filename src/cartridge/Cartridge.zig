@@ -99,6 +99,7 @@ pub fn Cartridge(comptime MapperType: type) type {
             // This is a compile-time validation - MapperType must match ROM
             const expected_mapper = comptime blk: {
                 if (MapperType == Mapper0) break :blk 0;
+                if (MapperType == @import("mappers/Mapper1.zig").Mapper1) break :blk 1;
                 if (MapperType == @import("mappers/Mapper2.zig").Mapper2) break :blk 2;
                 if (MapperType == @import("mappers/Mapper3.zig").Mapper3) break :blk 3;
                 if (MapperType == @import("mappers/Mapper7.zig").Mapper7) break :blk 7;
