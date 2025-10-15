@@ -79,13 +79,15 @@ pub fn fetchSprites(state: *PpuState, cart: ?*AnyCartridge, scanline: u16, dot: 
                 const sprite_x = state.secondary_oam[oam_offset + 3];
 
                 // Calculate row within sprite
-                const row_in_sprite: u8 = @intCast(scanline -% sprite_y);
+                // Hardware Note: On pre-render scanline (261), secondary OAM contains stale
+                // sprites from scanline 239. Hardware naturally truncates the subtraction to 8 bits.
+                // Example: scanline=261, sprite_y=0 -> hardware uses low byte = 5 (not 261)
+                const row_in_sprite: u8 = @truncate(scanline -% sprite_y);
 
                 // Fetch pattern data (cycles 5-6 and 7-8)
                 if (fetch_cycle == 5 or fetch_cycle == 6) {
                     // Fetch low bitplane
                     const vertical_flip = (attributes & 0x80) != 0;
-                    const sprite_height: u8 = if (state.ctrl.sprite_size) 16 else 8;
 
                     const addr = if (state.ctrl.sprite_size)
                         getSprite16PatternAddress(tile_index, row_in_sprite, 0, vertical_flip)
@@ -100,8 +102,6 @@ pub fn fetchSprites(state: *PpuState, cart: ?*AnyCartridge, scanline: u16, dot: 
                         reverseBits(pattern_lo)
                     else
                         pattern_lo;
-
-                    _ = sprite_height;
                 } else if (fetch_cycle == 7 or fetch_cycle == 0) {
                     // Fetch high bitplane
                     const vertical_flip = (attributes & 0x80) != 0;

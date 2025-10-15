@@ -253,18 +253,16 @@ test "OAM DMA: transfer during VBlank" {
     defer harness.deinit();
     var state = &harness.state;
 
-    // Advance to VBlank (scanline 241)
-    while (state.clock.scanline() != 241) {
-        state.tick();
-    }
-
-    // Prepare source data
+    // Prepare source data before seeking (to avoid timeout)
     fillRamPage(state, 0x01, 0xBB);
+
+    // Use harness helper to seek to VBlank efficiently
+    harness.seekTo(241, 0);
 
     // Trigger DMA during VBlank
     state.busWrite(0x4014, 0x01);
 
-    // Run DMA to completion
+    // Run DMA to completion (DMA = 513-514 CPU cycles = ~1540-1542 PPU cycles)
     var tick_count: u32 = 0;
     while (state.dma.active and tick_count < 2000) : (tick_count += 1) {
         state.tick();
