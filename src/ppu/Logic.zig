@@ -260,7 +260,7 @@ pub fn tick(
         }
     }
 
-    if (is_visible and rendering_enabled and dot == 65) {
+    if (is_rendering_line and rendering_enabled and dot == 65) {
         evaluateSprites(state, scanline);
     }
 
