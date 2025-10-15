@@ -90,19 +90,18 @@ This document tracks **active** bugs and issues verified against current codebas
 
 ---
 
-## **MAJOR FIX - Sprite Y Position 1-Scanline Delay (2025-10-15)**
+## **HARDWARE ACCURACY FIX - Sprite Y Position 1-Scanline Delay (2025-10-15)**
 
-### Hardware-Accurate Sprite Pipeline Delay - RESOLVED ✅
+### Hardware-Accurate Sprite Pipeline Delay - IMPLEMENTED ✅ (No Game Impact)
 
-**Impact:** Expected to fix Kirby's Adventure, SMB3 checkered floor, Bomberman sprite positioning
+**Impact:** Hardware-accurate implementation, but did NOT fix reported game issues
 **Session:** `docs/sessions/2025-10-15-sprite-y-position-fix.md`
 
 **Root Cause:**
 - NES PPU evaluates sprites during scanline N for NEXT scanline (N+1), not current scanline
 - NES PPU fetches patterns during scanline N for NEXT scanline (N+1), not current scanline
 - This creates a natural 1-scanline pipeline delay in sprite rendering
-- RAMBO was evaluating/fetching for current scanline, causing sprites to render 1 scanline too high
-- Result: "Horizontal line where rendering goes off the rails" (user observation)
+- RAMBO was evaluating/fetching for current scanline (hardware inaccurate)
 
 **Fix:**
 - Added next-scanline calculation to sprite evaluation: `(scanline + 1) % 262`
@@ -112,10 +111,19 @@ This document tracks **active** bugs and issues verified against current codebas
 - Updated 2 existing tests to match corrected hardware behavior
 - Files: `src/ppu/logic/sprites.zig`, `tests/ppu/sprite_y_delay_test.zig`
 
-**Before:** Sprites rendered 1 scanline too high → Kirby floor glitch, SMB3 floor missing
-**After:**  Sprites render at correct Y positions → Expected fixes (pending visual verification)
+**Result:**
+- ✅ Hardware-accurate per nesdev.org specification
+- ✅ Zero regressions (990/995 tests passing)
+- ✅ +17 new sprite Y delay tests
+- ❌ **No improvement in Kirby, SMB3, or Bomberman rendering issues**
 
-**Test Impact:** 990/995 tests passing (no regressions), +17 new sprite Y delay tests
+**Visual Verification:**
+- Kirby: Dialog box still not rendering (not a Y position issue)
+- SMB3: Checkered floor still disappears after few frames (not a Y position issue)
+- SMB1: Still animates, palette issue unchanged
+- Bomberman: No change observed
+
+**Conclusion:** The fix was correct per hardware specs but the actual game issues have different root causes.
 
 **Hardware Reference:** nesdev.org/wiki/PPU_sprite_evaluation
 
@@ -192,13 +200,14 @@ This document tracks **active** bugs and issues verified against current codebas
 - ✅ SMB2 - Working
 
 **Partial Working (Rendering Issues):**
-- ⚠️ **SMB1** - Title animates correctly (coin bounces), sprite palette bug on `?` boxes (left side green instead of yellow/orange)
-- ✅→⚠️ **SMB3** - Sprite Y position fixed (expected), checkered floor should now render correctly (pending visual verification)
-- ✅→⚠️ **Bomberman** - Sprite Y position fixed (expected), menu and title should render correctly (pending visual verification)
-- ✅→⚠️ **Kirby's Adventure** - Sprite Y position fixed (expected), top of level should render at correct position (pending visual verification)
+- ⚠️ **SMB1** - Title animates correctly (coin bounces), sprite palette bug on Y axis (left side green instead of yellow/orange)
+- ⚠️ **SMB3** - Title screen checkered floor displays for few frames then dips below sight (sprite rendering bug)
+- ⚠️ **Bomberman** - Menu and title render but have issues (not sprite Y position related)
+- ⚠️ **Kirby's Adventure** - Dialog box that should be under intro floor doesn't render at all (sprite visibility bug)
 
 **Still Failing:**
 - ❌ **TMNT series** - Grey screen (not rendering anything - game-specific compatibility issue)
+- ❌ **Paperboy** - Grey screen (same as TMNT - game-specific compatibility issue)
 
 ### SMB1 - Sprite Palette Bug
 
@@ -218,31 +227,83 @@ Likely sprite attribute byte palette selection (bits 0-1) or palette RAM loading
 - Verify palette RAM contents ($3F10-$3F1F)
 - Check sprite palette lookup in `sprites.zig:getSpritePixel()`
 
-### SMB3 - Missing Checkered Floor - EXPECTED FIXED ✅
+### SMB3 - Checkered Floor Disappearing
 
-**Status:** ✅→⚠️ **FIX IMPLEMENTED** (pending visual verification)
+**Status:** 🟡 **ACTIVE RENDERING BUG**
 **Priority:** P1 (High - missing visual element)
-**Fix Date:** 2025-10-15
-**Session:** `docs/sessions/2025-10-15-sprite-y-position-fix.md`
 
-**Previous Behavior:**
+**Current Behavior:**
 - ✅ Game boots and runs correctly
 - ✅ Title screen displays
-- ⚠️ **Checkered floor pattern renders well below floor** (sprite Y position bug)
+- ⚠️ **Checkered floor pattern displays for a few frames, then dips below sight**
+- Behavior unchanged after sprite Y position fix
 
 **Root Cause:**
-Sprite Y position 1-scanline offset bug. NES hardware evaluates/fetches sprites for NEXT scanline (N+1), but RAMBO was using current scanline (N), causing sprites to render 1 scanline too high.
+Unknown - not related to sprite Y position. Possible causes:
+1. Sprite overflow handling issue (8+ sprites on scanline)
+2. Sprite pattern fetching timing
+3. Secondary OAM clearing issue
+4. Sprite visibility calculation
 
-**Fix:**
-- Implemented next-scanline calculation in sprite evaluation and fetching
-- Hardware-accurate: `(scanline + 1) % 262`
-- All 990 tests still passing (no regressions)
+**Investigation Notes:**
+- Sprite Y position fix (2025-10-15) did NOT resolve this issue
+- Floor appears briefly then disappears → suggests timing or overflow issue
+- Not a Y position offset (verified with hardware-accurate pipeline delay)
 
-**Expected Behavior:**
-✅ Checkered floor pattern should now render at correct vertical position
+**Next Steps:**
+- Debug sprite evaluation during title screen (check secondary OAM contents)
+- Verify sprite overflow flag behavior
+- Check if 8-sprite limit being hit
+- Investigate sprite visibility logic during pattern fetch
 
-**User Action Required:**
-Visual verification with Wayland display to confirm fix
+### Kirby's Adventure - Missing Dialog Box
+
+**Status:** 🟡 **ACTIVE RENDERING BUG**
+**Priority:** P1 (High - missing sprite rendering)
+
+**Current Behavior:**
+- ✅ Game boots and runs correctly
+- ✅ Intro floor displays
+- ⚠️ **Dialog box that should be under intro floor doesn't render at all**
+- Behavior unchanged after sprite Y position fix
+
+**Root Cause:**
+Unknown - not related to sprite Y position. Possible causes:
+1. Sprite visibility calculation bug
+2. Pattern fetch failure for certain sprites
+3. Palette loading issue
+4. Sprite priority/layering bug
+
+**Investigation Notes:**
+- Sprite Y position fix (2025-10-15) did NOT resolve this issue
+- Dialog box completely missing (not mispositioned)
+- Not a Y position offset (verified with hardware-accurate pipeline delay)
+
+**Next Steps:**
+- Debug OAM contents during intro (check if dialog box sprites in OAM)
+- Verify secondary OAM population for intro scene
+- Check pattern fetching for dialog box tiles
+- Investigate sprite visibility logic
+
+### Paperboy - Grey Screen
+
+**Status:** 🔴 **NOT RENDERING**
+**Priority:** P0 (Critical - complete failure)
+
+**Current Behavior:**
+- ❌ Displays **grey screen** (no rendering)
+- Same symptom as TMNT series
+- Unknown if game stuck in boot or rendering disabled
+
+**Root Cause:**
+Unknown - game-specific compatibility issue (similar to TMNT).
+
+**Next Steps:**
+- Run with diagnostic output to check PC progression
+- Verify PPUMASK writes (check if rendering ever enabled)
+- Check for mapper-specific issues
+- Verify NMI fires correctly
+- Compare behavior with TMNT (may share common cause)
 
 ### TMNT Series - Grey Screen
 
@@ -261,6 +322,7 @@ Unknown - requires diagnostic investigation.
 - Verify PPUMASK writes (check if rendering ever enabled)
 - Check for mapper-specific issues (TMNT uses MMC3)
 - Verify NMI fires correctly
+- Compare behavior with Paperboy (may share common cause)
 
 ---
 
@@ -378,9 +440,13 @@ Threading tests rely on precise timing that varies across systems.
 | P3 | 2 | Low priority / deferred (CPU timing, threading tests) |
 
 **Major Progress (2025-10-15):**
-1. Progressive sprite evaluation implemented - SMB1 title screen now animates correctly! 🎉
-2. Sprite Y position 1-scanline delay fixed - Expected to fix Kirby, SMB3, Bomberman! 🎉
-990/995 tests passing (99.5%), no regressions. Remaining issues: SMB1 palette bug, TMNT compatibility.
+1. ✅ Progressive sprite evaluation implemented - SMB1 title screen now animates correctly!
+2. ✅ Sprite Y position 1-scanline delay fixed - Hardware-accurate per nesdev.org specs
+   - ❌ However, did NOT fix Kirby, SMB3, or Bomberman issues (different root causes)
+3. 📊 New finding: Paperboy has grey screen issue (same as TMNT)
+
+**Current Status:** 990/995 tests passing (99.5%), zero regressions
+**Active Issues:** SMB1 palette bug, SMB3 floor disappearing, Kirby missing dialog, TMNT/Paperboy grey screens
 
 ---
 
@@ -405,7 +471,8 @@ zig build test -- tests/integration/commercial_rom_test.zig
 
 ## Document History
 
-**2025-10-15 (Evening):** Sprite Y position 1-scanline delay fix - Expected to fix Kirby/SMB3/Bomberman
+**2025-10-15 (Evening - Update):** Visual verification of sprite Y fix - No improvement in games, but hardware-accurate
+**2025-10-15 (Evening):** Sprite Y position 1-scanline delay fix implemented
 **2025-10-15 (Afternoon):** Major update - Progressive sprite evaluation implemented, SMB1 animating
 **2025-10-13:** Initial creation from Phase 7 comprehensive audit
 **Audit Source:** `/tmp/phase7_current_state_audit.md`
