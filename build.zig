@@ -774,6 +774,62 @@ pub fn build(b: *std.Build) void {
 
     const run_sprite_evaluation_tests = b.addRunArtifact(sprite_evaluation_tests);
 
+    // PPU background fetch timing tests (Phase 1)
+    const background_fetch_timing_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/ppu/background_fetch_timing_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+
+    const run_background_fetch_timing_tests = b.addRunArtifact(background_fetch_timing_tests);
+
+    // PPU OAMADDR reset tests (Phase 1)
+    const oamaddr_reset_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/ppu/oamaddr_reset_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+
+    const run_oamaddr_reset_tests = b.addRunArtifact(oamaddr_reset_tests);
+
+    // PPU sprite 0 hit clipping tests (Phase 1)
+    const sprite0_hit_clipping_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/ppu/sprite0_hit_clipping_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+
+    const run_sprite0_hit_clipping_tests = b.addRunArtifact(sprite0_hit_clipping_tests);
+
+    // NMI immediate trigger tests (Phase 1)
+    const nmi_edge_trigger_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/integration/nmi_edge_trigger_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "RAMBO", .module = mod },
+            },
+        }),
+    });
+
+    const run_nmi_edge_trigger_tests = b.addRunArtifact(nmi_edge_trigger_tests);
+
     // PPU sprite rendering tests
     const sprite_rendering_tests = b.addTest(.{
         .root_module = b.createModule(.{
@@ -1283,6 +1339,10 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_ppu_register_trace_tests.step);
     test_step.dependOn(&run_chr_integration_tests.step);
     test_step.dependOn(&run_sprite_evaluation_tests.step);
+    test_step.dependOn(&run_background_fetch_timing_tests.step);
+    test_step.dependOn(&run_oamaddr_reset_tests.step);
+    test_step.dependOn(&run_sprite0_hit_clipping_tests.step);
+    test_step.dependOn(&run_nmi_edge_trigger_tests.step);
     test_step.dependOn(&run_sprite_rendering_tests.step);
     test_step.dependOn(&run_sprite_edge_cases_tests.step);
     test_step.dependOn(&run_vblank_nmi_timing_tests.step);
