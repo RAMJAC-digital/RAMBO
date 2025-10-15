@@ -6,7 +6,11 @@
 //!
 //! Both are implemented as pure functions operating on EmulationState.
 
+const std = @import("std");
 const ApuLogic = @import("../../apu/Logic.zig");
+
+// Debug flag for DMA tracing (enable for debugging)
+const DEBUG_DMA = false;
 
 /// Tick OAM DMA state machine (called every CPU cycle when active)
 /// Executes OAM DMA transfer from CPU RAM ($XX00-$XXFF) to PPU OAM ($2004)
@@ -30,10 +34,17 @@ pub fn tickOamDma(state: anytype) void {
     const cycle = state.dma.current_cycle;
     state.dma.current_cycle += 1;
 
+    // Only log cycle 0 (start) and alignment
+    if (DEBUG_DMA and cycle == 0) {
+        if (state.dma.needs_alignment) {
+            std.debug.print("[DMA] cycle=0 ALIGN WAIT ppu={d}\n", .{state.clock.ppu_cycles});
+        } else {
+            std.debug.print("[DMA] cycle=0 START ppu={d}\n", .{state.clock.ppu_cycles});
+        }
+    }
+
     // Alignment wait cycle (if needed)
     if (state.dma.needs_alignment and cycle == 0) {
-        // Wait one cycle for alignment
-        // This happens when DMA is triggered on an odd CPU cycle
         return;
     }
 
@@ -42,6 +53,9 @@ pub fn tickOamDma(state: anytype) void {
 
     // Check if DMA is complete (512 cycles = 256 read/write pairs)
     if (effective_cycle >= 512) {
+        if (DEBUG_DMA) {
+            std.debug.print("[DMA COMPLETE] effective_cycle={d} >= 512, resetting DMA\n", .{effective_cycle});
+        }
         state.dma.reset();
         return;
     }

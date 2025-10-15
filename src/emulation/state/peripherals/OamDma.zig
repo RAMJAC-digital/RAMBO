@@ -2,6 +2,11 @@
 //! Cycle-accurate DMA transfer from CPU RAM to PPU OAM
 //! Follows microstep pattern for hardware accuracy
 
+const std = @import("std");
+
+// Debug flag (should match dma/logic.zig)
+const DEBUG_DMA = false;
+
 /// OAM DMA state
 pub const OamDma = struct {
     /// DMA active flag
