@@ -2,18 +2,31 @@
 
 Cycle-accurate NES emulator written in Zig 0.15.1.
 
-**Current Status:** ~99% complete (949/986 tests passing, AccuracyCoin PASSING ✅)
+**Current Status:** ~99% complete (tests TBD post-NMI fix, AccuracyCoin PASSING ✅)
+
+**Commercial ROMs:**
+- ✅ Working: Castlevania, Mega Man, Kid Icarus, Battletoads, SMB2, SMB3
+- ❌ Failing: Super Mario Bros (SMB1 - title frozen), TMNT series (blank screen)
 
 ---
 
-## Recent Fixes (2025-10-09)
+## Recent Fixes (2025-10-15)
 
-- ✅ **BRK Flag Masking:** Hardware interrupts (NMI/IRQ) now correctly clear B flag (bit 4)
-- ✅ **Frame Pacing Precision:** Fixed nanosecond rounding (16ms → 17ms) for accurate NTSC timing
-- ✅ **Fine X Scroll Guard:** Masked to 3 bits to prevent panic on invalid values
-- ✅ **Debugger Restoration:** Implemented `handleCpuSnapshot()` for full CPU state display
+### Critical NMI Bug Fixes
 
-See **[Session Summary](docs/sessions/session-summary-2025-10-09.md)** for details.
+- ✅ **NMI Line Management:** Fixed premature clearing that prevented CPU edge detection
+  - Commercial ROMs now receive NMI interrupts correctly
+  - Castlevania, Mega Man, Kid Icarus now working
+
+- ✅ **Double-NMI Suppression:** Prevents multiple NMI triggers during same VBlank
+  - Fixed game state corruption when PPUCTRL bit 7 toggles
+  - Added `nmi_vblank_set_cycle` tracking
+
+- ✅ **RAM Initialization:** Hardware-accurate pseudo-random RAM at power-on
+  - Commercial ROMs now execute correct boot paths
+  - Uses LCG with 87.5% bias toward low values (0x00-0x0F)
+
+See **[CURRENT-ISSUES.md](docs/CURRENT-ISSUES.md)** for complete status.
 
 ---
 
@@ -29,7 +42,7 @@ cd RAMBO
 # Build executable
 zig build
 
-# Run tests (949/986 passing)
+# Run tests
 zig build test
 
 # Run emulator
@@ -168,7 +181,7 @@ pub fn Cartridge(comptime MapperType: type) type {
 
 ### Test Status
 
-**949/986 tests passing (96.2%)**
+**Tests:** TBD (post-NMI fix verification needed)
 
 ```bash
 # All tests
@@ -275,7 +288,7 @@ RAMBO/
 │   ├── config/           # Configuration management
 │   └── main.zig          # Entry point
 ├── compiler/             # Python toolchain for assembling reference ROMs
-├── tests/                # Test suite (939/947 passing)
+├── tests/                # Test suite (see CURRENT-ISSUES.md)
 ├── docs/                 # Comprehensive documentation
 └── build.zig             # Build configuration
 ```
@@ -365,7 +378,7 @@ RAMBO/
 
 ```bash
 # Before committing
-zig build test  # Must report 949/986 (25 skipped, 12 failing - see KNOWN-ISSUES.md)
+zig build test  # Verify no regressions (see CURRENT-ISSUES.md for current status)
 
 # Verify no regressions
 git diff --stat
@@ -394,7 +407,7 @@ MIT License (see LICENSE file)
 
 ---
 
-**Last Updated:** 2025-10-09
+**Last Updated:** 2025-10-15
 **Version:** 0.2.0-alpha
-**Status:** ~99% complete, 949/986 tests passing, AccuracyCoin PASSING ✅
-**Current Focus:** Super Mario Bros blank screen investigation (see docs/sessions/session-summary-2025-10-09.md)
+**Status:** ~99% complete, AccuracyCoin PASSING ✅
+**Current Focus:** SMB1 sprite rendering issue, TMNT blank screen (see docs/CURRENT-ISSUES.md)
