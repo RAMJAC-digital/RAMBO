@@ -23,7 +23,7 @@ const breakpoints = @import("breakpoints.zig");
 const watchpoints = @import("watchpoints.zig");
 const stepping = @import("stepping.zig");
 const history = @import("history.zig");
-const inspection = @import("inspection.zig");
+pub const inspection = @import("inspection.zig");
 const modification = @import("modification.zig");
 
 // Re-export all types (preserves existing API)

@@ -197,8 +197,25 @@ fn mainExec(ctx: zli.CommandContext) !void {
     // Initialize keyboard mapper (converts Wayland keycodes to NES buttons)
     var keyboard_mapper = RAMBO.KeyboardMapper{};
 
+    // Diagnostic: Track frame snapshots if verbose
+    var prev_snapshot: ?RAMBO.Debugger.inspection.FrameSnapshot = null;
+    var diagnostic_frame_count: usize = 0;
+
     // Main coordination loop - runs until window closes or shutdown signal
     while (running.load(.acquire)) {
+        // Diagnostic output every 60 frames if verbose
+        if (debug_flags.verbose and diagnostic_frame_count % 60 == 0 and diagnostic_frame_count < 600) {
+            const curr_snapshot = RAMBO.Debugger.inspection.captureFrameSnapshot(&emu_state);
+            if (prev_snapshot) |prev| {
+                RAMBO.Debugger.inspection.compareFrames(prev, curr_snapshot);
+            } else {
+                std.debug.print("\n=== Initial Frame State ===\n", .{});
+                RAMBO.Debugger.inspection.printFrameSnapshot(curr_snapshot);
+            }
+            prev_snapshot = curr_snapshot;
+        }
+        diagnostic_frame_count += 1;
+
         // Process window events (from render thread)
         var window_events: [16]RAMBO.Mailboxes.XdgWindowEvent = undefined;
         const window_count = mailboxes.xdg_window_event.drainEvents(&window_events);

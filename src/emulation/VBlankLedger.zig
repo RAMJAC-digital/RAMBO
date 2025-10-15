@@ -17,9 +17,6 @@ pub const VBlankLedger = struct {
     /// Master clock cycle of the last read from PPUSTATUS ($2002).
     last_read_cycle: u64 = 0,
 
-    /// Master clock cycle when the CPU acknowledged the last NMI.
-    last_nmi_ack_cycle: u64 = 0,
-
     /// If true, a read of $2002 occurred on the exact cycle VBlank was set.
     /// Hardware keeps the VBlank flag visible for subsequent reads in this frame.
     /// Cleared when VBlank is cleared by timing (pre-render line).
@@ -30,7 +27,6 @@ pub const VBlankLedger = struct {
         self.last_set_cycle = 0;
         self.last_clear_cycle = 0;
         self.last_read_cycle = 0;
-        self.last_nmi_ack_cycle = 0;
         self.race_hold = false;
     }
 };

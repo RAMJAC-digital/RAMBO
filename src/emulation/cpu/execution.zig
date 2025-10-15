@@ -89,37 +89,23 @@ pub fn stepCycle(state: anytype) CpuCycleResult {
         }
     }
 
-    // Track PPUCTRL.NMI_ENABLE edge transitions (0→1)
-    // Hardware: Enabling NMI during active VBlank triggers NMI immediately
-    const nmi_enable_prev = state.cpu.nmi_enable_prev;
-    state.cpu.nmi_enable_prev = state.ppu.ctrl.nmi_enable;
-    const nmi_enable_edge = state.ppu.ctrl.nmi_enable and !nmi_enable_prev;
-
-    // Determine if an NMI should be asserted
-    // NMI triggers when:
-    // 1. VBlank is active (set more recently than cleared)
-    // 2. NMI not yet acknowledged (set more recently than last ack)
-    // 3. NMI enabled in PPUCTRL
-    // 4. NOT in race condition (race_hold suppresses NMI)
-    // 5. Either: new VBlank edge OR PPUCTRL edge during active VBlank
+    // NMI line reflects VBlank flag state (when NMI enabled in PPUCTRL)
+    // Hardware: NMI line stays asserted as long as:
+    // 1. VBlank is active (last_set > last_clear)
+    // 2. NMI is enabled in PPUCTRL
+    // 3. Not in race condition suppression
+    //
+    // Edge detection in checkInterrupts() handles latching pending_interrupt.
+    // NMI fires ONCE per VBlank because:
+    // - After pending_interrupt = .nmi, checkInterrupts() stops checking
+    // - pending_interrupt cleared when interrupt sequence completes
+    // - VBlank flag cleared by $2002 read or scanline 261 dot 1
     const vblank_active = (state.vblank_ledger.last_set_cycle > state.vblank_ledger.last_clear_cycle);
-    const vblank_edge = (state.vblank_ledger.last_set_cycle > state.vblank_ledger.last_nmi_ack_cycle);
-
-    const nmi_conditions_met = vblank_active and
+    const nmi_line_should_assert = vblank_active and
         state.ppu.ctrl.nmi_enable and
-        !state.vblank_ledger.race_hold and
-        (vblank_edge or nmi_enable_edge);
+        !state.vblank_ledger.race_hold;
 
-    // NMI line must be ALWAYS explicitly set to avoid latching
-    // Bug: Previous code used `else if` which left nmi_line unchanged when:
-    // - VBlank active BUT NMI disabled (nmi_conditions_met = false)
-    // - VBlank not yet cleared (last_clear >= last_set = false)
-    // This caused NMI line to stay high even after disabling NMI in PPUCTRL
-    if (nmi_conditions_met) {
-        state.cpu.nmi_line = true;
-    } else {
-        state.cpu.nmi_line = false;
-    }
+    state.cpu.nmi_line = nmi_line_should_assert;
 
     // If CPU is halted (JAM/KIL), do nothing until RESET
     if (state.cpu.halted) {
@@ -227,11 +213,10 @@ pub fn executeCycle(state: anytype) void {
                 state.cpu.pc = (@as(u16, state.cpu.operand_high) << 8) |
                     @as(u16, state.cpu.operand_low);
 
-                // Acknowledge NMI before clearing pending_interrupt
-                if (state.cpu.pending_interrupt == .nmi) {
-                    state.vblank_ledger.last_nmi_ack_cycle = state.clock.ppu_cycles;
-                    state.cpu.nmi_line = false; // Lower the NMI line
-                }
+                // Clear pending interrupt
+                // Note: NMI line remains asserted until VBlank flag is cleared
+                // (via $2002 read or scanline 261 dot 1). This allows the CPU
+                // edge detector to properly latch the interrupt signal.
                 state.cpu.pending_interrupt = .none;
 
                 break :blk true; // Complete
