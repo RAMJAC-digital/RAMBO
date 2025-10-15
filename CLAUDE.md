@@ -7,8 +7,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **RAMBO** is a cycle-accurate NES emulator written in Zig 0.15.1, targeting hardware-accurate 6502/2C02 emulation with cycle-level precision validated against the AccuracyCoin test suite.
 
 **Current Status:** 1003+/995 tests passing (99.5%+), AccuracyCoin PASSING ✅
-**Commercial ROMs:** Castlevania ✅, Mega Man ✅, Kid Icarus ✅, Battletoads ✅, SMB2 ✅, Bomberman ✅
-**Partial:** SMB1 (animates, sprite palette bug), SMB3 (missing floor - sprite scaling)
+**Commercial ROMs:** Castlevania ✅, Mega Man ✅, Kid Icarus ✅, Battletoads ✅, SMB2 ✅
+**Partial:** SMB1 (sprite palette), SMB3 (vertical positioning), Bomberman (rendering issues), Kirby (vertical positioning)
 **Still Failing:** TMNT series (grey screen - game-specific issue)
 
 ## Build Commands

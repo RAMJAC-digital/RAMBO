@@ -69,7 +69,12 @@ pub fn emulateFrame(state: anytype) u64 {
         }
     }
 
-    return state.clock.ppu_cycles - start_cycle;
+    // Return elapsed cycles with underflow protection
+    // This can underflow in rare cases with threading tests or state manipulation
+    return if (state.clock.ppu_cycles >= start_cycle)
+        state.clock.ppu_cycles - start_cycle
+    else
+        0;
 }
 
 /// Emulate N CPU cycles (convenience wrapper)
@@ -87,5 +92,9 @@ pub fn emulateCpuCycles(state: anytype, cpu_cycles: u64) u64 {
         state.tick();
     }
 
-    return state.clock.ppu_cycles - start_cycle;
+    // Return elapsed cycles with underflow protection
+    return if (state.clock.ppu_cycles >= start_cycle)
+        state.clock.ppu_cycles - start_cycle
+    else
+        0;
 }

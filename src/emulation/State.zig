@@ -381,6 +381,22 @@ pub const EmulationState = struct {
             // PPU registers + mirrors ($2000-$3FFF)
             0x2000...0x3FFF => |addr| {
                 const reg = addr & 0x07;
+
+                // Check for NMI edge trigger BEFORE writing register
+                // Reference: https://www.nesdev.org/wiki/PPU_registers#PPUCTRL
+                // If enabling NMI (bit 7) while VBlank flag is already set, trigger immediate NMI
+                if (reg == 0x00) {
+                    const old_nmi_enable = self.ppu.ctrl.nmi_enable;
+                    const new_nmi_enable = (value & 0x80) != 0;
+                    // VBlank flag is set when last_set_cycle > last_clear_cycle
+                    const vblank_flag_set = (self.vblank_ledger.last_set_cycle > self.vblank_ledger.last_clear_cycle);
+
+                    // Edge trigger: 0→1 transition while VBlank=1 triggers NMI
+                    if (!old_nmi_enable and new_nmi_enable and vblank_flag_set) {
+                        self.cpu.nmi_line = true;
+                    }
+                }
+
                 PpuLogic.writeRegister(&self.ppu, cart_ptr, reg, value);
             },
 

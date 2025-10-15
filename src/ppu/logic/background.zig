@@ -40,25 +40,31 @@ fn getAttributeAddress(state: *PpuState) u16 {
 }
 
 /// Fetch background tile data for current cycle
-/// Implements 4-cycle fetch pattern: nametable → attribute → pattern low → pattern high
+/// Implements hardware-accurate 8-cycle tile fetch pattern
+/// Reference: https://www.nesdev.org/wiki/PPU_rendering
 pub fn fetchBackgroundTile(state: *PpuState, cart: ?*AnyCartridge, dot: u16) void {
-    // Tile fetching occurs in 8-cycle chunks
-    // Each chunk fetches: NT byte (2 cycles), AT byte (2 cycles),
-    // pattern low (2 cycles), pattern high (2 cycles)
-    const fetch_cycle = dot & 0x07;
+    // Hardware-accurate tile fetch timing:
+    // Each tile fetch takes 8 dots, with fetches completing at dots 2, 4, 6, 8
+    // Shift registers reload at dots 9, 17, 25, 33... (every 8 dots, offset by 1)
+    //
+    // Dots 1-2:   Nametable byte fetch
+    // Dots 3-4:   Attribute table byte fetch
+    // Dots 5-6:   Pattern table low byte fetch
+    // Dots 7-8:   Pattern table high byte fetch
+    // Dot 9:      Load shift registers, increment scroll X, start next tile
+    //
+    // Map dots to cycles within tile (0-7)
+    const cycle_in_tile = (dot - 1) % 8;
 
-    switch (fetch_cycle) {
-        // Cycles 1, 3, 5, 7: Idle (hardware accesses nametable but doesn't use value)
-        1, 3, 5, 7 => {},
-
-        // Cycle 0: Fetch nametable byte (tile index)
-        0 => {
+    switch (cycle_in_tile) {
+        // Cycle 1: Nametable fetch completes (dots 2, 10, 18, 26...)
+        1 => {
             const nt_addr = 0x2000 | (state.internal.v & 0x0FFF);
             state.bg_state.nametable_latch = memory.readVram(state, cart, nt_addr);
         },
 
-        // Cycle 2: Fetch attribute byte (palette select)
-        2 => {
+        // Cycle 3: Attribute fetch completes (dots 4, 12, 20, 28...)
+        3 => {
             const attr_addr = getAttributeAddress(state);
             const attr_byte = memory.readVram(state, cart, attr_addr);
 
@@ -70,25 +76,32 @@ pub fn fetchBackgroundTile(state: *PpuState, cart: ?*AnyCartridge, dot: u16) voi
             state.bg_state.attribute_latch = (attr_byte >> @intCast(shift)) & 0x03;
         },
 
-        // Cycle 4: Fetch pattern table tile low byte (bitplane 0)
-        4 => {
+        // Cycle 5: Pattern low fetch completes (dots 6, 14, 22, 30...)
+        5 => {
             const pattern_addr = getPatternAddress(state, false);
             state.bg_state.pattern_latch_lo = memory.readVram(state, cart, pattern_addr);
         },
 
-        // Cycle 6: Fetch pattern table tile high byte (bitplane 1)
-        6 => {
+        // Cycle 7: Pattern high fetch completes (dots 8, 16, 24, 32...)
+        7 => {
             const pattern_addr = getPatternAddress(state, true);
             state.bg_state.pattern_latch_hi = memory.readVram(state, cart, pattern_addr);
-
-            // Load shift registers with fetched data
-            state.bg_state.loadShiftRegisters();
-
-            // Increment coarse X after loading tile
-            scrolling.incrementScrollX(state);
         },
 
-        else => unreachable,
+        // Cycle 0: Shift register reload (dots 9, 17, 25, 33...)
+        // Special case: Skip reload at dot 1 (first dot of scanline - no data fetched yet)
+        0 => {
+            if (dot > 1) {
+                // Load shift registers with fetched tile data
+                state.bg_state.loadShiftRegisters();
+
+                // Increment coarse X after loading tile
+                scrolling.incrementScrollX(state);
+            }
+        },
+
+        // Cycles 2, 4, 6: Idle (hardware is setting up addresses)
+        else => {},
     }
 }
 

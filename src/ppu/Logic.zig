@@ -283,6 +283,11 @@ pub fn tick(
 
     // === Sprite Fetching ===
     if (is_rendering_line and rendering_enabled and dot >= 257 and dot <= 320) {
+        // Hardware behavior: OAMADDR is set to 0 during sprite tile loading
+        // Reference: https://www.nesdev.org/wiki/PPU_registers#OAMADDR
+        if (dot == 257) {
+            state.oam_addr = 0;
+        }
         fetchSprites(state, cart, scanline, dot);
     }
 
@@ -303,13 +308,25 @@ pub fn tick(
             final_palette_index = bg_pixel;
         } else {
             final_palette_index = if (sprite_result.priority) bg_pixel else sprite_result.pixel;
+
             // Sprite 0 hit occurs when:
             // - Both BG and sprite pixels are opaque (checked above: bg_pixel != 0 and sprite_result.pixel != 0)
             // - Rendering is enabled (BOTH BG AND sprite rendering must be on - hardware requirement)
             // - X coordinate is 0-254 (X=255 cannot trigger hit)
             // - Dot is >= 2 (sprite 0 hit timing requirement)
+            // - Left-column clipping must allow both pixels to be visible (hardware requirement)
             // - Scanline is 0-239 (visible scanlines only, implicitly enforced by is_visible check)
-            if (sprite_result.sprite_0 and state.mask.show_bg and state.mask.show_sprites and pixel_x < 255 and dot >= 2) {
+            // Reference: https://www.nesdev.org/wiki/PPU_sprite_priority
+
+            // Check if left clipping allows hit: either X >= 8, or clipping disabled for both BG and sprites
+            const left_clip_allows_hit = pixel_x >= 8 or (state.mask.show_bg_left and state.mask.show_sprites_left);
+
+            if (sprite_result.sprite_0 and
+                state.mask.show_bg and
+                state.mask.show_sprites and
+                pixel_x < 255 and
+                dot >= 2 and
+                left_clip_allows_hit) {
                 state.status.sprite_0_hit = true;
             }
         }
