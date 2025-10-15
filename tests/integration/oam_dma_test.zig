@@ -102,9 +102,11 @@ test "OAM DMA: transfer from page $07 (stack page)" {
     state.busWrite(0x4014, 0x07);
 
     // Run DMA to completion
-    while (state.dma.active) {
+    var tick_count: u32 = 0;
+    while (state.dma.active and tick_count < 2000) : (tick_count += 1) {
         state.tick();
     }
+    try testing.expect(!state.dma.active); // Ensure DMA completed
 
     // Verify data transferred
     for (0..256) |i| {
@@ -137,9 +139,11 @@ test "OAM DMA: even cycle start takes exactly 513 CPU cycles" {
     try testing.expect(!state.dma.needs_alignment); // Even start
 
     // Run DMA to completion
-    while (state.dma.active) {
+    var tick_count: u32 = 0;
+    while (state.dma.active and tick_count < 2000) : (tick_count += 1) {
         state.tick();
     }
+    try testing.expect(!state.dma.active); // Ensure DMA completed
 
     // Calculate elapsed CPU cycles (3 PPU cycles = 1 CPU cycle)
     const elapsed_ppu = state.clock.ppu_cycles - start_ppu_cycles;
@@ -169,9 +173,11 @@ test "OAM DMA: odd cycle start takes exactly 514 CPU cycles" {
     try testing.expect(state.dma.needs_alignment); // Odd start
 
     // Run DMA to completion
-    while (state.dma.active) {
+    var tick_count: u32 = 0;
+    while (state.dma.active and tick_count < 2000) : (tick_count += 1) {
         state.tick();
     }
+    try testing.expect(!state.dma.active); // Ensure DMA completed
 
     // Calculate elapsed CPU cycles
     const elapsed_ppu = state.clock.ppu_cycles - start_ppu_cycles;
@@ -197,9 +203,11 @@ test "OAM DMA: CPU is stalled during transfer" {
     state.busWrite(0x4014, 0x05);
 
     // Run DMA to completion
-    while (state.dma.active) {
+    var tick_count: u32 = 0;
+    while (state.dma.active and tick_count < 2000) : (tick_count += 1) {
         state.tick();
     }
+    try testing.expect(!state.dma.active); // Ensure DMA completed
 
     // CPU should not have executed any instructions
     // PC should be unchanged (CPU was stalled)
@@ -257,9 +265,11 @@ test "OAM DMA: transfer during VBlank" {
     state.busWrite(0x4014, 0x01);
 
     // Run DMA to completion
-    while (state.dma.active) {
+    var tick_count: u32 = 0;
+    while (state.dma.active and tick_count < 2000) : (tick_count += 1) {
         state.tick();
     }
+    try testing.expect(!state.dma.active); // Ensure DMA completed
 
     // Verify transfer completed correctly
     for (0..256) |i| {
