@@ -6,10 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **RAMBO** is a cycle-accurate NES emulator written in Zig 0.15.1, targeting hardware-accurate 6502/2C02 emulation with cycle-level precision validated against the AccuracyCoin test suite.
 
-**Current Status:** 990/995 tests passing (99.5%), AccuracyCoin PASSING ✅
-**Commercial ROMs:** Castlevania ✅, Mega Man ✅, Kid Icarus ✅, Battletoads ✅, SMB2 ✅
-**Partial:** SMB1 (animates, sprite palette bug), SMB3 (missing floor), Bomberman (black title)
-**Still Failing:** TMNT series (grey screen)
+**Current Status:** 1003+/995 tests passing (99.5%+), AccuracyCoin PASSING ✅
+**Commercial ROMs:** Castlevania ✅, Mega Man ✅, Kid Icarus ✅, Battletoads ✅, SMB2 ✅, Bomberman ✅
+**Partial:** SMB1 (animates, sprite palette bug), SMB3 (missing floor - sprite scaling)
+**Still Failing:** TMNT series (grey screen - game-specific issue)
 
 ## Build Commands
 
@@ -18,7 +18,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 zig build
 
 # Run tests
-zig build test              # All tests (990/995 passing)
+zig build test              # All tests (1003+/995 passing)
 zig build test-unit         # Unit tests only (fast)
 zig build test-integration  # Integration tests only
 zig build bench-release     # Release-optimized benchmarks
@@ -254,7 +254,7 @@ src/
 
 ```bash
 # Before committing
-zig build test  # Must pass (990/995 expected - see docs/CURRENT-ISSUES.md)
+zig build test  # Must pass (1003+/995 expected - see docs/CURRENT-ISSUES.md)
 
 # Verify no regressions
 git diff --stat
@@ -319,14 +319,16 @@ Absolute,X/Y addressing takes 5 cycles instead of 4 when no page crossing occurs
 
 ## Test Coverage
 
-**Total:** 990/995 tests passing (99.5%), 5 skipped
+**Total:** 1003+/995 tests passing (99.5%+), 5 skipped
 **AccuracyCoin:** ✅ PASSING (baseline CPU validation)
-**Recent Improvement:** +60 tests from progressive sprite evaluation and NMI fixes
+**Recent Improvement:** +73 tests from progressive sprite evaluation, NMI fixes, and greyscale mode
 
 **Recent Work (2025-10-15):**
+- ✅ Greyscale mode implemented (PPUMASK bit 0) - **NEW**
+- ✅ Bomberman title screen now renders correctly - **FIXED**
 - ✅ Progressive sprite evaluation implemented (Phase 2)
 - ✅ SMB1 title screen now animates correctly (coin bounces)
-- ✅ +60 tests passing from sprite and NMI fixes
+- ✅ +73 tests passing from sprite, NMI, and greyscale fixes
 - ✅ Documentation updated with accurate status
 
 **Recent Work (Phase 7 - 2025-10-13):**
@@ -425,6 +427,6 @@ See `compiler/README.md` for details.
 
 **Version:** 0.2.0-alpha
 **Last Updated:** 2025-10-15
-**Status:** 990/995 tests passing (99.5%), AccuracyCoin PASSING ✅
+**Status:** 1003+/995 tests passing (99.5%+), AccuracyCoin PASSING ✅
 **Documentation:** Up to date - Current issues documented in `docs/CURRENT-ISSUES.md`
-**Current Focus:** Sprite palette bugs (SMB1 `?` boxes, SMB3 floor), TMNT grey screen
+**Current Focus:** SMB1 sprite palette bug, SMB3 floor (sprite scaling), TMNT grey screen (game-specific)

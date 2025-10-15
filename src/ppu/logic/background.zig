@@ -131,10 +131,18 @@ pub fn getBackgroundPixel(state: *PpuState, pixel_x: u16) u8 {
 }
 
 /// Get final pixel color from palette
-/// Converts palette index to RGBA8888 color
+/// Converts palette index to RGBA8888 color with greyscale mode support
 pub fn getPaletteColor(state: *PpuState, palette_index: u8) u32 {
     // Read NES color index from palette RAM
-    const nes_color = state.palette_ram[palette_index & 0x1F];
+    var nes_color = state.palette_ram[palette_index & 0x1F];
+
+    // Apply greyscale mode (PPUMASK bit 0)
+    // Hardware: AND with $30 to strip hue (bits 0-3), keeping only value (bits 4-5)
+    // This converts all colors to grayscale by removing color information
+    // Reference: nesdev.org/wiki/PPU_palettes#Greyscale_mode
+    if (state.mask.greyscale) {
+        nes_color &= 0x30;
+    }
 
     // Convert to RGBA using standard NES palette
     return palette.getNesColorRgba(nes_color);
