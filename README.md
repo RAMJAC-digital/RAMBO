@@ -2,15 +2,28 @@
 
 Cycle-accurate NES emulator written in Zig 0.15.1.
 
-**Current Status:** ~99% complete (tests TBD post-NMI fix, AccuracyCoin PASSING ✅)
+**Current Status:** 990/995 tests passing (99.5%), AccuracyCoin PASSING ✅
 
 **Commercial ROMs:**
-- ✅ Working: Castlevania, Mega Man, Kid Icarus, Battletoads, SMB2, SMB3
-- ❌ Failing: Super Mario Bros (SMB1 - title frozen), TMNT series (blank screen)
+- ✅ Castlevania, Mega Man, Kid Icarus, Battletoads, SMB2
+- ⚠️ SMB1: Title animates correctly, sprite palette bug (`?` boxes)
+- ⚠️ SMB3: Missing checkered floor on title screen
+- ⚠️ Bomberman: Menu visible, title screen black
+- ❌ TMNT series: Grey screen (not rendering)
 
 ---
 
 ## Recent Fixes (2025-10-15)
+
+### Progressive Sprite Evaluation (Phase 2)
+
+- ✅ **Cycle-Accurate Sprite Evaluation:** Replaced instant evaluation with hardware-accurate progressive evaluation
+  - **990/995 tests passing** (+3 tests fixed)
+  - SMB1 title screen now animates correctly (coin bounces) 🎉
+  - Odd cycles: Read from OAM, check sprite in range
+  - Even cycles: Write to secondary OAM if in range
+  - Fixed sprite overflow flag (triggers on 9th sprite, not 8th)
+  - Fixed general protection faults in threading tests
 
 ### Critical NMI Bug Fixes
 
@@ -26,7 +39,7 @@ Cycle-accurate NES emulator written in Zig 0.15.1.
   - Commercial ROMs now execute correct boot paths
   - Uses LCG with 87.5% bias toward low values (0x00-0x0F)
 
-See **[CURRENT-ISSUES.md](docs/CURRENT-ISSUES.md)** for complete status.
+See **[CURRENT-ISSUES.md](docs/CURRENT-ISSUES.md)** for complete status and remaining issues.
 
 ---
 

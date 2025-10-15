@@ -1,7 +1,7 @@
 # Current Issues - RAMBO NES Emulator
 
-**Last Updated:** 2025-10-15 (NMI Double-Trigger Fix)
-**Test Status:** TBD (post-NMI fix), 19 skipped
+**Last Updated:** 2025-10-15 (Progressive Sprite Evaluation)
+**Test Status:** 990/995 passing (99.5%), 5 skipped
 **AccuracyCoin CPU Tests:** ✅ PASSING (baseline validation complete)
 
 This document tracks **active** bugs and issues verified against current codebase. Historical/resolved issues are archived in `docs/archive/`.
@@ -61,6 +61,35 @@ This document tracks **active** bugs and issues verified against current codebas
 
 ---
 
+## **MAJOR FIX - Progressive Sprite Evaluation (2025-10-15)**
+
+### Hardware-Accurate Sprite Evaluation - RESOLVED ✅
+
+**Impact:** SMB1 title screen now animates correctly, +3 tests passing
+**Commits:**
+- 8484b40 "fix(ppu): Clear CPU halted flag after OAM DMA in tests"
+- 79a806f "feat(ppu): Implement hardware-accurate progressive sprite evaluation (Phase 2)"
+
+**Root Cause:**
+- Previous implementation performed instant sprite evaluation at dot 65 (all sprites evaluated in single cycle)
+- Real NES hardware evaluates sprites progressively across dots 65-256 (192 cycles)
+- Games like SMB1 depend on this cycle-by-cycle timing behavior
+
+**Fix:**
+- Implemented cycle-accurate progressive evaluation matching NES hardware
+- **Odd cycles (65, 67, 69...)**: Read from OAM, check if sprite in range
+- **Even cycles (66, 68, 70...)**: Write to secondary OAM if in range
+- Fixed sprite overflow flag to trigger on 9th sprite detection (not 8th)
+- Fixed memory corruption causing general protection faults in threading tests
+- Files: `src/ppu/State.zig`, `src/ppu/Logic.zig`, `src/ppu/logic/sprites.zig`
+
+**Before:** Instant evaluation → SMB1 title frozen, 987/995 tests
+**After:**  Progressive evaluation → SMB1 title animates, 990/995 tests (+3)
+
+**Hardware Reference:** nesdev.org/wiki/PPU_sprite_evaluation
+
+---
+
 ## Recent Fixes (2025-10-14)
 
 ### Five Critical Hardware Bugs Fixed ✅
@@ -97,59 +126,91 @@ This document tracks **active** bugs and issues verified against current codebas
 
 ### Commercial ROM Status (2025-10-15)
 
-**Working ROMs:**
+**Fully Working:**
 - ✅ Castlevania - Displays correctly
 - ✅ Mega Man - Glitching resolved
 - ✅ Kid Icarus - Displays correctly
-- ✅ Battletoads - Working (from Phase 1)
-- ✅ SMB2/SMB3 - Working (from Phase 1)
+- ✅ Battletoads - Working
+- ✅ SMB2 - Working
+
+**Partial Working (Minor Issues):**
+- ⚠️ **SMB1** - Title animates correctly (coin bounces), sprite palette bug on `?` boxes (left side green instead of yellow/orange)
+- ⚠️ **SMB3** - Boots and runs, missing checkered floor pattern on title screen
+- ⚠️ **Bomberman** - Menu select visible, title screen black (draws something but appears black)
 
 **Still Failing:**
-- ❌ Super Mario Bros (SMB1) - Title screen appears but doesn't animate (coin frozen, Mario sprite missing, `?` box partial)
-- ❌ TMNT series - Blank screen
+- ❌ **TMNT series** - Grey screen (not rendering anything)
 
-### SMB1 Title Screen Animation Freeze
+### SMB1 - Sprite Palette Bug
 
-**Status:** 🔴 **ACTIVE BUG** (persists after NMI fixes)
-**Priority:** P0 (Critical - iconic test ROM)
+**Status:** 🟡 **MINOR RENDERING BUG** (game playable)
+**Priority:** P1 (High - visible graphical glitch)
 
 **Current Behavior:**
-- Title screen displays but is frozen
-- Coin doesn't animate
-- Mario sprite doesn't appear
-- Half a `?` box appears
-- PC advances normally ($8000 → $90DE → $805A → $80B6, etc.)
-- NMI fires each frame
-- PPUMASK = $1E (rendering enabled)
-- PPUCTRL toggles $10 ↔ $90 (NMI enable toggling by game code)
-
-**What Works:**
-- Game code executes (PC changing, registers updating)
-- NMI interrupts fire correctly (verified by diagnostic output)
-- Rendering pipeline works (other games display correctly)
+- ✅ Title screen animates correctly (coin bounces) - **FIXED**
+- ✅ All sprites render and position correctly
+- ⚠️ `?` boxes have **left side green** instead of yellow/orange (sprite palette issue)
 
 **Root Cause:**
-Unknown - requires further investigation. Double-NMI suppression fix improved execution but title screen still doesn't animate.
+Likely sprite attribute byte palette selection (bits 0-1) or palette RAM loading issue.
 
 **Next Steps:**
-- Investigate sprite rendering (Mario sprite missing)
-- Check OAM data during title screen
-- Verify sprite 0 hit detection
-- Compare against working ROMs
+- Inspect OAM attribute bytes during title screen
+- Verify palette RAM contents ($3F10-$3F1F)
+- Check sprite palette lookup in `sprites.zig:getSpritePixel()`
 
-### TMNT Series - Blank Screen
+### SMB3 - Missing Checkered Floor
 
-**Status:** 🔴 **ACTIVE BUG**
-**Priority:** P0 (Critical - commercial ROM compatibility)
+**Status:** 🟡 **PARTIAL RENDERING BUG**
+**Priority:** P1 (High - missing visual element)
 
 **Current Behavior:**
-- Displays blank screen
-- Unknown if rendering enabled or game stuck in boot
+- ✅ Game boots and runs correctly
+- ✅ Title screen displays
+- ⚠️ **Checkered floor pattern missing** on title screen
+
+**Root Cause:**
+Unknown - likely background pattern or attribute table issue.
+
+**Next Steps:**
+- Verify background tile fetching during title screen
+- Check attribute table reads
+- Compare with working games (SMB2, Castlevania)
+
+### Bomberman - Black Title Screen
+
+**Status:** 🟡 **PARTIAL RENDERING BUG**
+**Priority:** P2 (Medium - menu works, title cosmetic)
+
+**Current Behavior:**
+- ✅ Menu select screen visible and functional
+- ⚠️ **Title screen appears black** (framebuffer has data, but renders black)
+
+**Root Cause:**
+Unknown - possible palette issue or pattern table selection.
+
+**Next Steps:**
+- Inspect framebuffer contents during title screen
+- Verify palette RAM contents
+- Check PPUCTRL pattern table selection bits
+
+### TMNT Series - Grey Screen
+
+**Status:** 🔴 **NOT RENDERING**
+**Priority:** P0 (Critical - complete failure)
+
+**Current Behavior:**
+- ❌ Displays **grey screen** (no rendering)
+- Unknown if game stuck in boot or rendering disabled
+
+**Root Cause:**
+Unknown - requires diagnostic investigation.
 
 **Next Steps:**
 - Run with diagnostic output to check PC progression
-- Verify PPUMASK writes
-- Check for game-specific hardware quirks
+- Verify PPUMASK writes (check if rendering ever enabled)
+- Check for mapper-specific issues (TMNT uses MMC3)
+- Verify NMI fires correctly
 
 ---
 
@@ -261,13 +322,14 @@ Threading tests rely on precise timing that varies across systems.
 
 | Priority | Count | Category |
 |----------|-------|----------|
-| P0 | 1 | Critical bug blocking commercial ROMs |
-| P1 | 2 | High priority integration issues |
-| P2 | 2 | Medium priority fixes |
-| P3 | 2 | Low priority / deferred |
+| P0 | 1 | Critical (TMNT grey screen) |
+| P1 | 4 | High priority (SMB1/SMB3 sprite bugs, CPU-PPU tests, NMI sequence) |
+| P2 | 3 | Medium priority (Bomberman black screen, type export, file path) |
+| P3 | 2 | Low priority / deferred (CPU timing, threading tests) |
 
-**Progress:**
-VBlankLedger race-condition expectations reconciled with hardware documentation; focus now shifts to commercial ROM rendering enablement.
+**Major Progress (2025-10-15):**
+Progressive sprite evaluation implemented - SMB1 title screen now animates correctly! 🎉
+990/995 tests passing (99.5%). Remaining issues are primarily rendering cosmetics and TMNT compatibility.
 
 ---
 
@@ -292,6 +354,7 @@ zig build test -- tests/integration/commercial_rom_test.zig
 
 ## Document History
 
+**2025-10-15:** Major update - Progressive sprite evaluation implemented, SMB1 animating
 **2025-10-13:** Initial creation from Phase 7 comprehensive audit
 **Audit Source:** `/tmp/phase7_current_state_audit.md`
 **Verification:** All issues verified against actual code and test output

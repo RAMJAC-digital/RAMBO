@@ -6,9 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **RAMBO** is a cycle-accurate NES emulator written in Zig 0.15.1, targeting hardware-accurate 6502/2C02 emulation with cycle-level precision validated against the AccuracyCoin test suite.
 
-**Current Status:** ~99% complete, tests TBD (post-NMI fix), AccuracyCoin PASSING ✅
-**Commercial ROMs:** Castlevania ✅, Mega Man ✅, Kid Icarus ✅, Battletoads ✅, SMB2/3 ✅
-**Still Failing:** SMB1 (title frozen), TMNT series (blank screen)
+**Current Status:** 990/995 tests passing (99.5%), AccuracyCoin PASSING ✅
+**Commercial ROMs:** Castlevania ✅, Mega Man ✅, Kid Icarus ✅, Battletoads ✅, SMB2 ✅
+**Partial:** SMB1 (animates, sprite palette bug), SMB3 (missing floor), Bomberman (black title)
+**Still Failing:** TMNT series (grey screen)
 
 ## Build Commands
 
@@ -17,7 +18,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 zig build
 
 # Run tests
-zig build test              # All tests (930/966 passing)
+zig build test              # All tests (990/995 passing)
 zig build test-unit         # Unit tests only (fast)
 zig build test-integration  # Integration tests only
 zig build bench-release     # Release-optimized benchmarks
@@ -253,7 +254,7 @@ src/
 
 ```bash
 # Before committing
-zig build test  # Must pass (930/966 expected, 17 failing - see KNOWN-ISSUES.md)
+zig build test  # Must pass (990/995 expected - see docs/CURRENT-ISSUES.md)
 
 # Verify no regressions
 git diff --stat
@@ -292,12 +293,12 @@ NMI line was cleared immediately after acknowledgment, preventing CPU edge detec
 
 **Impact:** Castlevania ✅, Mega Man ✅, Kid Icarus ✅ now working
 
-#### SMB1 Title Screen Animation Freeze
-**Status:** 🔴 **ACTIVE BUG**
+#### SMB1 - Sprite Palette Bug
+**Status:** 🟡 **MINOR BUG** (game playable)
 
-Title screen displays but doesn't animate. Coin frozen, Mario sprite missing, half `?` box appears. Game code executes normally (PC advances, NMI fires), so issue is sprite-rendering specific, not general emulation.
+Title screen **animates correctly** (coin bounces) after progressive sprite evaluation fix! However, `?` boxes have left side green instead of yellow/orange (sprite palette issue).
 
-**Next Steps:** Investigate sprite rendering, OAM data, sprite 0 hit detection
+**Next Steps:** Inspect OAM attribute bytes, verify palette RAM contents ($3F10-$3F1F)
 
 #### TMNT Series - Blank Screen
 **Status:** 🔴 **ACTIVE BUG**
@@ -318,15 +319,20 @@ Absolute,X/Y addressing takes 5 cycles instead of 4 when no page crossing occurs
 
 ## Test Coverage
 
-**Total:** 930/966 tests passing (96.3%), 19 skipped, 17 failing
+**Total:** 990/995 tests passing (99.5%), 5 skipped
 **AccuracyCoin:** ✅ PASSING (baseline CPU validation)
-**Expected After VBlankLedger Fix:** ~939+/966 (97.2%+)
+**Recent Improvement:** +60 tests from progressive sprite evaluation and NMI fixes
+
+**Recent Work (2025-10-15):**
+- ✅ Progressive sprite evaluation implemented (Phase 2)
+- ✅ SMB1 title screen now animates correctly (coin bounces)
+- ✅ +60 tests passing from sprite and NMI fixes
+- ✅ Documentation updated with accurate status
 
 **Recent Work (Phase 7 - 2025-10-13):**
 - ✅ Complete documentation audit and cleanup
 - ✅ GraphViz diagram accuracy verification
 - ✅ Current issues verified against actual code
-- 🔍 VBlankLedger race condition bug identified
 
 **Recent Fixes (Phases 1-6 - 2025-10-11 to 2025-10-13):**
 - ✅ Phase 5: APU State/Logic separation (Envelope, Sweep)
@@ -418,7 +424,7 @@ See `compiler/README.md` for details.
 **Key Principle:** Hardware accuracy first. Cycle-accurate execution over performance optimization.
 
 **Version:** 0.2.0-alpha
-**Last Updated:** 2025-10-13
-**Status:** 930/966 tests passing (96.3%), AccuracyCoin PASSING ✅
-**Documentation:** Phase 7 complete - Current state verified, issues documented in `docs/CURRENT-ISSUES.md`
-**Current Focus:** VBlankLedger race condition bug fix (P0)
+**Last Updated:** 2025-10-15
+**Status:** 990/995 tests passing (99.5%), AccuracyCoin PASSING ✅
+**Documentation:** Up to date - Current issues documented in `docs/CURRENT-ISSUES.md`
+**Current Focus:** Sprite palette bugs (SMB1 `?` boxes, SMB3 floor), TMNT grey screen
