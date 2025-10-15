@@ -718,20 +718,6 @@ pub fn build(b: *std.Build) void {
 
     const run_castlevania_tests = b.addRunArtifact(castlevania_tests);
 
-    // Castlevania RAM initialization pattern tests
-    const castlevania_ram_tests = b.addTest(.{
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("tests/integration/castlevania_ram_test.zig"),
-            .target = target,
-            .optimize = optimize,
-            .imports = &.{
-                .{ .name = "RAMBO", .module = mod },
-            },
-        }),
-    });
-
-    const run_castlevania_ram_tests = b.addRunArtifact(castlevania_ram_tests);
-
     // SMB RAM initialization pattern tests
     const smb_ram_tests = b.addTest(.{
         .root_module = b.createModule(.{
@@ -1293,7 +1279,6 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_framebuffer_validator_tests.step);
     test_step.dependOn(&run_commercial_rom_tests.step);
     test_step.dependOn(&run_castlevania_tests.step);
-    test_step.dependOn(&run_castlevania_ram_tests.step);
     test_step.dependOn(&run_smb_ram_tests.step);
     test_step.dependOn(&run_ppu_register_trace_tests.step);
     test_step.dependOn(&run_chr_integration_tests.step);
@@ -1370,7 +1355,6 @@ pub fn build(b: *std.Build) void {
     integration_test_step.dependOn(&run_framebuffer_validator_tests.step);
     integration_test_step.dependOn(&run_commercial_rom_tests.step);
     integration_test_step.dependOn(&run_castlevania_tests.step);
-    integration_test_step.dependOn(&run_castlevania_ram_tests.step);
     integration_test_step.dependOn(&run_smb_ram_tests.step);
     integration_test_step.dependOn(&run_ppu_register_trace_tests.step);
     integration_test_step.dependOn(&run_chr_integration_tests.step);

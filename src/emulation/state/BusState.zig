@@ -48,8 +48,14 @@ pub const BusState = struct {
             // LCG formula: seed = (a * seed + c) mod m
             seed = seed *% 1664525 +% 1013904223; // Wrapping mul/add
 
-            // Use high byte for better distribution
-            byte.* = @truncate(seed >> 24);
+            // Use high byte but bias toward lower values
+            // Real NES power-on tends toward 0x00 or 0xFF, with bias toward 0x00
+            // Mix high byte with low nibble for better distribution
+            const raw = @as(u8, @truncate(seed >> 24));
+
+            // 87.5% chance of low nibble (0x00-0x0F), 12.5% chance of high values
+            // This matches observed power-on patterns where many bytes are 0x00-0x0F
+            byte.* = if ((seed & 0x07) != 0) raw & 0x0F else raw;
         }
 
         return result;

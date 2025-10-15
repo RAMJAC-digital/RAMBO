@@ -18,12 +18,12 @@ test "CpuLogic: NMI edge detection - falling edge triggers" {
     try expect(cpu.pending_interrupt == .none);
 
     // Check interrupts (no change)
-    CpuLogic.checkInterrupts(&cpu);
+    CpuLogic.checkInterrupts(&cpu, 0);
     try expect(cpu.pending_interrupt == .none);
 
     // Assert NMI line (falling edge)
     cpu.nmi_line = true;
-    CpuLogic.checkInterrupts(&cpu);
+    CpuLogic.checkInterrupts(&cpu, 0);
 
     // NMI should be pending
     try expect(cpu.pending_interrupt == .nmi);
@@ -35,21 +35,21 @@ test "CpuLogic: NMI edge - level held doesn't re-trigger" {
 
     // First edge: assert NMI line
     cpu.nmi_line = true;
-    CpuLogic.checkInterrupts(&cpu);
+    CpuLogic.checkInterrupts(&cpu, 0);
     try expect(cpu.pending_interrupt == .nmi);
 
     // Clear pending but leave line asserted
     cpu.pending_interrupt = .none;
-    CpuLogic.checkInterrupts(&cpu);
+    CpuLogic.checkInterrupts(&cpu, 0);
     try expect(cpu.pending_interrupt == .none); // No re-trigger
 
     // Clear line, then re-assert (new edge)
     cpu.nmi_line = false;
-    CpuLogic.checkInterrupts(&cpu);
+    CpuLogic.checkInterrupts(&cpu, 0);
     try expect(cpu.nmi_edge_detected == false); // Edge cleared
 
     cpu.nmi_line = true;
-    CpuLogic.checkInterrupts(&cpu);
+    CpuLogic.checkInterrupts(&cpu, 0);
     try expect(cpu.pending_interrupt == .nmi); // New edge detected
     try expect(cpu.nmi_edge_detected == true);
 }
@@ -60,12 +60,12 @@ test "CpuLogic: IRQ level detection - triggers while line high" {
 
     // Assert IRQ line
     cpu.irq_line = true;
-    CpuLogic.checkInterrupts(&cpu);
+    CpuLogic.checkInterrupts(&cpu, 0);
     try expect(cpu.pending_interrupt == .irq);
 
     // IRQ is level-triggered, so it should trigger again if cleared
     cpu.pending_interrupt = .none;
-    CpuLogic.checkInterrupts(&cpu);
+    CpuLogic.checkInterrupts(&cpu, 0);
     try expect(cpu.pending_interrupt == .irq); // Re-triggers (level)
 }
 
@@ -75,12 +75,12 @@ test "CpuLogic: IRQ masked by I flag" {
 
     // Assert IRQ line
     cpu.irq_line = true;
-    CpuLogic.checkInterrupts(&cpu);
+    CpuLogic.checkInterrupts(&cpu, 0);
     try expect(cpu.pending_interrupt == .none); // Blocked by I flag
 
     // Clear I flag
     cpu.p.interrupt = false;
-    CpuLogic.checkInterrupts(&cpu);
+    CpuLogic.checkInterrupts(&cpu, 0);
     try expect(cpu.pending_interrupt == .irq); // Now triggers
 }
 
@@ -102,7 +102,7 @@ test "CpuLogic: NMI has priority over IRQ when both asserted" {
     cpu.irq_line = true;
 
     // Check interrupts
-    CpuLogic.checkInterrupts(&cpu);
+    CpuLogic.checkInterrupts(&cpu, 0);
 
     // NMI should win (higher priority)
     try expect(cpu.pending_interrupt == .nmi);
@@ -117,12 +117,12 @@ test "CpuLogic: IRQ does not override pending NMI" {
 
     // First, assert NMI line and detect edge
     cpu.nmi_line = true;
-    CpuLogic.checkInterrupts(&cpu);
+    CpuLogic.checkInterrupts(&cpu, 0);
     try expect(cpu.pending_interrupt == .nmi);
 
     // Now assert IRQ line as well
     cpu.irq_line = true;
-    CpuLogic.checkInterrupts(&cpu);
+    CpuLogic.checkInterrupts(&cpu, 0);
 
     // NMI should remain pending (not overridden by IRQ)
     try expect(cpu.pending_interrupt == .nmi);
@@ -135,7 +135,7 @@ test "CpuLogic: IRQ triggers after NMI is cleared" {
     // Both lines asserted, NMI gets priority
     cpu.nmi_line = true;
     cpu.irq_line = true;
-    CpuLogic.checkInterrupts(&cpu);
+    CpuLogic.checkInterrupts(&cpu, 0);
     try expect(cpu.pending_interrupt == .nmi);
 
     // Simulate NMI handler completion (clear pending)
@@ -143,6 +143,6 @@ test "CpuLogic: IRQ triggers after NMI is cleared" {
     cpu.nmi_line = false; // NMI handled, line cleared
 
     // IRQ line still asserted, should trigger now
-    CpuLogic.checkInterrupts(&cpu);
+    CpuLogic.checkInterrupts(&cpu, 0);
     try expect(cpu.pending_interrupt == .irq);
 }

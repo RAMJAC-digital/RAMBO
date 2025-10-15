@@ -21,10 +21,12 @@ test "BIT $2002: N flag reflects VBlank state" {
     // Setup: BIT $2002 instruction at 0x8000
     h.loadRam(&[_]u8{ 0x2C, 0x02, 0x20 }, 0x0000); // BIT $2002
     h.state.cpu.pc = 0x0000;
+    h.state.cpu.state = .fetch_opcode;
+    h.state.cpu.instruction_cycle = 0;
 
     // --- Test 1: VBlank is clear ---
     h.state.cpu.p.negative = true; // Pre-set flag to ensure it gets cleared
-    h.runCpuCycles(4); // BIT abs takes 4 cycles
+    h.tick(12); // BIT abs takes 4 CPU cycles = 12 PPU cycles
     try testing.expect(!h.state.cpu.p.negative); // N flag should be cleared
 
     // --- Test 2: VBlank is set ---
@@ -34,7 +36,7 @@ test "BIT $2002: N flag reflects VBlank state" {
     h.state.cpu.state = .fetch_opcode;
     h.state.cpu.instruction_cycle = 0;
     h.state.cpu.p.negative = false; // Pre-clear flag
-    h.runCpuCycles(4); // BIT abs takes 4 cycles
+    h.tick(12); // BIT abs takes 4 CPU cycles = 12 PPU cycles
     try testing.expect(h.state.cpu.p.negative); // N flag should be set
 
     // --- Test 3: Mid-VBlank clear-on-read behavior ---
@@ -46,13 +48,13 @@ test "BIT $2002: N flag reflects VBlank state" {
     h.state.cpu.pc = 0x0000;
     h.state.cpu.state = .fetch_opcode;
     h.state.cpu.instruction_cycle = 0;
-    h.runCpuCycles(4); // First read during mid-VBlank
+    h.tick(12); // First read during mid-VBlank (4 CPU cycles = 12 PPU cycles)
     try testing.expect(h.state.cpu.p.negative); // N set
     // Next BIT should see cleared flag
     h.state.cpu.pc = 0x0000;
     h.state.cpu.state = .fetch_opcode;
     h.state.cpu.instruction_cycle = 0;
-    h.runCpuCycles(4);
+    h.tick(12); // 4 CPU cycles = 12 PPU cycles
     try testing.expect(!h.state.cpu.p.negative); // N cleared
 }
 
@@ -71,7 +73,7 @@ test "BIT $2002 then BPL: Loop should exit when VBlank set" {
 
     // --- Loop while VBlank is clear ---
     // Ensure branch is taken at least once (pc not advanced past BPL)
-    h.runCpuCycles(10); // Run a few loops
+    h.tick(30); // Run a few loops (10 CPU cycles = 30 PPU cycles)
     try testing.expect(h.state.cpu.pc != 0x0005);
 
     // --- Set VBlank and see if it exits ---
@@ -80,11 +82,11 @@ test "BIT $2002 then BPL: Loop should exit when VBlank set" {
     h.state.cpu.pc = 0x0000;
     h.state.cpu.state = .fetch_opcode;
     h.state.cpu.instruction_cycle = 0;
-    h.runCpuCycles(4);
+    h.tick(12); // 4 CPU cycles = 12 PPU cycles
     try testing.expect(h.state.cpu.p.negative); // N flag is set
 
-    // Execute BPL (2 cycles, branch NOT taken)
-    h.runCpuCycles(2);
+    // Execute BPL (2 CPU cycles = 6 PPU cycles, branch NOT taken)
+    h.tick(6);
 
     // PC should have advanced past BPL
     try testing.expect(h.state.cpu.pc == 0x0005);

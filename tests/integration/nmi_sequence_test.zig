@@ -46,8 +46,8 @@ test "NMI Sequence: Jumps to NMI vector when VBlank occurs with NMI enabled" {
     // Seek to just before VBlank
     h.seekTo(240, 0);
 
-    // Run for a full frame, which should include the NMI
-    h.runCpuCycles(30000); // Enough cycles to get through VBlank and the NMI
+    // Run for a full frame, which should include the NMI (30000 PPU cycles = 10000 CPU cycles)
+    h.tick(30000);
 
     // Check that we jumped to the NMI handler region
     try testing.expect(h.state.cpu.pc >= 0xC000);
@@ -74,8 +74,8 @@ test "NMI Sequence: Does NOT jump to NMI vector if NMI is disabled" {
     // Seek to just before VBlank
     h.seekTo(240, 0);
 
-    // Run for a full frame
-    h.runCpuCycles(30000);
+    // Run for a full frame (30000 PPU cycles = 10000 CPU cycles)
+    h.tick(30000);
 
     // PC should NOT have changed to the NMI handler
     try testing.expect(h.state.cpu.pc != 0xC000);
@@ -92,17 +92,25 @@ test "NMI Sequence: NMI is only triggered once per VBlank edge" {
         }
     }
 
-    // Setup an NMI handler that just does RTI
-    h.loadRam(&[_]u8{ 0x40 }, 0x0000); // RTI
-    h.state.cpu.pc = 0x0000;
+    // Setup test ROM with NOPs at 0x8000+
     if (h.state.bus.test_ram == null) {
         const rom = try std.testing.allocator.alloc(u8, 0x8000);
-        @memset(rom, 0xEA);
+        @memset(rom, 0xEA); // Fill with NOP
         h.state.bus.test_ram = rom;
     }
     const tr = h.state.bus.test_ram.?;
+
+    // Setup NMI handler: put RTI at 0x8000
+    tr[0x0000] = 0x40; // RTI at 0x8000
+
+    // NMI vector points to 0x8000 (where RTI is)
     tr[0x7FFA] = 0x00;
     tr[0x7FFB] = 0x80;
+
+    // Start executing at 0x8001 (will be running NOPs until NMI)
+    h.state.cpu.pc = 0x8001;
+    h.state.cpu.state = .fetch_opcode;
+    h.state.cpu.instruction_cycle = 0;
 
     // Enable NMI
     h.state.busWrite(0x2000, 0x80);
@@ -110,13 +118,13 @@ test "NMI Sequence: NMI is only triggered once per VBlank edge" {
     // Seek to VBlank
     h.seekTo(241, 1);
 
-    // Run enough cycles for the NMI to be handled
-    h.runCpuCycles(20);
+    // Run enough cycles for the NMI to be handled (20 PPU cycles)
+    h.tick(20);
 
     const pc_after_nmi = h.state.cpu.pc;
 
-    // Run for another 1000 cycles within the same VBlank period
-    h.runCpuCycles(1000);
+    // Run for another 1000 PPU cycles within the same VBlank period
+    h.tick(1000);
 
     // The PC should have advanced (from the NOPs after RTI), but it should not have
     // re-triggered the NMI. If it re-triggered, PC would be reset to 0x8000.
