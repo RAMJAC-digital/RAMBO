@@ -11,10 +11,6 @@
 
 const std = @import("std");
 const testing = std.testing;
-const RAMBO = @import("RAMBO");
-
-const EmulationState = RAMBO.EmulationState.EmulationState;
-const Config = RAMBO.Config.Config;
 
 test "Background fetch timing: cycle mapping verification" {
     // This test verifies the cycle mapping formula: (dot - 1) % 8
