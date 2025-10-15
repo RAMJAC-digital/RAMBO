@@ -151,9 +151,19 @@ pub inline fn getSpritePixel(state: *PpuState, pixel_x: u16) SpritePixel {
     return sprites.getSpritePixel(state, pixel_x);
 }
 
-/// Evaluate sprites for the current scanline
+/// Evaluate sprites for the current scanline (instant evaluation - legacy)
 pub inline fn evaluateSprites(state: *PpuState, scanline: u16) void {
     sprites.evaluateSprites(state, scanline);
+}
+
+/// Initialize sprite evaluation for a new scanline
+pub inline fn initSpriteEvaluation(state: *PpuState) void {
+    sprites.initSpriteEvaluation(state);
+}
+
+/// Tick progressive sprite evaluation (called each cycle during dots 65-256)
+pub inline fn tickSpriteEvaluation(state: *PpuState, scanline: u16, cycle: u16) void {
+    sprites.tickSpriteEvaluation(state, scanline, cycle);
 }
 
 // ============================================================================
@@ -253,6 +263,7 @@ pub fn tick(
     }
 
     // === Sprite Evaluation ===
+    // Cycles 1-64: Clear secondary OAM
     if (dot >= 1 and dot <= 64) {
         const clear_index = dot - 1;
         if (clear_index < 32) {
@@ -260,8 +271,14 @@ pub fn tick(
         }
     }
 
-    if (is_rendering_line and rendering_enabled and dot == 65) {
-        evaluateSprites(state, scanline);
+    // Initialize evaluation at dot 1 (visible scanlines only)
+    if (is_visible and rendering_enabled and dot == 1) {
+        initSpriteEvaluation(state);
+    }
+
+    // Cycles 65-256: Progressive sprite evaluation (visible scanlines only)
+    if (is_visible and rendering_enabled and dot >= 65 and dot <= 256) {
+        tickSpriteEvaluation(state, scanline, dot);
     }
 
     // === Sprite Fetching ===

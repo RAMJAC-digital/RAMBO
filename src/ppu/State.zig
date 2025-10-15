@@ -241,6 +241,24 @@ pub const SpriteState = struct {
 
     /// Sprite 0 index in shift registers (0-7, or 0xFF if not present)
     sprite_0_index: u8 = 0xFF,
+
+    // === Progressive Sprite Evaluation State ===
+    // Tracks the cycle-by-cycle sprite evaluation process (dots 65-256)
+
+    /// Current OAM sprite index being evaluated (0-63, or 64 when done)
+    eval_sprite_n: u8 = 0,
+
+    /// Current secondary OAM slot (0-7)
+    eval_secondary_n: u8 = 0,
+
+    /// Current byte within sprite being copied (0-3: Y, tile, attr, X)
+    eval_byte_m: u8 = 0,
+
+    /// Whether current sprite is in range for this scanline
+    eval_sprite_in_range: bool = false,
+
+    /// Evaluation complete flag (all 64 sprites checked or 8 sprites found)
+    eval_done: bool = false,
 };
 
 /// Background rendering state

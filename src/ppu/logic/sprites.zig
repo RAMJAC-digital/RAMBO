@@ -207,9 +207,113 @@ pub fn getSpritePixel(state: *PpuState, pixel_x: u16) SpritePixel {
     return result;
 }
 
-/// Evaluate sprites for the current scanline
-/// Copies up to 8 sprites to secondary OAM
-/// Sets sprite_overflow flag if more than 8 sprites found
+/// Initialize sprite evaluation for a new scanline
+/// Called at dot 1 of each visible scanline
+pub fn initSpriteEvaluation(state: *PpuState) void {
+    state.sprite_state.eval_sprite_n = 0;
+    state.sprite_state.eval_secondary_n = 0;
+    state.sprite_state.eval_byte_m = 0;
+    state.sprite_state.eval_sprite_in_range = false;
+    state.sprite_state.eval_done = false;
+    state.status.sprite_overflow = false;
+
+    // Clear sprite source indices (mark all slots as empty)
+    for (0..8) |i| {
+        state.sprite_state.oam_source_index[i] = 0xFF;
+    }
+}
+
+/// Progressive sprite evaluation - called once per cycle during dots 65-256
+/// Implements hardware-accurate cycle-by-cycle sprite evaluation
+///
+/// Hardware behavior (per NESdev):
+/// - Reads from OAM on odd cycles, writes to secondary OAM on even cycles
+/// - Evaluates up to 8 sprites per scanline
+/// - After 8 sprites found, continues scanning for overflow (with hardware bug)
+pub fn tickSpriteEvaluation(state: *PpuState, scanline: u16, cycle: u16) void {
+    // Evaluation done or cycle out of range
+    if (state.sprite_state.eval_done or cycle < 65 or cycle > 256) {
+        return;
+    }
+
+    const sprite_height: u16 = if (state.ctrl.sprite_size) 16 else 8;
+    const n = state.sprite_state.eval_sprite_n;
+    const m = state.sprite_state.eval_byte_m;
+    const secondary_n = state.sprite_state.eval_secondary_n;
+
+    // Check if we've evaluated all sprites or filled secondary OAM
+    if (n >= 64) {
+        state.sprite_state.eval_done = true;
+        return;
+    }
+
+    // Odd cycles: Read from OAM
+    // Even cycles: Write to secondary OAM (if sprite in range)
+    const is_odd_cycle = (cycle & 1) == 1;
+
+    if (is_odd_cycle) {
+        // Read phase: Check if sprite is in range
+        if (m == 0) {
+            // Reading Y coordinate
+            const oam_offset = n * 4;
+            const sprite_y = state.oam[oam_offset];
+            const sprite_bottom = @as(u16, sprite_y) + sprite_height;
+
+            // Check if sprite intersects this scanline
+            state.sprite_state.eval_sprite_in_range =
+                (scanline >= sprite_y and scanline < sprite_bottom);
+        }
+    } else {
+        // Write phase
+        if (state.sprite_state.eval_sprite_in_range) {
+            // Sprite in range - copy byte to secondary OAM (if slots available)
+            if (secondary_n < 8) {
+                const oam_offset = n * 4 + m;
+                const secondary_offset = secondary_n * 4 + m;
+                state.secondary_oam[secondary_offset] = state.oam[oam_offset];
+
+                // Track sprite 0 and source index on first byte (Y coordinate)
+                if (m == 0) {
+                    state.sprite_state.oam_source_index[secondary_n] = n;
+                    if (n == 0) {
+                        state.sprite_state.sprite_0_present = true;
+                        state.sprite_state.sprite_0_index = secondary_n;
+                    }
+                }
+
+                // Advance to next byte
+                state.sprite_state.eval_byte_m += 1;
+
+                // If we've copied all 4 bytes, move to next sprite
+                if (state.sprite_state.eval_byte_m >= 4) {
+                    state.sprite_state.eval_byte_m = 0;
+                    state.sprite_state.eval_sprite_n += 1;
+                    state.sprite_state.eval_secondary_n += 1;
+                    state.sprite_state.eval_sprite_in_range = false;
+                }
+            } else {
+                // Secondary OAM full (8 sprites) - found overflow sprite
+                // Set overflow flag on first byte detection (Y coordinate)
+                if (m == 0) {
+                    state.status.sprite_overflow = true;
+                    state.sprite_state.eval_done = true;
+                }
+                // Don't copy, but still need to advance to next sprite
+                state.sprite_state.eval_byte_m = 0;
+                state.sprite_state.eval_sprite_n += 1;
+                state.sprite_state.eval_sprite_in_range = false;
+            }
+        } else {
+            // Sprite not in range - move to next sprite
+            state.sprite_state.eval_sprite_n += 1;
+            state.sprite_state.eval_byte_m = 0;
+            state.sprite_state.eval_sprite_in_range = false;
+        }
+    }
+}
+
+/// Legacy instant sprite evaluation (for backwards compatibility / testing)
+/// This is the old implementation that evaluates all sprites at once
 pub fn evaluateSprites(state: *PpuState, scanline: u16) void {
     const sprite_height: u16 = if (state.ctrl.sprite_size) 16 else 8;
     var secondary_oam_index: usize = 0;
