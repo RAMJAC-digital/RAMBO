@@ -200,12 +200,27 @@ fn mainExec(ctx: zli.CommandContext) !void {
     // Diagnostic: Track frame snapshots if verbose
     var prev_snapshot: ?RAMBO.Debugger.inspection.FrameSnapshot = null;
     var diagnostic_frame_count: usize = 0;
+    var last_pc: u16 = 0xFFFF;
+    var stuck_count: usize = 0;
 
     // Main coordination loop - runs until window closes or shutdown signal
     while (running.load(.acquire)) {
-        // Diagnostic output every 60 frames if verbose
-        if (debug_flags.verbose and diagnostic_frame_count % 60 == 0 and diagnostic_frame_count < 600) {
+        // Diagnostic output every frame if verbose (first 10 frames only)
+        if (debug_flags.verbose and diagnostic_frame_count < 10) {
             const curr_snapshot = RAMBO.Debugger.inspection.captureFrameSnapshot(&emu_state);
+
+            // Check if PC is stuck
+            if (curr_snapshot.cpu.pc == last_pc) {
+                stuck_count += 1;
+                if (stuck_count == 3) {
+                    std.debug.print("\n!!! PC STUCK AT ${X:0>4} FOR 3 FRAMES !!!\n", .{last_pc});
+                    std.debug.print("Likely infinite loop. Examine code at this address.\n", .{});
+                }
+            } else {
+                stuck_count = 0;
+            }
+            last_pc = curr_snapshot.cpu.pc;
+
             if (prev_snapshot) |prev| {
                 RAMBO.Debugger.inspection.compareFrames(prev, curr_snapshot);
             } else {

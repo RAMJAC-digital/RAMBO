@@ -51,7 +51,9 @@ pub fn toCoreState(state: *const CpuState) CpuCoreState {
 /// Check and latch interrupt signals
 /// NMI is edge-triggered (falling edge)
 /// IRQ is level-triggered
-pub fn checkInterrupts(state: *CpuState) void {
+///
+/// @param vblank_set_cycle: Current VBlank set_cycle (0 if no VBlank active) for double-trigger suppression
+pub fn checkInterrupts(state: *CpuState, vblank_set_cycle: u64) void {
     // NMI has highest priority and is edge-triggered
     // Detect falling edge: was high (nmi_edge_detected=false), now low (nmi_line=true)
     // Note: nmi_line being TRUE means NMI is ASSERTED (active low in hardware)
@@ -59,8 +61,17 @@ pub fn checkInterrupts(state: *CpuState) void {
     state.nmi_edge_detected = state.nmi_line;
 
     if (state.nmi_line and !nmi_prev) {
-        // Falling edge detected (transition from not-asserted to asserted)
-        state.pending_interrupt = .nmi;
+        // CRITICAL FIX: Suppress double-trigger during same VBlank period
+        // If game code toggles NMI enable (PPUCTRL bit 7) during VBlank,
+        // the edge detector sees LOW->HIGH transition and would fire again.
+        // Prevent this by tracking which VBlank set_cycle triggered the last NMI.
+        const same_vblank = (vblank_set_cycle == state.nmi_vblank_set_cycle and vblank_set_cycle != 0);
+
+        if (!same_vblank) {
+            // Falling edge detected (transition from not-asserted to asserted)
+            state.pending_interrupt = .nmi;
+            state.nmi_vblank_set_cycle = vblank_set_cycle; // Remember this VBlank
+        }
     }
 
     // IRQ is level-triggered and can be masked

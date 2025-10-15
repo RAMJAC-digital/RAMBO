@@ -6,7 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **RAMBO** is a cycle-accurate NES emulator written in Zig 0.15.1, targeting hardware-accurate 6502/2C02 emulation with cycle-level precision validated against the AccuracyCoin test suite.
 
-**Current Status:** ~99% complete, 930/966 tests passing (96.3%), AccuracyCoin PASSING ✅
+**Current Status:** ~99% complete, tests TBD (post-NMI fix), AccuracyCoin PASSING ✅
+**Commercial ROMs:** Castlevania ✅, Mega Man ✅, Kid Icarus ✅, Battletoads ✅, SMB2/3 ✅
+**Still Failing:** SMB1 (title frozen), TMNT series (blank screen)
 
 ## Build Commands
 
@@ -274,26 +276,33 @@ git commit -m "type(scope): description"
 
 ## Known Issues
 
-**Current Status:** 930/966 tests passing (96.3%), 19 skipped, 17 failing
-**Last Verified:** 2025-10-13 (Phase 7 comprehensive audit)
+**Current Status:** Tests TBD (post-NMI fix), 19 skipped
+**Last Verified:** 2025-10-15 (NMI double-trigger fix)
 **Full Details:** See `docs/CURRENT-ISSUES.md` for complete issue tracking
 
 ### P0 - Critical Issues
 
-#### VBlankLedger Race Condition Logic Bug
-**Status:** 🔴 **ACTIVE BUG** (discovered 2025-10-13)
-**Failing Tests:** 4 tests in `vblank_ledger_test.zig`
-**File:** `src/emulation/state/VBlankLedger.zig:201`
+#### NMI Line Management - RESOLVED ✅
+**Status:** 🟢 **FIXED** (2025-10-15)
+**Commits:** 1985d74 + double-trigger suppression
 
-When CPU reads $2002 on the exact cycle VBlank sets (race condition), the flag incorrectly clears on subsequent reads. NES hardware keeps the flag set after a race condition read.
+NMI line was cleared immediately after acknowledgment, preventing CPU edge detector from latching interrupt. Commercial ROMs never received NMI, causing grey screens and frozen frames.
 
-**Fix Required:** Add `race_condition_occurred` flag to track state across multiple reads.
+**Fix:** NMI line now reflects VBlank flag state directly. Added double-NMI suppression to prevent multiple NMI triggers during same VBlank period.
 
-#### Commercial ROMs: Rendering Never Enabled
-**Status:** 🔴 **UNDER INVESTIGATION**
-**Failing Tests:** 4 tests (Super Mario Bros, Donkey Kong, BurgerTime, Bomberman)
+**Impact:** Castlevania ✅, Mega Man ✅, Kid Icarus ✅ now working
 
-Commercial ROMs never enable rendering (PPUMASK bits 3-4 stay 0). May be related to VBlankLedger bug above.
+#### SMB1 Title Screen Animation Freeze
+**Status:** 🔴 **ACTIVE BUG**
+
+Title screen displays but doesn't animate. Coin frozen, Mario sprite missing, half `?` box appears. Game code executes normally (PC advances, NMI fires), so issue is sprite-rendering specific, not general emulation.
+
+**Next Steps:** Investigate sprite rendering, OAM data, sprite 0 hit detection
+
+#### TMNT Series - Blank Screen
+**Status:** 🔴 **ACTIVE BUG**
+
+Displays blank screen. Needs diagnostic output to determine if rendering enabled or boot stuck.
 
 ### P3 - Low Priority / Deferred
 

@@ -1,10 +1,35 @@
 # Current Issues - RAMBO NES Emulator
 
-**Last Updated:** 2025-10-14 (RAM Initialization Fix)
-**Test Status:** ~995+/993 passing (99.8%+, estimated), 19 skipped, ~4 failing
+**Last Updated:** 2025-10-15 (NMI Double-Trigger Fix)
+**Test Status:** TBD (post-NMI fix), 19 skipped
 **AccuracyCoin CPU Tests:** ✅ PASSING (baseline validation complete)
 
 This document tracks **active** bugs and issues verified against current codebase. Historical/resolved issues are archived in `docs/archive/`.
+
+---
+
+## **CRITICAL FIX - NMI Line Management (2025-10-15)**
+
+### NMI Line Prematurely Cleared - RESOLVED ✅
+
+**Impact:** Commercial ROMs now execute correctly (Castlevania, Mega Man, Kid Icarus working)
+**Commits:**
+- 1985d74 "fix(nmi): Fix critical NMI line management bug"
+- (subsequent) "fix(nmi): Prevent double-NMI trigger during same VBlank"
+
+**Root Cause:**
+- NMI line was cleared immediately after acknowledgment, preventing CPU edge detector from latching interrupt
+- Commercial ROMs never received NMI, causing infinite loops waiting for VBlank
+- Additional issue: SMB1 toggling NMI enable during VBlank caused double-NMI triggers
+
+**Fix:**
+- NMI line now reflects VBlank flag state directly (not cleared after acknowledgment)
+- Removed `last_nmi_ack_cycle` field (hardware doesn't have this concept)
+- Added `nmi_vblank_set_cycle` tracking to prevent double-NMI during same VBlank period
+- Files: `src/emulation/cpu/execution.zig`, `src/emulation/VBlankLedger.zig`, `src/cpu/State.zig`, `src/cpu/Logic.zig`
+
+**Before:** NMI never fired → Games stuck in wait loops → Grey screens or frozen frames
+**After:**  NMI fires once per VBlank → Games execute normally
 
 ---
 
@@ -12,7 +37,7 @@ This document tracks **active** bugs and issues verified against current codebas
 
 ### Grey Screen Bug - RESOLVED ✅
 
-**Impact:** 8+ commercial ROMs now working (Castlevania, Metroid, Paperboy, TMNT series, Tetris, SMB1, Kid Icarus, Lemmings)
+**Impact:** Initial rendering enablement for commercial ROMs
 **Commit:** 069fb76 "fix(emulation): Implement hardware-accurate RAM initialization"
 
 **Root Cause:**
@@ -70,34 +95,61 @@ This document tracks **active** bugs and issues verified against current codebas
 
 ## P0 - Critical Issues
 
-### Commercial ROMs: SMB Animation Freeze - LIKELY RESOLVED ✅
+### Commercial ROM Status (2025-10-15)
 
-**Status:** 🟢 **LIKELY FIXED** by RAM initialization (needs verification)
-**Priority:** P0 (Critical - blocks commercial ROM compatibility)
-**Resolution:** RAM initialization fix (commit 069fb76) should resolve this issue
+**Working ROMs:**
+- ✅ Castlevania - Displays correctly
+- ✅ Mega Man - Glitching resolved
+- ✅ Kid Icarus - Displays correctly
+- ✅ Battletoads - Working (from Phase 1)
+- ✅ SMB2/SMB3 - Working (from Phase 1)
 
-**Original Issue:**
-Super Mario Bros displayed title screen but animations were frozen (coin bounce, "PUSH START" text blink).
+**Still Failing:**
+- ❌ Super Mario Bros (SMB1) - Title screen appears but doesn't animate (coin frozen, Mario sprite missing, `?` box partial)
+- ❌ TMNT series - Blank screen
 
-**Root Cause (Now Identified):**
-- SMB was executing different code path due to all-zero RAM initialization
-- With pseudo-random RAM, game should execute normal boot path with working animations
-- Same fix that resolved grey-screen bug (Castlevania, Metroid, etc.)
+### SMB1 Title Screen Animation Freeze
 
-**Verification Needed:**
-- Run SMB with new RAM initialization
-- Confirm animations work (coin bounce, text blink, gameplay)
-- Mark as fully resolved after visual confirmation
+**Status:** 🔴 **ACTIVE BUG** (persists after NMI fixes)
+**Priority:** P0 (Critical - iconic test ROM)
 
-**If Still Failing:**
-- Resume Phase 6 investigation (debugger-based state machine tracing)
-- See `docs/sessions/SMB_INVESTIGATION_MATRIX.md` for investigation plan
-- Compare RAM-aware code paths vs all-zero code paths
+**Current Behavior:**
+- Title screen displays but is frozen
+- Coin doesn't animate
+- Mario sprite doesn't appear
+- Half a `?` box appears
+- PC advances normally ($8000 → $90DE → $805A → $80B6, etc.)
+- NMI fires each frame
+- PPUMASK = $1E (rendering enabled)
+- PPUCTRL toggles $10 ↔ $90 (NMI enable toggling by game code)
 
-**References:**
-- Fix Commit: 069fb76 "fix(emulation): Implement hardware-accurate RAM initialization"
-- Investigation: `docs/investigations/RAM_INITIALIZATION_GREY_SCREEN_BUG.md`
-- Original Investigation: `docs/sessions/SMB_INVESTIGATION_MATRIX.md`
+**What Works:**
+- Game code executes (PC changing, registers updating)
+- NMI interrupts fire correctly (verified by diagnostic output)
+- Rendering pipeline works (other games display correctly)
+
+**Root Cause:**
+Unknown - requires further investigation. Double-NMI suppression fix improved execution but title screen still doesn't animate.
+
+**Next Steps:**
+- Investigate sprite rendering (Mario sprite missing)
+- Check OAM data during title screen
+- Verify sprite 0 hit detection
+- Compare against working ROMs
+
+### TMNT Series - Blank Screen
+
+**Status:** 🔴 **ACTIVE BUG**
+**Priority:** P0 (Critical - commercial ROM compatibility)
+
+**Current Behavior:**
+- Displays blank screen
+- Unknown if rendering enabled or game stuck in boot
+
+**Next Steps:**
+- Run with diagnostic output to check PC progression
+- Verify PPUMASK writes
+- Check for game-specific hardware quirks
 
 ---
 

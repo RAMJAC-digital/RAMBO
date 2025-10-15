@@ -100,12 +100,17 @@ pub fn stepCycle(state: anytype) CpuCycleResult {
     // - After pending_interrupt = .nmi, checkInterrupts() stops checking
     // - pending_interrupt cleared when interrupt sequence completes
     // - VBlank flag cleared by $2002 read or scanline 261 dot 1
+    // - Double-trigger suppression via nmi_vblank_set_cycle tracking
     const vblank_active = (state.vblank_ledger.last_set_cycle > state.vblank_ledger.last_clear_cycle);
     const nmi_line_should_assert = vblank_active and
         state.ppu.ctrl.nmi_enable and
         !state.vblank_ledger.race_hold;
 
     state.cpu.nmi_line = nmi_line_should_assert;
+
+    // Track current VBlank set cycle for double-trigger suppression
+    // Pass this to checkInterrupts() to prevent multiple NMIs during same VBlank
+    const current_vblank_set_cycle = if (vblank_active) state.vblank_ledger.last_set_cycle else 0;
 
     // If CPU is halted (JAM/KIL), do nothing until RESET
     if (state.cpu.halted) {
@@ -130,7 +135,7 @@ pub fn stepCycle(state: anytype) CpuCycleResult {
     }
 
     // Normal CPU execution
-    executeCycle(state);
+    executeCycle(state, current_vblank_set_cycle);
 
     // Poll mapper IRQ counter (MMC3, etc.)
     return .{ .mapper_irq = state.pollMapperIrq() };
@@ -146,7 +151,9 @@ pub fn stepCycle(state: anytype) CpuCycleResult {
 /// - .execute → .fetch_opcode (1 cycle: opcode execution)
 ///
 /// Caller is responsible for clock management.
-pub fn executeCycle(state: anytype) void {
+///
+/// @param vblank_set_cycle: Current VBlank set_cycle (0 if no VBlank active) for double-trigger suppression
+pub fn executeCycle(state: anytype, vblank_set_cycle: u64) void {
     // Clock advancement happens in tick() - not here
     // This keeps timing management centralized
 
@@ -156,7 +163,7 @@ pub fn executeCycle(state: anytype) void {
     // (hijacked opcode fetch) immediately and transition to interrupt_sequence
     // at cycle 1 (since we just completed cycle 0).
     if (state.cpu.state == .fetch_opcode) {
-        CpuLogic.checkInterrupts(&state.cpu);
+        CpuLogic.checkInterrupts(&state.cpu, vblank_set_cycle);
         if (state.cpu.pending_interrupt != .none and state.cpu.pending_interrupt != .reset) {
             // Interrupt hijacks the opcode fetch - do dummy read at PC NOW
             _ = state.busRead(state.cpu.pc);
