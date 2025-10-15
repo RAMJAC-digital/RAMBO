@@ -91,8 +91,23 @@ pub const Harness = struct {
     }
 
     /// Seek the emulator to a specific PPU scanline and dot.
+    /// Simple implementation: just tick until we reach the target position.
+    /// IMPORTANT: This does NOT reset the VBlank ledger. If you need a clean ledger
+    /// state, call `self.state.vblank_ledger.reset()` before calling this function.
     pub fn seekTo(self: *Harness, target_scanline: u16, target_dot: u16) void {
         while (self.state.clock.scanline() != target_scanline or self.state.clock.dot() != target_dot) {
+            self.state.tick();
+        }
+    }
+
+    /// Seek to a specific scanline/dot AND ensure we're at a CPU tick boundary.
+    /// This is useful for CPU execution tests that need precise PPU timing.
+    /// May overshoot the target by up to 2 PPU cycles to land on a CPU boundary.
+    pub fn seekToCpuBoundary(self: *Harness, target_scanline: u16, target_dot: u16) void {
+        self.seekTo(target_scanline, target_dot);
+
+        // Ensure we're at a CPU tick boundary (may overshoot by 1-2 cycles)
+        while (self.state.clock.ppu_cycles % 3 != 0) {
             self.state.tick();
         }
     }
@@ -170,5 +185,35 @@ pub const Harness = struct {
     /// Helper: Get current dot
     pub fn getDot(self: *const Harness) u16 {
         return self.state.clock.dot();
+    }
+
+    /// Helper: Setup CPU to execute from a specific address
+    /// This ensures the CPU is ready to execute the next instruction
+    /// IMPORTANT: Should only be called at a CPU tick boundary (ppu_cycles % 3 == 0)
+    /// Use this instead of manually setting cpu.pc/cpu.state/cpu.instruction_cycle
+    pub fn setupCpuExecution(self: *Harness, start_pc: u16) void {
+        // Verify we're at a CPU tick boundary
+        if (self.state.clock.ppu_cycles % 3 != 0) {
+            @panic("setupCpuExecution: Must be called at CPU tick boundary (ppu_cycles % 3 == 0)");
+        }
+
+        // Reset CPU to fetch_opcode state at the specified address
+        self.state.cpu.pc = start_pc;
+        self.state.cpu.state = .fetch_opcode;
+        self.state.cpu.instruction_cycle = 0;
+        self.state.cpu.halted = false;
+
+        // Clear any pending interrupts to ensure clean execution
+        self.state.cpu.pending_interrupt = .none;
+
+        // Ensure DMA is not active
+        self.state.dma.active = false;
+        self.state.dmc_dma.rdy_low = false;
+    }
+
+    /// Helper: Tick by CPU cycles (not PPU cycles)
+    /// Each CPU cycle = 3 PPU cycles
+    pub fn tickCpu(self: *Harness, cpu_cycles: u64) void {
+        self.tick(cpu_cycles * 3);
     }
 };

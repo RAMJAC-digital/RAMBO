@@ -30,20 +30,20 @@ test "PPUSTATUS Polling: Tight loop can detect VBlank" {
     var h = try Harness.init();
     defer h.deinit();
 
+    // Load BIT $2002 instruction once at start
+    h.loadRam(&[_]u8{ 0x2C, 0x02, 0x20 }, 0x0000);
+
     // Start just before VBlank
-    h.seekTo(240, 0);
+    h.seekToCpuBoundary(240, 0);
 
     var vblank_detected = false;
     var poll_count: usize = 0;
     const max_polls = 3000; // More than enough to get through the VBlank period
 
     while (poll_count < max_polls) : (poll_count += 1) {
-        // BIT $2002 takes 4 CPU cycles = 12 PPU cycles
-        h.loadRam(&[_]u8{ 0x2C, 0x02, 0x20 }, 0x0000);
-        h.state.cpu.pc = 0x0000;
-        h.state.cpu.state = .fetch_opcode;
-        h.state.cpu.instruction_cycle = 0;
-        h.tick(12); // 4 CPU cycles = 12 PPU cycles
+        // Execute BIT $2002 (4 CPU cycles)
+        h.setupCpuExecution(0x0000);
+        h.tickCpu(4);
 
         if (h.state.cpu.p.negative) { // BIT sets N flag if bit 7 is set
             vblank_detected = true;
