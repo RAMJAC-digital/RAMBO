@@ -78,11 +78,16 @@ pub fn fetchSprites(state: *PpuState, cart: ?*AnyCartridge, scanline: u16, dot: 
                 const attributes = state.secondary_oam[oam_offset + 2];
                 const sprite_x = state.secondary_oam[oam_offset + 3];
 
-                // Calculate row within sprite
-                // Hardware Note: On pre-render scanline (261), secondary OAM contains stale
-                // sprites from scanline 239. Hardware naturally truncates the subtraction to 8 bits.
-                // Example: scanline=261, sprite_y=0 -> hardware uses low byte = 5 (not 261)
-                const row_in_sprite: u8 = @truncate(scanline -% sprite_y);
+                // Hardware behavior: Sprite fetching on scanline N fetches pattern data that will
+                // be rendered on NEXT scanline (N+1). This aligns with sprite evaluation behavior.
+                // Reference: nesdev.org/wiki/PPU_sprite_evaluation
+                //
+                // Hardware Note: On pre-render scanline (261), next_scanline wraps to 0.
+                // Secondary OAM contains stale sprites from scanline 239. Hardware naturally
+                // truncates the subtraction to 8 bits.
+                // Example: scanline=261, next=0, sprite_y=0 -> hardware uses low byte = 0 (not 261)
+                const next_scanline = (scanline + 1) % 262;
+                const row_in_sprite: u8 = @truncate(next_scanline -% sprite_y);
 
                 // Fetch pattern data (cycles 5-6 and 7-8)
                 if (fetch_cycle == 5 or fetch_cycle == 6) {
@@ -259,9 +264,14 @@ pub fn tickSpriteEvaluation(state: *PpuState, scanline: u16, cycle: u16) void {
             const sprite_y = state.oam[oam_offset];
             const sprite_bottom = @as(u16, sprite_y) + sprite_height;
 
-            // Check if sprite intersects this scanline
+            // Hardware behavior: Sprite evaluation on scanline N determines which sprites
+            // will be rendered on NEXT scanline (N+1). This creates a 1-scanline pipeline delay.
+            // Reference: nesdev.org/wiki/PPU_sprite_evaluation
+            const next_scanline = (scanline + 1) % 262;
+
+            // Check if sprite intersects next scanline (not current scanline)
             state.sprite_state.eval_sprite_in_range =
-                (scanline >= sprite_y and scanline < sprite_bottom);
+                (next_scanline >= sprite_y and next_scanline < sprite_bottom);
         }
     } else {
         // Write phase
@@ -332,12 +342,16 @@ pub fn evaluateSprites(state: *PpuState, scanline: u16) void {
         const oam_offset = sprite_index * 4;
         const sprite_y = state.oam[oam_offset];
 
-        // Check if sprite is in range for current scanline
+        // Hardware behavior: Sprite evaluation on scanline N determines which sprites
+        // will be rendered on NEXT scanline (N+1). This creates a 1-scanline pipeline delay.
+        // Reference: nesdev.org/wiki/PPU_sprite_evaluation
+        //
         // Sprite Y position defines top of sprite
-        // Sprite is visible if: scanline >= sprite_y AND scanline < sprite_y + height
+        // Sprite is visible if: next_scanline >= sprite_y AND next_scanline < sprite_y + height
         // Special case: Y=$FF means sprite at -1 (never visible due to overflow)
+        const next_scanline = (scanline + 1) % 262;
         const sprite_bottom = @as(u16, sprite_y) + sprite_height;
-        if (scanline >= sprite_y and scanline < sprite_bottom) {
+        if (next_scanline >= sprite_y and next_scanline < sprite_bottom) {
             // Sprite is in range
             if (sprites_found < 8) {
                 // Copy sprite to secondary OAM

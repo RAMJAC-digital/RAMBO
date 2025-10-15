@@ -151,6 +151,8 @@ test "Sprite Evaluation: 8×8 sprite range check" {
     ppu.ctrl.sprite_size = false; // 8×8 mode
 
     // Sprite at Y=100 visible on scanlines 100-107 (8 pixels tall)
+    // Hardware behavior: Evaluation on scanline N determines sprites for scanline N+1
+    // Therefore, to render on scanlines 100-107, evaluation must happen on scanlines 99-106
     ppu.oam[0] = 100;
     ppu.oam[1] = 0x42;
     ppu.oam[2] = 0x00;
@@ -161,8 +163,8 @@ test "Sprite Evaluation: 8×8 sprite range check" {
         ppu.oam[i * 4] = 0xFF;
     }
 
-    // Test visible range
-    for ([_]u16{ 100, 103, 107 }) |scanline| {
+    // Test visible range: scanlines 99-106 evaluate for rendering on 100-107
+    for ([_]u16{ 99, 103, 106 }) |scanline| {
         // Clear secondary OAM
         for (&ppu.secondary_oam) |*byte| {
             byte.* = 0xFF;
@@ -178,8 +180,8 @@ test "Sprite Evaluation: 8×8 sprite range check" {
         };
     }
 
-    // Test outside range
-    for ([_]u16{ 99, 108, 150 }) |scanline| {
+    // Test outside range: scanline 98 evaluates for 99 (before sprite), 107 evaluates for 108 (after sprite)
+    for ([_]u16{ 98, 107, 150 }) |scanline| {
         // Clear secondary OAM
         for (&ppu.secondary_oam) |*byte| {
             byte.* = 0xAA;
@@ -204,6 +206,8 @@ test "Sprite Evaluation: 8×16 sprite range check" {
     ppu.ctrl.sprite_size = true; // 8×16 mode
 
     // Sprite at Y=100 visible on scanlines 100-115 (16 pixels tall)
+    // Hardware behavior: Evaluation on scanline N determines sprites for scanline N+1
+    // Therefore, to render on scanlines 100-115, evaluation must happen on scanlines 99-114
     ppu.oam[0] = 100;
     ppu.oam[1] = 0x42;
     ppu.oam[2] = 0x00;
@@ -214,8 +218,8 @@ test "Sprite Evaluation: 8×16 sprite range check" {
         ppu.oam[i * 4] = 0xFF;
     }
 
-    // Test visible range
-    for ([_]u16{ 100, 107, 115 }) |scanline| {
+    // Test visible range: scanlines 99-114 evaluate for rendering on 100-115
+    for ([_]u16{ 99, 107, 114 }) |scanline| {
         // Clear secondary OAM
         for (&ppu.secondary_oam) |*byte| {
             byte.* = 0xFF;
@@ -231,8 +235,8 @@ test "Sprite Evaluation: 8×16 sprite range check" {
         };
     }
 
-    // Test outside range
-    for ([_]u16{ 99, 116, 150 }) |scanline| {
+    // Test outside range: scanline 98 evaluates for 99 (before sprite), 115 evaluates for 116 (after sprite)
+    for ([_]u16{ 98, 115, 150 }) |scanline| {
         // Clear secondary OAM
         for (&ppu.secondary_oam) |*byte| {
             byte.* = 0xAA;
