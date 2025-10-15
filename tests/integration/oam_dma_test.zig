@@ -256,8 +256,13 @@ test "OAM DMA: transfer during VBlank" {
     // Prepare source data before seeking (to avoid timeout)
     fillRamPage(state, 0x01, 0xBB);
 
-    // Use harness helper to seek to VBlank efficiently
-    harness.seekTo(241, 0);
+    // Use harness helper to seek to VBlank at CPU boundary
+    // CRITICAL: Must be at CPU boundary for busWrite to work correctly
+    harness.seekToCpuBoundary(241, 0);
+
+    // Clear halted flag (may have been set by illegal opcodes during seek)
+    // Without a cartridge, CPU executes from open bus during seek
+    state.cpu.halted = false;
 
     // Trigger DMA during VBlank
     state.busWrite(0x4014, 0x01);
