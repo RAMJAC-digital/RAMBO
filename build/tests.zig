@@ -619,6 +619,12 @@ pub const specs = [_]TestSpec{
         .membership = .{ .integration = true },
     },
     .{
+        .name = "dmc-oam-conflict",
+        .area = .integration,
+        .path = "tests/integration/dmc_oam_conflict_test.zig",
+        .membership = .{ .integration = true },
+    },
+    .{
         .name = "benchmark",
         .area = .benchmark,
         .path = "tests/integration/benchmark_test.zig",

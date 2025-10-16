@@ -64,6 +64,9 @@ const TimingHelpers = Timing.TimingHelpers;
 // VBlank timing ledger (exported for unit tests)
 pub const VBlankLedger = @import("VBlankLedger.zig").VBlankLedger;
 
+// DMA interaction ledger (exported for unit tests)
+pub const DmaInteractionLedger = @import("DmaInteractionLedger.zig").DmaInteractionLedger;
+
 /// Complete emulation state (pure data, no hidden state)
 /// This is the core of the RT emulation loop
 ///
@@ -84,6 +87,11 @@ pub const EmulationState = struct {
     /// Records VBlank set/clear, $2002 reads, PPUCTRL writes with master clock timestamps
     /// Decouples CPU NMI latch from readable PPU status flag
     vblank_ledger: VBlankLedger = .{},
+
+    /// DMA interaction ledger for cycle-accurate DMC/OAM DMA conflict tracking
+    /// Records DMC interrupt/completion timestamps, OAM pause/resume, interrupted state
+    /// Enables isolated side effects pattern for complex DMA interactions
+    dma_interaction_ledger: DmaInteractionLedger = .{},
 
     /// Memory bus state (RAM, open bus, optional test RAM)
     bus: BusState = .{},

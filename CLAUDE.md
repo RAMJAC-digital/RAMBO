@@ -11,7 +11,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **Commercial ROMs Status:**
 - ✅ **Fully Working:** Castlevania, Mega Man, Kid Icarus, Battletoads, SMB2
 - ⚠️ **Partial (Rendering Issues):**
-  - SMB1: Title animates correctly, sprite palette bug (`?` boxes green instead of yellow)
   - SMB3: Checkered floor appears briefly then disappears (not Y position issue)
   - Kirby's Adventure: Dialog box doesn't render (not Y position issue)
 - ❌ **Not Working:** TMNT series, Paperboy (grey screen - game-specific compatibility issue)

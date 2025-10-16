@@ -8,6 +8,8 @@
 
 const std = @import("std");
 const ApuLogic = @import("../../apu/Logic.zig");
+const DmaInteraction = @import("interaction.zig");
+const DmaActions = @import("actions.zig");
 
 // Debug flag for DMA tracing (enable for debugging)
 const DEBUG_DMA = false;
@@ -15,66 +17,30 @@ const DEBUG_DMA = false;
 /// Tick OAM DMA state machine (called every CPU cycle when active)
 /// Executes OAM DMA transfer from CPU RAM ($XX00-$XXFF) to PPU OAM ($2004)
 ///
-/// Timing (hardware-accurate):
-/// - Cycle 0 (if needed): Alignment wait (odd CPU cycle start)
-/// - Cycles 1-512: 256 read/write pairs
-///   * Even cycles: Read byte from CPU RAM
-///   * Odd cycles: Write byte to PPU OAM
-/// - Total: 513 cycles (even start) or 514 cycles (odd start)
+/// Clean 3-phase architecture:
+/// 1. QUERY: Determine action (pure, no mutations)
+/// 2. EXECUTE: Perform action (single side effect)
+/// 3. UPDATE: Bookkeeping (state mutations after action)
 ///
 /// Hardware behavior:
 /// - CPU is stalled (no instruction execution)
 /// - PPU continues running normally
 /// - Bus is monopolized by DMA controller
+/// - DMC DMA can interrupt OAM DMA (handled by interaction ledger)
 pub fn tickOamDma(state: anytype) void {
-    // CPU cycle count removed - time tracked by MasterClock
-    // No increment needed - clock is advanced in tick()
+    // PHASE 1: QUERY - Determine action (pure, no mutations)
+    const action = DmaActions.determineAction(&state.dma, &state.dma_interaction_ledger);
 
-    // Increment DMA cycle counter
-    const cycle = state.dma.current_cycle;
-    state.dma.current_cycle += 1;
+    // PHASE 2: EXECUTE - Perform action (single side effect)
+    DmaActions.executeAction(state, action);
 
-    // Only log cycle 0 (start) and alignment
-    if (DEBUG_DMA and cycle == 0) {
-        if (state.dma.needs_alignment) {
-            std.debug.print("[DMA] cycle=0 ALIGN WAIT ppu={d}\n", .{state.clock.ppu_cycles});
-        } else {
-            std.debug.print("[DMA] cycle=0 START ppu={d}\n", .{state.clock.ppu_cycles});
-        }
-    }
-
-    // Alignment wait cycle (if needed)
-    if (state.dma.needs_alignment and cycle == 0) {
-        return;
-    }
-
-    // Calculate effective cycle (after alignment)
-    const effective_cycle = if (state.dma.needs_alignment) cycle - 1 else cycle;
-
-    // Check if DMA is complete (512 cycles = 256 read/write pairs)
-    if (effective_cycle >= 512) {
-        if (DEBUG_DMA) {
-            std.debug.print("[DMA COMPLETE] effective_cycle={d} >= 512, resetting DMA\n", .{effective_cycle});
-        }
-        state.dma.reset();
-        return;
-    }
-
-    // DMA transfer: Alternate between read and write
-    if (effective_cycle % 2 == 0) {
-        // Even cycle: Read from CPU RAM
-        const source_addr = (@as(u16, state.dma.source_page) << 8) | @as(u16, state.dma.current_offset);
-        state.dma.temp_value = state.busRead(source_addr);
-    } else {
-        // Odd cycle: Write to PPU OAM via $2004 (respects oam_addr)
-        // Hardware behavior: DMA writes through $2004, which auto-increments oam_addr
-        // This allows games to set oam_addr before DMA for custom sprite ordering
-        state.ppu.oam[state.ppu.oam_addr] = state.dma.temp_value;
-        state.ppu.oam_addr +%= 1; // Auto-increment (wraps at 256)
-
-        // Increment source offset for next byte
-        state.dma.current_offset +%= 1;
-    }
+    // PHASE 3: UPDATE - Bookkeeping (state mutations)
+    DmaActions.updateBookkeeping(
+        &state.dma,
+        &state.ppu.oam_addr,
+        &state.dma_interaction_ledger,
+        action,
+    );
 }
 
 /// Tick DMC DMA state machine (called every CPU cycle when active)
