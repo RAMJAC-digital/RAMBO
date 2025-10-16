@@ -134,11 +134,12 @@ pub fn getBackgroundPixel(state: *PpuState, pixel_x: u16) u8 {
     // Extract palette bits from attribute shift registers
     // Hardware: Attribute shift registers are now 16-bit (like pattern registers)
     // They shift LEFT each cycle, with next tile's attribute in low 8 bits
-    // Sample from bit 15 (MSB of 16-bit register) for current tile's attribute
+    // CRITICAL: Must use same shift_amount as pattern registers to keep them synchronized!
+    // Bug fix: Previously sampled bit 15 only, causing palette desync with fine_x scroll
     // After 8 shifts, bits 8-15 contain previous tile, bits 0-7 contain next tile
     // Reference: NESDev - "next tile's attribute bits connected to shift register inputs"
-    const attr_bit0 = (state.bg_state.attribute_shift_lo >> 15) & 1;
-    const attr_bit1 = (state.bg_state.attribute_shift_hi >> 15) & 1;
+    const attr_bit0 = (state.bg_state.attribute_shift_lo >> shift_amount) & 1;
+    const attr_bit1 = (state.bg_state.attribute_shift_hi >> shift_amount) & 1;
     const palette_select: u8 = @intCast((attr_bit1 << 1) | attr_bit0);
 
     // Combine into palette RAM index ($00-$0F for background)
