@@ -158,12 +158,16 @@ pub fn reverseBits(byte: u8) u8 {
 /// Get sprite pixel for current position
 /// Returns palette index (0 = transparent) and priority flag
 pub fn getSpritePixel(state: *PpuState, pixel_x: u16) SpritePixel {
-    if (!state.mask.show_sprites) {
+    // Use delayed mask for visible rendering (Phase 2D)
+    // Hardware: Rendering enable/disable propagates through 3-4 dot delay
+    const effective_mask = state.getEffectiveMask();
+
+    if (!effective_mask.show_sprites) {
         return .{ .pixel = 0, .priority = false, .sprite_0 = false };
     }
 
     // Check if we should hide sprites in leftmost 8 pixels
-    if (pixel_x < 8 and !state.mask.show_sprites_left) {
+    if (pixel_x < 8 and !effective_mask.show_sprites_left) {
         return .{ .pixel = 0, .priority = false, .sprite_0 = false };
     }
 

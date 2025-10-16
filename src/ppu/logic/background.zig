@@ -110,11 +110,15 @@ pub fn fetchBackgroundTile(state: *PpuState, cart: ?*AnyCartridge, dot: u16) voi
 /// Get background pixel from shift registers
 /// Returns palette index (0-31), or 0 for transparent
 pub fn getBackgroundPixel(state: *PpuState, pixel_x: u16) u8 {
-    if (!state.mask.show_bg) return 0;
+    // Use delayed mask for visible rendering (Phase 2D)
+    // Hardware: Rendering enable/disable propagates through 3-4 dot delay
+    const effective_mask = state.getEffectiveMask();
+
+    if (!effective_mask.show_bg) return 0;
 
     // Left-column clipping (hardware accurate)
     // When show_bg_left is false, background is transparent in columns 0-7
-    if (pixel_x < 8 and !state.mask.show_bg_left) {
+    if (pixel_x < 8 and !effective_mask.show_bg_left) {
         return 0;
     }
 
@@ -156,7 +160,9 @@ pub fn getPaletteColor(state: *PpuState, palette_index: u8) u32 {
     // Hardware: AND with $30 to strip hue (bits 0-3), keeping only value (bits 4-5)
     // This converts all colors to grayscale by removing color information
     // Reference: nesdev.org/wiki/PPU_palettes#Greyscale_mode
-    if (state.mask.greyscale) {
+    // Use delayed mask for visible rendering (Phase 2D)
+    const effective_mask = state.getEffectiveMask();
+    if (effective_mask.greyscale) {
         nes_color &= 0x30;
     }
 

@@ -206,10 +206,18 @@ pub fn tick(
         .rendering_enabled = state.mask.renderingEnabled(),
     };
 
+    // === PPUMASK Delay Buffer Advance (Phase 2D) ===
+    // Hardware behavior: Rendering enable/disable propagates through 3-4 dot delay
+    // Update delay buffer every tick to maintain 3-dot sliding window
+    // Reference: nesdev.org/wiki/PPU_registers#PPUMASK
+    state.mask_delay_buffer[state.mask_delay_index] = state.mask;
+    state.mask_delay_index = @truncate((state.mask_delay_index +% 1) & 3); // Wrap 0-3
+
     // No timing advancement - timing is externally controlled
     const is_visible = scanline < 240;
     const is_prerender = scanline == 261;
     const is_rendering_line = is_visible or is_prerender;
+    // Use immediate mask for register updates/side effects (not delayed)
     const rendering_enabled = state.mask.renderingEnabled();
 
     // === A12 Edge Detection (for MMC3 IRQ timing) ===
@@ -325,11 +333,13 @@ pub fn tick(
             // Reference: https://www.nesdev.org/wiki/PPU_sprite_priority
 
             // Check if left clipping allows hit: either X >= 8, or clipping disabled for both BG and sprites
-            const left_clip_allows_hit = pixel_x >= 8 or (state.mask.show_bg_left and state.mask.show_sprites_left);
+            // Use delayed mask for visible rendering decisions (Phase 2D)
+            const effective_mask = state.getEffectiveMask();
+            const left_clip_allows_hit = pixel_x >= 8 or (effective_mask.show_bg_left and effective_mask.show_sprites_left);
 
             if (sprite_result.sprite_0 and
-                state.mask.show_bg and
-                state.mask.show_sprites and
+                effective_mask.show_bg and
+                effective_mask.show_sprites and
                 pixel_x < 255 and
                 dot >= 2 and
                 left_clip_allows_hit) {

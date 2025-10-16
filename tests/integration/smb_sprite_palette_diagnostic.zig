@@ -35,12 +35,15 @@ test "SMB: Sprite palette diagnostic (? boxes)" {
     state.loadCartridge(cart);
     state.power_on();
 
-    // Run until title screen appears and ? boxes are visible (around frame 240)
+    // Run until gameplay starts (World 1-1)
+    // Title screen is around frame 180, but we need to wait for game to start
+    // After pressing start, gameplay begins around frame 240-300
     // Need framebuffer for rendering
     const FRAME_PIXELS = 256 * 240;
     var framebuffer = [_]u32{0} ** FRAME_PIXELS;
 
-    const target_frame: u64 = 240;
+    // Run for 500 frames to get well into gameplay with ? boxes visible
+    const target_frame: u64 = 500;
     var frames_run: usize = 0;
     while (frames_run < target_frame) {
         state.framebuffer = &framebuffer;
@@ -132,6 +135,47 @@ test "SMB: Sprite palette diagnostic (? boxes)" {
     }
 
     std.debug.print("Total visible sprites: {}\n", .{visible_count});
+
+    // Look for ? box candidates specifically
+    // SMB uses various tile indices for ? boxes depending on animation frame
+    // Common indices: $24-$27 (item blocks), $C0-$C4 (various block types)
+    std.debug.print("\nSearching for potential ? box sprites (wide tile range):\n", .{});
+    var box_candidates: usize = 0;
+    for (0..64) |i| {
+        const oam_offset = i * 4;
+        const y = state.ppu.oam[oam_offset];
+        const tile = state.ppu.oam[oam_offset + 1];
+        const attr = state.ppu.oam[oam_offset + 2];
+        const x = state.ppu.oam[oam_offset + 3];
+
+        // Broad search: tiles $20-$30 (item blocks) or $C0-$D0 (block variants)
+        if (y < 240 and ((tile >= 0x20 and tile <= 0x30) or (tile >= 0xC0 and tile <= 0xD0))) {
+            const palette_select = attr & 0x03;
+            const h_flip = (attr & 0x40) != 0;
+            const v_flip = (attr & 0x80) != 0;
+            const priority = (attr & 0x20) != 0;
+
+            std.debug.print("  CANDIDATE {:2}: Y={:3} X={:3} Tile=${X:0>2} Attr=${X:0>2}\n", .{
+                i,
+                y,
+                x,
+                tile,
+                attr,
+            });
+            std.debug.print("                Palette={} H-Flip={} V-Flip={} Priority={}\n", .{
+                palette_select,
+                @intFromBool(h_flip),
+                @intFromBool(v_flip),
+                @intFromBool(priority),
+            });
+            box_candidates += 1;
+        }
+    }
+
+    if (box_candidates == 0) {
+        std.debug.print("  (No ? box candidates found - may use different tile indices)\n", .{});
+        std.debug.print("  (Try examining sprites with tiles $24-$27 or check sprite pattern table)\n", .{});
+    }
 
     std.debug.print("\n=== Diagnostic Complete ===\n", .{});
 

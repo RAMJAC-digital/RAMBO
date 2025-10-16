@@ -322,6 +322,18 @@ pub const PpuState = struct {
     /// PPU Mask Register ($2001)
     mask: PpuMask = .{},
 
+    /// PPUMASK Delay Buffer (Phase 2D)
+    /// Hardware: Rendering enable/disable takes 3-4 dots to propagate
+    /// Reference: nesdev.org/wiki/PPU_registers#PPUMASK
+    /// "Toggling rendering takes effect approximately 3-4 dots after the write"
+    ///
+    /// Implementation: 4-entry circular buffer
+    /// - Each PPU tick writes current mask to buffer[mask_delay_index]
+    /// - Rendering logic reads from buffer[(mask_delay_index + 1) % 4] for 3-dot delay
+    /// - Buffer is advanced every dot during rendering
+    mask_delay_buffer: [4]PpuMask = [_]PpuMask{.{}} ** 4,
+    mask_delay_index: u2 = 0,
+
     /// PPU Status Register ($2002)
     status: PpuStatus = .{},
 
@@ -380,6 +392,19 @@ pub const PpuState = struct {
     /// Hardware reference: nesdev.org/wiki/MMC3#IRQ_Specifics
     /// Moved from EmulationState (Phase 4b remediation)
     a12_state: bool = false,
+
+    /// Get the effective PPUMASK value with hardware-accurate 3-dot delay
+    /// Hardware behavior: Rendering enable/disable takes ~3-4 dots to propagate
+    /// Reference: nesdev.org/wiki/PPU_registers#PPUMASK
+    ///
+    /// Returns: The mask value from 3 dots ago (for rendering decisions)
+    pub fn getEffectiveMask(self: *const PpuState) PpuMask {
+        // Read from buffer at (current_index + 1) & 3 for 3-dot delay
+        // Example: If current index is 2, we read from (2+1)&3 = 3
+        // This gives us the mask from 3 ticks ago in the circular buffer
+        const delayed_index: usize = (self.mask_delay_index +% 1) & 3;
+        return self.mask_delay_buffer[delayed_index];
+    }
 
     /// Initialize PPU state to power-on values
     pub fn init() PpuState {
