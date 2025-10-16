@@ -594,8 +594,8 @@ Created `scripts/test_smb_ram.zig` to test different RAM initialization patterns
 
 **Run RAM Pattern Tests:**
 ```bash
-zig build test-smb-ram
-# Confirms: All RAM patterns enable rendering correctly
+zig build test-tooling
+# Confirms: Tooling suite (including SMB RAM patterns) enables rendering correctly
 ```
 
 **Run Working ROM (Comparison):**

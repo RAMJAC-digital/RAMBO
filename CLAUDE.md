@@ -6,10 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **RAMBO** is a cycle-accurate NES emulator written in Zig 0.15.1, targeting hardware-accurate 6502/2C02 emulation with cycle-level precision validated against the AccuracyCoin test suite.
 
-**Current Status:** 1003+/995 tests passing (99.5%+), AccuracyCoin PASSING ✅
+**Current Status:** 930/966 tests passing (96.3%), AccuracyCoin PASSING ✅
 **Commercial ROMs:** Castlevania ✅, Mega Man ✅, Kid Icarus ✅, Battletoads ✅, SMB2 ✅
-**Partial:** SMB1 (sprite palette), SMB3 (vertical positioning), Bomberman (rendering issues), Kirby (vertical positioning)
-**Still Failing:** TMNT series (grey screen - game-specific issue)
+**Partial:** SMB1 rendering enablement under investigation, SMB3 vertical positioning, Bomberman rendering, Kirby dialog positioning
+**Still Failing:** TMNT series (grey screen - mapper-specific issue)
 
 ## Build Commands
 
@@ -18,10 +18,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 zig build
 
 # Run tests
-zig build test              # All tests (1003+/995 passing)
-zig build test-unit         # Unit tests only (fast)
+zig build test              # All tests (expected 930/966 passing, 17 failing)
+zig build test-unit         # Unit tests only (fast subset)
 zig build test-integration  # Integration tests only
 zig build bench-release     # Release-optimized benchmarks
+
+# Helper/tooling suites
+zig build test-tooling      # Diagnostic executables (e.g., SMB RAM runner)
 
 # Run emulator
 zig build run
@@ -31,6 +34,17 @@ zig build run
 ./zig-out/bin/RAMBO path/to/rom.nes --break-at 0x8000 --inspect
 ./zig-out/bin/RAMBO path/to/rom.nes --watch 0x2001 --inspect
 ```
+
+### Build System Layout
+
+- `build.zig` is the thin entry point that wires together sub-builders.
+- `build/options.zig` defines feature flags exposed as build options.
+- `build/dependencies.zig` resolves external packages (libxev, zli).
+- `build/wayland.zig` runs the zig-wayland scanner and exposes generated bindings.
+- `build/graphics.zig` compiles GLSL shaders and installs SPIR-V artifacts.
+- `build/modules.zig` creates the primary RAMBO module and executable wiring.
+- `build/tests.zig` owns the metadata table for every test (names, areas, memberships).
+- `build/diagnostics.zig` registers developer tools such as the SMB diagnostic runner.
 
 ## Architecture
 
@@ -254,7 +268,7 @@ src/
 
 ```bash
 # Before committing
-zig build test  # Must pass (1003+/995 expected - see docs/CURRENT-ISSUES.md)
+zig build test  # Must pass (expected 930/966; see docs/CURRENT-ISSUES.md for known failures)
 
 # Verify no regressions
 git diff --stat
@@ -277,8 +291,8 @@ git commit -m "type(scope): description"
 
 ## Known Issues
 
-**Current Status:** Tests TBD (post-NMI fix), 19 skipped
-**Last Verified:** 2025-10-15 (NMI double-trigger fix)
+**Current Status:** 930/966 tests passing (96.3%), 19 skipped, 17 failing
+**Last Verified:** 2025-10-13 (Phase 7 audit of current suite)
 **Full Details:** See `docs/CURRENT-ISSUES.md` for complete issue tracking
 
 ### P0 - Critical Issues
@@ -319,20 +333,12 @@ Absolute,X/Y addressing takes 5 cycles instead of 4 when no page crossing occurs
 
 ## Test Coverage
 
-**Total:** 1003+/995 tests passing (99.5%+), 5 skipped
+**Total:** 930/966 tests passing (96.3%), 19 skipped, 17 failing (see docs/CURRENT-ISSUES.md)
 **AccuracyCoin:** ✅ PASSING (baseline CPU validation)
-**Recent Improvement:** +73 tests from progressive sprite evaluation, NMI fixes, and greyscale mode
-
-**Recent Work (2025-10-15):**
-- ✅ Greyscale mode implemented (PPUMASK bit 0) - **NEW**
-- ✅ Bomberman title screen now renders correctly - **FIXED**
-- ✅ Progressive sprite evaluation implemented (Phase 2)
-- ✅ SMB1 title screen now animates correctly (coin bounces)
-- ✅ +73 tests passing from sprite, NMI, and greyscale fixes
-- ✅ Documentation updated with accurate status
+**Current Focus:** VBlankLedger race condition & commercial ROM rendering enablement
 
 **Recent Work (Phase 7 - 2025-10-13):**
-- ✅ Complete documentation audit and cleanup
+- ✅ Documentation audit and cleanup
 - ✅ GraphViz diagram accuracy verification
 - ✅ Current issues verified against actual code
 
@@ -343,7 +349,7 @@ Absolute,X/Y addressing takes 5 cycles instead of 4 when no page crossing occurs
 - ✅ Phase 2: Config simplification
 - ✅ Phase 1: Legacy code removal
 
-See: `docs/CURRENT-ISSUES.md` for complete issue details and verification commands
+See `docs/CURRENT-ISSUES.md` for detailed failing test list and repro commands.
 
 ### By Component
 
@@ -427,6 +433,6 @@ See `compiler/README.md` for details.
 
 **Version:** 0.2.0-alpha
 **Last Updated:** 2025-10-15
-**Status:** 1003+/995 tests passing (99.5%+), AccuracyCoin PASSING ✅
+**Status:** 930/966 tests passing (96.3%), AccuracyCoin PASSING ✅
 **Documentation:** Up to date - Current issues documented in `docs/CURRENT-ISSUES.md`
 **Current Focus:** SMB1 sprite palette bug, SMB3 floor (sprite scaling), TMNT grey screen (game-specific)

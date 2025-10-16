@@ -20,6 +20,9 @@ zig build test-unit         # Unit tests only (fast)
 zig build test-integration  # Integration tests only
 zig build bench-release     # Release-optimized benchmarks
 
+# Helper suites
+zig build test-tooling      # Tooling diagnostics (e.g., SMB RAM runner)
+
 # Run emulator
 zig build run
 
@@ -28,6 +31,17 @@ zig build run
 ./zig-out/bin/RAMBO path/to/rom.nes --break-at 0x8000 --inspect
 ./zig-out/bin/RAMBO path/to/rom.nes --watch 0x2001 --inspect
 ```
+
+### Build System Layout
+
+- `build.zig` is now a thin entry point that wires high-level steps.
+- `build/options.zig` defines build-time feature flags (e.g., Wayland enablement).
+- `build/dependencies.zig` resolves external packages (libxev, zli).
+- `build/wayland.zig` invokes the zig-wayland scanner and exposes the generated module.
+- `build/graphics.zig` handles shader compilation and installation.
+- `build/modules.zig` creates the RAMBO library/executable with shared imports.
+- `build/tests.zig` centralizes test metadata (name, area, memberships) and step generation.
+- `build/diagnostics.zig` registers developer diagnostics like the SMB execution flow tool.
 
 ## Architecture
 
