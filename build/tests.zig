@@ -406,6 +406,12 @@ pub const specs = [_]TestSpec{
         .membership = .{ .integration = true },
     },
     .{
+        .name = "smb-sprite-palette-diagnostic",
+        .area = .integration,
+        .path = "tests/integration/smb_sprite_palette_diagnostic.zig",
+        .membership = .{ .integration = true },
+    },
+    .{
         .name = "ppu-register-trace",
         .area = .ppu,
         .path = "tests/integration/ppu_register_trace_test.zig",
