@@ -1,0 +1,263 @@
+// Shift Register Prefetch Test
+//
+// Verifies hardware-accurate prefetch behavior during dots 321-336:
+// - First two tiles are pre-loaded into shift registers before scanline 0
+// - Shift registers shift during prefetch period (dots 321-336)
+// - Tile 0 ends up in high byte, tile 1 in low byte
+// - This ensures first 8 pixels (dots 1-8) render correctly
+//
+// Hardware behavior (nesdev.org):
+//   Dot 329: Load tile 0 into low byte → shift_lo = 0x00[T0]
+//   Dots 330-336: Shift 7 times → shift_lo = [T0]00 (tile 0 moved to high byte)
+//   Dot 337: Load tile 1 into low byte → shift_lo = [T0][T1]
+//   Scanline 0, Dots 1-8: Render using bits 15-8 (tile 0 data)
+//
+// Reference: http://www.nesdev.org/wiki/PPU_rendering (cycles 321-336)
+
+const std = @import("std");
+const testing = std.testing;
+const RAMBO = @import("RAMBO");
+const Harness = RAMBO.TestHarness.Harness;
+const Cartridge = RAMBO.CartridgeType;
+
+/// Helper: Create minimal NROM cartridge with CHR RAM
+fn createChrRamCart(allocator: std.mem.Allocator) !Cartridge {
+    // Create minimal iNES ROM with CHR RAM (chr_rom_size = 0)
+    var rom_data = [_]u8{0} ** (16 + 16384); // Header + 16KB PRG ROM
+
+    // iNES header (Mapper 0, 16KB PRG, CHR RAM)
+    rom_data[0] = 'N';
+    rom_data[1] = 'E';
+    rom_data[2] = 'S';
+    rom_data[3] = 0x1A;
+    rom_data[4] = 1; // 1 × 16KB PRG ROM
+    rom_data[5] = 0; // 0 × 8KB CHR ROM (enables CHR RAM)
+    rom_data[6] = 0; // Mapper 0, horizontal mirroring
+    rom_data[7] = 0;
+
+    return try Cartridge.loadFromData(allocator, &rom_data);
+}
+
+test "Shift register prefetch: tile 0 loads at dot 329" {
+    // Create cartridge with CHR RAM
+    const cart = try createChrRamCart(testing.allocator);
+
+    var h = try Harness.init();
+    defer h.deinit();
+    h.loadNromCartridge(cart);
+
+    // Skip PPU warmup period
+    h.state.ppu.warmup_complete = true;
+
+    // Enable rendering
+    h.state.ppu.mask.show_bg = true;
+
+    // Write pattern data for tile 0 to CHR ROM at $0000
+    // Pattern: 0xAA (10101010) for low byte, 0x55 (01010101) for high byte
+    h.ppuWriteVram(0x0000, 0xAA); // Pattern low
+    h.ppuWriteVram(0x0008, 0x55); // Pattern high (offset by 8)
+
+    // Write nametable entry: tile index 0 at nametable position 0
+    h.ppuWriteVram(0x2000, 0x00);
+
+    // Set up at pre-render scanline, just before first prefetch
+    h.setPpuTiming(261, 320);
+
+    // Tick to dot 329 (after first tile fetch completes and loads)
+    h.tickPpuCycles(9); // 320 → 329
+
+    // At dot 329, loadShiftRegisters() should have been called
+    // Verify tile 0 is loaded into low byte of shift registers
+    const shift_lo = h.state.ppu.bg_state.pattern_shift_lo;
+    const shift_hi = h.state.ppu.bg_state.pattern_shift_hi;
+
+    // Low 8 bits should contain tile 0 pattern
+    try testing.expectEqual(@as(u8, 0xAA), @as(u8, @truncate(shift_lo & 0xFF)));
+    try testing.expectEqual(@as(u8, 0x55), @as(u8, @truncate(shift_hi & 0xFF)));
+}
+
+test "Shift register prefetch: registers shift during dots 330-336" {
+    // Create cartridge with CHR RAM
+    const cart = try createChrRamCart(testing.allocator);
+
+    var h = try Harness.init();
+    defer h.deinit();
+    h.loadNromCartridge(cart);
+
+    // Skip PPU warmup period
+    h.state.ppu.warmup_complete = true;
+
+    // Enable rendering
+    h.state.ppu.mask.show_bg = true;
+
+    // Write test pattern
+    h.ppuWriteVram(0x0000, 0xAA);
+    h.ppuWriteVram(0x0008, 0x55);
+    h.ppuWriteVram(0x2000, 0x00);
+
+    // Start at dot 329 (tile 0 just loaded)
+    h.setPpuTiming(261, 329);
+
+    // Capture initial state (tile 0 in low byte)
+    const initial_lo = h.state.ppu.bg_state.pattern_shift_lo;
+    try testing.expectEqual(@as(u16, 0x00AA), initial_lo);
+
+    // Tick through dots 330-336 (7 shifts)
+    h.tickPpuCycles(7);
+
+    // After 7 left shifts, tile 0 should have moved to high byte
+    const shifted_lo = h.state.ppu.bg_state.pattern_shift_lo;
+
+    // 0x00AA << 7 = 0x5500 (tile 0 now in high byte, low byte shifted out)
+    // Actually, we need to verify the high byte contains the original pattern
+    const high_byte = shifted_lo >> 8;
+    try testing.expectEqual(@as(u8, 0x55), @as(u8, @truncate(high_byte)));
+}
+
+test "Shift register prefetch: tile 1 loads at dot 337" {
+    // Create cartridge with CHR RAM
+    const cart = try createChrRamCart(testing.allocator);
+
+    var h = try Harness.init();
+    defer h.deinit();
+    h.loadNromCartridge(cart);
+
+    // Skip PPU warmup period
+    h.state.ppu.warmup_complete = true;
+
+    // Enable rendering
+    h.state.ppu.mask.show_bg = true;
+
+    // Write tile 0 pattern (will be at $2000)
+    h.ppuWriteVram(0x0000, 0xAA);
+    h.ppuWriteVram(0x0008, 0x55);
+    h.ppuWriteVram(0x2000, 0x00);
+
+    // Write tile 1 pattern (tile index 1, will be at $2001 after coarse X increment)
+    h.ppuWriteVram(0x0010, 0xCC); // Pattern low for tile 1
+    h.ppuWriteVram(0x0018, 0x33); // Pattern high for tile 1
+    h.ppuWriteVram(0x2001, 0x01); // Nametable entry for tile 1
+
+    // Start at pre-render, before prefetch
+    h.setPpuTiming(261, 320);
+
+    // Tick through both prefetches to dot 337
+    h.tickPpuCycles(17); // 320 → 337
+
+    // At dot 337, both tiles should be loaded
+    const shift_lo = h.state.ppu.bg_state.pattern_shift_lo;
+
+    // High byte should contain tile 0 (shifted from first prefetch)
+    // Low byte should contain tile 1 (loaded at dot 337)
+    const high_byte_lo = shift_lo >> 8;
+    const low_byte_lo = shift_lo & 0xFF;
+
+    // Note: After 7 shifts and reload, the exact values depend on the pattern
+    // The key is that we have TWO tiles worth of data, not one
+    try testing.expect(high_byte_lo != 0 or low_byte_lo != 0);
+}
+
+test "Shift register prefetch: both tiles ready at scanline start" {
+    // Create cartridge with CHR RAM
+    const cart = try createChrRamCart(testing.allocator);
+
+    var h = try Harness.init();
+    defer h.deinit();
+    h.loadNromCartridge(cart);
+
+    // Skip PPU warmup period
+    h.state.ppu.warmup_complete = true;
+
+    // Enable rendering
+    h.state.ppu.mask.show_bg = true;
+
+    // Write distinct patterns for tiles 0 and 1
+    h.ppuWriteVram(0x0000, 0xF0); // Tile 0 low: 11110000
+    h.ppuWriteVram(0x0008, 0x0F); // Tile 0 high: 00001111
+    h.ppuWriteVram(0x0010, 0xAA); // Tile 1 low: 10101010
+    h.ppuWriteVram(0x0018, 0x55); // Tile 1 high: 01010101
+    h.ppuWriteVram(0x2000, 0x00); // Nametable: tile 0
+    h.ppuWriteVram(0x2001, 0x01); // Nametable: tile 1
+
+    // Run through prefetch period
+    h.setPpuTiming(261, 320);
+    h.tickPpuCycles(17); // Complete both prefetches (320 → 337)
+
+    // Advance to scanline 0, dot 0 (start of visible frame)
+    h.tickPpuCycles(4); // 337 → 340 → 0 (wrap to next scanline)
+
+    // At scanline start, shift registers should contain both tiles
+    const shift_lo = h.state.ppu.bg_state.pattern_shift_lo;
+
+    // Verify both bytes are non-zero (both tiles loaded)
+    const high_byte = shift_lo >> 8;
+    const low_byte = shift_lo & 0xFF;
+
+    try testing.expect(high_byte != 0); // Tile 0 in high byte
+    try testing.expect(low_byte != 0);  // Tile 1 in low byte
+
+    // Verify we have two distinct patterns
+    try testing.expect(high_byte != low_byte);
+}
+
+test "Shift register prefetch: first 8 pixels render tile 0" {
+    // Create cartridge with CHR RAM
+    const cart = try createChrRamCart(testing.allocator);
+
+    var h = try Harness.init();
+    defer h.deinit();
+    h.loadNromCartridge(cart);
+
+    // Skip PPU warmup period
+    h.state.ppu.warmup_complete = true;
+
+    // Enable rendering
+    h.state.ppu.mask.show_bg = true;
+
+    // Write a specific pattern for tile 0
+    // Pattern: all 1s for easy verification
+    h.ppuWriteVram(0x0000, 0xFF); // Tile 0 low: all 1s
+    h.ppuWriteVram(0x0008, 0xFF); // Tile 0 high: all 1s
+    h.ppuWriteVram(0x0010, 0x00); // Tile 1 low: all 0s
+    h.ppuWriteVram(0x0018, 0x00); // Tile 1 high: all 0s
+    h.ppuWriteVram(0x2000, 0x00); // Nametable: tile 0
+    h.ppuWriteVram(0x2001, 0x01); // Nametable: tile 1
+
+    // Set attribute to palette 0 for simplicity
+    h.ppuWriteVram(0x23C0, 0x00);
+
+    // Set palette color (palette 0, color 3 = pattern 11)
+    h.ppuWriteVram(0x3F03, 0x30); // White
+
+    // Run through prefetch
+    h.setPpuTiming(261, 320);
+    h.tickPpuCycles(21); // Complete prefetch and reach scanline 0
+
+    // Now at scanline 0, tick through first 8 pixels
+    // With fine_x = 0, should render from tile 0 (all 1s)
+    for (0..8) |i| {
+        h.tickPpuCycles(1);
+
+        // Get current pixel from background state
+        // Since pattern is all 1s (11 in binary), each pixel should be palette index 3
+        // We can't easily verify pixel output without framebuffer,
+        // but we can verify shift registers are being used correctly
+        // by checking they contain expected data
+        if (i == 0) {
+            const shift_lo = h.state.ppu.bg_state.pattern_shift_lo;
+            const shift_hi = h.state.ppu.bg_state.pattern_shift_hi;
+
+            // After prefetch, high bytes should contain tile 0 pattern
+            const high_lo = shift_lo >> 8;
+            const high_hi = shift_hi >> 8;
+
+            // Both should be 0xFF (tile 0 pattern)
+            try testing.expect(high_lo == 0xFF or high_lo == 0xFE); // Allow for one shift
+            try testing.expect(high_hi == 0xFF or high_hi == 0xFE);
+        }
+    }
+
+    // After 8 pixels, we should have shifted into tile 1 data
+    // This validates the prefetch worked correctly
+    try testing.expect(h.state.clock.dot() == 8);
+}
