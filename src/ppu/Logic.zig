@@ -236,11 +236,17 @@ pub fn tick(
 
     // === Background Pipeline ===
     if (is_rendering_line and rendering_enabled) {
-        if (dot >= 1 and dot <= 256) {
+        // Hardware-accurate shift timing: shift during rendering AND prefetch
+        // Per nesdev forums (ulfalizer): "The shifters seem to shift between dots 2...257 and dots 322...337"
+        // Dots 2-257: Shift during visible rendering (after pixel output starts at dot 1)
+        // Dots 322-337: Shift during prefetch (moves tile 0 from low→high byte for tile 1)
+        // Reference: https://forums.nesdev.org/viewtopic.php?t=10348
+        if ((dot >= 2 and dot <= 257) or (dot >= 322 and dot <= 337)) {
             state.bg_state.shift();
         }
 
-        if ((dot >= 1 and dot <= 256) or (dot >= 321 and dot <= 336)) {
+        // Fetch range includes dots 321-337 for prefetch (tile 0 at 329, tile 1 at 337)
+        if ((dot >= 1 and dot <= 256) or (dot >= 321 and dot <= 337)) {
             fetchBackgroundTile(state, cart, dot);
         }
 

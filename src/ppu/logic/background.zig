@@ -88,10 +88,12 @@ pub fn fetchBackgroundTile(state: *PpuState, cart: ?*AnyCartridge, dot: u16) voi
             state.bg_state.pattern_latch_hi = memory.readVram(state, cart, pattern_addr);
         },
 
-        // Cycle 0: Shift register reload (dots 9, 17, 25, 33...)
-        // Special case: Skip reload at dot 1 (first dot of scanline - no data fetched yet)
+        // Cycle 0: Shift register reload (dots 9, 17, 25, 33, 329, 337...)
+        // Special cases:
+        // - Skip dot 1: First dot of scanline, no data fetched yet
+        // - Skip dot 321: First prefetch dot, spurious reload with garbage data
         0 => {
-            if (dot > 1) {
+            if (dot > 1 and dot != 321) {
                 // Load shift registers with fetched tile data
                 state.bg_state.loadShiftRegisters();
 
