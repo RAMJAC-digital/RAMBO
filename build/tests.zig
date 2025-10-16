@@ -448,6 +448,12 @@ pub const specs = [_]TestSpec{
         .membership = .{ .integration = true },
     },
     .{
+        .name = "ppu-ppuctrl-mid-scanline",
+        .area = .ppu,
+        .path = "tests/ppu/ppuctrl_mid_scanline_test.zig",
+        .membership = .{ .unit = true },
+    },
+    .{
         .name = "nmi-edge-trigger",
         .area = .ppu_vblank,
         .path = "tests/integration/nmi_edge_trigger_test.zig",

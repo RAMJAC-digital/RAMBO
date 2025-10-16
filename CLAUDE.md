@@ -6,10 +6,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **RAMBO** is a cycle-accurate NES emulator written in Zig 0.15.1, targeting hardware-accurate 6502/2C02 emulation with cycle-level precision validated against the AccuracyCoin test suite.
 
-**Current Status:** 930/966 tests passing (96.3%), AccuracyCoin PASSING ✅
-**Commercial ROMs:** Castlevania ✅, Mega Man ✅, Kid Icarus ✅, Battletoads ✅, SMB2 ✅
-**Partial:** SMB1 rendering enablement under investigation, SMB3 vertical positioning, Bomberman rendering, Kirby dialog positioning
-**Still Failing:** TMNT series (grey screen - mapper-specific issue)
+**Current Status:** 990/995 tests passing (99.5%), AccuracyCoin PASSING ✅
+
+**Commercial ROMs Status:**
+- ✅ **Fully Working:** Castlevania, Mega Man, Kid Icarus, Battletoads, SMB2
+- ⚠️ **Partial (Rendering Issues):**
+  - SMB1: Title animates correctly, sprite palette bug (`?` boxes green instead of yellow)
+  - SMB3: Checkered floor appears briefly then disappears (not Y position issue)
+  - Kirby's Adventure: Dialog box doesn't render (not Y position issue)
+- ❌ **Not Working:** TMNT series, Paperboy (grey screen - game-specific compatibility issue)
 
 ## Build Commands
 
@@ -18,13 +23,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 zig build
 
 # Run tests
-zig build test              # All tests (expected 930/966 passing, 17 failing)
+zig build test              # All tests (expected 990/995 passing, 5 skipped)
 zig build test-unit         # Unit tests only (fast subset)
 zig build test-integration  # Integration tests only
 zig build bench-release     # Release-optimized benchmarks
 
 # Helper/tooling suites
-zig build test-tooling      # Diagnostic executables (e.g., SMB RAM runner)
+zig build test-tooling      # Diagnostic executables
 
 # Run emulator
 zig build run
@@ -268,7 +273,7 @@ src/
 
 ```bash
 # Before committing
-zig build test  # Must pass (expected 930/966; see docs/CURRENT-ISSUES.md for known failures)
+zig build test  # Must pass (expected 990/995; see docs/CURRENT-ISSUES.md for known failures)
 
 # Verify no regressions
 git diff --stat
@@ -289,67 +294,72 @@ git commit -m "type(scope): description"
 # docs(architecture): Update State/Logic pattern
 ```
 
-## Known Issues
+## Known Issues & Current Investigation
 
-**Current Status:** 930/966 tests passing (96.3%), 19 skipped, 17 failing
-**Last Verified:** 2025-10-13 (Phase 7 audit of current suite)
+**Current Status:** 990/995 tests passing (99.5%), 5 skipped
+**Last Verified:** 2025-10-15 (Post-Phase 1 hardware accuracy fixes)
 **Full Details:** See `docs/CURRENT-ISSUES.md` for complete issue tracking
 
-### P0 - Critical Issues
+### Recent Major Fixes (2025-10-14 to 2025-10-15)
 
-#### NMI Line Management - RESOLVED ✅
-**Status:** 🟢 **FIXED** (2025-10-15)
-**Commits:** 1985d74 + double-trigger suppression
+**✅ NMI Line Management** - Fixed critical bug preventing commercial ROMs from receiving interrupts
+- Impact: Castlevania, Mega Man, Kid Icarus now fully working
+- Commit: 1985d74 + double-trigger suppression
 
-NMI line was cleared immediately after acknowledgment, preventing CPU edge detector from latching interrupt. Commercial ROMs never received NMI, causing grey screens and frozen frames.
+**✅ Progressive Sprite Evaluation** - Implemented hardware-accurate cycle-by-cycle sprite evaluation
+- Impact: SMB1 title screen now animates correctly (+3 tests passing)
+- Replaced instant evaluation with progressive evaluation across dots 65-256
 
-**Fix:** NMI line now reflects VBlank flag state directly. Added double-NMI suppression to prevent multiple NMI triggers during same VBlank period.
+**✅ RAM Initialization** - Fixed power-on RAM state (was all zeros, now pseudo-random)
+- Impact: Commercial ROMs now take correct boot paths (~+54 tests)
 
-**Impact:** Castlevania ✅, Mega Man ✅, Kid Icarus ✅ now working
+**✅ Sprite Y Position Pipeline Delay** - Implemented 1-scanline pipeline delay
+- Impact: Hardware-accurate per nesdev.org (+17 new tests), but didn't fix game rendering issues
 
-#### SMB1 - Sprite Palette Bug
-**Status:** 🟡 **MINOR BUG** (game playable)
+**✅ Greyscale Mode** - Implemented PPUMASK bit 0 greyscale support
+- Impact: Missing feature now implemented (+13 tests)
 
-Title screen **animates correctly** (coin bounces) after progressive sprite evaluation fix! However, `?` boxes have left side green instead of yellow/orange (sprite palette issue).
+### Active Investigation: Phase 2 - Mid-Frame Register Changes
 
-**Next Steps:** Inspect OAM attribute bytes, verify palette RAM contents ($3F10-$3F1F)
+**Current Hypothesis:** Remaining rendering issues (SMB3 floor, Kirby dialog) are caused by **mid-frame register update propagation**, not sprite timing.
 
-#### TMNT Series - Blank Screen
-**Status:** 🔴 **ACTIVE BUG**
+**Evidence:**
+- Both games use split-screen effects requiring mid-scanline PPUCTRL/PPUMASK changes
+- SMB1 green line suggests fine X scroll or first tile fetch issue
+- All issues involve dynamic content (splits, scrolling), not static scenes
 
-Displays blank screen. Needs diagnostic output to determine if rendering enabled or boot stuck.
+**Investigation Focus:**
+1. **Fine X Scroll Edge Case** - SMB1 green line (8 pixels, left side)
+2. **PPUCTRL Mid-Scanline Changes** - Pattern/nametable base switching during rendering
+3. **PPUMASK 3-4 Dot Delay** - Rendering enable/disable propagation timing
+4. **DMC/OAM DMA Interaction** - DMC interrupting OAM with byte duplication
 
-### P3 - Low Priority / Deferred
+**Reference:** See `docs/sessions/2025-10-15-phase2-development-plan.md` for detailed investigation plan
 
-#### CPU Timing Deviation (Absolute,X/Y No Page Cross)
-**Status:** 🟡 **KNOWN LIMITATION** (deferred)
+### Remaining Game-Specific Issues
 
-Absolute,X/Y addressing takes 5 cycles instead of 4 when no page crossing occurs. Functionally correct, timing slightly off. AccuracyCoin passes despite this deviation.
+**SMB1** - Sprite palette bug (left side of `?` boxes green instead of yellow)
+**SMB3** - Checkered floor disappears after few frames
+**Kirby's Adventure** - Dialog box doesn't render at all
+**TMNT/Paperboy** - Grey screen (game-specific compatibility, likely mapper issue)
 
-#### Threading Tests
-**Status:** 🟡 **TEST INFRASTRUCTURE ISSUE**
+### Known Limitations (Low Priority)
 
-7 threading tests skipped (timing-sensitive). Not a functional problem - mailboxes work correctly in production.
+**CPU Timing Deviation** - Absolute,X/Y without page crossing: +1 cycle deviation
+- Functionally correct, AccuracyCoin passes despite deviation
+- Priority: Deferred to post-playability
+
+**Threading Tests** - 5 tests skipped (timing-sensitive)
+- Not a functional problem - mailboxes work correctly in production
+- Test infrastructure issue, not emulation issue
 
 ## Test Coverage
 
-**Total:** 930/966 tests passing (96.3%), 19 skipped, 17 failing (see docs/CURRENT-ISSUES.md)
+**Total:** 990/995 tests passing (99.5%), 5 skipped
 **AccuracyCoin:** ✅ PASSING (baseline CPU validation)
-**Current Focus:** VBlankLedger race condition & commercial ROM rendering enablement
+**Current Focus:** Phase 2 investigation - Mid-frame register change timing
 
-**Recent Work (Phase 7 - 2025-10-13):**
-- ✅ Documentation audit and cleanup
-- ✅ GraphViz diagram accuracy verification
-- ✅ Current issues verified against actual code
-
-**Recent Fixes (Phases 1-6 - 2025-10-11 to 2025-10-13):**
-- ✅ Phase 5: APU State/Logic separation (Envelope, Sweep)
-- ✅ Phase 4: PPU finalization (facade removal, A12 state migration)
-- ✅ Phase 3: Cartridge cleanup (legacy system removal)
-- ✅ Phase 2: Config simplification
-- ✅ Phase 1: Legacy code removal
-
-See `docs/CURRENT-ISSUES.md` for detailed failing test list and repro commands.
+See `docs/CURRENT-ISSUES.md` for detailed test status and game compatibility tracking.
 
 ### By Component
 
@@ -363,7 +373,7 @@ See `docs/CURRENT-ISSUES.md` for detailed failing test list and repro commands.
 | Mailboxes | 57 | ✅ All passing |
 | Input System | 40 | ✅ All passing |
 | Cartridge | ~48 | ✅ All passing |
-| Threading | 14 | ⚠️ 10/14 passing, 4 skipped |
+| Threading | 14 | ⚠️ 9/14 passing, 5 skipped |
 | Config | ~30 | ✅ All passing |
 | iNES | 26 | ✅ All passing |
 | Snapshot | ~23 | ✅ All passing |
@@ -433,6 +443,6 @@ See `compiler/README.md` for details.
 
 **Version:** 0.2.0-alpha
 **Last Updated:** 2025-10-15
-**Status:** 930/966 tests passing (96.3%), AccuracyCoin PASSING ✅
+**Status:** 990/995 tests passing (99.5%), AccuracyCoin PASSING ✅
 **Documentation:** Up to date - Current issues documented in `docs/CURRENT-ISSUES.md`
-**Current Focus:** SMB1 sprite palette bug, SMB3 floor (sprite scaling), TMNT grey screen (game-specific)
+**Current Focus:** Phase 2 investigation - Mid-frame register change timing (see `docs/sessions/2025-10-15-phase2-development-plan.md`)
