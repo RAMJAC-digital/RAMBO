@@ -454,6 +454,12 @@ pub const specs = [_]TestSpec{
         .membership = .{ .unit = true },
     },
     .{
+        .name = "ppu-ppumask-delay",
+        .area = .ppu,
+        .path = "tests/ppu/ppumask_delay_test.zig",
+        .membership = .{ .unit = true },
+    },
+    .{
         .name = "nmi-edge-trigger",
         .area = .ppu_vblank,
         .path = "tests/integration/nmi_edge_trigger_test.zig",

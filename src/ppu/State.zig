@@ -399,11 +399,16 @@ pub const PpuState = struct {
     ///
     /// Returns: The mask value from 3 dots ago (for rendering decisions)
     pub fn getEffectiveMask(self: *const PpuState) PpuMask {
-        // Read from buffer at (current_index + 1) & 3 for 3-dot delay
-        // Example: If current index is 2, we read from (2+1)&3 = 3
-        // This gives us the mask from 3 ticks ago in the circular buffer
-        const delayed_index: usize = (self.mask_delay_index +% 1) & 3;
-        return self.mask_delay_buffer[delayed_index];
+        // Read from current mask_delay_index for 3-dot delay
+        // mask_delay_index points to where the NEXT write will go,
+        // which means it currently holds the value from 4 dots ago
+        // (the oldest value in our 4-entry buffer = 3 complete dots of delay)
+        //
+        // Example: After 3 writes at indices 0,1,2:
+        // - Buffer: [NEW, NEW, NEW, OLD]
+        // - mask_delay_index = 3
+        // - Reading index 3 gives OLD value (3 dots ago) ✓
+        return self.mask_delay_buffer[self.mask_delay_index];
     }
 
     /// Initialize PPU state to power-on values
