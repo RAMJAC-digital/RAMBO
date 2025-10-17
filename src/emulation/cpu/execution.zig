@@ -123,54 +123,53 @@ pub fn stepCycle(state: anytype) CpuCycleResult {
         return .{};
     }
 
-    // DMC edge detection (functional - inline like VBlank)
+    // DMC completion handling (external state management pattern)
+    // DMC logic clears rdy_low itself; we just need to update timestamps
+    if (state.dmc_dma.transfer_complete) {
+        // Clear signal and record timestamp atomically
+        // Pattern follows NMI/VBlank: timestamp updated when state changes
+        state.dmc_dma.transfer_complete = false;
+        state.dma_interaction_ledger.last_dmc_inactive_cycle = state.clock.ppu_cycles;
+
+        // If OAM was paused, mark it as resumed and set alignment flag
+        const was_paused = state.dma_interaction_ledger.oam_pause_cycle >
+            state.dma_interaction_ledger.oam_resume_cycle;
+        if (was_paused and state.dma.active) {
+            state.dma_interaction_ledger.oam_resume_cycle = state.clock.ppu_cycles;
+            state.dma_interaction_ledger.needs_alignment_after_dmc = true;
+        }
+    }
+
+    // DMC edge detection for rising edge (DMC becoming active)
     const dmc_was_active = (state.dma_interaction_ledger.last_dmc_active_cycle >
         state.dma_interaction_ledger.last_dmc_inactive_cycle);
     const dmc_is_active = state.dmc_dma.rdy_low;
 
-    // Record edges (direct field assignment)
     if (dmc_is_active and !dmc_was_active) {
         state.dma_interaction_ledger.last_dmc_active_cycle = state.clock.ppu_cycles;
-    } else if (!dmc_is_active and dmc_was_active) {
-        state.dma_interaction_ledger.last_dmc_inactive_cycle = state.clock.ppu_cycles;
+
+        // If OAM is active, mark it as paused
+        if (state.dma.active) {
+            state.dma_interaction_ledger.oam_pause_cycle = state.clock.ppu_cycles;
+        }
     }
 
     // DMC DMA active - CPU stalled (RDY line low)
-    // Hardware: DMC DMA has highest priority, can interrupt OAM DMA
+    // Per nesdev.org wiki: DMC and OAM are independent, both can run same cycle (time-sharing)
     if (dmc_is_active) {
-        // Pause OAM if running (inline check, no helper function)
-        if (state.dma.active) {
-            const was_paused = state.dma_interaction_ledger.oam_pause_cycle > state.dma_interaction_ledger.oam_resume_cycle;
-
-            if (!was_paused) {
-                // Calculate effective cycle and determine if reading
-                const effective_cycle: i32 = if (state.dma.needs_alignment)
-                    @as(i32, @intCast(state.dma.current_cycle)) - 1
-                else
-                    @as(i32, @intCast(state.dma.current_cycle));
-
-                const is_reading = (effective_cycle >= 0 and @rem(effective_cycle, 2) == 0);
-
-                // Capture state (direct field assignment)
-                state.dma_interaction_ledger.oam_pause_cycle = state.clock.ppu_cycles;
-                state.dma_interaction_ledger.paused_at_offset = state.dma.current_offset;
-                state.dma_interaction_ledger.paused_during_read = is_reading;
-                state.dma_interaction_ledger.paused_oam_addr = state.ppu.oam_addr;
-
-                if (is_reading) {
-                    const addr = (@as(u16, state.dma.source_page) << 8) | state.dma.current_offset;
-                    state.dma_interaction_ledger.paused_byte_value = state.busRead(addr);
-                }
-            }
-        }
-
         state.tickDmcDma();
-        return .{};
+        // Don't return - OAM can continue if active (time-sharing)
     }
 
     // OAM DMA active - CPU frozen for 512 cycles
+    // tickOamDma handles coordination with DMC internally
     if (state.dma.active) {
         state.tickDma();
+        return .{};
+    }
+
+    // If we only had DMC (no OAM), return now
+    if (dmc_is_active) {
         return .{};
     }
 

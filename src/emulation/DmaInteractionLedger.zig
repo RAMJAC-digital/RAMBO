@@ -6,12 +6,12 @@
 //! ## Hardware Behavior Emulated
 //!
 //! When DMC DMA interrupts OAM DMA:
-//! - DMC has higher priority and pauses OAM
-//! - OAM state is captured at pause moment
-//! - OAM resumes when DMC completes
-//! - If interrupted during read: byte duplicates on resume (hardware bug)
+//! - DMC has higher priority (pauses OAM during halt and read cycles)
+//! - OAM continues during DMC dummy/alignment cycles (time-sharing)
+//! - OAM needs one extra alignment cycle after DMC completes
+//! - No byte duplication (OAM reads sequential addresses)
 //!
-//! Reference: nesdev.org/wiki/APU_DMC#DMA_conflict
+//! Reference: nesdev.org/wiki/DMA#DMC_DMA_during_OAM_DMA
 
 const std = @import("std");
 
@@ -33,11 +33,9 @@ pub const DmaInteractionLedger = struct {
     /// Timestamp when OAM DMA resumed after DMC completion
     oam_resume_cycle: u64 = 0,
 
-    /// Captured state at moment of pause (flattened fields)
-    paused_during_read: bool = false,
-    paused_at_offset: u8 = 0,
-    paused_byte_value: u8 = 0,
-    paused_oam_addr: u8 = 0,
+    /// Flag indicating OAM needs one alignment cycle after DMC completes
+    /// Per nesdev.org wiki: OAM requires extra alignment cycle to get back into get/put rhythm
+    needs_alignment_after_dmc: bool = false,
 
     /// Reset ledger to initial state
     ///
@@ -57,9 +55,7 @@ test "DmaInteractionLedger: reset" {
         .last_dmc_inactive_cycle = 456,
         .oam_pause_cycle = 789,
         .oam_resume_cycle = 1011,
-        .paused_during_read = true,
-        .paused_at_offset = 42,
-        .paused_byte_value = 0xFF,
+        .needs_alignment_after_dmc = true,
     };
 
     ledger.reset();
@@ -69,6 +65,5 @@ test "DmaInteractionLedger: reset" {
     try testing.expectEqual(@as(u64, 0), ledger.last_dmc_inactive_cycle);
     try testing.expectEqual(@as(u64, 0), ledger.oam_pause_cycle);
     try testing.expectEqual(@as(u64, 0), ledger.oam_resume_cycle);
-    try testing.expect(!ledger.paused_during_read);
-    try testing.expectEqual(@as(u8, 0), ledger.paused_at_offset);
+    try testing.expect(!ledger.needs_alignment_after_dmc);
 }

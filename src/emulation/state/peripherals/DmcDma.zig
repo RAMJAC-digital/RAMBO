@@ -7,6 +7,11 @@ pub const DmcDma = struct {
     /// RDY line active (CPU stalled)
     rdy_low: bool = false,
 
+    /// Completion signal (set when transfer finishes)
+    /// execution.zig clears this AND rdy_low atomically
+    /// Pattern: External state management (like NMI/VBlank)
+    transfer_complete: bool = false,
+
     /// Cycles remaining in RDY stall (0-4)
     /// Hardware: 3 idle cycles + 1 fetch cycle
     stall_cycles_remaining: u8 = 0,

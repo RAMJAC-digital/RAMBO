@@ -262,6 +262,10 @@ pub const EmulationState = struct {
     /// Read from NES memory bus
     /// Routes to appropriate component and updates open bus
     pub inline fn busRead(self: *EmulationState, address: u16) u8 {
+        // Capture last read address for DMC corruption (NTSC 2A03 bug)
+        // Pattern: Side effect at entry point (affects all bus reads)
+        self.dmc_dma.last_read_address = address;
+
         const cart_ptr = self.cartPtr();
 
         // The result of the read. For PPU reads, this will be a struct.

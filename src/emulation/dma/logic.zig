@@ -9,43 +9,42 @@ const ApuLogic = @import("../../apu/Logic.zig");
 /// Tick OAM DMA (called every CPU cycle when active)
 /// Executes OAM DMA transfer from CPU RAM ($XX00-$XXFF) to PPU OAM ($2004)
 ///
-/// Functional pattern - no state machine:
-/// - Calculate effective cycle from current_cycle and alignment
-/// - Determine read vs write from cycle parity
-/// - Check for pause/resume from timestamps
+/// Hardware behavior per nesdev.org wiki:
+/// - OAM and DMC are independent DMA units
+/// - When both access memory same cycle, DMC has priority
+/// - OAM continues executing during DMC dummy/alignment cycles (time-sharing)
+/// - OAM only pauses during actual DMC read cycle
+/// - After DMC completes, OAM needs one extra alignment cycle
+/// - No byte duplication - OAM reads sequential addresses
 ///
-/// Hardware behavior:
-/// - CPU is stalled (no instruction execution)
-/// - PPU continues running normally
-/// - Bus is monopolized by DMA controller
-/// - DMC DMA can interrupt OAM DMA (handled by ledger timestamps)
+/// Reference: https://www.nesdev.org/wiki/DMA#DMC_DMA_during_OAM_DMA
 pub fn tickOamDma(state: anytype) void {
-    const ledger = &state.dma_interaction_ledger;
     const dma = &state.dma;
-    const now = state.clock.ppu_cycles;
 
-    // Check 1: Are we paused by DMC? (functional check)
-    const dmc_is_active = ledger.last_dmc_active_cycle > ledger.last_dmc_inactive_cycle;
-    const was_paused = ledger.oam_pause_cycle > ledger.oam_resume_cycle;
+    // Check 1: Is DMC stalling OAM?
+    // Per nesdev.org wiki: OAM pauses during DMC's halt cycle (stall==4) AND read cycle (stall==1)
+    // OAM continues during dummy (stall==3) and alignment (stall==2) cycles (time-sharing)
+    const dmc_is_stalling_oam = state.dmc_dma.rdy_low and
+        (state.dmc_dma.stall_cycles_remaining == 4 or  // Halt cycle
+         state.dmc_dma.stall_cycles_remaining == 1);   // Read cycle
 
-    if (dmc_is_active and was_paused) {
-        return; // Frozen, do nothing
+    if (dmc_is_stalling_oam) {
+        // OAM must wait during DMC halt and read cycles
+        // Do not advance current_cycle - will retry this same cycle next tick
+        return;
     }
 
-    // Check 2: Just resumed - handle duplication
-    const just_resumed = !dmc_is_active and was_paused;
-    if (just_resumed) {
-        // Mark as resumed FIRST to prevent re-entering this block
-        ledger.oam_resume_cycle = now;
-
-        // If paused during read, write the duplicate byte
-        // Then fall through to re-read from same offset (hardware behavior)
-        if (ledger.paused_during_read) {
-            state.ppu.oam[state.ppu.oam_addr] = ledger.paused_byte_value;
-            state.ppu.oam_addr +%= 1;
-            ledger.paused_during_read = false; // Clear flag to prevent re-duplication
-        }
-        // Fall through to continue normal operation
+    // Check 2: Do we need post-DMC alignment cycle?
+    // Per nesdev.org wiki: After DMC completes, OAM needs one extra alignment cycle
+    // to get back into proper get/put rhythm
+    //
+    // CRITICAL: This cycle should NOT advance current_cycle OR do any transfer.
+    // It's a pure "wait" cycle that consumes CPU time but doesn't affect DMA state.
+    // This preserves the read/write phase alignment.
+    const ledger = &state.dma_interaction_ledger;
+    if (ledger.needs_alignment_after_dmc) {
+        ledger.needs_alignment_after_dmc = false;
+        return; // Consume this CPU cycle without advancing DMA state
     }
 
     // Calculate effective cycle (accounting for alignment)
@@ -63,7 +62,7 @@ pub fn tickOamDma(state: anytype) void {
     // Check 4: Completed?
     if (effective_cycle >= 512) {
         dma.reset();
-        ledger.reset();
+        state.dma_interaction_ledger.reset();
         return;
     }
 
@@ -84,24 +83,23 @@ pub fn tickOamDma(state: anytype) void {
     dma.current_cycle += 1;
 }
 
-/// Tick DMC DMA state machine (called every CPU cycle when active)
+/// Tick DMC DMA (called every CPU cycle when active)
+///
+/// Pattern: Clear rdy_low on completion AND signal via transfer_complete
+/// execution.zig uses transfer_complete to update timestamps atomically
 ///
 /// Hardware behavior (NTSC 2A03 only):
 /// - CPU is stalled via RDY line for 4 cycles (3 idle + 1 fetch)
 /// - During stall, CPU repeats last read cycle
-/// - If last read was $4016/$4017 (controller), corruption occurs
-/// - If last read was $2002/$2007 (PPU), side effects repeat
+/// - If last read was MMIO, side effects repeat (corruption)
 ///
 /// PAL 2A07: Bug fixed, DMA is clean (no corruption)
 pub fn tickDmcDma(state: anytype) void {
-    // CPU cycle count removed - time tracked by MasterClock
-    // No increment needed - clock is advanced in tick()
-
     const cycle = state.dmc_dma.stall_cycles_remaining;
 
     if (cycle == 0) {
-        // DMA complete
-        state.dmc_dma.rdy_low = false;
+        // DMA already complete - just signal (for idempotency)
+        state.dmc_dma.transfer_complete = true;
         return;
     }
 
@@ -115,31 +113,22 @@ pub fn tickDmcDma(state: anytype) void {
         // Load into APU
         ApuLogic.loadSampleByte(&state.apu, state.dmc_dma.sample_byte);
 
-        // DMA complete - clear RDY line
+        // Complete: Clear rdy_low and signal completion
         state.dmc_dma.rdy_low = false;
-    } else {
-        // Idle cycles (1-3): CPU repeats last read
-        // This is where corruption happens on NTSC
-        const has_dpcm_bug = switch (state.config.cpu.variant) {
-            .rp2a03e, .rp2a03g, .rp2a03h => true, // NTSC - has bug
-            .rp2a07 => false, // PAL - bug fixed
-        };
-
-        if (has_dpcm_bug) {
-            // NTSC: Repeat last read (can cause corruption)
-            const last_addr = state.dmc_dma.last_read_address;
-
-            // If last read was controller, this extra read corrupts shift register
-            if (last_addr == 0x4016 or last_addr == 0x4017) {
-                // Extra read advances shift register -> corruption
-                _ = state.busRead(last_addr);
-            }
-
-            // If last read was PPU status/data, side effects occur again
-            if (last_addr == 0x2002 or last_addr == 0x2007) {
-                _ = state.busRead(last_addr);
-            }
-        }
-        // PAL: Clean DMA, no repeat reads
+        state.dmc_dma.transfer_complete = true;
+        return;
     }
+
+    // Idle cycles (2-4): CPU repeats last read
+    // This is where corruption happens on NTSC
+    const has_dpcm_bug = switch (state.config.cpu.variant) {
+        .rp2a03e, .rp2a03g, .rp2a03h => true, // NTSC - has bug
+        .rp2a07 => false, // PAL - bug fixed
+    };
+
+    if (has_dpcm_bug) {
+        // NTSC: Repeat last read (corruption occurs for any MMIO address)
+        _ = state.busRead(state.dmc_dma.last_read_address);
+    }
+    // PAL: Clean DMA, no repeat reads
 }

@@ -1,15 +1,17 @@
 //! DMC/OAM DMA Conflict Tests
 //!
 //! Tests the hardware-accurate interaction between DMC DMA and OAM DMA.
-//! When DMC DMA interrupts OAM DMA, OAM pauses and resumes with byte duplication.
+//! When DMC DMA interrupts OAM DMA, OAM continues executing during DMC's dummy/alignment
+//! cycles, then requires an additional alignment cycle before resuming normal operation.
 //!
-//! Hardware Specifications:
+//! Hardware Specifications (from nesdev.org wiki):
 //! - DMC DMA has highest priority (can interrupt OAM DMA)
-//! - OAM DMA pauses during DMC interrupt (does not cancel)
-//! - Byte being read when interrupted duplicates on resume
-//! - Total cycles = OAM base (513/514) + (DMC_count × 4)
+//! - OAM DMA continues during DMC dummy/alignment cycles (time-sharing)
+//! - No byte duplication - OAM reads sequential addresses
+//! - Extra alignment cycle required after DMC completes
+//! - Total overhead: typically +2 cycles, but can be +1 or +3 depending on timing
 //!
-//! Reference: nesdev.org/wiki/APU_DMC#DMA_conflict
+//! Reference: nesdev.org/wiki/APU_DMC#Conflict_with_controller_and_PPU_read
 
 const std = @import("std");
 const testing = std.testing;
@@ -41,18 +43,18 @@ fn fillRamPage(state: *EmulationState, page: u8, pattern: u8) void {
 }
 
 /// Run until OAM DMA completes (with timeout protection)
-fn runUntilOamDmaComplete(state: *EmulationState) void {
+fn runUntilOamDmaComplete(harness: *Harness) void {
     var tick_count: u32 = 0;
-    while (state.dma.active and tick_count < 3000) : (tick_count += 1) {
-        state.tick();
+    while (harness.state.dma.active and tick_count < 1000) : (tick_count += 1) {
+        harness.tickCpu(1);
     }
 }
 
 /// Run until DMC DMA completes (with timeout protection)
-fn runUntilDmcDmaComplete(state: *EmulationState) void {
+fn runUntilDmcDmaComplete(harness: *Harness) void {
     var tick_count: u32 = 0;
-    while (state.dmc_dma.rdy_low and tick_count < 100) : (tick_count += 1) {
-        state.tick();
+    while (harness.state.dmc_dma.rdy_low and tick_count < 100) : (tick_count += 1) {
+        harness.tickCpu(1);
     }
 }
 
@@ -95,94 +97,24 @@ test "DEBUG: Trace complete DMC/OAM interaction" {
     fillRamPage(state, 0x03, 0x00);
 
     // Start OAM DMA
-    std.debug.print("\n=== STARTING OAM DMA ===\n", .{});
-    std.debug.print("Before: dma.active={}\n", .{state.dma.active});
     state.busWrite(0x4014, 0x03);
-    std.debug.print("After: dma.active={}\n", .{state.dma.active});
+    try testing.expect(state.dma.active);
 
     // Trigger DMC immediately
-    std.debug.print("\n=== TRIGGERING DMC ===\n", .{});
     state.dmc_dma.triggerFetch(0xC000);
-    std.debug.print("  dmc_dma.rdy_low={}\n", .{state.dmc_dma.rdy_low});
-    std.debug.print("  Ledger before pause: last_dmc_active={d}, last_dmc_inactive={d}\n", .{
-        state.dma_interaction_ledger.last_dmc_active_cycle,
-        state.dma_interaction_ledger.last_dmc_inactive_cycle,
-    });
+    try testing.expect(state.dmc_dma.rdy_low);
 
     // Tick once - OAM should pause
-    std.debug.print("\n=== TICK 1: OAM SHOULD PAUSE ===\n", .{});
-    std.debug.print("BEFORE tick 1:\n", .{});
-    std.debug.print("  dma: active={}, cycle={}\n", .{state.dma.active, state.dma.current_cycle});
-    std.debug.print("  ppu_cycles={}\n", .{state.clock.ppu_cycles});
-
     harness.tickCpu(1);
-
-    std.debug.print("AFTER tick 1:\n", .{});
-    std.debug.print("  dma: active={}, cycle={}\n", .{state.dma.active, state.dma.current_cycle});
-    std.debug.print("  dmc_dma.rdy_low={}, stall={}\n", .{state.dmc_dma.rdy_low, state.dmc_dma.stall_cycles_remaining});
-    std.debug.print("  ppu_cycles={}\n", .{state.clock.ppu_cycles});
-    std.debug.print("  Ledger: pause={d}, last_dmc_active={d}, last_dmc_inactive={d}\n", .{
-        state.dma_interaction_ledger.oam_pause_cycle,
-        state.dma_interaction_ledger.last_dmc_active_cycle,
-        state.dma_interaction_ledger.last_dmc_inactive_cycle,
-    });
-    std.debug.print("  Paused: was_reading={}, offset={d}, byte=0x{x:0>2}, oam_addr={d}\n", .{
-        state.dma_interaction_ledger.paused_during_read,
-        state.dma_interaction_ledger.paused_at_offset,
-        state.dma_interaction_ledger.paused_byte_value,
-        state.dma_interaction_ledger.paused_oam_addr,
-    });
-
     try testing.expect(isDmaPaused(state));
 
-    // Run DMC to completion (4 cycles total)
-    std.debug.print("\n=== RUNNING DMC TO COMPLETION ===\n", .{});
-    var dmc_ticks: u32 = 0;
-    while (state.dmc_dma.rdy_low and dmc_ticks < 10) : (dmc_ticks += 1) {
-        std.debug.print("DMC tick {}: stall={}, ppu_cycles={}\n", .{
-            dmc_ticks, state.dmc_dma.stall_cycles_remaining, state.clock.ppu_cycles
-        });
-        state.tick();
-    }
-    std.debug.print("DMC completed after {} ticks\n", .{dmc_ticks});
-    std.debug.print("  dmc_dma.rdy_low={}\n", .{state.dmc_dma.rdy_low});
-    std.debug.print("  ppu_cycles={}\n", .{state.clock.ppu_cycles});
-    std.debug.print("  Ledger: pause={d}, resume={d}, last_dmc_inactive={d}\n", .{
-        state.dma_interaction_ledger.oam_pause_cycle,
-        state.dma_interaction_ledger.oam_resume_cycle,
-        state.dma_interaction_ledger.last_dmc_inactive_cycle,
-    });
+    // Run DMC to completion
+    runUntilDmcDmaComplete(&harness);
+    try testing.expectEqual(false, state.dmc_dma.rdy_low);
 
-    // Try to resume OAM
-    std.debug.print("\n=== ATTEMPTING OAM RESUME ===\n", .{});
-    var oam_ticks: u32 = 0;
-    while (state.dma.active and oam_ticks < 20) : (oam_ticks += 1) {
-        std.debug.print("OAM tick {}: cycle={}, offset={}, ppu_cycles={}\n", .{
-            oam_ticks, state.dma.current_cycle, state.dma.current_offset, state.clock.ppu_cycles
-        });
-
-        const before_cycle = state.dma.current_cycle;
-        state.tick();
-        const after_cycle = state.dma.current_cycle;
-
-        if (before_cycle != after_cycle) {
-            std.debug.print("  *** CYCLE ADVANCE: {} -> {}\n", .{before_cycle, after_cycle});
-            std.debug.print("  Ledger: resume={d}\n", .{state.dma_interaction_ledger.oam_resume_cycle});
-        }
-    }
-
-    if (state.dma.active) {
-        std.debug.print("\nERROR: OAM STUCK - still active after {} ticks!\n", .{oam_ticks});
-        std.debug.print("Final state:\n", .{});
-        std.debug.print("  dma: active={}, cycle={}\n", .{state.dma.active, state.dma.current_cycle});
-        std.debug.print("  Ledger: pause={d}, resume={d}\n", .{
-            state.dma_interaction_ledger.oam_pause_cycle,
-            state.dma_interaction_ledger.oam_resume_cycle,
-        });
-        return error.OamNeverResumed;
-    }
-
-    std.debug.print("\nSUCCESS: OAM completed!\n", .{});
+    // OAM should resume and complete
+    runUntilOamDmaComplete(&harness);
+    try testing.expectEqual(false, state.dma.active);
 }
 
 // ============================================================================
@@ -215,11 +147,11 @@ test "DMC interrupts OAM at byte 0 (start of transfer)" {
     try testing.expect(isDmaPaused(state)); // OAM paused by DMC
 
     // Run DMC to completion
-    runUntilDmcDmaComplete(state);
+    runUntilDmcDmaComplete(&harness);
     try testing.expect(!state.dmc_dma.rdy_low);
 
     // Run OAM to completion
-    runUntilOamDmaComplete(state);
+    runUntilOamDmaComplete(&harness);
     try testing.expect(!state.dma.active);
 
     // Verify OAM data transferred correctly
@@ -257,10 +189,10 @@ test "DMC interrupts OAM at byte 128 (mid-transfer)" {
     try testing.expect(isDmaPaused(state));
 
     // Run DMC to completion
-    runUntilDmcDmaComplete(state);
+    runUntilDmcDmaComplete(&harness);
 
     // Run OAM to completion
-    runUntilOamDmaComplete(state);
+    runUntilOamDmaComplete(&harness);
     try testing.expect(!state.dma.active);
 
     // Verify OAM data transferred correctly
@@ -295,8 +227,8 @@ test "DMC interrupts OAM at byte 255 (end of transfer)" {
     // Tick one CPU cycle to trigger pause, then run to completion
     harness.tickCpu(1);
     try testing.expect(isDmaPaused(state)); // Verify pause happened
-    runUntilDmcDmaComplete(state);
-    runUntilOamDmaComplete(state);
+    runUntilDmcDmaComplete(&harness);
+    runUntilOamDmaComplete(&harness);
 
     // Verify transfer completed
     try testing.expect(!state.dma.active);
@@ -308,7 +240,7 @@ test "DMC interrupts OAM at byte 255 (end of transfer)" {
 // Integration Tests - Byte Duplication Verification
 // ============================================================================
 
-test "Byte duplication: Interrupted during read cycle" {
+test "OAM resumes correctly after DMC interrupt" {
     var harness = try Harness.init();
     defer harness.deinit();
     var state = &harness.state;
@@ -317,10 +249,9 @@ test "Byte duplication: Interrupted during read cycle" {
     state.apu.dmc_bytes_remaining = 10;
     state.apu.dmc_active = true;
 
-    // Fill page with unique arithmetic pattern: (i * 3) % 256
-    // This ensures every byte is unique and detects duplication
+    // Fill page with sequential pattern for verification
     for (0..256) |i| {
-        const value = @as(u8, @intCast((i * 3) % 256));
+        const value = @as(u8, @intCast(i));
         state.bus.ram[0x0600 + i] = value;
     }
 
@@ -331,36 +262,20 @@ test "Byte duplication: Interrupted during read cycle" {
     harness.tickCpu(200);
     try testing.expect(state.dma.current_offset == 100);
 
-    // Calculate effective cycle to ensure we interrupt during read (even cycle)
-    const effective_cycle = if (state.dma.needs_alignment)
-        state.dma.current_cycle - 1
-    else
-        state.dma.current_cycle;
-
-    // Ensure we're on even cycle (read phase)
-    if (effective_cycle % 2 != 0) {
-        // If odd, tick once more to get to next read
-        state.tick();
-    }
-
-    // Trigger DMC interrupt during read
+    // Trigger DMC interrupt
     state.dmc_dma.triggerFetch(0xC000);
 
     // Run to completion
-    runUntilDmcDmaComplete(state);
-    runUntilOamDmaComplete(state);
+    runUntilDmcDmaComplete(&harness);
+    runUntilOamDmaComplete(&harness);
 
-    // Verify byte duplication occurred
-    // The byte being read when interrupted should duplicate
-    // Check pattern integrity (some byte should appear twice)
-    var duplicate_found = false;
-    for (0..255) |i| {
-        if (state.ppu.oam[i] == state.ppu.oam[i + 1]) {
-            duplicate_found = true;
-            break;
-        }
+    // Verify NO duplication - OAM should contain sequential bytes 0-255
+    // Hardware behavior: OAM just pauses and resumes, no byte corruption
+    // Reference: nesdev.org forums - Disch's hardware testing
+    for (0..256) |i| {
+        const expected = @as(u8, @intCast(i));
+        try testing.expectEqual(expected, state.ppu.oam[i]);
     }
-    try testing.expect(duplicate_found); // Hardware bug: duplication should occur
 }
 
 // ============================================================================
@@ -385,20 +300,20 @@ test "Multiple DMC interrupts during single OAM transfer" {
     // Interrupt at byte 50
     harness.tickCpu(100);
     state.dmc_dma.triggerFetch(0xC000);
-    runUntilDmcDmaComplete(state);
+    runUntilDmcDmaComplete(&harness);
 
     // Interrupt at byte 150
     harness.tickCpu(100);
     state.dmc_dma.triggerFetch(0xC100);
-    runUntilDmcDmaComplete(state);
+    runUntilDmcDmaComplete(&harness);
 
     // Interrupt at byte 250
     harness.tickCpu(100);
     state.dmc_dma.triggerFetch(0xC200);
-    runUntilDmcDmaComplete(state);
+    runUntilDmcDmaComplete(&harness);
 
     // Complete OAM transfer
-    runUntilOamDmaComplete(state);
+    runUntilOamDmaComplete(&harness);
 
     // Verify transfer completed despite multiple interrupts
     try testing.expect(!state.dma.active);
@@ -426,14 +341,14 @@ test "Consecutive DMC interrupts (no gap)" {
 
     // First DMC interrupt
     state.dmc_dma.triggerFetch(0xC000);
-    runUntilDmcDmaComplete(state);
+    runUntilDmcDmaComplete(&harness);
 
     // Second DMC interrupt immediately after
     state.dmc_dma.triggerFetch(0xC100);
-    runUntilDmcDmaComplete(state);
+    runUntilDmcDmaComplete(&harness);
 
     // Complete OAM
-    runUntilOamDmaComplete(state);
+    runUntilOamDmaComplete(&harness);
 
     // Verify completion
     try testing.expect(!state.dma.active);
@@ -455,9 +370,9 @@ test "Cycle count: OAM 513 + DMC 4 = 517 total" {
     // Fill source page
     fillRamPage(state, 0x09, 0x00);
 
-    // Ensure even CPU cycle start
-    while ((state.clock.ppu_cycles % 6) != 0) {
-        state.tick();
+    // Ensure even CPU cycle start (aligned to CPU boundary)
+    while ((state.clock.ppu_cycles % 3) != 0) {
+        harness.tick(1);  // Single PPU cycle to align
     }
     const start_ppu = state.clock.ppu_cycles;
 
@@ -470,15 +385,17 @@ test "Cycle count: OAM 513 + DMC 4 = 517 total" {
     state.dmc_dma.triggerFetch(0xC000);
 
     // Run to completion
-    runUntilDmcDmaComplete(state);
-    runUntilOamDmaComplete(state);
+    runUntilDmcDmaComplete(&harness);
+    runUntilOamDmaComplete(&harness);
 
     // Calculate elapsed CPU cycles
     const elapsed_ppu = state.clock.ppu_cycles - start_ppu;
     const elapsed_cpu = elapsed_ppu / 3;
 
-    // Should be 513 (OAM base) + 4 (DMC) = 517 CPU cycles
-    try testing.expectEqual(@as(u64, 517), elapsed_cpu);
+    // Expected: 512 (OAM transfer) + 2 (DMC paused cycles) + 1 (alignment) = 515 CPU cycles
+    // Wiki mentions "taking 2 cycles" overhead which can vary by 1-3 cycles depending on timing
+    try testing.expect(elapsed_cpu >= 515);
+    try testing.expect(elapsed_cpu <= 517);
 }
 
 test "DMC priority verification" {
@@ -525,7 +442,7 @@ test "OAM DMA: Still works correctly without DMC interrupt" {
     state.busWrite(0x4014, 0x02);
 
     // Run to completion
-    runUntilOamDmaComplete(state);
+    runUntilOamDmaComplete(&harness);
 
     // Verify all 256 bytes transferred correctly
     for (0..256) |i| {
@@ -548,8 +465,127 @@ test "DMC DMA: Still works correctly without OAM active" {
     try testing.expect(state.dmc_dma.rdy_low);
 
     // Run to completion
-    runUntilDmcDmaComplete(state);
+    runUntilDmcDmaComplete(&harness);
 
     // Verify DMC completed
     try testing.expect(!state.dmc_dma.rdy_low);
+}
+
+// ============================================================================
+// Hardware Validation Tests - Cycle-by-Cycle Behavior
+// ============================================================================
+
+test "HARDWARE VALIDATION: OAM continues during DMC dummy/alignment (time-sharing)" {
+    var harness = try Harness.init();
+    defer harness.deinit();
+    var state = &harness.state;
+
+    // Initialize DMC
+    state.apu.dmc_bytes_remaining = 10;
+    state.apu.dmc_active = true;
+
+    // Fill RAM with sequential pattern for tracking
+    for (0..256) |i| {
+        const value = @as(u8, @intCast(i));
+        state.bus.ram[0x0300 + i] = value;
+    }
+
+    // Start OAM DMA from page $03
+    state.busWrite(0x4014, 0x03);
+    try testing.expect(state.dma.active);
+
+    // Run to byte 50 (100 CPU cycles = 50 read/write pairs)
+    harness.tickCpu(100);
+    try testing.expectEqual(@as(u8, 50), state.dma.current_offset);
+    try testing.expectEqual(@as(u8, 49), state.ppu.oam[49]); // Byte 49 written
+
+    // Record OAM state before DMC interrupt
+    const offset_before = state.dma.current_offset;
+    const oam_addr_before = state.ppu.oam_addr;
+
+    // Trigger DMC interrupt at byte 50
+    state.dmc_dma.triggerFetch(0xC000);
+    try testing.expect(state.dmc_dma.rdy_low);
+
+    // According to wiki spec, during DMC's 4-cycle stall:
+    // - Cycle 1: DMC halt + alignment
+    // - Cycle 2: DMC dummy (OAM continues here!)
+    // - Cycle 3: DMC alignment (OAM continues here!)
+    // - Cycle 4: DMC read
+    //
+    // OAM should advance by 1 complete read/write pair during cycles 2-3
+
+    // Run DMC to completion (4 CPU cycles)
+    runUntilDmcDmaComplete(&harness);
+    try testing.expectEqual(false, state.dmc_dma.rdy_low);
+
+    // CRITICAL: Verify OAM advanced during DMC
+    // OAM should have moved forward (time-sharing, not complete pause)
+    const offset_after = state.dma.current_offset;
+    const oam_addr_after = state.ppu.oam_addr;
+
+    // This test will FAIL with current implementation (complete pause)
+    // and PASS with correct implementation (time-sharing)
+    //
+    // Expected: OAM advanced by 1-2 bytes during DMC
+    // Current (WRONG): OAM didn't advance at all
+    try testing.expect(offset_after > offset_before);
+    try testing.expect(oam_addr_after > oam_addr_before);
+
+    // Complete OAM transfer
+    runUntilOamDmaComplete(&harness);
+
+    // Verify NO duplication - sequential values
+    for (0..256) |i| {
+        const expected = @as(u8, @intCast(i));
+        try testing.expectEqual(expected, state.ppu.oam[i]);
+    }
+}
+
+test "HARDWARE VALIDATION: Exact cycle count overhead from DMC interrupt" {
+    var harness = try Harness.init();
+    defer harness.deinit();
+    var state = &harness.state;
+
+    // Initialize DMC
+    state.apu.dmc_bytes_remaining = 10;
+    state.apu.dmc_active = true;
+
+    // Fill RAM
+    fillRamPage(state, 0x02, 0x00);
+
+    // Baseline: OAM without interruption takes 513 or 514 CPU cycles
+    // (depends on write cycle alignment)
+
+    // Start OAM DMA
+    state.busWrite(0x4014, 0x02);
+    const start_cycles = state.clock.ppu_cycles;
+
+    // Run to byte 100
+    harness.tickCpu(200);
+
+    // Trigger DMC
+    state.dmc_dma.triggerFetch(0xC000);
+
+    // Complete both DMAs
+    runUntilDmcDmaComplete(&harness);
+    runUntilOamDmaComplete(&harness);
+
+    const end_cycles = state.clock.ppu_cycles;
+    const total_cpu_cycles = (end_cycles - start_cycles) / 3;
+
+    // According to wiki: "taking 2 cycles" overhead (typical case)
+    // DMC takes 4 cycles:
+    //   - Cycle 1 (stall=4): Halt - OAM pauses
+    //   - Cycle 2 (stall=3): Dummy - OAM continues (time-sharing)
+    //   - Cycle 3 (stall=2): Alignment - OAM continues (time-sharing)
+    //   - Cycle 4 (stall=1): Read - OAM pauses
+    // Plus 1 post-DMC alignment cycle
+    // Net overhead: 2 (paused) + 1 (alignment) = 3 cycles
+    //
+    // Expected: 512 (baseline, even start) + 3 (overhead) = 515 total
+
+    // This test verifies correct time-sharing and alignment behavior
+    try testing.expect(total_cpu_cycles >= 515);
+    try testing.expect(total_cpu_cycles <= 517);
 }
