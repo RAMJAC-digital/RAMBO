@@ -1,46 +1,87 @@
-//! DMA Logic - OAM DMA and DMC DMA State Machines
+//! DMA Logic - OAM DMA and DMC DMA
 //!
-//! This module contains the logic for two types of DMA:
-//! 1. OAM DMA ($4014 write) - Transfers 256 bytes from CPU RAM to PPU OAM
-//! 2. DMC DMA - APU sample fetch via RDY line stall
-//!
-//! Both are implemented as pure functions operating on EmulationState.
+//! Functional pattern following VBlank idioms.
+//! All logic is pure - calculates what to do from cycle counts and timestamps.
 
 const std = @import("std");
 const ApuLogic = @import("../../apu/Logic.zig");
-const DmaInteraction = @import("interaction.zig");
-const DmaActions = @import("actions.zig");
 
-// Debug flag for DMA tracing (enable for debugging)
-const DEBUG_DMA = false;
-
-/// Tick OAM DMA state machine (called every CPU cycle when active)
+/// Tick OAM DMA (called every CPU cycle when active)
 /// Executes OAM DMA transfer from CPU RAM ($XX00-$XXFF) to PPU OAM ($2004)
 ///
-/// Clean 3-phase architecture:
-/// 1. QUERY: Determine action (pure, no mutations)
-/// 2. EXECUTE: Perform action (single side effect)
-/// 3. UPDATE: Bookkeeping (state mutations after action)
+/// Functional pattern - no state machine:
+/// - Calculate effective cycle from current_cycle and alignment
+/// - Determine read vs write from cycle parity
+/// - Check for pause/resume from timestamps
 ///
 /// Hardware behavior:
 /// - CPU is stalled (no instruction execution)
 /// - PPU continues running normally
 /// - Bus is monopolized by DMA controller
-/// - DMC DMA can interrupt OAM DMA (handled by interaction ledger)
+/// - DMC DMA can interrupt OAM DMA (handled by ledger timestamps)
 pub fn tickOamDma(state: anytype) void {
-    // PHASE 1: QUERY - Determine action (pure, no mutations)
-    const action = DmaActions.determineAction(&state.dma, &state.dma_interaction_ledger);
+    const ledger = &state.dma_interaction_ledger;
+    const dma = &state.dma;
+    const now = state.clock.ppu_cycles;
 
-    // PHASE 2: EXECUTE - Perform action (single side effect)
-    DmaActions.executeAction(state, action);
+    // Check 1: Are we paused by DMC? (functional check)
+    const dmc_is_active = ledger.last_dmc_active_cycle > ledger.last_dmc_inactive_cycle;
+    const was_paused = ledger.oam_pause_cycle > ledger.oam_resume_cycle;
 
-    // PHASE 3: UPDATE - Bookkeeping (state mutations)
-    DmaActions.updateBookkeeping(
-        &state.dma,
-        &state.ppu.oam_addr,
-        &state.dma_interaction_ledger,
-        action,
-    );
+    if (dmc_is_active and was_paused) {
+        return; // Frozen, do nothing
+    }
+
+    // Check 2: Just resumed - handle duplication
+    const just_resumed = !dmc_is_active and was_paused;
+    if (just_resumed) {
+        // Mark as resumed FIRST to prevent re-entering this block
+        ledger.oam_resume_cycle = now;
+
+        // If paused during read, write the duplicate byte
+        // Then fall through to re-read from same offset (hardware behavior)
+        if (ledger.paused_during_read) {
+            state.ppu.oam[state.ppu.oam_addr] = ledger.paused_byte_value;
+            state.ppu.oam_addr +%= 1;
+            ledger.paused_during_read = false; // Clear flag to prevent re-duplication
+        }
+        // Fall through to continue normal operation
+    }
+
+    // Calculate effective cycle (accounting for alignment)
+    const effective_cycle: i32 = if (dma.needs_alignment)
+        @as(i32, @intCast(dma.current_cycle)) - 1
+    else
+        @as(i32, @intCast(dma.current_cycle));
+
+    // Check 3: Alignment wait?
+    if (effective_cycle < 0) {
+        dma.current_cycle += 1;
+        return;
+    }
+
+    // Check 4: Completed?
+    if (effective_cycle >= 512) {
+        dma.reset();
+        ledger.reset();
+        return;
+    }
+
+    // Check 5: Read or write? (functional check based on cycle parity)
+    const is_read_cycle = @rem(effective_cycle, 2) == 0;
+
+    if (is_read_cycle) {
+        // READ
+        const addr = (@as(u16, dma.source_page) << 8) | dma.current_offset;
+        dma.temp_value = state.busRead(addr);
+    } else {
+        // WRITE
+        state.ppu.oam[state.ppu.oam_addr] = dma.temp_value;
+        state.ppu.oam_addr +%= 1;
+        dma.current_offset +%= 1;
+    }
+
+    dma.current_cycle += 1;
 }
 
 /// Tick DMC DMA state machine (called every CPU cycle when active)

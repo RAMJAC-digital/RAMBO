@@ -22,9 +22,13 @@ const EmulationState = RAMBO.EmulationState.EmulationState;
 // Test Helpers
 // ============================================================================
 
-/// Check if OAM DMA is paused (based on explicit phase machine)
+/// Check if OAM DMA is paused (based on functional timestamp comparison)
 fn isDmaPaused(state: *const EmulationState) bool {
-    return state.dma.phase == .paused_during_read or state.dma.phase == .paused_during_write;
+    const dmc_is_active = state.dma_interaction_ledger.last_dmc_active_cycle >
+        state.dma_interaction_ledger.last_dmc_inactive_cycle;
+    const was_paused = state.dma_interaction_ledger.oam_pause_cycle >
+        state.dma_interaction_ledger.oam_resume_cycle;
+    return dmc_is_active and was_paused;
 }
 
 /// Fill CPU memory page with sequential pattern (uses busWrite for proper routing)
@@ -76,6 +80,109 @@ test "MINIMAL: DMC pauses OAM (debug with proper harness)" {
 
     // Verify pause happened
     try testing.expect(isDmaPaused(state));
+}
+
+test "DEBUG: Trace complete DMC/OAM interaction" {
+    var harness = try Harness.init();
+    defer harness.deinit();
+    var state = &harness.state;
+
+    // Initialize DMC
+    state.apu.dmc_bytes_remaining = 10;
+    state.apu.dmc_active = true;
+
+    // Fill RAM with pattern
+    fillRamPage(state, 0x03, 0x00);
+
+    // Start OAM DMA
+    std.debug.print("\n=== STARTING OAM DMA ===\n", .{});
+    std.debug.print("Before: dma.active={}\n", .{state.dma.active});
+    state.busWrite(0x4014, 0x03);
+    std.debug.print("After: dma.active={}\n", .{state.dma.active});
+
+    // Trigger DMC immediately
+    std.debug.print("\n=== TRIGGERING DMC ===\n", .{});
+    state.dmc_dma.triggerFetch(0xC000);
+    std.debug.print("  dmc_dma.rdy_low={}\n", .{state.dmc_dma.rdy_low});
+    std.debug.print("  Ledger before pause: last_dmc_active={d}, last_dmc_inactive={d}\n", .{
+        state.dma_interaction_ledger.last_dmc_active_cycle,
+        state.dma_interaction_ledger.last_dmc_inactive_cycle,
+    });
+
+    // Tick once - OAM should pause
+    std.debug.print("\n=== TICK 1: OAM SHOULD PAUSE ===\n", .{});
+    std.debug.print("BEFORE tick 1:\n", .{});
+    std.debug.print("  dma: active={}, cycle={}\n", .{state.dma.active, state.dma.current_cycle});
+    std.debug.print("  ppu_cycles={}\n", .{state.clock.ppu_cycles});
+
+    harness.tickCpu(1);
+
+    std.debug.print("AFTER tick 1:\n", .{});
+    std.debug.print("  dma: active={}, cycle={}\n", .{state.dma.active, state.dma.current_cycle});
+    std.debug.print("  dmc_dma.rdy_low={}, stall={}\n", .{state.dmc_dma.rdy_low, state.dmc_dma.stall_cycles_remaining});
+    std.debug.print("  ppu_cycles={}\n", .{state.clock.ppu_cycles});
+    std.debug.print("  Ledger: pause={d}, last_dmc_active={d}, last_dmc_inactive={d}\n", .{
+        state.dma_interaction_ledger.oam_pause_cycle,
+        state.dma_interaction_ledger.last_dmc_active_cycle,
+        state.dma_interaction_ledger.last_dmc_inactive_cycle,
+    });
+    std.debug.print("  Paused: was_reading={}, offset={d}, byte=0x{x:0>2}, oam_addr={d}\n", .{
+        state.dma_interaction_ledger.paused_during_read,
+        state.dma_interaction_ledger.paused_at_offset,
+        state.dma_interaction_ledger.paused_byte_value,
+        state.dma_interaction_ledger.paused_oam_addr,
+    });
+
+    try testing.expect(isDmaPaused(state));
+
+    // Run DMC to completion (4 cycles total)
+    std.debug.print("\n=== RUNNING DMC TO COMPLETION ===\n", .{});
+    var dmc_ticks: u32 = 0;
+    while (state.dmc_dma.rdy_low and dmc_ticks < 10) : (dmc_ticks += 1) {
+        std.debug.print("DMC tick {}: stall={}, ppu_cycles={}\n", .{
+            dmc_ticks, state.dmc_dma.stall_cycles_remaining, state.clock.ppu_cycles
+        });
+        state.tick();
+    }
+    std.debug.print("DMC completed after {} ticks\n", .{dmc_ticks});
+    std.debug.print("  dmc_dma.rdy_low={}\n", .{state.dmc_dma.rdy_low});
+    std.debug.print("  ppu_cycles={}\n", .{state.clock.ppu_cycles});
+    std.debug.print("  Ledger: pause={d}, resume={d}, last_dmc_inactive={d}\n", .{
+        state.dma_interaction_ledger.oam_pause_cycle,
+        state.dma_interaction_ledger.oam_resume_cycle,
+        state.dma_interaction_ledger.last_dmc_inactive_cycle,
+    });
+
+    // Try to resume OAM
+    std.debug.print("\n=== ATTEMPTING OAM RESUME ===\n", .{});
+    var oam_ticks: u32 = 0;
+    while (state.dma.active and oam_ticks < 20) : (oam_ticks += 1) {
+        std.debug.print("OAM tick {}: cycle={}, offset={}, ppu_cycles={}\n", .{
+            oam_ticks, state.dma.current_cycle, state.dma.current_offset, state.clock.ppu_cycles
+        });
+
+        const before_cycle = state.dma.current_cycle;
+        state.tick();
+        const after_cycle = state.dma.current_cycle;
+
+        if (before_cycle != after_cycle) {
+            std.debug.print("  *** CYCLE ADVANCE: {} -> {}\n", .{before_cycle, after_cycle});
+            std.debug.print("  Ledger: resume={d}\n", .{state.dma_interaction_ledger.oam_resume_cycle});
+        }
+    }
+
+    if (state.dma.active) {
+        std.debug.print("\nERROR: OAM STUCK - still active after {} ticks!\n", .{oam_ticks});
+        std.debug.print("Final state:\n", .{});
+        std.debug.print("  dma: active={}, cycle={}\n", .{state.dma.active, state.dma.current_cycle});
+        std.debug.print("  Ledger: pause={d}, resume={d}\n", .{
+            state.dma_interaction_ledger.oam_pause_cycle,
+            state.dma_interaction_ledger.oam_resume_cycle,
+        });
+        return error.OamNeverResumed;
+    }
+
+    std.debug.print("\nSUCCESS: OAM completed!\n", .{});
 }
 
 // ============================================================================

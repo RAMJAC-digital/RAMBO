@@ -58,7 +58,7 @@ const CpuLogic = CpuModule.Logic;
 const CpuMicrosteps = @import("microsteps.zig");
 const CycleResults = @import("../state/CycleResults.zig");
 const CpuCycleResult = CycleResults.CpuCycleResult;
-const DmaInteraction = @import("../dma/interaction.zig");
+// DMA interaction logic is now inline (functional pattern)
 
 /// Execute one CPU cycle with DMA and debugger checks.
 /// Entry point called from EmulationState.tick() via stepCpuCycle wrapper.
@@ -123,75 +123,53 @@ pub fn stepCycle(state: anytype) CpuCycleResult {
         return .{};
     }
 
-    // DMC edge detection (record active/inactive transitions in ledger)
-    // Required for pause/resume logic to detect DMC start/stop
-    const prev_dmc_active = DmaInteraction.isDmcActive(&state.dma_interaction_ledger);
-    const curr_dmc_active = state.dmc_dma.rdy_low;
+    // DMC edge detection (functional - inline like VBlank)
+    const dmc_was_active = (state.dma_interaction_ledger.last_dmc_active_cycle >
+        state.dma_interaction_ledger.last_dmc_inactive_cycle);
+    const dmc_is_active = state.dmc_dma.rdy_low;
 
-    if (curr_dmc_active and !prev_dmc_active) {
-        // Rising edge: DMC became active - direct field assignment
+    // Record edges (direct field assignment)
+    if (dmc_is_active and !dmc_was_active) {
         state.dma_interaction_ledger.last_dmc_active_cycle = state.clock.ppu_cycles;
-    } else if (!curr_dmc_active and prev_dmc_active) {
-        // Falling edge: DMC became inactive - direct field assignment
+    } else if (!dmc_is_active and dmc_was_active) {
         state.dma_interaction_ledger.last_dmc_inactive_cycle = state.clock.ppu_cycles;
     }
 
     // DMC DMA active - CPU stalled (RDY line low)
     // Hardware: DMC DMA has highest priority, can interrupt OAM DMA
-    if (state.dmc_dma.rdy_low) {
-        // Check if OAM should pause due to DMC becoming active (EDGE-TRIGGERED)
-        // Only pause on DMC rising edge, not every tick DMC is active
-        const dmc_rising_edge = curr_dmc_active and !prev_dmc_active;
-        if (dmc_rising_edge and DmaInteraction.shouldOamPause(&state.dma_interaction_ledger, &state.dma, true)) {
-            const pause_data = DmaInteraction.handleDmcPausesOam(
-                &state.dma_interaction_ledger,
-                &state.dma,
-                state.clock.ppu_cycles,
-            );
+    if (dmc_is_active) {
+        // Pause OAM if running (inline check, no helper function)
+        if (state.dma.active) {
+            const was_paused = state.dma_interaction_ledger.oam_pause_cycle > state.dma_interaction_ledger.oam_resume_cycle;
 
-            // Read interrupted byte if needed (for duplication on resume)
-            var interrupted = pause_data.interrupted_state;
-            if (pause_data.read_interrupted_byte) |read_info| {
-                const addr = (@as(u16, read_info.source_page) << 8) | read_info.offset;
-                interrupted.byte_value = state.busRead(addr);
-                interrupted.oam_addr = state.ppu.oam_addr;
+            if (!was_paused) {
+                // Calculate effective cycle and determine if reading
+                const effective_cycle: i32 = if (state.dma.needs_alignment)
+                    @as(i32, @intCast(state.dma.current_cycle)) - 1
+                else
+                    @as(i32, @intCast(state.dma.current_cycle));
+
+                const is_reading = (effective_cycle >= 0 and @rem(effective_cycle, 2) == 0);
+
+                // Capture state (direct field assignment)
+                state.dma_interaction_ledger.oam_pause_cycle = state.clock.ppu_cycles;
+                state.dma_interaction_ledger.paused_at_offset = state.dma.current_offset;
+                state.dma_interaction_ledger.paused_during_read = is_reading;
+                state.dma_interaction_ledger.paused_oam_addr = state.ppu.oam_addr;
+
+                if (is_reading) {
+                    const addr = (@as(u16, state.dma.source_page) << 8) | state.dma.current_offset;
+                    state.dma_interaction_ledger.paused_byte_value = state.busRead(addr);
+                }
             }
-
-            // Apply ALL mutations centrally
-            state.dma_interaction_ledger.oam_pause_cycle = pause_data.pause_cycle;
-            state.dma_interaction_ledger.interrupted_state = interrupted;
-            if (interrupted.was_reading) {
-                state.dma_interaction_ledger.duplication_pending = true;
-            }
-
-            // Transition to paused phase
-            state.dma.phase = pause_data.pause_phase;
         }
 
         state.tickDmcDma();
-
-        // Check for DMC completion edge AFTER tick
-        // (DMC may have just completed, need to record the falling edge)
-        if (!state.dmc_dma.rdy_low and prev_dmc_active) {
-            state.dma_interaction_ledger.last_dmc_inactive_cycle = state.clock.ppu_cycles;
-        }
-
         return .{};
     }
 
     // OAM DMA active - CPU frozen for 512 cycles
     if (state.dma.active) {
-        // Check if OAM should resume after DMC completes
-        if (DmaInteraction.shouldOamResume(&state.dma_interaction_ledger, &state.dma, false, state.clock.ppu_cycles)) {
-            const resume_data = DmaInteraction.handleOamResumes(&state.dma_interaction_ledger, state.clock.ppu_cycles);
-
-            // Apply ALL mutations centrally
-            state.dma_interaction_ledger.oam_resume_cycle = resume_data.resume_cycle;
-
-            // Transition to resume phase (duplication handled in tickDma)
-            state.dma.phase = resume_data.resume_phase;
-        }
-
         state.tickDma();
         return .{};
     }
