@@ -224,6 +224,12 @@ pub fn tick(
     // A12 is bit 12 of PPU address bus (derived from v register during tile fetches)
     // MMC3 watches for rising edges (0→1) during background and sprite pattern fetches
     // Hardware reference: nesdev.org/wiki/MMC3#IRQ_Specifics
+    //
+    // MMC3 A12 Filter:
+    // Per nesdev.org, MMC3 has internal filter requiring A12 to be low for "three
+    // falling edges of M2" (~6-8 PPU cycles) before detecting rising edge. This
+    // prevents false triggers from rapid A12 changes during individual tile fetches.
+    // Reference: nesdev.org/wiki/MMC3 ("filtered A12")
     if (is_rendering_line and rendering_enabled) {
         // Check A12 state during tile fetch cycles
         // Background: dots 1-256, 321-336
@@ -233,9 +239,19 @@ pub fn tick(
         if (is_fetch_cycle) {
             const current_a12 = (state.internal.v & 0x1000) != 0;
 
-            // Detect rising edge (0→1 transition)
-            if (!state.a12_state and current_a12) {
+            // Update filter delay counter
+            if (!current_a12) {
+                // A12 is low - count up filter delay (max 8 PPU cycles)
+                if (state.a12_filter_delay < 8) {
+                    state.a12_filter_delay += 1;
+                }
+            }
+
+            // Detect rising edge with filter check (0→1 transition)
+            // Only trigger if A12 has been low for at least 6 cycles
+            if (!state.a12_state and current_a12 and state.a12_filter_delay >= 6) {
                 flags.a12_rising = true;
+                state.a12_filter_delay = 0; // Reset filter after trigger
             }
 
             state.a12_state = current_a12;

@@ -393,6 +393,13 @@ pub const PpuState = struct {
     /// Moved from EmulationState (Phase 4b remediation)
     a12_state: bool = false,
 
+    /// MMC3 A12 edge detection filter
+    /// Per nesdev.org: MMC3 has internal filter requiring A12 to be low for
+    /// at least 6-8 PPU cycles before detecting rising edge. This prevents
+    /// false triggers from rapid A12 changes during tile fetches.
+    /// Reference: nesdev.org/wiki/MMC3 (three falling edges of M2)
+    a12_filter_delay: u8 = 0,
+
     /// Get the effective PPUMASK value with hardware-accurate 3-dot delay
     /// Hardware behavior: Rendering enable/disable takes ~3-4 dots to propagate
     /// Reference: nesdev.org/wiki/PPU_registers#PPUMASK
