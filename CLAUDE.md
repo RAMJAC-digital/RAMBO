@@ -421,9 +421,10 @@ See `compiler/README.md` for details.
 
 ### Documentation
 
-- **[Documentation Hub](docs/README.md)** - Start here
-- **[Current Status](docs/KNOWN-ISSUES.md)** - Known issues and status
-- **[Architecture Details](docs/code-review/OVERALL_ASSESSMENT.md)** - Deep dive into patterns
+- **[Documentation Hub](docs/README.md)** - Start here for all documentation
+- **[Architecture Patterns](ARCHITECTURE.md)** - Core patterns reference (State/Logic, VBlank, DMA)
+- **[Current Issues](docs/CURRENT-ISSUES.md)** - Known issues and game compatibility
+- **[Implementation Guides](docs/implementation/)** - Detailed implementation documentation
 
 ### NES Hardware
 

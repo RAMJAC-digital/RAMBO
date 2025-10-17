@@ -1,0 +1,367 @@
+// DMC/OAM DMA Time-Sharing Architecture
+// Shows complete data flow, timing coordination, and hardware behavior
+// Generate PNG: dot -Tpng dma-time-sharing-architecture.dot -o dma-time-sharing-architecture.png
+
+digraph DMA_Architecture {
+    // Graph settings
+    rankdir=TB;
+    newrank=true;
+    compound=true;
+
+    node [shape=box, style=filled, fontname="Monaco", fontsize=10];
+    edge [fontname="Monaco", fontsize=9];
+
+    // ============================================================================
+    // TITLE
+    // ============================================================================
+
+    title [
+        shape=plaintext,
+        label=<
+            <table border="0" cellborder="0">
+                <tr><td><b><font point-size="16">DMC/OAM DMA Time-Sharing Architecture</font></b></td></tr>
+                <tr><td><font point-size="10">Phase 2E - Hardware-Accurate Implementation</font></td></tr>
+                <tr><td><font point-size="9">nesdev.org compliant | VBlank pattern | Zero legacy code</font></td></tr>
+            </table>
+        >
+    ];
+
+    // ============================================================================
+    // STATE DATA STRUCTURES
+    // ============================================================================
+
+    subgraph cluster_state {
+        label="State Data (Pure Data - No Logic)";
+        style=filled;
+        fillcolor="#E8F4F8";
+
+        oam_dma [
+            fillcolor="#B3E5FC",
+            label=<
+                <table border="0" cellborder="1" cellspacing="0">
+                    <tr><td bgcolor="#4FC3F7" colspan="2"><b>OamDma State</b></td></tr>
+                    <tr><td align="left">active: bool</td><td align="left">Transfer active?</td></tr>
+                    <tr><td align="left">source_page: u8</td><td align="left">Page $XX00</td></tr>
+                    <tr><td align="left">current_offset: u8</td><td align="left">Byte 0-255</td></tr>
+                    <tr><td align="left">current_cycle: u16</td><td align="left">Cycle 0-512</td></tr>
+                    <tr><td align="left">needs_alignment: bool</td><td align="left">Odd start?</td></tr>
+                    <tr><td align="left">temp_value: u8</td><td align="left">Read buffer</td></tr>
+                </table>
+            >
+        ];
+
+        dmc_dma [
+            fillcolor="#FFE082",
+            label=<
+                <table border="0" cellborder="1" cellspacing="0">
+                    <tr><td bgcolor="#FFD54F" colspan="2"><b>DmcDma State</b></td></tr>
+                    <tr><td align="left">rdy_low: bool</td><td align="left">RDY line (CPU stalled)</td></tr>
+                    <tr><td align="left">stall_cycles_remaining: u8</td><td align="left">4→3→2→1→0</td></tr>
+                    <tr><td align="left">sample_address: u16</td><td align="left">DMC fetch addr</td></tr>
+                    <tr><td align="left">sample_byte: u8</td><td align="left">Fetched sample</td></tr>
+                    <tr><td align="left">transfer_complete: bool</td><td align="left">Signal for execution.zig</td></tr>
+                    <tr><td align="left">last_read_address: u16</td><td align="left">For NTSC corruption</td></tr>
+                </table>
+            >
+        ];
+
+        ledger [
+            fillcolor="#C5E1A5",
+            label=<
+                <table border="0" cellborder="1" cellspacing="0">
+                    <tr><td bgcolor="#9CCC65" colspan="2"><b>DmaInteractionLedger</b></td></tr>
+                    <tr><td align="left">last_dmc_active_cycle: u64</td><td align="left">DMC rising edge</td></tr>
+                    <tr><td align="left">last_dmc_inactive_cycle: u64</td><td align="left">DMC falling edge</td></tr>
+                    <tr><td align="left">oam_pause_cycle: u64</td><td align="left">OAM paused by DMC</td></tr>
+                    <tr><td align="left">oam_resume_cycle: u64</td><td align="left">OAM resumed</td></tr>
+                    <tr><td align="left">needs_alignment_after_dmc: bool</td><td align="left">Post-DMC alignment</td></tr>
+                    <tr><td bgcolor="#E6EE9C" colspan="2"><i>Pattern: VBlankLedger (timestamp-based)</i></td></tr>
+                </table>
+            >
+        ];
+    }
+
+    // ============================================================================
+    // LOGIC FUNCTIONS
+    // ============================================================================
+
+    subgraph cluster_logic {
+        label="Pure Functions (Zero Hidden State)";
+        style=filled;
+        fillcolor="#FFF3E0";
+
+        tick_oam [
+            fillcolor="#FFE0B2",
+            label=<
+                <table border="0" cellborder="1" cellspacing="0">
+                    <tr><td bgcolor="#FFB74D" colspan="2"><b>tickOamDma(state)</b></td></tr>
+                    <tr><td colspan="2" align="left"><b>Check 1: DMC Stalling OAM?</b></td></tr>
+                    <tr><td colspan="2" align="left">if (stall==4 OR stall==1) return</td></tr>
+                    <tr><td colspan="2" bgcolor="#FFF9C4"><i>OAM continues during stall==3,2</i></td></tr>
+                    <tr><td colspan="2" align="left"><b>Check 2: Post-DMC Alignment?</b></td></tr>
+                    <tr><td colspan="2" align="left">if (needs_alignment_after_dmc)</td></tr>
+                    <tr><td colspan="2" align="left">  return (pure wait cycle)</td></tr>
+                    <tr><td colspan="2" align="left"><b>Check 3: Alignment Wait?</b></td></tr>
+                    <tr><td colspan="2" align="left">if (effective_cycle &lt; 0) return</td></tr>
+                    <tr><td colspan="2" align="left"><b>Check 4: Completed?</b></td></tr>
+                    <tr><td colspan="2" align="left">if (effective_cycle >= 512) reset()</td></tr>
+                    <tr><td colspan="2" align="left"><b>Check 5: Read or Write?</b></td></tr>
+                    <tr><td colspan="2" align="left">if (cycle % 2 == 0) READ else WRITE</td></tr>
+                    <tr><td colspan="2" bgcolor="#E8F5E9"><i>Hardware: Sequential reads, no duplication</i></td></tr>
+                </table>
+            >
+        ];
+
+        tick_dmc [
+            fillcolor="#FFE0B2",
+            label=<
+                <table border="0" cellborder="1" cellspacing="0">
+                    <tr><td bgcolor="#FFB74D" colspan="2"><b>tickDmcDma(state)</b></td></tr>
+                    <tr><td colspan="2" align="left"><b>Cycle 4 (stall=4): Halt</b></td></tr>
+                    <tr><td colspan="2" align="left">Countdown stall_cycles_remaining</td></tr>
+                    <tr><td colspan="2" align="left"><b>Cycles 3-2 (stall=3,2): Idle</b></td></tr>
+                    <tr><td colspan="2" align="left">if (NTSC) repeat_last_read()</td></tr>
+                    <tr><td colspan="2" bgcolor="#FFCCBC"><i>NTSC corruption: MMIO side effects</i></td></tr>
+                    <tr><td colspan="2" align="left"><b>Cycle 1 (stall=1): Fetch</b></td></tr>
+                    <tr><td colspan="2" align="left">sample_byte = busRead(address)</td></tr>
+                    <tr><td colspan="2" align="left">ApuLogic.loadSampleByte()</td></tr>
+                    <tr><td colspan="2" align="left">rdy_low = false</td></tr>
+                    <tr><td colspan="2" align="left">transfer_complete = true</td></tr>
+                    <tr><td colspan="2" align="left"><b>return</b> (critical!)</td></tr>
+                </table>
+            >
+        ];
+    }
+
+    // ============================================================================
+    // COORDINATION (execution.zig)
+    // ============================================================================
+
+    subgraph cluster_coord {
+        label="Coordination Layer (execution.zig)";
+        style=filled;
+        fillcolor="#F3E5F5";
+
+        step_cycle [
+            fillcolor="#E1BEE7",
+            label=<
+                <table border="0" cellborder="1" cellspacing="0">
+                    <tr><td bgcolor="#BA68C8" colspan="2"><b>stepCycle(state)</b></td></tr>
+                    <tr><td colspan="2" align="left"><b>DMC Completion Handling</b></td></tr>
+                    <tr><td colspan="2" align="left">if (transfer_complete) {</td></tr>
+                    <tr><td colspan="2" align="left">  transfer_complete = false</td></tr>
+                    <tr><td colspan="2" align="left">  last_dmc_inactive_cycle = now</td></tr>
+                    <tr><td colspan="2" align="left">  if (OAM was paused) {</td></tr>
+                    <tr><td colspan="2" align="left">    oam_resume_cycle = now</td></tr>
+                    <tr><td colspan="2" align="left">    needs_alignment_after_dmc = true</td></tr>
+                    <tr><td colspan="2" align="left">  }</td></tr>
+                    <tr><td colspan="2" align="left">}</td></tr>
+                    <tr><td colspan="2" bgcolor="#F8BBD0"><i>Pattern: External state management</i></td></tr>
+                    <tr><td colspan="2" align="left"><b>DMC Rising Edge Detection</b></td></tr>
+                    <tr><td colspan="2" align="left">if (rdy_low &amp;&amp; !was_active) {</td></tr>
+                    <tr><td colspan="2" align="left">  last_dmc_active_cycle = now</td></tr>
+                    <tr><td colspan="2" align="left">  if (OAM active) {</td></tr>
+                    <tr><td colspan="2" align="left">    oam_pause_cycle = now</td></tr>
+                    <tr><td colspan="2" align="left">  }</td></tr>
+                    <tr><td colspan="2" align="left">}</td></tr>
+                    <tr><td colspan="2" align="left"><b>Execute DMC &amp; OAM</b></td></tr>
+                    <tr><td colspan="2" align="left">if (dmc_active) tickDmcDma()</td></tr>
+                    <tr><td colspan="2" align="left">if (oam_active) tickOamDma()</td></tr>
+                    <tr><td colspan="2" bgcolor="#E1BEE7"><i>Time-sharing: both can run same cycle</i></td></tr>
+                </table>
+            >
+        ];
+    }
+
+    // ============================================================================
+    // HARDWARE TIMING
+    // ============================================================================
+
+    subgraph cluster_timing {
+        label="Hardware Timing Behavior (nesdev.org specification)";
+        style=filled;
+        fillcolor="#E0F2F1";
+
+        timing [
+            shape=plaintext,
+            label=<
+                <table border="1" cellborder="1" cellspacing="0">
+                    <tr>
+                        <td bgcolor="#26A69A"><b>DMC Cycle</b></td>
+                        <td bgcolor="#26A69A"><b>stall_cycles_remaining</b></td>
+                        <td bgcolor="#26A69A"><b>DMC Action</b></td>
+                        <td bgcolor="#26A69A"><b>OAM State</b></td>
+                    </tr>
+                    <tr>
+                        <td>1 (Halt)</td>
+                        <td>4</td>
+                        <td>Align to cycle boundary</td>
+                        <td bgcolor="#FFCDD2"><b>PAUSED</b></td>
+                    </tr>
+                    <tr>
+                        <td>2 (Dummy)</td>
+                        <td>3</td>
+                        <td>No-op (NTSC: repeat read)</td>
+                        <td bgcolor="#C8E6C9"><b>CONTINUES</b></td>
+                    </tr>
+                    <tr>
+                        <td>3 (Alignment)</td>
+                        <td>2</td>
+                        <td>No-op (NTSC: repeat read)</td>
+                        <td bgcolor="#C8E6C9"><b>CONTINUES</b></td>
+                    </tr>
+                    <tr>
+                        <td>4 (Read)</td>
+                        <td>1</td>
+                        <td>Fetch DMC sample from memory</td>
+                        <td bgcolor="#FFCDD2"><b>PAUSED</b></td>
+                    </tr>
+                    <tr>
+                        <td>Post-DMC</td>
+                        <td>0</td>
+                        <td>-</td>
+                        <td bgcolor="#FFE082">1 alignment cycle</td>
+                    </tr>
+                    <tr>
+                        <td colspan="4" bgcolor="#B2DFDB">
+                            <b>Net Overhead:</b> 4 (DMC) - 2 (OAM time-shared) + 1 (alignment) = <b>3 cycles</b>
+                        </td>
+                    </tr>
+                </table>
+            >
+        ];
+    }
+
+    // ============================================================================
+    // DATA FLOW EDGES
+    // ============================================================================
+
+    // Title to clusters
+    title -> oam_dma [style=invis];
+
+    // State to Logic
+    oam_dma -> tick_oam [label="Read state", color="#4FC3F7", style=bold];
+    dmc_dma -> tick_dmc [label="Read state", color="#FFD54F", style=bold];
+    ledger -> tick_oam [label="Check alignment\nCheck pause", color="#9CCC65"];
+
+    // Logic to State (mutations)
+    tick_oam -> oam_dma [label="Mutate:\ncurrent_cycle\ncurrent_offset\ntemp_value", color="#F44336", style=bold];
+    tick_dmc -> dmc_dma [label="Mutate:\nstall_cycles_remaining\nsample_byte\nrdy_low\ntransfer_complete", color="#F44336", style=bold];
+    tick_oam -> ledger [label="Clear:\nneeds_alignment_after_dmc", color="#F44336"];
+
+    // Coordination to Logic
+    step_cycle -> tick_dmc [label="Call if rdy_low", color="#7E57C2", style=bold];
+    step_cycle -> tick_oam [label="Call if active", color="#7E57C2", style=bold];
+
+    // Coordination to State (timestamp updates)
+    step_cycle -> ledger [label="Update timestamps:\nlast_dmc_active_cycle\nlast_dmc_inactive_cycle\noam_pause_cycle\noam_resume_cycle\nneeds_alignment_after_dmc", color="#F44336", style=bold];
+    step_cycle -> dmc_dma [label="Clear:\ntransfer_complete", color="#F44336"];
+
+    // Coordination reads state
+    dmc_dma -> step_cycle [label="Read:\nrdy_low\ntransfer_complete", color="#4FC3F7"];
+    oam_dma -> step_cycle [label="Read:\nactive", color="#4FC3F7"];
+    ledger -> step_cycle [label="Check pause state", color="#9CCC65"];
+
+    // Timing reference
+    timing -> tick_oam [label="Hardware spec reference", color="#00897B", style=dashed];
+    timing -> tick_dmc [label="Hardware spec reference", color="#00897B", style=dashed];
+
+    // ============================================================================
+    // PATTERN ANNOTATIONS
+    // ============================================================================
+
+    patterns [
+        shape=plaintext,
+        label=<
+            <table border="1" cellborder="0" cellspacing="4">
+                <tr><td bgcolor="#E8EAF6" colspan="2"><b>Pattern Compliance</b></td></tr>
+                <tr>
+                    <td align="left">✅ VBlank Pattern</td>
+                    <td align="left">Timestamp-based edge detection</td>
+                </tr>
+                <tr>
+                    <td align="left">✅ Pure Functions</td>
+                    <td align="left">All logic in tick functions</td>
+                </tr>
+                <tr>
+                    <td align="left">✅ External State Mgmt</td>
+                    <td align="left">execution.zig handles coordination</td>
+                </tr>
+                <tr>
+                    <td align="left">✅ Direct Field Assignment</td>
+                    <td align="left">No mutation methods on ledger</td>
+                </tr>
+                <tr>
+                    <td align="left">✅ Zero Legacy Code</td>
+                    <td align="left">State machines removed</td>
+                </tr>
+            </table>
+        >
+    ];
+
+    hardware_notes [
+        shape=plaintext,
+        label=<
+            <table border="1" cellborder="0" cellspacing="4">
+                <tr><td bgcolor="#FFF9C4" colspan="2"><b>Hardware Accuracy Notes</b></td></tr>
+                <tr>
+                    <td align="left">✅ Time-Sharing</td>
+                    <td align="left">OAM continues during DMC cycles 2-3</td>
+                </tr>
+                <tr>
+                    <td align="left">✅ No Byte Duplication</td>
+                    <td align="left">Sequential reads: C, C+1, C+2</td>
+                </tr>
+                <tr>
+                    <td align="left">✅ Post-DMC Alignment</td>
+                    <td align="left">1 pure wait cycle after DMC completes</td>
+                </tr>
+                <tr>
+                    <td align="left">✅ NTSC Corruption</td>
+                    <td align="left">DMC repeats last read (MMIO side effects)</td>
+                </tr>
+                <tr>
+                    <td align="left">✅ DMC Priority</td>
+                    <td align="left">OAM pauses during DMC halt/read cycles</td>
+                </tr>
+            </table>
+        >
+    ];
+
+    // Position annotations
+    {rank=same; patterns; hardware_notes;}
+    ledger -> patterns [style=invis];
+    tick_dmc -> hardware_notes [style=invis];
+
+    // ============================================================================
+    // LEGEND
+    // ============================================================================
+
+    legend [
+        shape=plaintext,
+        label=<
+            <table border="1" cellborder="0" cellspacing="4">
+                <tr><td colspan="2" bgcolor="#CFD8DC"><b>Legend</b></td></tr>
+                <tr>
+                    <td><font color="#4FC3F7">━━━</font></td>
+                    <td align="left">Read (query state)</td>
+                </tr>
+                <tr>
+                    <td><font color="#F44336">━━━</font></td>
+                    <td align="left">Write (mutate state)</td>
+                </tr>
+                <tr>
+                    <td><font color="#7E57C2">━━━</font></td>
+                    <td align="left">Function call</td>
+                </tr>
+                <tr>
+                    <td><font color="#00897B">╌╌╌</font></td>
+                    <td align="left">Reference (spec/doc)</td>
+                </tr>
+            </table>
+        >
+    ];
+
+    {rank=same; timing; legend;}
+    timing -> legend [style=invis];
+}

@@ -267,16 +267,15 @@ Builds are byte-for-byte verified against canonical test ROMs. See `compiler/REA
 ### For Developers
 
 - **[CLAUDE.md](CLAUDE.md)** - **Primary development reference**
-- **[Architecture Overview](docs/code-review/01-architecture.md)** - Hybrid State/Logic pattern
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** - **Core patterns reference** (State/Logic, VBlank, DMA)
+- **[Implementation Guides](docs/implementation/)** - Detailed implementation documentation
 - **[Thread Architecture](docs/architecture/threading.md)** - Mailbox pattern details
-- **[Video System](docs/implementation/video-subsystem.md)** - Wayland + Vulkan implementation
 
-### For Code Review
+### Architecture Diagrams
 
-- **[Code Review Index](docs/code-review/README.md)** - Review findings
-- **[CPU Review](docs/code-review/02-cpu.md)** - CPU implementation
-- **[PPU Review](docs/code-review/03-ppu.md)** - PPU implementation
-- **[Bus Review](docs/code-review/04-memory-and-bus.md)** - Bus architecture
+- **[Visual Architecture](docs/dot/)** - GraphViz diagrams of entire system
+- **[System Overview](docs/dot/architecture.dot)** - Complete 3-thread architecture
+- **[Component Diagrams](docs/dot/)** - CPU, PPU, APU, DMA detailed diagrams
 
 ---
 

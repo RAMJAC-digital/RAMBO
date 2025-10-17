@@ -50,6 +50,7 @@ pub fn setup(b: *std.Build, config: ModuleConfig) ModuleArtifacts {
     });
 
     exe.linkSystemLibrary("wayland-client");
+    exe.linkSystemLibrary("xkbcommon");
     exe.linkSystemLibrary("vulkan");
 
     b.installArtifact(exe);

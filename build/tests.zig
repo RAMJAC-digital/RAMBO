@@ -39,6 +39,7 @@ pub const ImportKind = enum {
 
 pub const LinkKind = enum {
     wayland_client,
+    xkbcommon,
     vulkan,
 };
 
@@ -163,6 +164,7 @@ fn applyLinks(step: anytype, links: []const LinkKind) void {
     for (links) |link| {
         switch (link) {
             .wayland_client => step.linkSystemLibrary("wayland-client"),
+            .xkbcommon => step.linkSystemLibrary("xkbcommon"),
             .vulkan => step.linkSystemLibrary("vulkan"),
         }
     }
@@ -649,7 +651,7 @@ pub const specs = [_]TestSpec{
         .path = "tests/threads/threading_test.zig",
         .link_libc = true,
         .extra_imports = &.{ .xev, .build_options, .wayland_client },
-        .links = &.{ .wayland_client, .vulkan },
+        .links = &.{ .wayland_client, .xkbcommon, .vulkan },
         .membership = .{ .integration = true },
     },
     .{
@@ -662,6 +664,12 @@ pub const specs = [_]TestSpec{
         .name = "keyboard-mapper",
         .area = .input,
         .path = "tests/input/keyboard_mapper_test.zig",
+        .membership = .{ .unit = true },
+    },
+    .{
+        .name = "keyboard-controller-mailbox",
+        .area = .input,
+        .path = "tests/input/controller_mailbox_keyboard_test.zig",
         .membership = .{ .unit = true },
     },
     .{

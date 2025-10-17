@@ -140,7 +140,9 @@ pub const Mapper4 = struct {
                     self.irq_reload = true;
                 } else {
                     // $E001-$FFFF: IRQ enable
+                    // Per nesdev.org: Writing to $E001 acknowledges any pending IRQ
                     self.irq_enabled = true;
+                    self.irq_pending = false;
                 }
             }
         }
@@ -572,4 +574,63 @@ test "Mapper4: CHR 2KB bank bit masking" {
 
     // Second 1KB of R1 should be 0x55 (bit 0 set)
     try testing.expectEqual(@as(u8, 0x55), mapper.getChrBank(0x0C00));
+}
+
+test "Mapper4: IRQ enable clears pending flag" {
+    // Bug #1: Per nesdev.org, writing to $E001 (IRQ enable) must acknowledge
+    // any pending IRQ by clearing the irq_pending flag.
+    // Reference: https://www.nesdev.org/wiki/MMC3#IRQ_Enable_.28.24E001.29
+    var mapper = Mapper4{};
+    const mock_cart = struct {
+        prg_rom: []const u8 = &[_]u8{},
+        prg_ram: ?[]u8 = null,
+        chr_data: []u8 = &[_]u8{},
+        header: struct {
+            chr_rom_banks: u8 = 0,
+        } = .{},
+    }{};
+
+    // Setup: Trigger an IRQ
+    mapper.irq_latch = 0;
+    mapper.irq_enabled = true;
+    mapper.irq_reload = true;
+    mapper.ppuA12Rising(); // Counter = 0
+    mapper.ppuA12Rising(); // Counter decrements to 0, triggers IRQ
+    try testing.expectEqual(true, mapper.irq_pending);
+
+    // Write to $E001 (IRQ enable) - should clear pending flag
+    mapper.cpuWrite(mock_cart, 0xE001, 0x00);
+
+    // Verify: IRQ pending flag is cleared
+    try testing.expectEqual(false, mapper.irq_pending);
+    try testing.expectEqual(true, mapper.irq_enabled);
+}
+
+test "Mapper4: IRQ disable clears pending flag" {
+    // Verify that $E000 (IRQ disable) clears pending flag.
+    // This should already be working per line 123.
+    var mapper = Mapper4{};
+    const mock_cart = struct {
+        prg_rom: []const u8 = &[_]u8{},
+        prg_ram: ?[]u8 = null,
+        chr_data: []u8 = &[_]u8{},
+        header: struct {
+            chr_rom_banks: u8 = 0,
+        } = .{},
+    }{};
+
+    // Setup: Trigger an IRQ
+    mapper.irq_latch = 0;
+    mapper.irq_enabled = true;
+    mapper.irq_reload = true;
+    mapper.ppuA12Rising(); // Counter = 0
+    mapper.ppuA12Rising(); // Counter decrements to 0, triggers IRQ
+    try testing.expectEqual(true, mapper.irq_pending);
+
+    // Write to $E000 (IRQ disable) - should clear pending flag
+    mapper.cpuWrite(mock_cart, 0xE000, 0x00);
+
+    // Verify: IRQ pending flag is cleared and IRQ is disabled
+    try testing.expectEqual(false, mapper.irq_pending);
+    try testing.expectEqual(false, mapper.irq_enabled);
 }

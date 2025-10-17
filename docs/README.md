@@ -1,73 +1,88 @@
 # RAMBO Documentation Hub
 
-**Last Updated:** 2025-10-15 (Progressive Sprite Evaluation)
-**Test Status:** 990/995 passing (99.5%), 5 skipped
-**Current Issues:** Documented in `CURRENT-ISSUES.md` (verified against code 2025-10-15)
+**Welcome to the RAMBO NES Emulator documentation!**
+
+This is your central navigation point for all project documentation.
+
+**Last Updated:** 2025-10-17 (Documentation Reorganization Complete)
+**Test Status:** 1027/1032 passing (99.5%), 5 skipped
+**Project Status:** Phase 2 complete, MMC3 mapper investigation next
 
 ---
 
-## Quick Navigation
+## Quick Start
 
 ### For Users
 
 | Document | Purpose |
 |----------|---------|
-| [**QUICK-START.md**](../QUICK-START.md) | Build, install, and run RAMBO |
-| [**README.md**](../README.md) | Project overview and features |
-| [**CURRENT-ISSUES.md**](CURRENT-ISSUES.md) | Current bugs verified against code (2025-10-13) |
+| [README.md](../README.md) | Project overview and features |
+| [QUICK-START.md](../QUICK-START.md) | Build, install, and run RAMBO |
+| [CURRENT-ISSUES.md](CURRENT-ISSUES.md) | Current bugs and known issues |
 
 ### For Developers
 
 | Document | Purpose |
 |----------|---------|
-| [**CLAUDE.md**](../CLAUDE.md) | **Primary development reference** (architecture, patterns, roadmap) |
-| [**sessions/**](sessions/) | Development session notes and investigations |
-| [**NESdev Snapshots**](nesdev/) | Offline copies of key NES hardware docs |
-| [**Zig Reference**](zig/) | Offline copies of key Zig reference docs |
+| [CLAUDE.md](../CLAUDE.md) | Primary development reference (build commands, workflow) |
+| [ARCHITECTURE.md](../ARCHITECTURE.md) | Core patterns reference (State/Logic, VBlank, DMA) |
+| [Implementation Guides](implementation/) | Detailed implementation documentation |
+| [Architecture Diagrams](dot/) | Visual system architecture (GraphViz) |
 
 ---
 
 ## Documentation Structure
 
-### Active Documentation
-
 ```
 docs/
-├── README.md                          # This file - navigation hub
-├── CURRENT-ISSUES.md                  # Current bugs verified against code (2025-10-13)
+├── README.md                    # This file - central navigation
+├── CURRENT-ISSUES.md            # Active bugs and known issues
 │
-├── sessions/                          # Active session documentation
-|    └── [Individual session files]
-|
-├── architecture/                      # System architecture
-│   ├── apu.md                        # APU implementation (85% Phase 5 complete)
-│   ├── ppu-sprites.md                # PPU sprite system (complete)
-│   ├── codebase-inventory.md         # Complete file structure inventory
-│   └── threading.md                  # Thread model and mailbox communication
-|
-├── api-reference/                     # API documentation
+├── implementation/              # Implementation guides
+│   ├── phase2-summary.md        # Phase 2 high-level summary
+│   ├── phase2-ppu-fixes.md      # PPU rendering fixes (2A-2D)
+│   └── phase2-dma-refactor.md   # DMA architectural refactor (2E)
+│
+├── architecture/                # System architecture
+│   ├── apu.md                   # APU implementation details
+│   ├── ppu-sprites.md           # PPU sprite system
+│   ├── threading.md             # Thread model and mailboxes
+│   └── codebase-inventory.md   # Complete file structure
+│
+├── dot/                         # GraphViz architecture diagrams
+│   ├── README.md                # Diagram generation guide
+│   ├── architecture.dot         # Complete 3-thread architecture
+│   ├── emulation-coordination.dot   # RT loop coordination
+│   ├── cpu-module-structure.dot     # 6502 complete subsystem
+│   ├── ppu-module-structure.dot     # 2C02 rendering pipeline
+│   ├── apu-module-structure.dot     # APU 5-channel audio
+│   └── dma-time-sharing-architecture.dot  # DMC/OAM DMA system
+│
+├── api-reference/               # API documentation
 │   ├── debugger-api.md
 │   └── snapshot-api.md
 │
-├── testing/                           # Test documentation
-│   └── accuracycoin-cpu-requirements.md
+├── testing/                     # Test documentation
+│   ├── accuracycoin-cpu-requirements.md
+│   ├── dmc-oam-dma-test-strategy.md
+│   └── harness.md
 │
-├── audits/                            # Current audits
-│   └── CLAUDE-MD-ACCURACY-AUDIT-2025-10-07.md
+├── nesdev/                      # NES hardware references (offline)
+│   ├── nmi.md
+│   ├── ppu-frame-timing.md
+│   └── the-frame-and-nmis.md
 │
-└── archive/                           # Historical documentation
-    └── [Other historical archives]
-```
-
-### Root Level Documentation
-
-```
-RAMBO/
-├── README.md                         # Project overview
-├── CLAUDE.md                         # **Primary development reference**
-├── QUICK-START.md                    # User quick start guide
-├── AGENTS.md                         # Codex agent documentation
-└── docs/                             # Detailed documentation (see above)
+├── zig/                         # Zig language references (offline)
+│   └── 0.15.1/                  # Zig 0.15.1 documentation
+│
+├── reviews/                     # Comprehensive reviews
+│   └── phase2-comprehensive-review-2025-10-17.md
+│
+├── sessions/                    # Active session documentation
+│   └── [Current development sessions]
+│
+└── archive/                     # Historical documentation
+    └── sessions-phase2/         # Phase 2 session docs (24 files)
 ```
 
 ---
@@ -76,138 +91,102 @@ RAMBO/
 
 ### 1. CLAUDE.md - Development Guide
 
+**Location:** [CLAUDE.md](../CLAUDE.md)
+
 **The single source of truth for development.**
 
 **Contains:**
 - Project overview and current status
-- Architecture patterns (State/Logic separation)
-- Component implementation details
-- Test status by category
+- Build commands and workflow
+- Component structure
+- Critical hardware behaviors
+- Test coverage summary
 - Known issues and limitations
-- Next actions and roadmap
-- Development workflow
 
 **Use CLAUDE.md for:**
-- Understanding the architecture
-- Finding component status
-- Learning development patterns
-- Planning next work
+- Building and running RAMBO
+- Understanding project structure
+- Finding component locations
+- Checking current test status
+- Learning development workflow
 
-### 2. QUICK-START.md - User Guide
+### 2. ARCHITECTURE.md - Pattern Reference
 
-**For end users getting started.**
+**Location:** [ARCHITECTURE.md](../ARCHITECTURE.md)
+
+**Quick reference for core architectural patterns.**
 
 **Contains:**
-- Installation instructions
-- Building from source
-- Running the emulator
-- Controls and keyboard mapping
-- Troubleshooting
-- Known limitations
+- State/Logic Separation Pattern
+- Comptime Generics (Zero-Cost Polymorphism)
+- Thread Architecture
+- VBlank Pattern (Pure Data Ledgers)
+- DMA Interaction Model
+- RT-Safety Guidelines
 
-**Use QUICK-START.md for:**
-- First-time setup
-- Running RAMBO
-- Solving common problems
+**Use ARCHITECTURE.md for:**
+- Understanding design patterns
+- Following established conventions
+- Implementing new features consistently
+- Architectural decision reference
 
-### 3. External Reference Snapshots
+### 3. Implementation Guides
 
-Offline copies of key external resources are tracked for quick access:
+**Location:** [docs/implementation/](implementation/)
 
-| Snapshot | Source |
-|----------|--------|
-| [`docs/nesdev/the-frame-and-nmis.md`](nesdev/the-frame-and-nmis.md) | NESdev “The frame and NMIs” |
-| [`docs/nesdev/nmi.md`](nesdev/nmi.md) | NESdev “NMI” overview |
-| [`docs/nesdev/ppu-frame-timing.md`](nesdev/ppu-frame-timing.md) | NESdev “PPU frame timing” |
-| [`docs/zig/0.15.1/zig-0.15.1.md`](zig/0.15.1/zig-0.15.1.md) | Zig 0.15.1 language reference (one-page) |
-| [`docs/zig/0.15.1/README.md`](zig/0.15.1/README.md) | Zig 0.15.1 reference (per-section index) |
-| [`docs/zig/0.15.1/CHAPTERS.md`](zig/0.15.1/CHAPTERS.md) | Zig 0.15.1 reference (chapters index) |
+**Detailed guides for major implementations.**
 
-These snapshots are regenerated with `pandoc` to keep the documentation bundle self-contained.
+**Available Guides:**
+- [Phase 2 Summary](implementation/phase2-summary.md) - High-level overview
+- [PPU Fixes](implementation/phase2-ppu-fixes.md) - Phases 2A-2D detailed
+- [DMA Refactor](implementation/phase2-dma-refactor.md) - Phase 2E detailed
+
+**Use Implementation Guides for:**
+- Understanding implementation decisions
+- Learning from past work
+- Planning similar refactors
+- Technical deep-dives
+
+### 4. Architecture Diagrams
+
+**Location:** [docs/dot/](dot/)
+
+**Visual maps of entire codebase.**
+
+**Key Diagrams:**
+- `architecture.dot` - Complete 3-thread architecture (60 nodes)
+- `emulation-coordination.dot` - RT loop coordination (80 nodes)
+- `cpu-module-structure.dot` - 6502 complete subsystem (50 nodes)
+- `ppu-module-structure.dot` - 2C02 rendering pipeline (60 nodes)
+- `apu-module-structure.dot` - APU 5-channel audio (60 nodes)
+- `dma-time-sharing-architecture.dot` - DMC/OAM DMA system (40 nodes)
+
+**How to use:**
+1. Start with `architecture.dot` for high-level overview
+2. Dive into specific module diagrams as needed
+3. Reference during code navigation
+4. Generate images: `cd docs/dot && dot -Tpng <file>.dot -o <file>.png`
 
 ---
 
 ## Component Documentation
 
-### Architecture
+### Core Emulation
 
-**Location:** `docs/architecture/`
+| Component | Documentation |
+|-----------|---------------|
+| CPU (6502) | [cpu-module-structure.dot](dot/cpu-module-structure.dot) |
+| PPU (2C02) | [ppu-sprites.md](architecture/ppu-sprites.md), [ppu-module-structure.dot](dot/ppu-module-structure.dot) |
+| APU | [apu.md](architecture/apu.md), [apu-module-structure.dot](dot/apu-module-structure.dot) |
 
-| File | Component | Status |
-|------|-----------|--------|
-| `apu.md` | Audio Processing Unit | ✅ 86% Complete (logic done, waveform pending) |
-| `ppu-sprites.md` | PPU Sprite System | ✅ Complete specification |
-| `threading.md` | Thread Architecture | ✅ Complete (3-thread model) |
+### Systems
 
-### API Reference
-
-**Location:** `docs/api-reference/`
-
-| File | Component |
-|------|-----------|
-| `debugger-api.md` | Debugger API and usage |
-| `snapshot-api.md` | Save state API |
-
----
-
-## Component Status Quick Reference
-
-For full details, see [CURRENT-STATUS.md](CURRENT-STATUS.md).
-
-| Component | Completion | Tests | Notes |
-|-----------|------------|-------|-------|
-| CPU (6502) | 100% | ~280 | All 256 opcodes, cycle-accurate |
-| PPU | 100% | ~90 | Background + sprites complete |
-| APU | 86% | 135 | Logic done, waveform generation pending |
-| Video Display | 100% | - | Wayland + Vulkan at 60 FPS |
-| Controller I/O | 100% | 14 | Hardware-accurate 4021 shift register |
-| Input System | 100% | 40 | Keyboard mapping complete |
-| Threading | 100% | 14 | 3-thread model with mailboxes |
-| Debugger | 100% | ~66 | Breakpoints, watchpoints, callbacks |
-| Cartridge (Mapper 0) | 100% | ~48 | NROM complete, more mappers planned |
-
----
-
-## Recent Changes (2025-10-09)
-
-### Hardware Accuracy Fixes
-
-**Latest Session (2025-10-09):**
-- ✅ Fixed BRK flag masking bug (hardware interrupts now clear bit 4 correctly)
-- ✅ Fixed frame pacing precision (16ms → 17ms rounding for NTSC timing)
-- ✅ Fixed background fine_x panic (masked to 3 bits)
-- ✅ Fixed debugger output (handleCpuSnapshot now functional)
-- 🔄 Investigating Super Mario Bros blank screen (root cause identified)
-
-See **[Session Summary](sessions/session-summary-2025-10-09.md)** for complete details.
-
-### Documentation Updates (2025-10-11)
-
-**Latest:**
-- ✅ Comprehensive documentation audit completed (100% accuracy achieved)
-- ✅ Updated all test counts to 949/986 (was 955/967 in 9 locations)
-- ✅ Fixed architecture.dot mailbox count (9→7, identified 4 orphaned files)
-- ✅ Added 19 missing debugger API methods to debugger-api.md
-- ✅ Verified all GraphViz diagrams (95-98% accuracy)
-- ✅ Updated VBlank migration documentation in ppu-module-structure.dot
-- ✅ See: archive/2025-10/audits/DOCUMENTATION-AUDIT-FINAL-REPORT-2025-10-11.md for complete details
-
-**Previous (2025-10-09):**
-- ✅ Updated CLAUDE.md with test counts
-- ✅ Updated README.md with recent fixes and current focus
-- ✅ Updated KNOWN-ISSUES.md with SMB investigation
-- ✅ Updated docs/README.md navigation
-- ✅ Created comprehensive session documentation in docs/sessions/
-
-**Previous Cleanup (2025-10-08):**
-- ✅ Archived dated audit files from docs/implementation/ (13 files)
-- ✅ Archived Phase 8 planning docs
-- ✅ Top-level docs clean (only README.md and CURRENT-STATUS.md)
-
-### Test Status
-
-**Latest:** 949/986 passing (96.2%)
-**Previous:** 920/926 passing (99.4%)
+| System | Documentation |
+|--------|---------------|
+| Threading | [threading.md](architecture/threading.md) |
+| DMA | [phase2-dma-refactor.md](implementation/phase2-dma-refactor.md), [dma-time-sharing-architecture.dot](dot/dma-time-sharing-architecture.dot) |
+| Debugger | [debugger-api.md](api-reference/debugger-api.md), [debugger-quick-start.md](sessions/debugger-quick-start.md) |
+| Cartridge | [cartridge-mailbox-systems.dot](dot/cartridge-mailbox-systems.dot) |
 
 ---
 
@@ -219,32 +198,67 @@ See **[Session Summary](sessions/session-summary-2025-10-09.md)** for complete d
 → [QUICK-START.md](../QUICK-START.md)
 
 **...understand the architecture**
-→ [CLAUDE.md](../CLAUDE.md) sections on Architecture
+→ [ARCHITECTURE.md](../ARCHITECTURE.md) + [architecture.dot](dot/architecture.dot)
 
 **...know what's implemented**
-→ [CURRENT-STATUS.md](CURRENT-STATUS.md)
+→ [CLAUDE.md](../CLAUDE.md) (Component Structure section)
 
 **...add a new feature**
-→ [CLAUDE.md](../CLAUDE.md) for patterns, then relevant component docs
+→ [ARCHITECTURE.md](../ARCHITECTURE.md) for patterns, then relevant component docs
 
 **...fix a bug**
-→ [CURRENT-STATUS.md](CURRENT-STATUS.md) for known issues, then component docs
+→ [CURRENT-ISSUES.md](CURRENT-ISSUES.md) for known issues, then component docs
 
 **...write tests**
 → [CLAUDE.md](../CLAUDE.md) testing section, existing test files as examples
 
 **...use the debugger**
-→ [docs/sessions/debugger-quick-start.md](sessions/debugger-quick-start.md) (Quick start)
-→ [docs/api-reference/debugger-api.md](api-reference/debugger-api.md) (Full API)
+→ [debugger-quick-start.md](sessions/debugger-quick-start.md) + [debugger-api.md](api-reference/debugger-api.md)
 
-**...understand the PPU**
-→ [docs/architecture/ppu-sprites.md](architecture/ppu-sprites.md)
+**...understand PPU rendering**
+→ [ppu-sprites.md](architecture/ppu-sprites.md) + [ppu-module-structure.dot](dot/ppu-module-structure.dot)
 
 **...understand threading**
-→ [docs/architecture/threading.md](architecture/threading.md)
+→ [threading.md](architecture/threading.md) + [architecture.dot](dot/architecture.dot)
 
-**...understand the video system**
-→ [docs/implementation/video-subsystem.md](implementation/video-subsystem.md)
+**...learn about Phase 2 work**
+→ [phase2-summary.md](implementation/phase2-summary.md)
+
+---
+
+## Current Status
+
+### Project Metrics
+
+**Tests:** 1027/1032 passing (99.5%), 5 skipped
+**AccuracyCoin:** ✅ PASSING (baseline CPU validation)
+**Code Quality:** 94/100 (Excellent)
+**Performance:** 10-50x real-time speed
+
+### Recent Major Work
+
+**Phase 2 Complete (2025-10-15 to 2025-10-17):**
+- ✅ PPU rendering timing fixes (Phases 2A-2D)
+- ✅ DMA system architectural refactor (Phase 2E)
+- ✅ +37 tests passing
+- ✅ -700 lines of code (58% reduction in DMA)
+- ✅ +5-10% performance improvement
+
+**See:** [phase2-summary.md](implementation/phase2-summary.md)
+
+### Current Issues
+
+**Fully Working:**
+- ✅ Castlevania, Mega Man, Kid Icarus, Battletoads, SMB2, SMB1 (all NROM games)
+
+**Partial Issues (MMC3 Mapper):**
+- ⚠️ SMB3, Kirby's Adventure, TMNT (all MMC3 games)
+
+**Next Focus:**
+- MMC3 mapper investigation (separate from Phase 2)
+- Test coverage improvements
+
+**See:** [CURRENT-ISSUES.md](CURRENT-ISSUES.md) for complete details
 
 ---
 
@@ -252,41 +266,90 @@ See **[Session Summary](sessions/session-summary-2025-10-09.md)** for complete d
 
 ### Before Making Changes
 
-1. Read [CLAUDE.md](../CLAUDE.md) for architecture patterns
-2. Run `zig build test` to verify tests pass
-3. Review relevant component documentation
+1. Read [CLAUDE.md](../CLAUDE.md) for workflow and structure
+2. Read [ARCHITECTURE.md](../ARCHITECTURE.md) for patterns
+3. Run `zig build test` to verify tests pass
+4. Review relevant component documentation
 
 ### Making Changes
 
-1. Follow State/Logic pattern (see CLAUDE.md)
+1. Follow State/Logic pattern (see [ARCHITECTURE.md](../ARCHITECTURE.md))
 2. Write tests for new functionality
 3. Update documentation with code changes
 4. Ensure all tests pass
-5. Update session notes
+5. Create session notes if significant work
 
 ### Documentation Guidelines
 
 1. **Update CLAUDE.md for major changes** - Primary reference
 2. **Create/update component docs** - In appropriate directories
-3. **Archive completed work** - Move to `docs/archive/`
-4. **No duplicates** - One source of truth per topic
+3. **Add session docs for investigations** - In `docs/sessions/`
+4. **Archive completed work** - Move to `docs/archive/` when superseded
+5. **Follow existing patterns** - Consistency is key
+
+---
+
+## External References
+
+### NES Hardware
+
+- [NESDev Wiki](https://www.nesdev.org/wiki/) - Comprehensive NES documentation
+- [6502 Reference](http://www.6502.org/) - CPU architecture
+- [PPU Rendering](https://www.nesdev.org/wiki/PPU_rendering) - PPU details
+
+**Offline Snapshots:** [docs/nesdev/](nesdev/)
+
+### Zig Resources
+
+- [Zig Language Reference](https://ziglang.org/documentation/master/)
+- [Zig Standard Library](https://ziglang.org/documentation/master/std/)
+
+**Offline Snapshots:** [docs/zig/0.15.1/](zig/0.15.1/)
 
 ---
 
 ## Archives
 
-Historical documentation is preserved in `docs/archive/`:
+Historical documentation preserved in [docs/archive/](archive/):
 
 | Directory | Content |
 |-----------|---------|
-| `completed-phases/` | Completed phase documentation (Phase 0-8) |
-| `audits-historical/` | Historical audits (pre-2025-10-07) |
-| `apu-planning-historical/` | Old APU planning documents |
-| `sessions/` | Development session notes |
-| `p0/`, `p1/` | Phase 0 and Phase 1 completion docs |
-| `code-review-2025-10-04/` | Old code review (archived) |
+| `sessions-phase2/` | Phase 2 session docs (24 files, Oct 15-17 2025) |
+| `2025-10/` | October 2025 historical docs (audits, investigations) |
+| `sessions-2025-10-09-10/` | Early October session docs (36 files) |
+| `sessions-2025-10-12/` | Mid-October session docs (11 files) |
+| `graphviz-audits/` | GraphViz diagram audit sessions |
 
 **Archives are for reference only** - all current information is in active docs.
+
+---
+
+## Documentation Conventions
+
+### File Naming
+
+- **Dates:** Use ISO 8601 format (YYYY-MM-DD)
+- **Session docs:** `YYYY-MM-DD-topic-description.md`
+- **Component docs:** `component-name.md` (lowercase, hyphenated)
+- **Diagrams:** `component-name.dot` or `concept-name.dot`
+
+### Document Structure
+
+- **Title:** Single H1 at top
+- **Metadata:** Date, status, author (if applicable)
+- **Table of Contents:** For docs > 200 lines
+- **Code Examples:** Use zig syntax highlighting
+- **Links:** Relative paths preferred
+- **Updates:** Note date and summary at document end
+
+### Markdown Style
+
+- **Headings:** Use ATX-style (#, ##, ###)
+- **Lists:** Use - for unordered, 1. for ordered
+- **Code:** Use triple backticks with language
+- **Tables:** Use for structured data
+- **Bold:** Use ** for emphasis
+- **Italics:** Use * for definitions/terms
 
 ---
 
@@ -296,19 +359,42 @@ Historical documentation is preserved in `docs/archive/`:
 
 - **Quick Start:** [QUICK-START.md](../QUICK-START.md)
 - **Development:** [CLAUDE.md](../CLAUDE.md)
-- **Issues:** Check known issues in CURRENT-ISSUES.md
+- **Patterns:** [ARCHITECTURE.md](../ARCHITECTURE.md)
+- **Issues:** [CURRENT-ISSUES.md](CURRENT-ISSUES.md)
 
 ### Getting Support
 
-1. Check QUICK-START.md troubleshooting section
-2. Review CURRENT-ISSUES.md known issues
+1. Check [QUICK-START.md](../QUICK-START.md) troubleshooting section
+2. Review [CURRENT-ISSUES.md](CURRENT-ISSUES.md) for known issues
 3. Search existing documentation
 4. Create issue with full details (system info, ROM, error messages)
 
 ---
 
-**Documentation Last Audited:** 2025-10-11
-**Audit Status:** ✅ Comprehensive audit completed
-**See:** archive/2025-10/audits/DOCUMENTATION-AUDIT-2025-10-11.md for complete findings
+## Documentation History
+
+**2025-10-17:** Major documentation reorganization
+- Created [ARCHITECTURE.md](../ARCHITECTURE.md) with core patterns
+- Consolidated Phase 2 docs into [implementation/](implementation/)
+- Archived 24 Phase 2 session docs
+- Reorganized GraphViz diagrams
+- Created this comprehensive navigation hub
+
+**2025-10-15:** Phase 2 documentation updates
+- Added Phase 2A-2D session documentation
+- Updated [CURRENT-ISSUES.md](CURRENT-ISSUES.md)
+
+**2025-10-13:** Initial structure created
+- Created documentation hub
+- Organized component docs
+- Established archive structure
+
+---
+
+**Key Principle:** Documentation should make development easier, not harder. Keep it organized, up-to-date, and easy to navigate.
+
+**Version:** 2.0
+**Last Updated:** 2025-10-17
+**Next Review:** After MMC3 mapper work complete
 
 Happy emulating!

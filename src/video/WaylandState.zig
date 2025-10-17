@@ -14,6 +14,62 @@ const xdg = if (build.with_wayland) wayland.client.xdg else struct {};
 
 const XdgWindowEventMailbox = @import("../mailboxes/XdgWindowEventMailbox.zig").XdgWindowEventMailbox;
 const XdgInputEventMailbox = @import("../mailboxes/XdgInputEventMailbox.zig").XdgInputEventMailbox;
+pub const xkb = if (build.with_wayland)
+    @cImport({
+        @cInclude("xkbcommon/xkbcommon.h");
+    })
+else
+    struct {};
+
+/// XKB keyboard context owned by render thread
+pub const KeyboardContext = struct {
+    context: ?*anyopaque = null,
+    keymap: ?*anyopaque = null,
+    state: ?*anyopaque = null,
+
+    pub fn destroy(self: *KeyboardContext) void {
+        if (self.state) |raw_state| {
+            const state_ptr: *xkb.xkb_state = @ptrCast(raw_state);
+            xkb.xkb_state_unref(state_ptr);
+            self.state = null;
+        }
+        if (self.keymap) |raw_keymap| {
+            const keymap_ptr: *xkb.xkb_keymap = @ptrCast(raw_keymap);
+            xkb.xkb_keymap_unref(keymap_ptr);
+            self.keymap = null;
+        }
+        if (self.context) |raw_ctx| {
+            const ctx_ptr: *xkb.xkb_context = @ptrCast(raw_ctx);
+            xkb.xkb_context_unref(ctx_ptr);
+            self.context = null;
+        }
+    }
+
+    pub fn assignKeymap(self: *KeyboardContext, keymap_ptr: *xkb.xkb_keymap, state_ptr: *xkb.xkb_state) void {
+        if (self.state) |raw_state| {
+            const prev_state: *xkb.xkb_state = @ptrCast(raw_state);
+            xkb.xkb_state_unref(prev_state);
+        }
+        if (self.keymap) |raw_keymap| {
+            const prev_keymap: *xkb.xkb_keymap = @ptrCast(raw_keymap);
+            xkb.xkb_keymap_unref(prev_keymap);
+        }
+
+        self.keymap = @ptrCast(keymap_ptr);
+        self.state = @ptrCast(state_ptr);
+    }
+
+    pub fn ensureContext(self: *KeyboardContext) bool {
+        if (!build.with_wayland) return false;
+        if (self.context != null) return true;
+
+        const ctx_ptr = xkb.xkb_context_new(xkb.XKB_CONTEXT_NO_FLAGS);
+        if (ctx_ptr == null) return false;
+
+        self.context = @ptrCast(ctx_ptr.?);
+        return true;
+    }
+};
 
 /// Event handler context for passing state and mailboxes to listeners
 /// This is passed to all Wayland protocol listeners for dependency injection
@@ -40,8 +96,15 @@ pub const WaylandState = struct {
 
     // Input devices
     seat: ?*wl.Seat = null,
+    seat_global_name: ?u32 = null,
     keyboard: ?*wl.Keyboard = null,
     pointer: ?*wl.Pointer = null,
+    seat_listener_ctx: ?*EventHandlerContext = null,
+    keyboard_listener_ctx: ?*EventHandlerContext = null,
+
+    // Keyboard repeat information (reported by compositor)
+    repeat_rate: i32 = 0,
+    repeat_delay: i32 = 0,
 
     // Window state tracking
     current_width: u32 = 512,
@@ -69,8 +132,36 @@ pub const WaylandState = struct {
     mods_locked: u32 = 0,
     mods_group: u32 = 0,
 
+    keyboard_ctx: KeyboardContext = .{},
+
     // Dependency injection
     window_mailbox: *XdgWindowEventMailbox,
     input_mailbox: *XdgInputEventMailbox,
     allocator: std.mem.Allocator,
+
+    pub fn resetKeyboard(self: *WaylandState) void {
+        self.keyboard = null;
+        self.keyboard_ctx.destroy();
+        self.keyboard_ctx = .{};
+        self.mods_depressed = 0;
+        self.mods_latched = 0;
+        self.mods_locked = 0;
+        self.mods_group = 0;
+        self.repeat_rate = 0;
+        self.repeat_delay = 0;
+        self.keyboard_listener_ctx = null;
+    }
+
+    pub fn setModifiers(
+        self: *WaylandState,
+        depressed: u32,
+        latched: u32,
+        locked: u32,
+        group: u32,
+    ) void {
+        self.mods_depressed = depressed;
+        self.mods_latched = latched;
+        self.mods_locked = locked;
+        self.mods_group = group;
+    }
 };
