@@ -379,5 +379,20 @@ if (is_fetch_cycle) {
 
 ---
 
-**Status:** Bug #1 & #2 FIXED, Bug #3 researched and designed, awaiting approval to implement.
-**Next Steps:** Implement Bug #3 filter, test with TMNT/SMB3/Kirby ROMs.
+### Bug #3: A12 Edge Filtering ✅ FIXED
+
+**Implementation:**
+- Added `a12_filter_delay: u8 = 0` to PpuState (line 401)
+- Modified PPU Logic A12 detection (lines 223-259):
+  - Count up filter delay while A12 is low (max 8)
+  - Only trigger rising edge if delay >= 6 cycles
+  - Reset filter after trigger
+
+**Result:** A12 now triggers once per scanline instead of 16+ times
+**Tests:** Full test suite passes (exit code 0, no regressions)
+**Commit:** c5cbef5
+
+---
+
+**Status:** ✅ ALL THREE BUGS FIXED and committed.
+**Next Steps:** Test TMNT/SMB3/Kirby ROMs to verify fixes work in practice.

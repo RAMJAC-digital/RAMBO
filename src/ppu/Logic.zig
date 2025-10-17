@@ -239,19 +239,21 @@ pub fn tick(
         if (is_fetch_cycle) {
             const current_a12 = (state.internal.v & 0x1000) != 0;
 
-            // Update filter delay counter
+            // Detect rising edge with filter check (0→1 transition)
+            // Only trigger if A12 has been low for at least 6 cycles
+            if (!state.a12_state and current_a12 and state.a12_filter_delay >= 6) {
+                flags.a12_rising = true;
+            }
+
+            // Update filter delay counter (AFTER edge detection)
             if (!current_a12) {
                 // A12 is low - count up filter delay (max 8 PPU cycles)
                 if (state.a12_filter_delay < 8) {
                     state.a12_filter_delay += 1;
                 }
-            }
-
-            // Detect rising edge with filter check (0→1 transition)
-            // Only trigger if A12 has been low for at least 6 cycles
-            if (!state.a12_state and current_a12 and state.a12_filter_delay >= 6) {
-                flags.a12_rising = true;
-                state.a12_filter_delay = 0; // Reset filter after trigger
+            } else {
+                // A12 is high - reset filter (ready for next low period)
+                state.a12_filter_delay = 0;
             }
 
             state.a12_state = current_a12;

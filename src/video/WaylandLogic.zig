@@ -13,6 +13,8 @@ const Wayland = @import("WaylandState.zig");
 
 const WaylandState = Wayland.WaylandState;
 const EventHandlerContext = Wayland.EventHandlerContext;
+const posix = std.posix;
+const mem = std.mem;
 const XdgWindowEventMailbox = @import("../mailboxes/XdgWindowEventMailbox.zig").XdgWindowEventMailbox;
 const XdgWindowEvent = @import("../mailboxes/XdgWindowEventMailbox.zig").XdgWindowEvent;
 const XdgInputEventMailbox = @import("../mailboxes/XdgInputEventMailbox.zig").XdgInputEventMailbox;
@@ -43,6 +45,13 @@ fn capabilityMask(value: anytype) u32 {
         },
         .@"enum" => blk: {
             const raw = @intFromEnum(value);
+            const converted = math.cast(u32, raw) orelse 0;
+            break :blk converted;
+        },
+        .@"struct" => |struct_info| blk: {
+            if (struct_info.layout != .@"packed" or struct_info.backing_integer == null) break :blk 0;
+            const IntType = struct_info.backing_integer.?;
+            const raw: IntType = @bitCast(value);
             const converted = math.cast(u32, raw) orelse 0;
             break :blk converted;
         },
@@ -136,22 +145,35 @@ fn installKeymap(state: *WaylandState, km: anytype) void {
         return;
     }
 
-    var buffer = state.allocator.alloc(u8, km.size + 1) catch |err| {
+    const allocator = std.heap.c_allocator;
+    const alloc_len = math.cast(usize, km.size) orelse return;
+    if (alloc_len == 0) return;
+
+    const mapping = posix.mmap(
+        null,
+        alloc_len,
+        .{ .READ = true },
+        .{ .SHARED = true },
+        km.fd,
+        0,
+    ) catch |err| {
+        input_log.err("Failed to mmap keymap: {}", .{err});
+        return;
+    };
+    defer posix.munmap(mapping) catch |err| {
+        input_log.warn("Failed to munmap keymap: {}", .{err});
+    };
+
+    const mapped = mapping[0..alloc_len];
+
+    var buffer = allocator.alloc(u8, alloc_len + 1) catch |err| {
         input_log.err("Failed to allocate keymap buffer: {}", .{err});
         return;
     };
-    defer state.allocator.free(buffer);
+    defer allocator.free(buffer);
 
-    const bytes_read = file.readAll(buffer[0..km.size]) catch |err| {
-        input_log.err("Failed to read keymap: {}", .{err});
-        return;
-    };
-    if (bytes_read != km.size) {
-        input_log.warn("Incomplete keymap read (expected {}, got {})", .{ km.size, bytes_read });
-        return;
-    }
-
-    buffer[km.size] = 0;
+    mem.copyForwards(u8, buffer[0..alloc_len], mapped);
+    buffer[alloc_len] = 0;
 
     const keymap_ptr = xkb.xkb_keymap_new_from_string(
         @ptrCast(state.keyboard_ctx.context.?),
