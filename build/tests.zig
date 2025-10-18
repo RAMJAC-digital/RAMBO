@@ -402,6 +402,18 @@ pub const specs = [_]TestSpec{
         .membership = .{ .integration = true },
     },
     .{
+        .name = "smb3-mmc3",
+        .area = .rom,
+        .path = "tests/integration/smb3_status_bar_test.zig",
+        .membership = .{ .integration = true },
+    },
+    .{
+        .name = "mmc3-visual-regression",
+        .area = .rom,
+        .path = "tests/integration/mmc3_visual_regression_test.zig",
+        .membership = .{ .integration = true },
+    },
+    .{
         .name = "smb-ram",
         .area = .integration,
         .path = "tests/integration/smb_ram_test.zig",
@@ -436,6 +448,12 @@ pub const specs = [_]TestSpec{
         .area = .ppu_timing,
         .path = "tests/ppu/background_fetch_timing_test.zig",
         .membership = .{ .integration = true },
+    },
+    .{
+        .name = "ppu-a12-edge-detection",
+        .area = .ppu_timing,
+        .path = "tests/ppu/a12_edge_detection_test.zig",
+        .membership = .{},
     },
     .{
         .name = "ppu-oamaddr-reset",

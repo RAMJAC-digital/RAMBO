@@ -176,8 +176,9 @@ pub fn stepCycle(state: anytype) CpuCycleResult {
     // Normal CPU execution
     executeCycle(state, current_vblank_set_cycle);
 
-    // Poll mapper IRQ counter (MMC3, etc.)
-    return .{ .mapper_irq = state.pollMapperIrq() };
+    // Mapper IRQ is now polled before CPU execution in State.zig
+    // to ensure CPU sees IRQ line changes in the same cycle
+    return .{};
 }
 
 /// Execute CPU micro-operations for the current cycle.

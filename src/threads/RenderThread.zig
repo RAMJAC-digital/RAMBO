@@ -14,6 +14,7 @@
 const std = @import("std");
 const xev = @import("xev");
 const Mailboxes = @import("../mailboxes/Mailboxes.zig").Mailboxes;
+const WaylandState = @import("../video/WaylandState.zig").WaylandState;
 const WaylandLogic = @import("../video/WaylandLogic.zig");
 const VulkanLogic = @import("../video/VulkanLogic.zig");
 
@@ -64,7 +65,8 @@ pub fn threadMain(
     _ = config;
 
     // Initialize Wayland window with mailbox dependency injection
-    var wayland = WaylandLogic.init(std.heap.c_allocator, &mailboxes.xdg_window_event, &mailboxes.xdg_input_event) catch {
+    var wayland: WaylandState = undefined;
+    WaylandLogic.init(&wayland, std.heap.c_allocator, &mailboxes.xdg_window_event, &mailboxes.xdg_input_event) catch {
         // Wayland may not be available in test environments - silently exit
         return;
     };

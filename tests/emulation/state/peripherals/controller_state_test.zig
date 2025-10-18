@@ -47,6 +47,27 @@ test "ControllerState: updateButtons while strobe high reloads immediately" {
     try testing.expectEqual(@as(u8, 0xFF), controller.shift1);
 }
 
+test "ControllerState: writeStrobe(1) while high re-latches current buttons" {
+    var controller = ControllerState{};
+
+    // Strobe high once with initial buttons (A)
+    controller.buttons1 = 0b00000001;
+    controller.writeStrobe(0x01); // latch
+    try testing.expectEqual(@as(u8, 0b00000001), controller.shift1);
+
+    // Change buttons directly (simulate new state before mailbox update)
+    controller.buttons1 = 0b00000010; // B
+
+    // Write 1 again while already high — should re-latch immediately
+    controller.writeStrobe(0x01);
+    try testing.expectEqual(@as(u8, 0b00000010), controller.shift1);
+
+    // Drop low and verify shift behavior uses latest latched state
+    controller.writeStrobe(0x00);
+    const first_bit = controller.read1();
+    try testing.expectEqual(@as(u8, 0), first_bit); // B is bit 1, so first read (A) is 0
+}
+
 test "ControllerState: updateButtons while strobe low does not reload" {
     var controller = ControllerState{};
 

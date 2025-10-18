@@ -68,10 +68,12 @@ fn destroyKeyboard(state: *WaylandState) void {
         state.keyboard = null;
     }
 
-    if (state.keyboard_listener_ctx) |listener_ctx| {
-        state.allocator.destroy(listener_ctx);
-        state.keyboard_listener_ctx = null;
-    }
+    state.keyboard_listener_ctx_active = false;
+    state.keyboard_listener_ctx = EventHandlerContext{
+        .state = state,
+        .window_mailbox = state.window_mailbox,
+        .input_mailbox = state.input_mailbox,
+    };
 
     state.mods_depressed = 0;
     state.mods_latched = 0;
@@ -93,21 +95,20 @@ fn destroySeat(state: *WaylandState) void {
         seat.release();
         state.seat = null;
     }
-
-    if (state.seat_listener_ctx) |listener_ctx| {
-        state.allocator.destroy(listener_ctx);
-        state.seat_listener_ctx = null;
-    }
-
+    state.seat_listener_ctx_active = false;
     state.seat_global_name = null;
 }
 
-fn createKeyboardListenerContext(state: *WaylandState) !*EventHandlerContext {
-    if (state.keyboard_listener_ctx) |ctx| return ctx;
-
-    const ctx = try state.allocator.create(EventHandlerContext);
-    state.keyboard_listener_ctx = ctx;
-    return ctx;
+fn createKeyboardListenerContext(state: *WaylandState) *EventHandlerContext {
+    if (!state.keyboard_listener_ctx_active) {
+        state.keyboard_listener_ctx_active = true;
+        state.keyboard_listener_ctx = EventHandlerContext{
+            .state = state,
+            .window_mailbox = state.window_mailbox,
+            .input_mailbox = state.input_mailbox,
+        };
+    }
+    return &state.keyboard_listener_ctx;
 }
 
 fn ensureKeyboard(seat: *wl.Seat, context: *EventHandlerContext) void {
@@ -118,11 +119,9 @@ fn ensureKeyboard(seat: *wl.Seat, context: *EventHandlerContext) void {
         return;
     };
     context.state.keyboard = keyboard;
+    input_log.info("wl_keyboard acquired (version={})", .{keyboard.getVersion()});
 
-    const listener_ctx = createKeyboardListenerContext(context.state) catch |err| {
-        input_log.err("Failed to allocate keyboard listener context: {}", .{err});
-        return;
-    };
+    const listener_ctx = createKeyboardListenerContext(context.state);
     listener_ctx.* = .{ .state = context.state, .window_mailbox = context.window_mailbox, .input_mailbox = context.input_mailbox };
 
     keyboard.setListener(*EventHandlerContext, keyboardListener, listener_ctx);
@@ -152,17 +151,15 @@ fn installKeymap(state: *WaylandState, km: anytype) void {
     const mapping = posix.mmap(
         null,
         alloc_len,
-        .{ .READ = true },
-        .{ .SHARED = true },
+        posix.PROT.READ,
+        posix.MAP{ .TYPE = .SHARED },
         km.fd,
         0,
     ) catch |err| {
         input_log.err("Failed to mmap keymap: {}", .{err});
         return;
     };
-    defer posix.munmap(mapping) catch |err| {
-        input_log.warn("Failed to munmap keymap: {}", .{err});
-    };
+    defer posix.munmap(mapping);
 
     const mapped = mapping[0..alloc_len];
 
@@ -185,6 +182,7 @@ fn installKeymap(state: *WaylandState, km: anytype) void {
         input_log.err("Failed to compile keymap", .{});
         return;
     }
+    input_log.info("Keymap loaded (size={} bytes)", .{alloc_len});
 
     const state_ptr = xkb.xkb_state_new(keymap_ptr.?);
     if (state_ptr == null) {
@@ -238,13 +236,14 @@ fn normalizedModifiers(state: *WaylandState) u32 {
 fn postKeyEvent(
     context: *EventHandlerContext,
     keycode: u32,
+    keysym: u32,
     pressed: bool,
 ) void {
     const modifiers = normalizedModifiers(context.state);
     const event = if (pressed)
-        XdgInputEvent{ .key_press = .{ .keycode = keycode, .modifiers = modifiers } }
+        XdgInputEvent{ .key_press = .{ .keycode = keycode, .keysym = keysym, .modifiers = modifiers } }
     else
-        XdgInputEvent{ .key_release = .{ .keycode = keycode, .modifiers = modifiers } };
+        XdgInputEvent{ .key_release = .{ .keycode = keycode, .keysym = keysym, .modifiers = modifiers } };
 
     context.input_mailbox.postEvent(event) catch |err| {
         input_log.warn("Input mailbox full (dropped key event): {}", .{err});
@@ -262,7 +261,6 @@ fn seatListener(
         .capabilities => |caps| {
             const mask = capabilityMask(caps.capabilities);
             const has_keyboard = (mask & seat_keyboard_bit) != 0;
-
             if (has_keyboard) {
                 ensureKeyboard(seat, context);
             } else {
@@ -321,8 +319,12 @@ fn keyboardListener(
             };
             _ = xkb.xkb_state_update_key(xkb_state_ptr, code, direction);
 
+            // Extract keysym for layout-independent key mapping
+            const keysym = xkb.xkb_state_key_get_one_sym(xkb_state_ptr, code);
+
+            input_log.debug("Key event: keycode={} keysym=0x{x:0>4} state={}", .{ code, keysym, key_event.state });
             const pressed = key_event.state == .pressed;
-            postKeyEvent(context, code, pressed);
+            postKeyEvent(context, code, keysym, pressed);
         },
     }
 }
@@ -354,16 +356,14 @@ fn registryListener(
                 context.state.seat = seat;
                 context.state.seat_global_name = global.name;
 
-                if (context.state.seat_listener_ctx == null) {
-                    const seat_ctx = context.state.allocator.create(EventHandlerContext) catch |err| {
-                        input_log.err("Failed to allocate seat listener context: {}", .{err});
-                        return;
-                    };
-                    seat_ctx.* = .{ .state = context.state, .window_mailbox = context.window_mailbox, .input_mailbox = context.input_mailbox };
-                    context.state.seat_listener_ctx = seat_ctx;
-                }
+                context.state.seat_listener_ctx_active = true;
+                context.state.seat_listener_ctx = EventHandlerContext{
+                    .state = context.state,
+                    .window_mailbox = context.window_mailbox,
+                    .input_mailbox = context.input_mailbox,
+                };
 
-                seat.setListener(*EventHandlerContext, seatListener, context.state.seat_listener_ctx.?);
+                seat.setListener(*EventHandlerContext, seatListener, &context.state.seat_listener_ctx);
             }
         },
         .global_remove => |removed| {
@@ -428,11 +428,12 @@ fn xdgToplevelListener(
 // ============================================================================
 
 pub fn init(
+    state: *WaylandState,
     allocator: std.mem.Allocator,
     window_mailbox: *XdgWindowEventMailbox,
     input_mailbox: *XdgInputEventMailbox,
-) !WaylandState {
-    var state = WaylandState{
+) !void {
+    state.* = WaylandState{
         .window_mailbox = window_mailbox,
         .input_mailbox = input_mailbox,
         .allocator = allocator,
@@ -440,7 +441,7 @@ pub fn init(
 
     if (!build.with_wayland) {
         log.warn("Wayland disabled at build time", .{});
-        return state;
+        return;
     }
 
     // Connect to Wayland display (null = use $WAYLAND_DISPLAY)
@@ -456,9 +457,13 @@ pub fn init(
     const registry = try display.getRegistry();
     state.registry = registry;
 
-    const registry_context = try allocator.create(EventHandlerContext);
-    registry_context.* = .{ .state = &state, .window_mailbox = window_mailbox, .input_mailbox = input_mailbox };
-    registry.setListener(*EventHandlerContext, registryListener, registry_context);
+    state.registry_listener_ctx_active = true;
+    state.registry_listener_ctx = EventHandlerContext{
+        .state = state,
+        .window_mailbox = window_mailbox,
+        .input_mailbox = input_mailbox,
+    };
+    registry.setListener(*EventHandlerContext, registryListener, &state.registry_listener_ctx);
 
     _ = display.roundtrip();
 
@@ -472,15 +477,23 @@ pub fn init(
 
     const xdg_surface = try state.wm_base.?.getXdgSurface(surface);
     state.xdg_surface = xdg_surface;
-    const xdg_context = try allocator.create(EventHandlerContext);
-    xdg_context.* = .{ .state = &state, .window_mailbox = window_mailbox, .input_mailbox = input_mailbox };
-    xdg_surface.setListener(*EventHandlerContext, xdgSurfaceListener, xdg_context);
+    state.xdg_surface_listener_ctx_active = true;
+    state.xdg_surface_listener_ctx = EventHandlerContext{
+        .state = state,
+        .window_mailbox = window_mailbox,
+        .input_mailbox = input_mailbox,
+    };
+    xdg_surface.setListener(*EventHandlerContext, xdgSurfaceListener, &state.xdg_surface_listener_ctx);
 
     const toplevel = try xdg_surface.getToplevel();
     state.toplevel = toplevel;
-    const toplevel_context = try allocator.create(EventHandlerContext);
-    toplevel_context.* = .{ .state = &state, .window_mailbox = window_mailbox, .input_mailbox = input_mailbox };
-    toplevel.setListener(*EventHandlerContext, xdgToplevelListener, toplevel_context);
+    state.toplevel_listener_ctx_active = true;
+    state.toplevel_listener_ctx = EventHandlerContext{
+        .state = state,
+        .window_mailbox = window_mailbox,
+        .input_mailbox = input_mailbox,
+    };
+    toplevel.setListener(*EventHandlerContext, xdgToplevelListener, &state.toplevel_listener_ctx);
 
     toplevel.setTitle("RAMBO NES Emulator");
     toplevel.setAppId("rambo.nes.emulator");
@@ -490,7 +503,7 @@ pub fn init(
     _ = display.roundtrip();
 
     log.info("Wayland window initialized successfully", .{});
-    return state;
+    return;
 }
 
 pub fn deinit(state: *WaylandState) void {

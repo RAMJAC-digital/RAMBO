@@ -64,13 +64,4 @@ pub fn build(b: *std.Build) void {
 
     const tooling_step = b.step("test-tooling", "Run helper/tooling diagnostics");
     for (tests.tooling) |step| tooling_step.dependOn(step);
-
-    const smb_diag = Diagnostics.setupSmbDiagnostic(b, .{
-        .target = target,
-        .optimize = optimize,
-        .rambo_module = modules.module,
-    });
-
-    const smb_diagnostic_step = b.step("smb-diagnostic", "Run Super Mario Bros execution flow diagnostic");
-    smb_diagnostic_step.dependOn(&smb_diag.run.step);
 }

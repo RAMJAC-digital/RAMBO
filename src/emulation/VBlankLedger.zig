@@ -22,6 +22,18 @@ pub const VBlankLedger = struct {
     /// Cleared when VBlank is cleared by timing (pre-render line).
     race_hold: bool = false,
 
+    /// Returns true if hardware VBlank is currently active (between set and clear)
+    pub inline fn isActive(self: VBlankLedger) bool {
+        return self.last_set_cycle > self.last_clear_cycle;
+    }
+
+    /// Returns true if the VBlank flag would read as 1 on the PPU bus
+    /// (i.e., active AND not cleared by a $2002 read, or held by the race condition)
+    pub inline fn isFlagVisible(self: VBlankLedger) bool {
+        if (!self.isActive()) return false;
+        return self.race_hold or (self.last_set_cycle > self.last_read_cycle);
+    }
+
     /// Resets all timestamps to their initial state.
     pub fn reset(self: *VBlankLedger) void {
         self.last_set_cycle = 0;

@@ -56,8 +56,11 @@ pub fn peekMemory(state: anytype, address: u16) u8 {
         0x4016 => (state.controller.shift1 & 0x01) | (state.bus.open_bus & 0xE0), // Controller 1 peek (no shift)
         0x4017 => (state.controller.shift2 & 0x01) | (state.bus.open_bus & 0xE0), // Controller 2 peek (no shift)
 
-        // Cartridge space ($4020-$FFFF)
-        0x4020...0xFFFF => blk: {
+        // Expansion area ($4020-$5FFF) defaults to open bus
+        0x4020...0x5FFF => state.bus.open_bus,
+
+        // Cartridge space ($6000-$FFFF)
+        0x6000...0xFFFF => blk: {
             if (state.cart) |cart| {
                 break :blk cart.cpuRead(address);
             }
@@ -65,6 +68,12 @@ pub fn peekMemory(state: anytype, address: u16) u8 {
             if (state.bus.test_ram) |test_ram| {
                 if (address >= 0x8000) {
                     break :blk test_ram[address - 0x8000];
+                } else {
+                    const prg_ram_offset = @as(usize, @intCast(address - 0x6000));
+                    const base_offset = 16384;
+                    if (test_ram.len > base_offset + prg_ram_offset) {
+                        break :blk test_ram[base_offset + prg_ram_offset];
+                    }
                 }
             }
             // No cartridge or test RAM - open bus

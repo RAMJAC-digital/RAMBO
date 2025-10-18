@@ -12,10 +12,12 @@ const SpscRingBuffer = @import("SpscRingBuffer.zig").SpscRingBuffer;
 pub const XdgInputEvent = union(enum) {
     key_press: struct {
         keycode: u32,
+        keysym: u32, // XKB keysym (layout-independent)
         modifiers: u32,
     },
     key_release: struct {
         keycode: u32,
+        keysym: u32, // XKB keysym (layout-independent)
         modifiers: u32,
     },
     mouse_move: struct {
@@ -92,12 +94,13 @@ test "XdgInputEventMailbox: basic post and poll" {
     defer mailbox.deinit();
 
     // Post some events
-    try mailbox.postEvent(.{ .key_press = .{ .keycode = 65, .modifiers = 0 } }); // 'A' key
+    try mailbox.postEvent(.{ .key_press = .{ .keycode = 65, .keysym = 0x0061, .modifiers = 0 } }); // 'A' key
     try mailbox.postEvent(.{ .mouse_move = .{ .x = 100.0, .y = 200.0 } });
 
     // Poll events
     const event1 = mailbox.pollEvent().?;
     try std.testing.expectEqual(@as(u32, 65), event1.key_press.keycode);
+    try std.testing.expectEqual(@as(u32, 0x0061), event1.key_press.keysym);
 
     const event2 = mailbox.pollEvent().?;
     try std.testing.expectEqual(@as(f64, 100.0), event2.mouse_move.x);
@@ -113,8 +116,8 @@ test "XdgInputEventMailbox: drain events" {
     defer mailbox.deinit();
 
     // Post multiple events
-    try mailbox.postEvent(.{ .key_press = .{ .keycode = 13, .modifiers = 0 } }); // Enter
-    try mailbox.postEvent(.{ .key_release = .{ .keycode = 13, .modifiers = 0 } });
+    try mailbox.postEvent(.{ .key_press = .{ .keycode = 13, .keysym = 0xff0d, .modifiers = 0 } }); // Enter
+    try mailbox.postEvent(.{ .key_release = .{ .keycode = 13, .keysym = 0xff0d, .modifiers = 0 } });
     try mailbox.postEvent(.{ .mouse_move = .{ .x = 50.0, .y = 75.0 } });
 
     // Drain all events
@@ -123,7 +126,9 @@ test "XdgInputEventMailbox: drain events" {
 
     try std.testing.expectEqual(@as(usize, 3), count);
     try std.testing.expectEqual(@as(u32, 13), events[0].key_press.keycode);
+    try std.testing.expectEqual(@as(u32, 0xff0d), events[0].key_press.keysym);
     try std.testing.expectEqual(@as(u32, 13), events[1].key_release.keycode);
+    try std.testing.expectEqual(@as(u32, 0xff0d), events[1].key_release.keysym);
 }
 
 test "XdgInputEventMailbox: hasEvents check" {
@@ -136,7 +141,7 @@ test "XdgInputEventMailbox: hasEvents check" {
     try std.testing.expect(!mailbox.hasEvents());
 
     // Post event
-    try mailbox.postEvent(.{ .key_press = .{ .keycode = 27, .modifiers = 0 } }); // Escape
+    try mailbox.postEvent(.{ .key_press = .{ .keycode = 27, .keysym = 0xff1b, .modifiers = 0 } }); // Escape
     try std.testing.expect(mailbox.hasEvents());
 
     // Poll clears event
@@ -151,18 +156,20 @@ test "XdgInputEventMailbox: all event types" {
     defer mailbox.deinit();
 
     // Post all event types
-    try mailbox.postEvent(.{ .key_press = .{ .keycode = 65, .modifiers = 1 } });
-    try mailbox.postEvent(.{ .key_release = .{ .keycode = 65, .modifiers = 1 } });
+    try mailbox.postEvent(.{ .key_press = .{ .keycode = 65, .keysym = 0x0061, .modifiers = 1 } });
+    try mailbox.postEvent(.{ .key_release = .{ .keycode = 65, .keysym = 0x0061, .modifiers = 1 } });
     try mailbox.postEvent(.{ .mouse_move = .{ .x = 150.5, .y = 250.75 } });
     try mailbox.postEvent(.{ .mouse_button = .{ .button = 1, .pressed = true } }); // Left click
 
     // Poll all events
     const e1 = mailbox.pollEvent().?;
     try std.testing.expectEqual(@as(u32, 65), e1.key_press.keycode);
+    try std.testing.expectEqual(@as(u32, 0x0061), e1.key_press.keysym);
     try std.testing.expectEqual(@as(u32, 1), e1.key_press.modifiers);
 
     const e2 = mailbox.pollEvent().?;
     try std.testing.expectEqual(@as(u32, 65), e2.key_release.keycode);
+    try std.testing.expectEqual(@as(u32, 0x0061), e2.key_release.keysym);
 
     const e3 = mailbox.pollEvent().?;
     try std.testing.expectEqual(@as(f64, 150.5), e3.mouse_move.x);
@@ -183,9 +190,9 @@ test "XdgInputEventMailbox: keyboard modifiers" {
     const SHIFT = 0x0001;
     const CTRL = 0x0004;
 
-    try mailbox.postEvent(.{ .key_press = .{ .keycode = 65, .modifiers = SHIFT } }); // Shift+A
-    try mailbox.postEvent(.{ .key_press = .{ .keycode = 67, .modifiers = CTRL } }); // Ctrl+C
-    try mailbox.postEvent(.{ .key_press = .{ .keycode = 86, .modifiers = CTRL | SHIFT } }); // Ctrl+Shift+V
+    try mailbox.postEvent(.{ .key_press = .{ .keycode = 65, .keysym = 0x0061, .modifiers = SHIFT } }); // Shift+A
+    try mailbox.postEvent(.{ .key_press = .{ .keycode = 67, .keysym = 0x0063, .modifiers = CTRL } }); // Ctrl+C
+    try mailbox.postEvent(.{ .key_press = .{ .keycode = 86, .keysym = 0x0076, .modifiers = CTRL | SHIFT } }); // Ctrl+Shift+V
 
     try std.testing.expectEqual(@as(u32, SHIFT), mailbox.pollEvent().?.key_press.modifiers);
     try std.testing.expectEqual(@as(u32, CTRL), mailbox.pollEvent().?.key_press.modifiers);

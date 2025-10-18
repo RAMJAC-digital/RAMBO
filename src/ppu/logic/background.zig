@@ -79,12 +79,14 @@ pub fn fetchBackgroundTile(state: *PpuState, cart: ?*AnyCartridge, dot: u16) voi
         // Cycle 5: Pattern low fetch completes (dots 6, 14, 22, 30...)
         5 => {
             const pattern_addr = getPatternAddress(state, false);
+            state.chr_address = pattern_addr; // Track CHR address for MMC3 A12 edge detection
             state.bg_state.pattern_latch_lo = memory.readVram(state, cart, pattern_addr);
         },
 
         // Cycle 7: Pattern high fetch completes (dots 8, 16, 24, 32...)
         7 => {
             const pattern_addr = getPatternAddress(state, true);
+            state.chr_address = pattern_addr; // Track CHR address for MMC3 A12 edge detection
             state.bg_state.pattern_latch_hi = memory.readVram(state, cart, pattern_addr);
         },
 

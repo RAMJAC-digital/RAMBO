@@ -15,6 +15,7 @@ const DebugFlags = struct {
     frames: ?u64 = null,
     inspect: bool = false,
     verbose: bool = false,
+    trace_nmi: bool = false,
 
     pub fn deinit(self: *DebugFlags, allocator: std.mem.Allocator) void {
         if (self.break_at) |addrs| allocator.free(addrs);
@@ -104,6 +105,7 @@ fn mainExec(ctx: zli.CommandContext) !void {
         .frames = if (frames_int > 0) @as(u64, @intCast(frames_int)) else null,
         .inspect = ctx.flag("inspect", bool),
         .verbose = ctx.flag("verbose", bool),
+        .trace_nmi = ctx.flag("trace-nmi", bool),
     };
     defer debug_flags.deinit(allocator);
 
@@ -132,6 +134,7 @@ fn mainExec(ctx: zli.CommandContext) !void {
 
     // Reset CPU to load reset vector and initialize state
     emu_state.power_on();
+    emu_state.trace_nmi = debug_flags.trace_nmi;
 
     // ========================================================================
     // 2.5. Initialize Debugger (if debug flags enabled)
@@ -244,10 +247,10 @@ fn mainExec(ctx: zli.CommandContext) !void {
         for (input_events[0..input_count]) |event| {
             switch (event) {
                 .key_press => |key| {
-                    keyboard_mapper.keyPress(key.keycode);
+                    keyboard_mapper.keyPress(key.keysym);
                 },
                 .key_release => |key| {
-                    keyboard_mapper.keyRelease(key.keycode);
+                    keyboard_mapper.keyRelease(key.keysym);
                 },
                 else => {}, // Ignore mouse events for now
             }
@@ -307,7 +310,8 @@ fn mainExec(ctx: zli.CommandContext) !void {
         try loop.run(.no_wait);
 
         // Small sleep to avoid busy-waiting (main thread is just coordinating)
-        std.Thread.sleep(100_000_000); // 100ms
+        // Reduced to improve input posting cadence (helps short taps in tight windows)
+        std.Thread.sleep(10_000_000); // 10ms
     }
 
     // ========================================================================
@@ -393,6 +397,12 @@ pub fn main() !void {
         .name = "inspect",
         .shortcut = "i",
         .description = "Print state on exit or breakpoint",
+        .type = .Bool,
+        .default_value = .{ .Bool = false },
+    });
+    try app.addFlag(.{
+        .name = "trace-nmi",
+        .description = "Enable verbose NMI/VBlank instrumentation",
         .type = .Bool,
         .default_value = .{ .Bool = false },
     });

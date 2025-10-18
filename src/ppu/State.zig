@@ -400,6 +400,13 @@ pub const PpuState = struct {
     /// Reference: nesdev.org/wiki/MMC3 (three falling edges of M2)
     a12_filter_delay: u8 = 0,
 
+    /// Most recent CHR pattern table address (for A12 edge detection)
+    /// Updated during background and sprite pattern fetches (cycles 5-6, 7-8)
+    /// MMC3 observes PPU A12 on the CHR address bus ($0000-$1FFF), not the VRAM address (v register)
+    /// Bit 12 of this address determines A12 state: 0 = pattern table 0, 1 = pattern table 1
+    /// Hardware reference: nesdev.org/wiki/MMC3#IRQ_Specifics
+    chr_address: u16 = 0,
+
     /// Get the effective PPUMASK value with hardware-accurate 3-dot delay
     /// Hardware behavior: Rendering enable/disable takes ~3-4 dots to propagate
     /// Reference: nesdev.org/wiki/PPU_registers#PPUMASK

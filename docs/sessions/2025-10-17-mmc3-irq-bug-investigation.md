@@ -395,4 +395,29 @@ if (is_fetch_cycle) {
 ---
 
 **Status:** ✅ ALL THREE BUGS FIXED and committed.
-**Next Steps:** Test TMNT/SMB3/Kirby ROMs to verify fixes work in practice.
+
+---
+
+## ROM Testing Results (2025-10-17)
+
+### TMNT II Diagnostic
+
+**Tool:** `zig build mmc3-diagnostic`
+**Monitoring:** 180 frames (3 seconds), cycle-by-cycle IRQ register tracking
+
+**Results:**
+```
+Rendering enabled: PPUMASK=$1E (bg+sprites enabled)
+Total IRQ triggers: 0
+IRQ latch writes: 0
+IRQ enable writes: 0
+Final state: IRQ disabled, latch=$00
+```
+
+**Critical Finding:** TMNT II **never writes to MMC3 IRQ registers** in first 180 frames.
+
+**Hypothesis:**
+1. **Primary Theory**: TMNT doesn't use MMC3 IRQs at all (banking only)
+2. **Alternative**: Game is hung/crashed, explaining grey screen reported in bug
+
+**Next Action Required:** Check if game is executing normally or hung by tracking PC changes.

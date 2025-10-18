@@ -55,6 +55,8 @@ pub const Mapper4 = struct {
 
     // A12 edge detection for IRQ
     a12_low_count: u8 = 0, // Number of cycles A12 has been low
+    debug_a12_count: u32 = 0, // Debug counter for A12 edges (tests only)
+    debug_irq_events: u32 = 0, // Debug counter for IRQ pending assertions
 
     // ========================================================================
     // CPU Memory Interface
@@ -74,9 +76,12 @@ pub const Mapper4 = struct {
 
         // PRG ROM banking at $8000-$FFFF
         if (address >= 0x8000) {
-            const bank = self.getPrgBank(cart, address);
+            const raw_bank: usize = self.getPrgBank(cart, address);
             const bank_size: usize = 0x2000; // 8KB banks
-            const bank_offset = @as(usize, bank) * bank_size;
+            const total_prg_bytes: usize = cart.prg_rom.len;
+            const total_prg_8k_banks: usize = if (total_prg_bytes == 0) 0 else total_prg_bytes / bank_size;
+            const bank: usize = if (total_prg_8k_banks == 0) 0 else (raw_bank % total_prg_8k_banks);
+            const bank_offset = bank * bank_size;
             const addr_offset = @as(usize, address & 0x1FFF);
 
             // Bounds check
@@ -136,13 +141,12 @@ pub const Mapper4 = struct {
                     self.prg_ram_write_protected = (value & 0x40) != 0;
                 } else if (address < 0xE000) {
                     // $C001-$DFFF: IRQ reload
-                    self.irq_counter = 0;
                     self.irq_reload = true;
                 } else {
                     // $E001-$FFFF: IRQ enable
-                    // Per nesdev.org: Writing to $E001 acknowledges any pending IRQ
+                    // Per nesdev.org: Enables IRQ generation without acknowledging pending IRQ
+                    // Only $E000 (disable) acknowledges pending IRQs
                     self.irq_enabled = true;
-                    self.irq_pending = false;
                 }
             }
         }
@@ -154,8 +158,13 @@ pub const Mapper4 = struct {
 
     /// Read from PPU address space ($0000-$1FFF for CHR)
     pub fn ppuRead(self: *const Mapper4, cart: anytype, address: u16) u8 {
-        const bank = self.getChrBank(address);
-        const bank_offset = @as(usize, bank) * 0x0400; // 1KB banks
+        // Determine 1KB bank with safe wrap to available CHR size
+        const raw_bank: usize = self.getChrBank(address);
+        const total_chr_bytes: usize = cart.chr_data.len; // CHR ROM/RAM buffer
+        const total_chr_1kb_banks: usize = if (total_chr_bytes == 0) 0 else total_chr_bytes / 0x400;
+
+        const bank: usize = if (total_chr_1kb_banks == 0) 0 else (raw_bank % total_chr_1kb_banks);
+        const bank_offset = bank * 0x0400; // 1KB banks
         const addr_offset = @as(usize, address & 0x03FF);
 
         if (bank_offset + addr_offset < cart.chr_data.len) {
@@ -168,8 +177,11 @@ pub const Mapper4 = struct {
     pub fn ppuWrite(self: *const Mapper4, cart: anytype, address: u16, value: u8) void {
         // Only allow writes if CHR RAM (header.chr_rom_banks == 0)
         if (cart.header.chr_rom_banks == 0) {
-            const bank = self.getChrBank(address);
-            const bank_offset = @as(usize, bank) * 0x0400;
+            const raw_bank: usize = self.getChrBank(address);
+            const total_chr_bytes: usize = cart.chr_data.len;
+            const total_chr_1kb_banks: usize = if (total_chr_bytes == 0) 0 else total_chr_bytes / 0x400;
+            const bank: usize = if (total_chr_1kb_banks == 0) 0 else (raw_bank % total_chr_1kb_banks);
+            const bank_offset = bank * 0x0400;
             const addr_offset = @as(usize, address & 0x03FF);
 
             if (bank_offset + addr_offset < cart.chr_data.len) {
@@ -278,18 +290,33 @@ pub const Mapper4 = struct {
     /// Called when PPU address line A12 transitions from 0→1.
     /// This typically happens during rendering when fetching pattern tiles.
     /// MMC3 uses this to count scanlines for IRQ generation.
+    ///
+    /// Per nesdev.org and blargg's test ROMs:
+    /// - IRQ triggers when counter decrements to zero OR when counter==0 naturally
+    /// - IRQ does NOT trigger when $C001 reload flag causes reload
     pub fn ppuA12Rising(self: *Mapper4) void {
-        // Reload counter if reload flag set or counter is 0
-        if (self.irq_counter == 0 or self.irq_reload) {
+        self.debug_a12_count +%= 1;
+        // Three cases: reload flag, counter==0, or decrement
+        if (self.irq_reload) {
+            // Case 1: Reload flag set (from $C001 write)
+            // Per blargg's tests: Do NOT trigger IRQ when reload flag causes reload
             self.irq_counter = self.irq_latch;
             self.irq_reload = false;
+        } else if (self.irq_counter == 0) {
+            // Case 2: Counter naturally at 0 (from previous decrement or reload)
+            // Reload counter and check for IRQ
+            self.irq_counter = self.irq_latch;
+            if (self.irq_enabled and self.irq_counter == 0) {
+                self.irq_pending = true;
+                self.debug_irq_events +%= 1;
+            }
         } else {
+            // Case 3: Normal decrement
             self.irq_counter -= 1;
-        }
-
-        // Trigger IRQ when counter reaches 0
-        if (self.irq_counter == 0 and self.irq_enabled) {
-            self.irq_pending = true;
+            if (self.irq_enabled and self.irq_counter == 0) {
+                self.irq_pending = true;
+                self.debug_irq_events +%= 1;
+            }
         }
     }
 
@@ -318,6 +345,8 @@ pub const Mapper4 = struct {
         self.irq_enabled = false;
         self.irq_pending = false;
         self.a12_low_count = 0;
+        self.debug_a12_count = 0;
+        self.debug_irq_events = 0;
     }
 };
 
@@ -576,9 +605,9 @@ test "Mapper4: CHR 2KB bank bit masking" {
     try testing.expectEqual(@as(u8, 0x55), mapper.getChrBank(0x0C00));
 }
 
-test "Mapper4: IRQ enable clears pending flag" {
-    // Bug #1: Per nesdev.org, writing to $E001 (IRQ enable) must acknowledge
-    // any pending IRQ by clearing the irq_pending flag.
+test "Mapper4: IRQ enable does NOT clear pending flag" {
+    // Per nesdev.org, writing to $E001 (IRQ enable) enables IRQ generation
+    // but does NOT acknowledge pending IRQs. Only $E000 (disable) acknowledges.
     // Reference: https://www.nesdev.org/wiki/MMC3#IRQ_Enable_.28.24E001.29
     var mapper = Mapper4{};
     const mock_cart = struct {
@@ -598,11 +627,11 @@ test "Mapper4: IRQ enable clears pending flag" {
     mapper.ppuA12Rising(); // Counter decrements to 0, triggers IRQ
     try testing.expectEqual(true, mapper.irq_pending);
 
-    // Write to $E001 (IRQ enable) - should clear pending flag
+    // Write to $E001 (IRQ enable) - should NOT clear pending flag
     mapper.cpuWrite(mock_cart, 0xE001, 0x00);
 
-    // Verify: IRQ pending flag is cleared
-    try testing.expectEqual(false, mapper.irq_pending);
+    // Verify: IRQ pending flag remains set, IRQ enabled
+    try testing.expectEqual(true, mapper.irq_pending);
     try testing.expectEqual(true, mapper.irq_enabled);
 }
 
@@ -633,4 +662,32 @@ test "Mapper4: IRQ disable clears pending flag" {
     // Verify: IRQ pending flag is cleared and IRQ is disabled
     try testing.expectEqual(false, mapper.irq_pending);
     try testing.expectEqual(false, mapper.irq_enabled);
+}
+
+test "Mapper4: CHR bank wraps to available size" {
+    // Verify that CHR bank indices wrap modulo available CHR size
+    var mapper = Mapper4{};
+    mapper.chr_mode = true; // 1KB banks at $0000-$0FFF
+
+    // Dummy cart with 2KB CHR (2 banks of 1KB)
+    var chr_buf: [0x800]u8 = undefined;
+    for (&chr_buf, 0..) |*b, i| b.* = @truncate(i);
+
+    const mock_cart = struct {
+        prg_rom: []const u8 = &[_]u8{},
+        prg_ram: ?[]u8 = null,
+        chr_data: []u8,
+        header: struct { chr_rom_banks: u8 = 1 } = .{},
+    }{ .chr_data = chr_buf[0..] };
+
+    // Set R2 (used at $0000 in mode 1) to a large out-of-range bank value
+    mapper.chr_banks[2] = 0x1F; // raw value 31 → should wrap to bank 1 (since only 2 banks)
+
+    // Read from $0000 (maps to R2 in mode 1)
+    const addr: u16 = 0x0000;
+    const value = mapper.ppuRead(mock_cart, addr);
+
+    // Expect value from bank 1 offset 0
+    const expected: u8 = chr_buf[1 * 0x400 + 0];
+    try testing.expectEqual(expected, value);
 }

@@ -71,12 +71,15 @@ pub const ControllerState = struct {
     /// Transition low→high latches button state
     pub fn writeStrobe(self: *ControllerState, value: u8) void {
         const new_strobe = (value & 0x01) != 0;
-        const rising_edge = new_strobe and !self.strobe;
 
+        // Update strobe level first
         self.strobe = new_strobe;
 
-        // Latch on rising edge (0→1 transition)
-        if (rising_edge) {
+        // Hardware-friendly behavior:
+        // - When bit 0 is 1 (strobe high), controllers are continually latched.
+        //   Games that briefly or repeatedly write 1 expect an immediate latch.
+        // - When bit 0 is 0 (strobe low), controller shifts on reads.
+        if (new_strobe) {
             self.latch();
         }
     }

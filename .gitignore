@@ -21,6 +21,7 @@ zig-out/
 # Test outputs
 test-results/
 *.log
+*.png
 
 # Runtime files
 *.core

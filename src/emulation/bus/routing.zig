@@ -50,8 +50,11 @@ pub inline fn busRead(state: anytype, address: u16) u8 {
         0x4016 => state.controller.read1() | (state.bus.open_bus & 0xE0), // Controller 1 + open bus bits 5-7
         0x4017 => state.controller.read2() | (state.bus.open_bus & 0xE0), // Controller 2 + open bus bits 5-7
 
-        // Cartridge space ($4020-$FFFF)
-        0x4020...0xFFFF => blk: {
+        // Expansion area ($4020-$5FFF) defaults to open bus
+        0x4020...0x5FFF => state.bus.open_bus,
+
+        // Cartridge space ($6000-$FFFF)
+        0x6000...0xFFFF => blk: {
             if (state.cart) |*cart| {
                 break :blk cart.cpuRead(address);
             }
@@ -59,11 +62,12 @@ pub inline fn busRead(state: anytype, address: u16) u8 {
             if (state.bus.test_ram) |test_ram| {
                 if (address >= 0x8000) {
                     break :blk test_ram[address - 0x8000];
-                } else if (address >= 0x6000 and address < 0x8000) {
+                } else {
                     // PRG RAM region - read from test_ram offset
-                    const prg_ram_offset = (address - 0x6000);
-                    if (test_ram.len > 16384 + prg_ram_offset) {
-                        break :blk test_ram[16384 + prg_ram_offset];
+                    const prg_ram_offset = @as(usize, @intCast(address - 0x6000));
+                    const base_offset = 16384;
+                    if (test_ram.len > base_offset + prg_ram_offset) {
+                        break :blk test_ram[base_offset + prg_ram_offset];
                     }
                 }
             }

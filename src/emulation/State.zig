@@ -129,6 +129,10 @@ pub const EmulationState = struct {
     /// Used to determine if odd frame skip should occur
     rendering_enabled: bool = false,
 
+    /// Enable verbose NMI/VBlank diagnostics (CLI --trace-nmi)
+    trace_nmi: bool = false,
+    trace_nmi_suppressed_logged: bool = false,
+
     /// Optional framebuffer for PPU pixel output (256×240 RGBA)
     /// Set by emulation thread before each frame
     framebuffer: ?[]u32 = null,
@@ -207,7 +211,7 @@ pub const EmulationState = struct {
         self.cpu.halted = false;
 
         PpuLogic.reset(&self.ppu);
-        self.ppu.warmup_complete = false;  // Hardware-accurate: warmup period required after power-on
+        self.ppu.warmup_complete = false; // Hardware-accurate: warmup period required after power-on
 
         ApuLogic.reset(&self.apu);
         self.cpu.nmi_line = false;
@@ -285,10 +289,13 @@ pub const EmulationState = struct {
                 // set race_hold BEFORE computing vblank_active in readRegister()
                 if (is_status_read) {
                     const now = self.clock.ppu_cycles;
-                    if (now == self.vblank_ledger.last_set_cycle and
-                        self.vblank_ledger.last_set_cycle > self.vblank_ledger.last_clear_cycle)
-                    {
-                        self.vblank_ledger.race_hold = true;
+                    const last_set = self.vblank_ledger.last_set_cycle;
+                    const last_clear = self.vblank_ledger.last_clear_cycle;
+                    if (last_set > last_clear and now >= last_set) {
+                        const delta = now - last_set;
+                        if (delta <= 2 and !self.vblank_ledger.race_hold) {
+                            self.vblank_ledger.race_hold = true;
+                        }
                     }
                 }
 
@@ -315,14 +322,24 @@ pub const EmulationState = struct {
             0x4016 => self.controller.read1() | (self.bus.open_bus & 0xE0),
             0x4017 => self.controller.read2() | (self.bus.open_bus & 0xE0),
 
-            // Cartridge space ($4020-$FFFF)
-            0x4020...0xFFFF => blk: {
+            // Expansion area ($4020-$5FFF) behaves as open bus on stock boards
+            0x4020...0x5FFF => self.bus.open_bus,
+
+            // Cartridge space ($6000-$FFFF)
+            0x6000...0xFFFF => blk: {
                 if (self.cart) |*cart| {
                     break :blk cart.cpuRead(address);
                 }
                 if (self.bus.test_ram) |test_ram| {
                     if (address >= 0x8000) {
                         break :blk test_ram[address - 0x8000];
+                    } else {
+                        // Provide PRG RAM window for harness cartridges
+                        const prg_ram_offset = @as(usize, @intCast(address - 0x6000));
+                        const base_offset = 16384;
+                        if (test_ram.len > base_offset + prg_ram_offset) {
+                            break :blk test_ram[base_offset + prg_ram_offset];
+                        }
                     }
                 }
                 break :blk self.bus.open_bus;
@@ -336,9 +353,6 @@ pub const EmulationState = struct {
             if (result.read_2002) {
                 const now = self.clock.ppu_cycles;
                 self.vblank_ledger.last_read_cycle = now;
-
-                // Note: race_hold is now set BEFORE readRegister() is called above,
-                // so the VBlank flag computation sees the correct race condition state
             }
         }
 
@@ -612,17 +626,14 @@ pub const EmulationState = struct {
         if (step.cpu_tick) {
             // Update IRQ line from all sources (level-triggered, reflects current state)
             // IRQ line is HIGH when ANY source is active
-            // Note: mapper_irq is polled AFTER CPU execution and updates IRQ state for next cycle
+            // Poll mapper IRQ BEFORE CPU execution so CPU sees it this cycle
             const apu_frame_irq = self.apu.frame_irq_flag;
             const apu_dmc_irq = self.apu.dmc_irq_flag;
+            const mapper_irq = self.pollMapperIrq();
 
-            self.cpu.irq_line = apu_frame_irq or apu_dmc_irq;
+            self.cpu.irq_line = apu_frame_irq or apu_dmc_irq or mapper_irq;
 
-            const cpu_result = self.stepCpuCycle();
-            // Mapper IRQ is polled after CPU tick and updates IRQ line for next cycle
-            if (cpu_result.mapper_irq) {
-                self.cpu.irq_line = true;
-            }
+            _ = self.stepCpuCycle();
 
             if (self.debuggerShouldHalt()) {
                 return;

@@ -99,6 +99,7 @@ pub fn fetchSprites(state: *PpuState, cart: ?*AnyCartridge, scanline: u16, dot: 
                     else
                         getSpritePatternAddress(tile_index, row_in_sprite, 0, state.ctrl.sprite_pattern, vertical_flip);
 
+                    state.chr_address = addr; // Track CHR address for MMC3 A12 edge detection
                     const pattern_lo = memory.readVram(state, cart, addr);
 
                     // Apply horizontal flip by reversing bits
@@ -116,6 +117,7 @@ pub fn fetchSprites(state: *PpuState, cart: ?*AnyCartridge, scanline: u16, dot: 
                     else
                         getSpritePatternAddress(tile_index, row_in_sprite, 1, state.ctrl.sprite_pattern, vertical_flip);
 
+                    state.chr_address = addr; // Track CHR address for MMC3 A12 edge detection
                     const pattern_hi = memory.readVram(state, cart, addr);
 
                     // Apply horizontal flip

@@ -99,8 +99,10 @@ pub const WaylandState = struct {
     seat_global_name: ?u32 = null,
     keyboard: ?*wl.Keyboard = null,
     pointer: ?*wl.Pointer = null,
-    seat_listener_ctx: ?*EventHandlerContext = null,
-    keyboard_listener_ctx: ?*EventHandlerContext = null,
+    seat_listener_ctx_active: bool = false,
+    seat_listener_ctx: EventHandlerContext = undefined,
+    keyboard_listener_ctx_active: bool = false,
+    keyboard_listener_ctx: EventHandlerContext = undefined,
 
     // Keyboard repeat information (reported by compositor)
     repeat_rate: i32 = 0,
@@ -139,6 +141,15 @@ pub const WaylandState = struct {
     input_mailbox: *XdgInputEventMailbox,
     allocator: std.mem.Allocator,
 
+    registry_listener_ctx_active: bool = false,
+    registry_listener_ctx: EventHandlerContext = undefined,
+
+    xdg_surface_listener_ctx_active: bool = false,
+    xdg_surface_listener_ctx: EventHandlerContext = undefined,
+
+    toplevel_listener_ctx_active: bool = false,
+    toplevel_listener_ctx: EventHandlerContext = undefined,
+
     pub fn resetKeyboard(self: *WaylandState) void {
         self.keyboard = null;
         self.keyboard_ctx.destroy();
@@ -149,7 +160,7 @@ pub const WaylandState = struct {
         self.mods_group = 0;
         self.repeat_rate = 0;
         self.repeat_delay = 0;
-        self.keyboard_listener_ctx = null;
+        self.keyboard_listener_ctx_active = false;
     }
 
     pub fn setModifiers(

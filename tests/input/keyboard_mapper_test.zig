@@ -71,6 +71,12 @@ test "KeyboardMapper: press Enter sets Start button" {
     try testing.expect(mapper.getState().start);
 }
 
+test "KeyboardMapper: press Keypad Enter sets Start button" {
+    var mapper = KeyboardMapper{};
+    mapper.keyPress(KeyboardMapper.Keymap.KEY_KP_ENTER);
+    try testing.expect(mapper.getState().start);
+}
+
 // ============================================================================
 // Individual Key Release Tests
 // ============================================================================

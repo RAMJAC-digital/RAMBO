@@ -221,42 +221,50 @@ pub fn tick(
     const rendering_enabled = state.mask.renderingEnabled();
 
     // === A12 Edge Detection (for MMC3 IRQ timing) ===
-    // A12 is bit 12 of PPU address bus (derived from v register during tile fetches)
+    // A12 is bit 12 of PPU CHR address bus (from actual pattern table fetches)
     // MMC3 watches for rising edges (0→1) during background and sprite pattern fetches
     // Hardware reference: nesdev.org/wiki/MMC3#IRQ_Specifics
     //
+    // CRITICAL: A12 comes from CHR address ($0000-$1FFF), NOT from v register ($2000-$3FFF)
+    // The chr_address field is updated during pattern fetches (cycles 5-6, 7-8) in
+    // background.zig and sprites.zig to track the actual CHR bus address
+    //
     // MMC3 A12 Filter:
-    // Per nesdev.org, MMC3 has internal filter requiring A12 to be low for "three
-    // falling edges of M2" (~6-8 PPU cycles) before detecting rising edge. This
-    // prevents false triggers from rapid A12 changes during individual tile fetches.
-    // Reference: nesdev.org/wiki/MMC3 ("filtered A12")
+    // Per nesdev.org, MMC3 has internal filter requiring A12 to be low for ~6–8 PPU cycles
+    // before detecting a rising edge. Count low cycles continuously (every PPU dot)
+    // using the last CHR address seen; only arm a rising event during fetch cycles.
     if (is_rendering_line and rendering_enabled) {
-        // Check A12 state during tile fetch cycles
         // Background: dots 1-256, 321-336
         // Sprite: dots 257-320
-        const is_fetch_cycle = (dot >= 1 and dot <= 256) or (dot >= 257 and dot <= 320) or (dot >= 321 and dot <= 336);
+        const is_background_fetch = (dot >= 1 and dot <= 256) or (dot >= 321 and dot <= 336);
+        const is_sprite_fetch = (dot >= 257 and dot <= 320);
+        const is_fetch_cycle = is_background_fetch or is_sprite_fetch;
 
-        if (is_fetch_cycle) {
-            const current_a12 = (state.internal.v & 0x1000) != 0;
+        // Use chr_address for ALL fetches (background and sprite)
+        // chr_address is updated during pattern fetches in background.zig and sprites.zig
+        // A12 is bit 12 of the CHR address bus ($0000-$1FFF pattern table space)
+        const current_a12 = (state.chr_address & 0x1000) != 0;
 
-            // Detect rising edge with filter check (0→1 transition)
-            // Only trigger if A12 has been low for at least 6 cycles
-            if (!state.a12_state and current_a12 and state.a12_filter_delay >= 6) {
-                flags.a12_rising = true;
+        // Determine rising condition before mutating state
+        const rising_condition = (!state.a12_state and current_a12 and state.a12_filter_delay >= 6);
+
+        // Update filter delay counter (AFTER computing rising_condition)
+        if (!current_a12) {
+            // A12 is low - count up filter delay (max 8 PPU cycles)
+            if (state.a12_filter_delay < 8) {
+                state.a12_filter_delay += 1;
             }
+        } else {
+            // A12 is high - reset filter (ready for next low period)
+            state.a12_filter_delay = 0;
+        }
 
-            // Update filter delay counter (AFTER edge detection)
-            if (!current_a12) {
-                // A12 is low - count up filter delay (max 8 PPU cycles)
-                if (state.a12_filter_delay < 8) {
-                    state.a12_filter_delay += 1;
-                }
-            } else {
-                // A12 is high - reset filter (ready for next low period)
-                state.a12_filter_delay = 0;
-            }
+        // Update latched A12 level
+        state.a12_state = current_a12;
 
-            state.a12_state = current_a12;
+        // Only signal mapper on fetch cycles (when CHR bus is actively used)
+        if (is_fetch_cycle and rising_condition) {
+            flags.a12_rising = true;
         }
     }
 
