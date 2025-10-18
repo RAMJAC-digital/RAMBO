@@ -1,0 +1,229 @@
+// A12 Edge Detection Execution Order Bug Visualization
+// Illustrates the read-before-write race condition causing background fetch A12 edges to be missed
+
+digraph A12ExecutionOrderBug {
+    rankdir=TB;
+    node [shape=box, style=filled, fontname="Helvetica"];
+    edge [fontname="Helvetica"];
+
+    // Legend
+    subgraph cluster_legend {
+        label="Legend";
+        style=dashed;
+
+        legend_current [label="Current Implementation\n(BROKEN)", fillcolor="#ffcccc", shape=note];
+        legend_hardware [label="Hardware Behavior\n(CORRECT)", fillcolor="#ccffcc", shape=note];
+        legend_read [label="Read Operation", fillcolor="#fff9cc"];
+        legend_write [label="Write Operation", fillcolor="#cce5ff"];
+
+        legend_current -> legend_hardware [style=invis];
+        legend_read -> legend_write [style=invis];
+    }
+
+    // Current Implementation (BROKEN)
+    subgraph cluster_current {
+        label="Current Implementation - Dot 6 (Pattern Low Fetch)\nLogic.zig tick() Execution Order";
+        style=filled;
+        fillcolor="#ffe6e6";
+
+        // Step 1: A12 Detection
+        subgraph cluster_step1 {
+            label="Step 1: A12 Detection (lines 236-268)";
+            style=filled;
+            fillcolor="#ffcccc";
+
+            a12_read [label="Read: state.chr_address\n(Value from dot 5: $2xxx)\nA12 = bit 12 = 0", fillcolor="#fff9cc"];
+            a12_filter [label="Check filter:\na12_filter_delay >= 6?\nA12 rising edge?", fillcolor="#fff9cc"];
+            a12_result [label="Result: NO edge detected\n(A12 still 0)", fillcolor="#ff9999"];
+
+            a12_read -> a12_filter -> a12_result;
+        }
+
+        // Step 2: Background Fetch
+        subgraph cluster_step2 {
+            label="Step 2: Background Pipeline (lines 270-301)";
+            style=filled;
+            fillcolor="#cce5ff";
+
+            bg_call [label="fetchBackgroundTile(state, cart, 6)", fillcolor="#cce5ff"];
+            bg_cycle [label="cycle_in_tile = (6-1) % 8 = 5", fillcolor="#cce5ff"];
+            bg_addr [label="pattern_addr = getPatternAddress()\n(Returns $1xxx - pattern table 1)", fillcolor="#cce5ff"];
+            bg_write [label="Write: state.chr_address = $1xxx\n(A12 = bit 12 = 1)", fillcolor="#4da6ff", penwidth=3];
+            bg_read_mem [label="Read CHR memory at $1xxx", fillcolor="#cce5ff"];
+
+            bg_call -> bg_cycle -> bg_addr -> bg_write -> bg_read_mem;
+        }
+
+        a12_result -> bg_call [label="Execute next", style=bold, color=red, penwidth=2];
+
+        // Problem annotation
+        problem [label="PROBLEM:\nA12 detection reads STALE address ($2xxx)\nBEFORE background fetch writes NEW address ($1xxx)\n\nA12 edge MISSED!",
+                shape=note, fillcolor="#ff6666", fontcolor=white, style="filled,bold"];
+
+        a12_read -> problem [style=dashed, color=red, label="Uses old value"];
+        bg_write -> problem [style=dashed, color=red, label="Written too late"];
+    }
+
+    // Hardware Behavior (CORRECT)
+    subgraph cluster_hardware {
+        label="Hardware Behavior - Dot 6 (Pattern Low Fetch)\nNES PPU Internal Timing";
+        style=filled;
+        fillcolor="#e6ffe6";
+
+        // Address Setup Phase
+        hw_setup [label="Address Setup Phase\n(Beginning of dot 6)", fillcolor="#ccffcc", shape=box, style="filled,bold"];
+        hw_addr_bus [label="CHR Address Bus = $1xxx\n(Pattern table 1, tile X, row Y)", fillcolor="#ccffcc"];
+        hw_a12_line [label="A12 Line = 1\n(Immediate - combinational logic)", fillcolor="#ccffcc"];
+
+        hw_setup -> hw_addr_bus -> hw_a12_line;
+
+        // MMC3 Detection Phase
+        hw_mmc3 [label="MMC3 A12 Filter\n(Monitors A12 line continuously)", fillcolor="#99ff99", shape=box, style="filled,bold"];
+        hw_filter [label="Filter: A12 low for 6+ dots?\nNow high?\nRising edge!", fillcolor="#99ff99"];
+        hw_irq [label="IRQ Counter--\n(Decrements on rising edge)", fillcolor="#66ff66", style="filled,bold"];
+
+        hw_a12_line -> hw_mmc3 [label="Monitors", style=bold];
+        hw_mmc3 -> hw_filter -> hw_irq;
+
+        // Memory Read Phase
+        hw_mem [label="Memory Read Phase\n(Middle/end of dot 6)", fillcolor="#ccffcc", shape=box, style="filled,bold"];
+        hw_chr_read [label="CHR ROM/RAM reads address $1xxx\nReturns pattern data", fillcolor="#ccffcc"];
+        hw_latch [label="PPU latches pattern data\ninto pattern_latch_lo", fillcolor="#ccffcc"];
+
+        hw_addr_bus -> hw_mem [style=dashed, label="Address stable"];
+        hw_mem -> hw_chr_read -> hw_latch;
+
+        // Success annotation
+        success [label="SUCCESS:\nA12 line reflects CURRENT fetch address\nEdge detected immediately\n\nIRQ counter decrements!",
+                shape=note, fillcolor="#66ff66", style="filled,bold"];
+
+        hw_a12_line -> success [style=dashed, color=green];
+        hw_irq -> success [style=dashed, color=green];
+    }
+
+    // Comparison
+    subgraph cluster_comparison {
+        label="Execution Order Comparison";
+        style=filled;
+        fillcolor="#f0f0f0";
+
+        comp_table [label=<
+            <table border="0" cellborder="1" cellspacing="0" cellpadding="4">
+                <tr>
+                    <td bgcolor="#ffcccc"><b>Current Implementation</b></td>
+                    <td bgcolor="#ccffcc"><b>Hardware Behavior</b></td>
+                </tr>
+                <tr>
+                    <td align="left">1. A12 detection reads chr_address</td>
+                    <td align="left" bgcolor="#ccffcc">1. Address setup (CHR bus driven)</td>
+                </tr>
+                <tr>
+                    <td align="left" bgcolor="#ffcccc">2. Background fetch writes chr_address</td>
+                    <td align="left">2. A12 detection (monitors bus)</td>
+                </tr>
+                <tr>
+                    <td align="left">3. (Next dot: A12 sees previous write)</td>
+                    <td align="left" bgcolor="#ccffcc">3. Memory read (data latched)</td>
+                </tr>
+                <tr>
+                    <td colspan="2" bgcolor="#ffffcc"><b>Gap: One-cycle delay (read before write)</b></td>
+                </tr>
+            </table>
+        >, shape=plaintext];
+    }
+
+    // Why Sprites Work
+    subgraph cluster_sprites {
+        label="Why Sprite Fetches Work (Accidental Correctness)";
+        style=filled;
+        fillcolor="#fff9e6";
+
+        sprite_note [label=<
+            <table border="0" cellborder="1" cellspacing="0" cellpadding="4">
+                <tr><td colspan="2" bgcolor="#ffffcc"><b>Sprite Fetch Timing (Dot 257-258)</b></td></tr>
+                <tr>
+                    <td align="left"><b>Dot 257:</b></td>
+                    <td align="left">1. A12 detection (reads chr_address from dot 256)<br/>
+                                     2. Background pipeline (not executed)<br/>
+                                     3. Sprite evaluation (writes chr_address = sprite pattern)</td>
+                </tr>
+                <tr>
+                    <td align="left" bgcolor="#ccffcc"><b>Dot 258:</b></td>
+                    <td align="left" bgcolor="#ccffcc">1. A12 detection (reads chr_address from dot 257) ✓<br/>
+                                     2. Sprite evaluation continues<br/>
+                                     <b>Result: Edge detected!</b></td>
+                </tr>
+                <tr>
+                    <td colspan="2" align="left"><b>Why it works:</b> Sprite evaluation is LAST in tick(),<br/>
+                    so next dot's A12 detection sees sprite's chr_address write.<br/>
+                    One-cycle delay is consistent (always read previous dot).</td>
+                </tr>
+            </table>
+        >, shape=plaintext];
+    }
+
+    // Solution
+    subgraph cluster_solution {
+        label="Recommended Solution: Move A12 Detection AFTER Pipelines";
+        style=filled;
+        fillcolor="#e6f3ff";
+
+        sol_order [label=<
+            <table border="0" cellborder="1" cellspacing="0" cellpadding="4">
+                <tr><td colspan="2" bgcolor="#4da6ff"><font color="white"><b>New tick() Execution Order</b></font></td></tr>
+                <tr>
+                    <td align="left" bgcolor="#cce5ff">1. Background Pipeline</td>
+                    <td align="left">fetchBackgroundTile() writes chr_address</td>
+                </tr>
+                <tr>
+                    <td align="left" bgcolor="#cce5ff">2. Sprite Evaluation</td>
+                    <td align="left">fetchSprites() writes chr_address</td>
+                </tr>
+                <tr>
+                    <td align="left" bgcolor="#66ff66">3. A12 Edge Detection</td>
+                    <td align="left"><b>Reads chr_address (CURRENT dot value!) ✓</b></td>
+                </tr>
+                <tr>
+                    <td colspan="2" align="left"><b>Result:</b> A12 detection sees current fetch address,<br/>
+                    matching hardware timing. Background edges detected correctly.</td>
+                </tr>
+            </table>
+        >, shape=plaintext];
+    }
+
+    // Test Evidence
+    subgraph cluster_test {
+        label="Test Evidence: a12_edge_detection_test.zig";
+        style=filled;
+        fillcolor="#fff0f0";
+
+        test_results [label=<
+            <table border="0" cellborder="1" cellspacing="0" cellpadding="4">
+                <tr><td colspan="2" bgcolor="#ff9999"><font color="white"><b>Current Test Output (FAILING)</b></font></td></tr>
+                <tr>
+                    <td align="left"><b>Expected:</b></td>
+                    <td align="left">A12 edges at dots 6, 14, 22, 30, 38, 46...<br/>
+                    (32 background edges + 2 prefetch = 34 total)</td>
+                </tr>
+                <tr>
+                    <td align="left" bgcolor="#ffcccc"><b>Actual:</b></td>
+                    <td align="left" bgcolor="#ffcccc">A12 edge at dot 258 only (1 total)<br/>
+                    <b>Missing: ALL background fetch edges!</b></td>
+                </tr>
+                <tr>
+                    <td colspan="2" align="left"><b>Root Cause:</b> Background fetches write chr_address<br/>
+                    AFTER A12 detection reads it (execution order bug)</td>
+                </tr>
+            </table>
+        >, shape=plaintext];
+    }
+
+    // Cross-references
+    cluster_current -> cluster_hardware [label="Compare", style=dashed, color=blue, lw=2];
+    cluster_comparison -> cluster_solution [label="Fix", style=bold, color=green, lw=2];
+    cluster_test -> cluster_current [label="Proves bug", style=dashed, color=red, lw=2];
+
+    // File references
+    files [label="Files:\n\n/home/colin/Development/RAMBO/src/ppu/Logic.zig (lines 236-301)\n/home/colin/Development/RAMBO/src/ppu/logic/background.zig (lines 45-110)\n/home/colin/Development/RAMBO/tests/ppu/a12_edge_detection_test.zig",
+           shape=note, fillcolor="#e6e6e6"];
+}
