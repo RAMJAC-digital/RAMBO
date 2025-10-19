@@ -17,10 +17,10 @@ pub const VBlankLedger = struct {
     /// Master clock cycle of the last read from PPUSTATUS ($2002).
     last_read_cycle: u64 = 0,
 
-    /// If true, a read of $2002 occurred on the exact cycle VBlank was set.
-    /// Hardware keeps the VBlank flag visible for subsequent reads in this frame.
-    /// Cleared when VBlank is cleared by timing (pre-render line).
-    race_hold: bool = false,
+    /// Master clock cycle of a $2002 read that raced with VBlank set (same cycle).
+    /// When >= last_set_cycle, the race suppression/visibility applies for the
+    /// remainder of that VBlank span.
+    last_race_cycle: u64 = 0,
 
     /// Returns true if hardware VBlank is currently active (between set and clear)
     pub inline fn isActive(self: VBlankLedger) bool {
@@ -28,10 +28,18 @@ pub const VBlankLedger = struct {
     }
 
     /// Returns true if the VBlank flag would read as 1 on the PPU bus
-    /// (i.e., active AND not cleared by a $2002 read, or held by the race condition)
+    /// (i.e., active AND not cleared by a $2002 read)
+    /// Race conditions SUPPRESS the flag from being readable.
     pub inline fn isFlagVisible(self: VBlankLedger) bool {
         if (!self.isActive()) return false;
-        return self.race_hold or (self.last_set_cycle > self.last_read_cycle);
+        if (self.hasRace()) return false;  // Race condition suppresses flag
+        return self.last_set_cycle > self.last_read_cycle;
+    }
+
+    /// Returns true when a race read (same-cycle $2002 read) has occurred in the
+    /// current VBlank span and its effects are still active.
+    pub inline fn hasRace(self: VBlankLedger) bool {
+        return self.last_race_cycle >= self.last_set_cycle;
     }
 
     /// Resets all timestamps to their initial state.
@@ -39,7 +47,7 @@ pub const VBlankLedger = struct {
         self.last_set_cycle = 0;
         self.last_clear_cycle = 0;
         self.last_read_cycle = 0;
-        self.race_hold = false;
+        self.last_race_cycle = 0;
     }
 };
 

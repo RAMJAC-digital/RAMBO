@@ -286,15 +286,15 @@ pub const EmulationState = struct {
                 const is_status_read = (address & 0x0007) == 0x0002;
 
                 // Race condition: If reading $2002 on the exact cycle VBlank is set,
-                // set race_hold BEFORE computing vblank_active in readRegister()
+                // Record potential race BEFORE computing VBlank visibility
                 if (is_status_read) {
                     const now = self.clock.ppu_cycles;
                     const last_set = self.vblank_ledger.last_set_cycle;
                     const last_clear = self.vblank_ledger.last_clear_cycle;
                     if (last_set > last_clear and now >= last_set) {
                         const delta = now - last_set;
-                        if (delta <= 2 and !self.vblank_ledger.race_hold) {
-                            self.vblank_ledger.race_hold = true;
+                        if (delta <= 2) {
+                            self.vblank_ledger.last_race_cycle = last_set;
                         }
                     }
                 }
@@ -414,11 +414,10 @@ pub const EmulationState = struct {
                 if (reg == 0x00) {
                     const old_nmi_enable = self.ppu.ctrl.nmi_enable;
                     const new_nmi_enable = (value & 0x80) != 0;
-                    // VBlank flag is set when last_set_cycle > last_clear_cycle
-                    const vblank_flag_set = (self.vblank_ledger.last_set_cycle > self.vblank_ledger.last_clear_cycle);
+                    const vblank_flag_visible = self.vblank_ledger.isFlagVisible();
 
-                    // Edge trigger: 0→1 transition while VBlank=1 triggers NMI
-                    if (!old_nmi_enable and new_nmi_enable and vblank_flag_set) {
+                    // Edge trigger: 0→1 transition while VBlank flag is visible triggers immediate NMI
+                    if (!old_nmi_enable and new_nmi_enable and vblank_flag_visible) {
                         self.cpu.nmi_line = true;
                     }
                 }
@@ -659,12 +658,13 @@ pub const EmulationState = struct {
         if (result.nmi_signal) {
             // VBlank flag set at scanline 241 dot 1.
             self.vblank_ledger.last_set_cycle = self.clock.ppu_cycles;
+            // Do NOT clear last_race_cycle here - preserve race state across VBlank period
         }
 
         if (result.vblank_clear) {
             // VBlank span ends at scanline 261 dot 1 (pre-render).
             self.vblank_ledger.last_clear_cycle = self.clock.ppu_cycles;
-            self.vblank_ledger.race_hold = false;
+            self.vblank_ledger.last_race_cycle = 0;  // Clear race state at VBlank end
         }
     }
 
@@ -788,6 +788,8 @@ pub const EmulationState = struct {
     }
 };
 
-test {
+// Properly link tests to this module with out adding a dummy test to the count.
+
+comptime {
     std.testing.refAllDeclsRecursive(@This());
 }
