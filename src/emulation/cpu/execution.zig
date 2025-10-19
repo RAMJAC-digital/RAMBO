@@ -532,13 +532,13 @@ pub fn executeCycle(state: anytype, vblank_set_cycle: u64) void {
                         else => unreachable,
                     };
                 } else {
-                    // Regular read: 5-6 cycles (5 if no page cross, 6 if page cross)
+                    // Regular read: 5 cycles (no page cross) or 6 cycles (page cross)
                     break :blk switch (state.cpu.instruction_cycle) {
                         0 => CpuMicrosteps.fetchZpPointer(state),
                         1 => CpuMicrosteps.fetchPointerLow(state),
                         2 => CpuMicrosteps.fetchPointerHigh(state),
                         3 => CpuMicrosteps.addYCheckPage(state),
-                        4, 5 => CpuMicrosteps.fixHighByte(state), // Cycle 4: no page cross final read, Cycle 5: page cross final read
+                        4 => CpuMicrosteps.fixHighByte(state),
                         else => unreachable,
                     };
                 }
@@ -626,9 +626,9 @@ pub fn executeCycle(state: anytype, vblank_set_cycle: u64) void {
                 if (entry.is_rmw) {
                     break :blk state.cpu.instruction_cycle >= 6;
                 } else {
-                    // Non-RMW reads: Execute cycles 0-4 (no page cross) or 0-5 (page cross)
-                    // Threshold check happens AFTER cycle increment, so threshold = last_cycle + 1
-                    const threshold: u8 = if (state.cpu.page_crossed) 6 else 5;
+                    // Non-RMW reads: 5 cycles (no page cross) or 6 cycles (page cross)
+                    // After addYCheckPage sets page_crossed flag
+                    const threshold: u8 = if (state.cpu.page_crossed) 5 else 4;
                     break :blk state.cpu.instruction_cycle >= threshold;
                 }
             },

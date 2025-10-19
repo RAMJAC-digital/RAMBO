@@ -73,13 +73,10 @@ pub fn fixHighByte(state: anytype) bool {
         // For read instructions: this IS the operand value (execute will use temp_value)
         // For RMW instructions: this is a dummy read (RMW will re-read in next cycle)
         state.cpu.temp_value = state.busRead(state.cpu.effective_address);
-    } else {
-        // Page not crossed: For absolute,X/Y modes, temp_value already has correct value from calcAbsolute
-        // But for indirect_indexed, addYCheckPage set temp_value to open_bus, so we need to read it here
-        if (state.cpu.address_mode == .indirect_indexed) {
-            state.cpu.temp_value = state.busRead(state.cpu.effective_address);
-        }
     }
+    // Page not crossed: temp_value already has correct value from previous microstep
+    // - For absolute,X/Y: calcAbsoluteX/Y set it
+    // - For indirect_indexed: addYCheckPage set it (after fix)
     return false;
 }
 
@@ -138,8 +135,16 @@ pub fn addYCheckPage(state: anytype) bool {
     state.cpu.page_crossed = (base & 0xFF00) != (state.cpu.effective_address & 0xFF00);
 
     const dummy_addr = (base & 0xFF00) | (state.cpu.effective_address & 0x00FF);
-    _ = state.busRead(dummy_addr);
-    state.cpu.temp_value = state.bus.open_bus;
+    const dummy_value = state.busRead(dummy_addr);
+
+    // CRITICAL: When page NOT crossed, the dummy read IS the actual read (hardware behavior)
+    // The dummy address happens to be the correct address when base and effective are in same page
+    if (!state.cpu.page_crossed) {
+        state.cpu.temp_value = dummy_value; // Use the value we just read
+    } else {
+        state.cpu.temp_value = state.bus.open_bus; // Page crossed: value discarded, fixHighByte will re-read
+    }
+
     return false;
 }
 
