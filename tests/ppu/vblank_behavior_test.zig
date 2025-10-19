@@ -16,6 +16,7 @@ fn isVBlankSet(h: *Harness) bool {
 test "VBlank: Flag sets at scanline 241 dot 1" {
     var h = try Harness.init();
     defer h.deinit();
+    h.state.ppu.warmup_complete = true; // Skip PPU warmup for VBlank timing tests
 
     // Seek to just before VBlank sets
     h.seekTo(241, 0);
@@ -31,6 +32,7 @@ test "VBlank: Flag sets at scanline 241 dot 1" {
 test "VBlank: Flag clears at scanline 261 dot 1" {
     var h = try Harness.init();
     defer h.deinit();
+    h.state.ppu.warmup_complete = true; // Skip PPU warmup for VBlank timing tests
 
     // Seek to just before VBlank clears
     // Ensure we have not performed a prior $2002 read that clears the flag
@@ -47,6 +49,7 @@ test "VBlank: Flag clears at scanline 261 dot 1" {
 test "VBlank: Flag is not set during visible scanlines" {
     var h = try Harness.init();
     defer h.deinit();
+    h.state.ppu.warmup_complete = true; // Skip PPU warmup for VBlank timing tests
 
     // Check a few points during the visible frame
     h.seekTo(100, 150);
@@ -59,6 +62,7 @@ test "VBlank: Flag is not set during visible scanlines" {
 test "VBlank: Multiple frame transitions" {
     var h = try Harness.init();
     defer h.deinit();
+    h.state.ppu.warmup_complete = true; // Skip PPU warmup for VBlank timing tests
 
     var vblank_set_count: usize = 0;
     var last_vblank = isVBlankSet(&h);
