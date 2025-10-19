@@ -291,11 +291,9 @@ pub const EmulationState = struct {
                     const now = self.clock.ppu_cycles;
                     const last_set = self.vblank_ledger.last_set_cycle;
                     const last_clear = self.vblank_ledger.last_clear_cycle;
-                    if (last_set > last_clear and now >= last_set) {
-                        const delta = now - last_set;
-                        if (delta <= 2) {
-                            self.vblank_ledger.last_race_cycle = last_set;
-                        }
+                    if (last_set > last_clear and now == last_set) {
+                        // Race condition: Read $2002 on EXACT same cycle as VBlank set
+                        self.vblank_ledger.last_race_cycle = last_set;
                     }
                 }
 

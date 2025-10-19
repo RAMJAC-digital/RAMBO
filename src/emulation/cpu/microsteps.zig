@@ -338,12 +338,6 @@ pub fn rmwRead(state: anytype) bool {
 
 /// Dummy write original value (CRITICAL for hardware accuracy!)
 pub fn rmwDummyWrite(state: anytype) bool {
-    if (state.cpu.effective_address >= 0x2000 and state.cpu.effective_address <= 0x3FFF) {
-        @import("std").debug.print(
-            "rmwDummyWrite addr=0x{X:0>4} value=0x{X:0>2} opcode=0x{X:0>2} cycle={d}\n",
-            .{ state.cpu.effective_address, state.cpu.temp_value, state.cpu.opcode, state.clock.ppu_cycles },
-        );
-    }
     state.busWrite(state.cpu.effective_address, state.cpu.temp_value);
     return false;
 }
