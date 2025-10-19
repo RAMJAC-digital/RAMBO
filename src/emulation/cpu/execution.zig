@@ -102,16 +102,20 @@ pub fn stepCycle(state: anytype) CpuCycleResult {
     // - pending_interrupt cleared when interrupt sequence completes
     // - VBlank flag cleared by $2002 read or scanline 261 dot 1
     // - Double-trigger suppression via nmi_vblank_set_cycle tracking
-    const vblank_active = (state.vblank_ledger.last_set_cycle > state.vblank_ledger.last_clear_cycle);
-    const nmi_line_should_assert = vblank_active and
+    const vblank_flag_visible = state.vblank_ledger.isFlagVisible();
+    const nmi_line_should_assert = vblank_flag_visible and
         state.ppu.ctrl.nmi_enable and
-        !state.vblank_ledger.race_hold;
+        !state.vblank_ledger.hasRace();
 
     state.cpu.nmi_line = nmi_line_should_assert;
 
     // Track current VBlank set cycle for double-trigger suppression
     // Pass this to checkInterrupts() to prevent multiple NMIs during same VBlank
-    const current_vblank_set_cycle = if (vblank_active) state.vblank_ledger.last_set_cycle else 0;
+    const vblank_active = state.vblank_ledger.isActive();
+    const current_vblank_set_cycle = if (vblank_active)
+        state.vblank_ledger.last_set_cycle
+    else
+        0;
 
     // If CPU is halted (JAM/KIL), do nothing until RESET
     if (state.cpu.halted) {
@@ -534,7 +538,7 @@ pub fn executeCycle(state: anytype, vblank_set_cycle: u64) void {
                         1 => CpuMicrosteps.fetchPointerLow(state),
                         2 => CpuMicrosteps.fetchPointerHigh(state),
                         3 => CpuMicrosteps.addYCheckPage(state),
-                        4 => CpuMicrosteps.fixHighByte(state),
+                        4, 5 => CpuMicrosteps.fixHighByte(state), // Cycle 4: no page cross final read, Cycle 5: page cross final read
                         else => unreachable,
                     };
                 }
@@ -605,8 +609,8 @@ pub fn executeCycle(state: anytype, vblank_set_cycle: u64) void {
                 if (entry.is_rmw) {
                     break :blk state.cpu.instruction_cycle >= 5;
                 } else {
-                    // Non-RMW reads: 5 cycles (no page cross) or 6 cycles (page cross)
-                    // After calcAbsolute sets page_crossed flag
+                    // Non-RMW reads: Executes cycles 0-2 (no page cross) or 0-3 (page cross)
+                    // Threshold check happens AFTER incrementing cycle, so threshold = last_cycle + 1
                     const threshold: u8 = if (state.cpu.page_crossed) 4 else 3;
                     break :blk state.cpu.instruction_cycle >= threshold;
                 }
@@ -622,9 +626,9 @@ pub fn executeCycle(state: anytype, vblank_set_cycle: u64) void {
                 if (entry.is_rmw) {
                     break :blk state.cpu.instruction_cycle >= 6;
                 } else {
-                    // Non-RMW reads: 6 cycles (no page cross) or 7 cycles (page cross)
-                    // After addYCheckPage sets page_crossed flag
-                    const threshold: u8 = if (state.cpu.page_crossed) 5 else 4;
+                    // Non-RMW reads: Execute cycles 0-4 (no page cross) or 0-5 (page cross)
+                    // Threshold check happens AFTER cycle increment, so threshold = last_cycle + 1
+                    const threshold: u8 = if (state.cpu.page_crossed) 6 else 5;
                     break :blk state.cpu.instruction_cycle >= threshold;
                 }
             },
@@ -738,7 +742,8 @@ pub fn executeCycle(state: anytype, vblank_set_cycle: u64) void {
         }
 
         if (result.push) |value| {
-            state.busWrite(0x0100 | @as(u16, state.cpu.sp), value);
+            const stack_addr = 0x0100 | @as(u16, state.cpu.sp);
+            state.busWrite(stack_addr, value);
             state.cpu.sp -%= 1;
             state.cpu.data_bus = value;
         }

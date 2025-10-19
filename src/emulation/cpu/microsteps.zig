@@ -73,8 +73,13 @@ pub fn fixHighByte(state: anytype) bool {
         // For read instructions: this IS the operand value (execute will use temp_value)
         // For RMW instructions: this is a dummy read (RMW will re-read in next cycle)
         state.cpu.temp_value = state.busRead(state.cpu.effective_address);
+    } else {
+        // Page not crossed: For absolute,X/Y modes, temp_value already has correct value from calcAbsolute
+        // But for indirect_indexed, addYCheckPage set temp_value to open_bus, so we need to read it here
+        if (state.cpu.address_mode == .indirect_indexed) {
+            state.cpu.temp_value = state.busRead(state.cpu.effective_address);
+        }
     }
-    // Page not crossed: temp_value already has correct value from calcAbsolute
     return false;
 }
 
@@ -156,7 +161,14 @@ pub fn stackDummyRead(state: anytype) bool {
 /// Push PC high byte to stack (for JSR/BRK)
 pub fn pushPch(state: anytype) bool {
     const stack_addr = 0x0100 | @as(u16, state.cpu.sp);
-    state.busWrite(stack_addr, @as(u8, @truncate(state.cpu.pc >> 8)));
+    const value = @as(u8, @truncate(state.cpu.pc >> 8));
+
+    // DEBUG: Log JSR/BRK stack operations
+    if (state.cpu.opcode == 0x20 and state.clock.ppu_cycles < 250000) {
+        @import("std").debug.print("[JSR] pushPch: SP=0x{X:0>2} → 0x{X:0>2}, write 0x{X:0>2} to 0x{X:0>4}, PC=0x{X:0>4}\n", .{ state.cpu.sp, state.cpu.sp -% 1, value, stack_addr, state.cpu.pc });
+    }
+
+    state.busWrite(stack_addr, value);
     state.cpu.sp -%= 1;
     return false;
 }
@@ -164,7 +176,14 @@ pub fn pushPch(state: anytype) bool {
 /// Push PC low byte to stack (for JSR/BRK)
 pub fn pushPcl(state: anytype) bool {
     const stack_addr = 0x0100 | @as(u16, state.cpu.sp);
-    state.busWrite(stack_addr, @as(u8, @truncate(state.cpu.pc & 0xFF)));
+    const value = @as(u8, @truncate(state.cpu.pc & 0xFF));
+
+    // DEBUG: Log JSR/BRK stack operations
+    if (state.cpu.opcode == 0x20 and state.clock.ppu_cycles < 250000) {
+        @import("std").debug.print("[JSR] pushPcl: SP=0x{X:0>2} → 0x{X:0>2}, write 0x{X:0>2} to 0x{X:0>4}, PC=0x{X:0>4}\n", .{ state.cpu.sp, state.cpu.sp -% 1, value, stack_addr, state.cpu.pc });
+    }
+
+    state.busWrite(stack_addr, value);
     state.cpu.sp -%= 1;
     return false;
 }
@@ -197,18 +216,32 @@ pub fn pushStatusInterrupt(state: anytype) bool {
 
 /// Pull PC low byte from stack (for RTS/RTI)
 pub fn pullPcl(state: anytype) bool {
+    const old_sp = state.cpu.sp;
     state.cpu.sp +%= 1;
     const stack_addr = 0x0100 | @as(u16, state.cpu.sp);
     state.cpu.operand_low = state.busRead(stack_addr);
+
+    // DEBUG: Log RTS/RTI stack operations
+    if (state.cpu.opcode == 0x60 and state.clock.ppu_cycles < 250000) {
+        @import("std").debug.print("[RTS] pullPcl: SP=0x{X:0>2} → 0x{X:0>2}, read 0x{X:0>2} from 0x{X:0>4}\n", .{ old_sp, state.cpu.sp, state.cpu.operand_low, stack_addr });
+    }
+
     return false;
 }
 
 /// Pull PC high byte from stack and reconstruct PC (for RTS/RTI)
 pub fn pullPch(state: anytype) bool {
+    const old_sp = state.cpu.sp;
     state.cpu.sp +%= 1;
     const stack_addr = 0x0100 | @as(u16, state.cpu.sp);
     state.cpu.operand_high = state.busRead(stack_addr);
     state.cpu.pc = (@as(u16, state.cpu.operand_high) << 8) | @as(u16, state.cpu.operand_low);
+
+    // DEBUG: Log RTS/RTI stack operations
+    if (state.cpu.opcode == 0x60 and state.clock.ppu_cycles < 250000) {
+        @import("std").debug.print("[RTS] pullPch: SP=0x{X:0>2} → 0x{X:0>2}, read 0x{X:0>2} from 0x{X:0>4}, PC=0x{X:0>4}\n", .{ old_sp, state.cpu.sp, state.cpu.operand_high, stack_addr, state.cpu.pc });
+    }
+
     return false;
 }
 
@@ -230,10 +263,17 @@ pub fn pullStatus(state: anytype) bool {
     return false;
 }
 
-/// Increment PC after RTS (PC was pushed as address of JSR by JSR)
+/// Increment PC after RTS (PC was pushed as PC-1 by JSR)
 pub fn incrementPcAfterRts(state: anytype) bool {
+    const old_pc = state.cpu.pc;
     _ = state.busRead(state.cpu.pc); // Dummy read
     state.cpu.pc +%= 1;
+
+    // DEBUG: Log RTS completion
+    if (state.cpu.opcode == 0x60 and state.clock.ppu_cycles < 250000) {
+        @import("std").debug.print("[RTS] incrementPC: 0x{X:0>4} → 0x{X:0>4} (complete)\n", .{ old_pc, state.cpu.pc });
+    }
+
     return true; // RTS complete
 }
 
@@ -246,9 +286,16 @@ pub fn jsrStackDummy(state: anytype) bool {
 
 /// Fetch absolute high byte for JSR and jump (final cycle)
 pub fn fetchAbsHighJsr(state: anytype) bool {
+    const old_pc = state.cpu.pc;
     state.cpu.operand_high = state.busRead(state.cpu.pc);
     state.cpu.effective_address = (@as(u16, state.cpu.operand_high) << 8) | @as(u16, state.cpu.operand_low);
     state.cpu.pc = state.cpu.effective_address;
+
+    // DEBUG: Log JSR completion
+    if (state.cpu.opcode == 0x20 and state.clock.ppu_cycles < 250000) {
+        @import("std").debug.print("[JSR] jump: from 0x{X:0>4} to 0x{X:0>4} (complete)\n", .{ old_pc, state.cpu.pc });
+    }
+
     return true; // JSR complete
 }
 
@@ -286,6 +333,12 @@ pub fn rmwRead(state: anytype) bool {
 
 /// Dummy write original value (CRITICAL for hardware accuracy!)
 pub fn rmwDummyWrite(state: anytype) bool {
+    if (state.cpu.effective_address >= 0x2000 and state.cpu.effective_address <= 0x3FFF) {
+        @import("std").debug.print(
+            "rmwDummyWrite addr=0x{X:0>4} value=0x{X:0>2} opcode=0x{X:0>2} cycle={d}\n",
+            .{ state.cpu.effective_address, state.cpu.temp_value, state.cpu.opcode, state.clock.ppu_cycles },
+        );
+    }
     state.busWrite(state.cpu.effective_address, state.cpu.temp_value);
     return false;
 }
