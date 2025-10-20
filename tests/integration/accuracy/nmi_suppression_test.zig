@@ -1,4 +1,4 @@
-//! AccuracyCoin Accuracy Test: NMI SUPPRESSION (FAIL 1)
+//! AccuracyCoin Accuracy Test: NMI SUPPRESSION
 //!
 //! This test verifies NMI suppression when reading PPUSTATUS ($2002) on the exact
 //! cycle that the VBlank flag is set.
@@ -12,16 +12,17 @@
 //! Games read $2002 in a tight loop, and if they read it exactly when VBlank
 //! begins, they see the flag but don't get interrupted by NMI.
 //!
+//! Test Entry Point: 0xB5ED
 //! Result Address: $0454 (result_NMI_Suppression)
 //! Expected: $00 = PASS (NMI suppression works correctly)
-//! Current:  $01 = FAIL (NMI not suppressed when $2002 read at exact cycle)
+//! ROM Screenshot (2025-10-19): FAIL 1
 
 const std = @import("std");
 const testing = std.testing;
 const RAMBO = @import("RAMBO");
 const Harness = RAMBO.TestHarness.Harness;
 
-test "Accuracy: NMI SUPPRESSION (AccuracyCoin FAIL 1)" {
+test "Accuracy: NMI SUPPRESSION (AccuracyCoin)" {
     const cart = RAMBO.CartridgeType.load(testing.allocator, "tests/data/AccuracyCoin.nes") catch |err| {
         if (err == error.FileNotFound) return error.SkipZigTest;
         return err;
@@ -34,13 +35,26 @@ test "Accuracy: NMI SUPPRESSION (AccuracyCoin FAIL 1)" {
     h.state.reset();
     h.state.ppu.warmup_complete = true;
 
+    // === Emulate RunTest initialization ===
+    var addr: u16 = 0x0500;
+    while (addr < 0x0600) : (addr += 1) {
+        h.state.bus.ram[addr & 0x07FF] = 0x00;
+    }
+    h.state.bus.ram[0x0600] = 0x40; // RTI
+    h.state.bus.ram[0x10] = 0x00;
+    h.state.bus.ram[0x50] = 0x00;
+    h.state.bus.ram[0xF0] = 0x00;
+    h.state.bus.ram[0xF1] = 0x00;
+
+    h.seekToScanlineDot(241, 1);
+
     h.state.cpu.pc = 0xB5ED;
     h.state.cpu.state = .fetch_opcode;
     h.state.cpu.instruction_cycle = 0;
     h.state.cpu.sp = 0xFD;
+    h.state.bus.ram[0x0454] = 0x80; // RUNNING
 
-    h.state.bus.ram[0x0454] = 0x80; // Result (RUNNING)
-
+    // === Run test ===
     const max_cycles: usize = 10_000_000;
     var cycles: usize = 0;
     while (cycles < max_cycles) : (cycles += 1) {
@@ -51,7 +65,6 @@ test "Accuracy: NMI SUPPRESSION (AccuracyCoin FAIL 1)" {
 
     const result = h.state.bus.ram[0x0454];
 
-    // EXPECTED: $00 = PASS
-    // ACTUAL: $01 = FAIL (NMI suppression not working)
-    try testing.expectEqual(@as(u8, 0x01), result); // ROM shows FAIL 1 (2025-10-19)
+    // ROM screenshot shows FAIL 1 - expect current behavior for regression detection
+    try testing.expectEqual(@as(u8, 0x01), result);
 }

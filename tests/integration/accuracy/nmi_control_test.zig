@@ -1,4 +1,4 @@
-//! AccuracyCoin Accuracy Test: NMI CONTROL (FAIL 4)
+//! AccuracyCoin Accuracy Test: NMI CONTROL
 //!
 //! This test verifies NMI enable/disable behavior via PPUCTRL bit 7.
 //! Contains 8 subtests examining edge cases of NMI triggering.
@@ -13,16 +13,17 @@
 //! 7. NMI should occur again if you disable then re-enable
 //! 8. NMI should occur 2 instructions after writing to PPUCTRL
 //!
+//! Test Entry Point: 0xB4D5
 //! Result Address: $0452 (result_NMI_Control)
 //! Expected: $00 = PASS (all 8 subtests pass)
-//! Current:  $07 = FAIL (7 subtests fail - ROM screenshot 2025-10-19)
+//! ROM Screenshot (2025-10-19): FAIL 7 (7 subtests fail)
 
 const std = @import("std");
 const testing = std.testing;
 const RAMBO = @import("RAMBO");
 const Harness = RAMBO.TestHarness.Harness;
 
-test "Accuracy: NMI CONTROL (AccuracyCoin FAIL 7)" {
+test "Accuracy: NMI CONTROL (AccuracyCoin)" {
     const cart = RAMBO.CartridgeType.load(testing.allocator, "tests/data/AccuracyCoin.nes") catch |err| {
         if (err == error.FileNotFound) return error.SkipZigTest;
         return err;
@@ -35,14 +36,26 @@ test "Accuracy: NMI CONTROL (AccuracyCoin FAIL 7)" {
     h.state.reset();
     h.state.ppu.warmup_complete = true;
 
+    // === Emulate RunTest initialization ===
+    var addr: u16 = 0x0500;
+    while (addr < 0x0600) : (addr += 1) {
+        h.state.bus.ram[addr & 0x07FF] = 0x00;
+    }
+    h.state.bus.ram[0x0600] = 0x40; // RTI
+    h.state.bus.ram[0x10] = 0x00;
+    h.state.bus.ram[0x50] = 0x00;
+    h.state.bus.ram[0xF0] = 0x00;
+    h.state.bus.ram[0xF1] = 0x00;
+
+    h.seekToScanlineDot(241, 1);
+
     h.state.cpu.pc = 0xB4D5;
     h.state.cpu.state = .fetch_opcode;
     h.state.cpu.instruction_cycle = 0;
     h.state.cpu.sp = 0xFD;
+    h.state.bus.ram[0x0452] = 0x80; // RUNNING
 
-    h.state.bus.ram[0x10] = 0x00; // ErrorCode
-    h.state.bus.ram[0x0452] = 0x80; // Result (RUNNING)
-
+    // === Run test ===
     const max_cycles: usize = 10_000_000;
     var cycles: usize = 0;
     while (cycles < max_cycles) : (cycles += 1) {
@@ -53,14 +66,6 @@ test "Accuracy: NMI CONTROL (AccuracyCoin FAIL 7)" {
 
     const result = h.state.bus.ram[0x0452];
 
-    // EXPECTED: $00 = PASS (all 8 subtests pass)
-    // VERIFIED 2025-10-19: ROM shows FAIL 7 (7 subtests fail)
-    // Test expectations updated to match actual ROM behavior
-    if (result != 0x07) {
-        std.debug.print(
-            "NMI control result changed: result=0x{X:0>2} (expected 0x07) error_code=0x{X:0>2} pc=0x{X:0>4} opcode=0x{X:0>2}\n",
-            .{ result, h.state.bus.ram[0x10], h.state.cpu.pc, h.state.cpu.opcode },
-        );
-    }
+    // ROM screenshot shows FAIL 7 - expect current behavior for regression detection
     try testing.expectEqual(@as(u8, 0x07), result);
 }
