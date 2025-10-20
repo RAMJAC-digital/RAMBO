@@ -37,7 +37,7 @@ test "VBlankLedger: Flag is set at scanline 241, dot 1" {
     try testing.expectEqual(@as(u64, 82182), h.state.vblank_ledger.last_set_cycle);
 }
 
-test "VBlankLedger: First read sees flag, subsequent read during same VBlank still sees flag (race hold)" {
+test "VBlankLedger: First read clears flag, subsequent read sees cleared" {
     var h = try Harness.init();
     defer h.deinit();
     h.seekTo(241, 1); // VBlank is set
@@ -49,30 +49,31 @@ test "VBlankLedger: First read sees flag, subsequent read during same VBlank sti
     // Verify that EmulationState recorded the read
     try testing.expectEqual(read_cycle, h.state.vblank_ledger.last_read_cycle);
 
-    // Race semantics: subsequent read during same VBlank should still see flag
+    // HARDWARE BEHAVIOR: $2002 read clears the flag, so subsequent reads see it cleared
     h.tick(1);
-    try testing.expect(isVBlankSet(&h));
+    try testing.expect(!isVBlankSet(&h));
 }
 
 test "VBlankLedger: Flag is cleared at scanline 261, dot 1" {
     var h = try Harness.init();
     defer h.deinit();
 
-    // VBlank is set (avoid destructive read until after ledger observation)
+    // VBlank is set at scanline 241, dot 1
     h.seekTo(241, 1);
-    // First read should see the flag
-    try testing.expect(isVBlankSet(&h));
 
-    // Seek to just before VBlank clear without prior $2002 reads
+    // Seek to just before VBlank clear without performing a $2002 read
+    // (so we can test timing-based clearing, not read-based clearing)
     h.seekTo(261, 0);
-    try testing.expect(isVBlankSet(&h)); // Still set at 261,0
+
+    // At 261,0, VBlank should still be active (hasn't cleared by timing yet)
+    try testing.expect(h.state.vblank_ledger.isActive());
 
     // Tick to the exact clear cycle
     h.tick(1);
     try testing.expect(h.state.clock.scanline() == 261 and h.state.clock.dot() == 1);
 
     // The flag is now cleared by timing
-    try testing.expect(!isVBlankSet(&h));
+    try testing.expect(!h.state.vblank_ledger.isActive());
     try testing.expectEqual(@as(u64, 89002), h.state.vblank_ledger.last_clear_cycle);
 }
 
@@ -87,9 +88,11 @@ test "VBlankLedger: Race condition - read on same cycle as set" {
     // The read should see the flag as SET.
     try testing.expect(isVBlankSet(&h));
 
-    // Hardware: Race read does NOT clear the flag; subsequent reads still see it set
+    // HARDWARE BEHAVIOR (per nesdev.org): Race read DOES clear the flag
+    // "reads it as set, clears it, and suppresses the NMI for that frame"
+    // Subsequent reads see it cleared
     h.tick(1);
-    try testing.expect(isVBlankSet(&h));
+    try testing.expect(!isVBlankSet(&h));
 }
 
 test "VBlankLedger: SMB polling pattern" {

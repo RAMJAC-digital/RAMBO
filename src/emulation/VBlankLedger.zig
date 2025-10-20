@@ -18,8 +18,8 @@ pub const VBlankLedger = struct {
     last_read_cycle: u64 = 0,
 
     /// Master clock cycle of a $2002 read that raced with VBlank set (same cycle).
-    /// When >= last_set_cycle, the race suppression/visibility applies for the
-    /// remainder of that VBlank span.
+    /// When this equals last_set_cycle, NMI is suppressed for this VBlank span.
+    /// The flag still clears normally - race only affects NMI generation.
     last_race_cycle: u64 = 0,
 
     /// Returns true if hardware VBlank is currently active (between set and clear)
@@ -29,17 +29,27 @@ pub const VBlankLedger = struct {
 
     /// Returns true if the VBlank flag would read as 1 on the PPU bus
     /// (i.e., active AND not cleared by a $2002 read)
-    /// Race conditions SUPPRESS the flag from being readable.
+    ///
+    /// CRITICAL: Race reads (same cycle as set) DO return 1 and DO clear the flag.
+    /// The race condition only affects NMI generation, NOT flag visibility.
     pub inline fn isFlagVisible(self: VBlankLedger) bool {
+        // 1. VBlank span not active?
         if (!self.isActive()) return false;
-        if (self.hasRace()) return false;  // Race condition suppresses flag
-        return self.last_set_cycle > self.last_read_cycle;
+
+        // 2. Has any $2002 read occurred since VBlank set?
+        // This includes race reads - they clear the flag just like normal reads
+        if (self.last_read_cycle >= self.last_set_cycle) return false;
+
+        // 3. Flag is set and hasn't been read yet
+        return true;
     }
 
-    /// Returns true when a race read (same-cycle $2002 read) has occurred in the
-    /// current VBlank span and its effects are still active.
-    pub inline fn hasRace(self: VBlankLedger) bool {
-        return self.last_race_cycle >= self.last_set_cycle;
+    /// Returns true when a race read (same-cycle $2002 read) has occurred that
+    /// should suppress NMI for this VBlank span.
+    ///
+    /// HARDWARE BEHAVIOR: Race read clears flag normally but suppresses NMI.
+    pub inline fn hasRaceSuppression(self: VBlankLedger) bool {
+        return self.last_race_cycle == self.last_set_cycle;
     }
 
     /// Resets all timestamps to their initial state.

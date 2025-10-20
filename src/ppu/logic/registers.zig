@@ -83,8 +83,7 @@ pub fn readRegister(
             // Determine VBlank status from the ledger's timestamps.
             // A VBlank is active if it was set more recently than it was cleared by timing
             // AND more recently than it was cleared by a previous read.
-            const vblank_active = (vblank_ledger.last_set_cycle > vblank_ledger.last_clear_cycle) and
-                (vblank_ledger.race_hold or (vblank_ledger.last_set_cycle > vblank_ledger.last_read_cycle));
+            const vblank_active = vblank_ledger.isFlagVisible();
 
             // Build status byte using the computed flag.
             const value = buildStatusByte(

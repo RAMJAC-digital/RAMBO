@@ -102,9 +102,12 @@ pub fn stepCycle(state: anytype) CpuCycleResult {
     // - pending_interrupt cleared when interrupt sequence completes
     // - VBlank flag cleared by $2002 read or scanline 261 dot 1
     // - Double-trigger suppression via nmi_vblank_set_cycle tracking
-    // - Race conditions handled inside isFlagVisible()
+    // - Race suppression: Reading $2002 within 0-2 cycles of VBlank set suppresses NMI
     const vblank_flag_visible = state.vblank_ledger.isFlagVisible();
-    const nmi_line_should_assert = vblank_flag_visible and state.ppu.ctrl.nmi_enable;
+    const race_suppression = state.vblank_ledger.hasRaceSuppression();
+    const nmi_line_should_assert = vblank_flag_visible and
+        state.ppu.ctrl.nmi_enable and
+        !race_suppression;
 
     state.cpu.nmi_line = nmi_line_should_assert;
 

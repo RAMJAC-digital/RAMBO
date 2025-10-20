@@ -64,6 +64,7 @@ test "PPUSTATUS Polling: Race condition at exact VBlank set point" {
     // A read on this exact cycle should see the flag as set
     try testing.expect(isVBlankSet(&h));
 
-    // Hardware race semantics: subsequent reads in the same VBlank still see it set
-    try testing.expect(isVBlankSet(&h));
+    // Hardware behavior: Reading $2002 clears the flag, even on race reads
+    // Subsequent reads should see the flag as cleared
+    try testing.expect(!isVBlankSet(&h));
 }

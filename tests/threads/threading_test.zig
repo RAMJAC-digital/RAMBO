@@ -67,7 +67,6 @@ test "Threading: verify AccuracyCoin loads correctly" {
     if (emu_state.cart) |*cart| {
         const prg_rom = cart.getPrgRom();
         try std.testing.expect(prg_rom.len > 0);
-        std.debug.print("AccuracyCoin PRG ROM: {d} bytes\n", .{prg_rom.len});
     }
 }
 

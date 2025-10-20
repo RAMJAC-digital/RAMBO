@@ -111,10 +111,14 @@ zig build -Doptimize=Debug
 # Run all tests (~30 seconds)
 zig build test
 
-# Expected output:
-# Build Summary: 98/100 steps succeeded; 897/900 tests passed
+# Adapt this pattern to run singular tests, this is simply an example.
+zig test --dep RAMBO  -Mroot=tests/integration/mmc3_visual_regression_test.zig -MRAMBO=src/root.zig -ODebug 
 
-# Note: 3 threading tests may fail in some environments (non-critical)
+# Short form (via build system)
+zig build test-integration
+
+# Target specific tests by filter, in this ppu, and return a summary of the tests outcomes based on criteria.
+zig build test --summary { all | failures | success } -- ppu
 ```
 
 ---

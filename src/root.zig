@@ -132,7 +132,7 @@ pub const PpuType = Ppu.State.PpuState;
 // Test reference (for zig build test)
 // ============================================================================
 
-test {
+comptime {
     // Reference all declarations to run their tests
     std.testing.refAllDecls(@This());
 

@@ -1,30 +1,18 @@
 //! AccuracyCoin Accuracy Test: UNOFFICIAL INSTRUCTIONS
 //!
-//! This test verifies that unofficial/undocumented 6502 opcodes are implemented.
-//! The NES 6502 CPU has 151 documented opcodes and 105 unofficial opcodes.
-//! Many games rely on these unofficial opcodes, so they must be implemented.
-//!
-//! Tested Unofficial Opcodes:
-//! - SLO (ASL + ORA)
-//! - ANC (AND + copy N to C)
-//! - RLA (ROL + AND)
-//! - ASR (AND + LSR)
-//! - ARR (AND + ROR)
-//! - ANE/XAA (unstable: (A | CONST) & X & imm)
-//! - LXA/LAX (unstable: (A | CONST) & imm)
-//! - AXS/SBX (A & X - imm)
-//! - SBC (unofficial $EB same as legal $E9)
-//! - NOP variants (various addressing modes)
+//! This test verifies that unofficial/undocumented 6502 opcodes exist and
+//! perform their expected operations. Tests ~20 different unofficial opcodes.
 //!
 //! Test Entry Point: 0xA557
 //! Result Address: $0402 (result_UnofficialInstr)
 //! Expected: $00 = PASS (all unofficial opcodes work)
-//! ROM Screenshot (2025-10-19): FAIL A (10 opcodes not implemented)
+//! ROM Screenshot: FAIL A (10 unofficial opcodes not implemented)
 
 const std = @import("std");
 const testing = std.testing;
 const RAMBO = @import("RAMBO");
 const Harness = RAMBO.TestHarness.Harness;
+const helpers = @import("helpers.zig");
 
 test "Accuracy: UNOFFICIAL INSTRUCTIONS (AccuracyCoin)" {
     const cart = RAMBO.CartridgeType.load(testing.allocator, "tests/data/AccuracyCoin.nes") catch |err| {
@@ -39,36 +27,17 @@ test "Accuracy: UNOFFICIAL INSTRUCTIONS (AccuracyCoin)" {
     h.state.reset();
     h.state.ppu.warmup_complete = true;
 
-    // === Emulate RunTest initialization ===
-    var addr: u16 = 0x0500;
-    while (addr < 0x0600) : (addr += 1) {
-        h.state.bus.ram[addr & 0x07FF] = 0x00;
+    helpers.bootToMainMenu(&h);
+
+    helpers.setupCpuBehaviorSuite(&h);
+
+    const result = helpers.runCpuBehaviorTest(&h, helpers.CpuBehaviorTest.unofficial_instructions);
+
+    // Expect PASS once all unofficial opcodes are implemented
+    const decoded = helpers.decodeResult(result);
+    const expected_status = helpers.AccuracyStatus.pass;
+    if (decoded.status != expected_status) {
+        helpers.reportAccuracyMismatch("Unofficial instructions", result, expected_status, 0);
     }
-    h.state.bus.ram[0x0600] = 0x40; // RTI
-    h.state.bus.ram[0x10] = 0x00;
-    h.state.bus.ram[0x50] = 0x00;
-    h.state.bus.ram[0xF0] = 0x00;
-    h.state.bus.ram[0xF1] = 0x00;
-
-    h.seekToScanlineDot(241, 1);
-
-    h.state.cpu.pc = 0xA557;
-    h.state.cpu.state = .fetch_opcode;
-    h.state.cpu.instruction_cycle = 0;
-    h.state.cpu.sp = 0xFD;
-    h.state.bus.ram[0x0402] = 0x80; // RUNNING
-
-    // === Run test ===
-    const max_cycles: usize = 10_000_000;
-    var cycles: usize = 0;
-    while (cycles < max_cycles) : (cycles += 1) {
-        h.state.tick();
-        const result = h.state.bus.ram[0x0402];
-        if (result != 0x80) break;
-    }
-
-    const result = h.state.bus.ram[0x0402];
-
-    // ROM screenshot shows FAIL A (0x0A) - expect current behavior for regression detection
-    try testing.expectEqual(@as(u8, 0x0A), result);
+    try testing.expectEqual(expected_status, decoded.status);
 }

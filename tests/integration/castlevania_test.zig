@@ -300,8 +300,7 @@ test "Castlevania: PPU rendering initialization" {
         if (state.cpu.pc == last_pc) {
             pc_stuck_count += 1;
             if (pc_stuck_count > 10 and frame < 10) {
-                std.debug.print("WARNING: PC stuck at ${X:0>4} for {d} frames\n",
-                    .{ state.cpu.pc, pc_stuck_count });
+                std.debug.print("WARNING: PC stuck at ${X:0>4} for {d} frames\n", .{ state.cpu.pc, pc_stuck_count });
             }
         } else {
             pc_stuck_count = 0;
@@ -328,11 +327,11 @@ test "Castlevania: PPU rendering initialization" {
                 frame_instructions,
             });
 
-            std.debug.print("  VBlankLedger: set={d} clear={d} read={d} race_hold={}\n", .{
+            std.debug.print("  VBlankLedger: set={d} clear={d} read={d} race_cycle={d}\n", .{
                 state.vblank_ledger.last_set_cycle,
                 state.vblank_ledger.last_clear_cycle,
                 state.vblank_ledger.last_read_cycle,
-                state.vblank_ledger.race_hold,
+                state.vblank_ledger.last_race_cycle,
             });
         }
 

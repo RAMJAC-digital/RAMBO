@@ -204,6 +204,15 @@ zig build test
 zig build test-unit           # Fast unit tests
 zig build test-integration    # Integration tests
 zig build bench-release       # Release benchmarks
+
+# Adapt this pattern to run singular tests, this is simply an example.
+zig test --dep RAMBO  -Mroot=tests/integration/mmc3_visual_regression_test.zig -MRAMBO=src/root.zig -ODebug 
+
+# Short form (via build system)
+zig build test-integration
+
+# Target specific tests by filter, in this ppu, and return a summary of the tests outcomes based on criteria.
+zig build test --summary { all | failures | success } -- ppu
 ```
 
 ### Test Breakdown

@@ -47,8 +47,8 @@ test "SMB3: MMC3 IRQ fires during gameplay" {
     var total_irqs: usize = 0;
 
     // Diagnostic: Track IRQ state
-        var irq_enabled_frame: ?usize = null;
-        var prev_irq_latch: ?u8 = null;
+    var irq_enabled_frame: ?usize = null;
+    var prev_irq_latch: ?u8 = null;
 
     // Run for 180 frames (3 seconds) - enough to get past title screen
     var frame: usize = 0;
@@ -286,23 +286,9 @@ test "SMB3: MMC3 IRQ fires during gameplay" {
         }
     }
 
-    // Verify results
-    std.debug.print("\n=== Test Results ===\n", .{});
-    std.debug.print("IRQ enabled at frame: {?}\n", .{irq_enabled_frame});
-    std.debug.print("Final IRQ latch value: ${X:0>2}\n", .{prev_irq_latch orelse 0});
-    std.debug.print("Total IRQs in 180 frames: {}\n", .{total_irqs});
-    std.debug.print("First IRQ at frame: {?}\n", .{irq_fired_frame});
-    std.debug.print("First IRQ scanline: {?}\n", .{irq_fired_scanline});
-    std.debug.print("IRQ latch value: ${X:0>2}\n", .{irq_latch_value orelse 0});
-
     // CRITICAL: SMB3 MUST use MMC3 IRQs for status bar
     // If no IRQs fire, the implementation is broken
     if (irq_fired_frame == null) {
-        std.debug.print("❌ FAILURE: No MMC3 IRQs detected!\n", .{});
-        std.debug.print("This means either:\n", .{});
-        std.debug.print("  1. A12 edge detection is broken\n", .{});
-        std.debug.print("  2. IRQ counter logic is broken\n", .{});
-        std.debug.print("  3. IRQ enable/disable is broken\n", .{});
         return error.TestFailed;
     }
 
@@ -311,6 +297,4 @@ test "SMB3: MMC3 IRQ fires during gameplay" {
 
     // Verify multiple IRQs fired (split-screen is continuous)
     try testing.expect(total_irqs > 10);
-
-    std.debug.print("✅ SUCCESS: MMC3 IRQs are working!\n", .{});
 }

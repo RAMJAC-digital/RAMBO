@@ -285,15 +285,20 @@ pub const EmulationState = struct {
                 // Check if this is a $2002 read (PPUSTATUS) for race condition handling
                 const is_status_read = (address & 0x0007) == 0x0002;
 
-                // Race condition: If reading $2002 on the exact cycle VBlank is set,
+                // Race condition: If reading $2002 within 0-2 cycles of VBlank set,
                 // Record potential race BEFORE computing VBlank visibility
+                // Per NESDev: Reads on same cycle or 1-2 cycles after may suppress NMI
                 if (is_status_read) {
                     const now = self.clock.ppu_cycles;
                     const last_set = self.vblank_ledger.last_set_cycle;
                     const last_clear = self.vblank_ledger.last_clear_cycle;
-                    if (last_set > last_clear and now == last_set) {
-                        // Race condition: Read $2002 on EXACT same cycle as VBlank set
-                        self.vblank_ledger.last_race_cycle = last_set;
+                    if (last_set > last_clear) {
+                        const delta = if (now >= last_set) now - last_set else 0;
+                        if (delta <= 2) {
+                            // Race condition: Read $2002 within 0-2 cycles of VBlank set
+                            // This suppresses NMI but flag is still visible and gets cleared
+                            self.vblank_ledger.last_race_cycle = last_set;
+                        }
                     }
                 }
 
@@ -656,7 +661,7 @@ pub const EmulationState = struct {
         if (result.nmi_signal) {
             // VBlank flag set at scanline 241 dot 1.
             self.vblank_ledger.last_set_cycle = self.clock.ppu_cycles;
-            // Do NOT clear last_race_cycle here - preserve race state across VBlank period
+            // DO NOT clear last_race_cycle here - preserve race state across VBlank period
         }
 
         if (result.vblank_clear) {

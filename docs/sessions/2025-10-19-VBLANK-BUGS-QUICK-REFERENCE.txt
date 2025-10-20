@@ -1,0 +1,89 @@
+================================================================================
+                    VBLANK LEDGER - CRITICAL BUGS FOUND
+================================================================================
+
+TEST FAILURE: nmi_control_test.zig returns ErrorCode=0x06 (Subtests 5 & 6 fail)
+
+SYMPTOM: 
+- nmi_line stays asserted when ROM expects suppression after reading $2002
+
+ROOT CAUSES IDENTIFIED:
+
+BUG #1: Race Condition Logic INVERTED
+  File: src/emulation/VBlankLedger.zig, line 34
+  Current:  return self.hasRace() or (self.last_set_cycle > self.last_read_cycle);
+  Problem:  Makes flag VISIBLE when hasRace()=true, but should SUPPRESS it
+  Fix:      Race condition should SUPPRESS the flag, not make it visible
+  
+  Correct logic:
+    if (hasRace()) return false;  // Race suppresses flag
+    return self.last_set_cycle > self.last_read_cycle;
+
+BUG #2: NMI Line Suppressed by Race (BACKWARDS)
+  File: src/emulation/cpu/execution.zig, line 108
+  Current:  !state.vblank_ledger.hasRace()
+  Problem:  This deasserts NMI when race occurs, but race should HOLD flag visible
+  Fix:      Remove this condition entirely - let isFlagVisible() handle it
+  
+  Current code:
+    const nmi_line_should_assert = vblank_flag_visible and
+        state.ppu.ctrl.nmi_enable and
+        !state.vblank_ledger.hasRace();  // <-- WRONG
+  
+  Fixed code:
+    const nmi_line_should_assert = vblank_flag_visible and
+        state.ppu.ctrl.nmi_enable;
+
+BUG #3: Race State Cleared Too Early
+  File: src/emulation/State.zig, line 661
+  Current:  self.vblank_ledger.last_race_cycle = 0;  (when VBlank SET)
+  Problem:  Clears race info immediately, losing it for subsequent checks
+  Fix:      Only clear race state when VBlank is CLEARED (line 667)
+  
+  Wrong location (line 661):
+    if (result.nmi_signal) {
+        self.vblank_ledger.last_set_cycle = self.clock.ppu_cycles;
+        self.vblank_ledger.last_race_cycle = 0;  // <-- REMOVE THIS LINE
+    }
+  
+  Correct location (line 667) - keep as is:
+    if (result.vblank_clear) {
+        self.vblank_ledger.last_clear_cycle = self.clock.ppu_cycles;
+        self.vblank_ledger.last_race_cycle = 0;  // <-- KEEP HERE
+
+BUG #4: last_read_cycle Not Updated on Multiple Reads
+  File: src/emulation/State.zig, line 355
+  Problem: "last_read_cycle remains 528912 even after subsequent $2002 reads"
+  Possible causes:
+    - RMW instructions may bypass ledger updates
+    - Some addressing modes may not set result.read_2002
+    - Need to audit all $2002 access patterns
+  Investigation: See dummy_write investigation document
+
+TEST CASE THAT FAILS:
+  nmi_control_test.zig Subtest 5 & 6:
+  1. Game reads $2002 to clear VBlank flag
+  2. Game disables NMI (write $00 to $2000 bit 7)
+  3. Game re-enables NMI (write $80 to $2000 bit 7)
+  
+  Expected: NMI stays deasserted (flag already read, suppressed)
+  Actual:   NMI stays asserted (flag suppression broken)
+  
+  Why it fails:
+  - hasRace() is incorrectly checked in NMI line assertion
+  - isFlagVisible() has inverted race logic
+  - Race state cleared too early, can't suppress flag later
+
+RECOMMENDED FIX ORDER:
+  1. Fix VBlankLedger.isFlagVisible() - invert hasRace() logic (line 34)
+  2. Remove !hasRace() from NMI line assertion (execution.zig line 108)
+  3. Remove race clear from VBlank SET (State.zig line 661)
+  4. Audit $2002 reads to ensure last_read_cycle updates
+  5. Review race detection window (delta <= 2 cycles)
+
+IMPACT:
+  - 6 AccuracyCoin tests failing (nmi_control_test subtests 5 & 6)
+  - 2 vblank beginning/end tests likely affected
+  - All games that enable NMI mid-VBlank will have wrong behavior
+
+================================================================================

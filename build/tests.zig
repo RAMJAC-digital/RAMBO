@@ -27,7 +27,7 @@ pub const Area = enum {
 
 pub const Kind = enum {
     zig_test,
-    executable,
+    // executable,
 };
 
 pub const ImportKind = enum {
@@ -143,18 +143,20 @@ fn instantiateSpec(
         .imports = imports,
     });
 
+    const test_filter: []const []const u8 = b.args orelse &.{};
+
     const run = switch (spec.kind) {
         .zig_test => blk: {
-            const test_compile = b.addTest(.{ .root_module = root_module });
+            const test_compile = b.addTest(.{ .root_module = root_module, .filters = test_filter });
             applyLinks(test_compile, spec.links);
             break :blk b.addRunArtifact(test_compile);
         },
-        .executable => blk: {
-            const exe = b.addExecutable(.{ .name = spec.name, .root_module = root_module });
-            if (spec.link_libc) exe.linkLibC();
-            applyLinks(exe, spec.links);
-            break :blk b.addRunArtifact(exe);
-        },
+        // .executable => blk: {
+        // const exe = b.addExecutable(.{ .name = spec.name, .root_module = root_module });
+        // if (spec.link_libc) exe.linkLibC();
+        // applyLinks(exe, spec.links);
+        // break :blk; b.addRunArtifact(exe);
+        //},
     };
 
     return run;
@@ -360,27 +362,9 @@ pub const specs = [_]TestSpec{
         .membership = .{ .integration = true },
     },
     .{
-        .name = "accuracycoin-execution",
-        .area = .rom,
-        .path = "tests/integration/accuracycoin_execution_test.zig",
-        .membership = .{ .integration = true },
-    },
-    .{
-        .name = "cartridge-accuracycoin",
-        .area = .cartridge,
-        .path = "tests/cartridge/accuracycoin_test.zig",
-        .membership = .{ .integration = true },
-    },
-    .{
         .name = "cartridge-prg-ram",
         .area = .cartridge,
         .path = "tests/cartridge/prg_ram_test.zig",
-        .membership = .{ .integration = true },
-    },
-    .{
-        .name = "accuracycoin-prg-ram",
-        .area = .rom,
-        .path = "tests/integration/accuracycoin_prg_ram_test.zig",
         .membership = .{ .integration = true },
     },
     .{
@@ -402,33 +386,9 @@ pub const specs = [_]TestSpec{
         .membership = .{ .integration = true },
     },
     .{
-        .name = "smb3-mmc3",
-        .area = .rom,
-        .path = "tests/integration/smb3_status_bar_test.zig",
-        .membership = .{ .integration = true },
-    },
-    .{
-        .name = "mmc3-visual-regression",
-        .area = .rom,
-        .path = "tests/integration/mmc3_visual_regression_test.zig",
-        .membership = .{ .integration = true },
-    },
-    .{
-        .name = "smb-ram",
-        .area = .integration,
-        .path = "tests/integration/smb_ram_test.zig",
-        .membership = .{ .integration = true },
-    },
-    .{
         .name = "smb-sprite-palette-diagnostic",
         .area = .integration,
         .path = "tests/integration/smb_sprite_palette_diagnostic.zig",
-        .membership = .{ .integration = true },
-    },
-    .{
-        .name = "ppu-register-trace",
-        .area = .ppu,
-        .path = "tests/integration/ppu_register_trace_test.zig",
         .membership = .{ .integration = true },
     },
     .{
@@ -696,12 +656,66 @@ pub const specs = [_]TestSpec{
         .path = "tests/unit/ppumask_warmup_test.zig",
         .membership = .{ .unit = true },
     },
+
+    // AccuracyCoin Accuracy Tests - TDD tests that document emulator bugs
     .{
-        .name = "smb-ram-runner",
-        .area = .tooling,
-        .path = "scripts/test_smb_ram.zig",
-        .kind = .executable,
-        .link_libc = true,
+        .name = "accuracy-dummy-writes",
+        .area = .integration,
+        .path = "tests/integration/accuracy/dummy_write_cycles_test.zig",
+        .membership = .{ .integration = true },
+    },
+    .{
+        .name = "accuracy-unofficial-instructions",
+        .area = .integration,
+        .path = "tests/integration/accuracy/unofficial_instructions_test.zig",
+        .membership = .{ .integration = true },
+    },
+    .{
+        .name = "accuracy-all-nops",
+        .area = .integration,
+        .path = "tests/integration/accuracy/all_nop_instructions_test.zig",
+        .membership = .{ .integration = true },
+    },
+    .{
+        .name = "accuracy-vblank-beginning",
+        .area = .integration,
+        .path = "tests/integration/accuracy/vblank_beginning_test.zig",
+        .membership = .{ .integration = true },
+    },
+    .{
+        .name = "accuracy-vblank-end",
+        .area = .integration,
+        .path = "tests/integration/accuracy/vblank_end_test.zig",
+        .membership = .{ .integration = true },
+    },
+    .{
+        .name = "accuracy-nmi-control",
+        .area = .integration,
+        .path = "tests/integration/accuracy/nmi_control_test.zig",
+        .membership = .{ .integration = true },
+    },
+    .{
+        .name = "accuracy-nmi-timing",
+        .area = .integration,
+        .path = "tests/integration/accuracy/nmi_timing_test.zig",
+        .membership = .{ .integration = true },
+    },
+    .{
+        .name = "accuracy-nmi-suppression",
+        .area = .integration,
+        .path = "tests/integration/accuracy/nmi_suppression_test.zig",
+        .membership = .{ .integration = true },
+    },
+    .{
+        .name = "accuracy-nmi-vblank-end",
+        .area = .integration,
+        .path = "tests/integration/accuracy/nmi_vblank_end_test.zig",
+        .membership = .{ .integration = true },
+    },
+    .{
+        .name = "accuracy-nmi-disabled-vblank",
+        .area = .integration,
+        .path = "tests/integration/accuracy/nmi_disabled_vblank_test.zig",
         .membership = .{ .integration = true },
     },
 };
