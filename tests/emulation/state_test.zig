@@ -185,9 +185,15 @@ test "EmulationState: VBlank timing at scanline 241, dot 1" {
     state.tick();
     try testing.expectEqual(@as(u16, 241), state.clock.scanline());
     try testing.expectEqual(@as(u16, 1), state.clock.dot());
-    // Read $2002 to verify VBlank bit is set at the exact set cycle
+    // CORRECTED: Reading $2002 at same cycle as VBlank set sees flag CLEAR (hardware sub-cycle timing)
+    // Reference: AccuracyCoin VBlank Beginning test (hardware-validated)
     const status = state.busRead(0x2002);
-    try testing.expect((status & 0x80) != 0); // VBlank flag set at 241.1 (NOT frame_complete)
+    try testing.expect((status & 0x80) == 0); // CORRECTED: Same-cycle read sees CLEAR
+
+    // One cycle later, flag is visible
+    state.tick();
+    const status2 = state.busRead(0x2002);
+    try testing.expect((status2 & 0x80) != 0); // NOW sees SET
 }
 
 test "EmulationState: odd frame skip when rendering enabled" {
@@ -203,20 +209,20 @@ test "EmulationState: odd frame skip when rendering enabled" {
     state.odd_frame = true;
     state.rendering_enabled = true;
 
-    // Advance to scanline 261, dot 340 (last dot of pre-render scanline on odd frame)
-    const target_cycle = (261 * 341) + 340;
+    // Advance to scanline 261, dot 339 (skip occurs FROM here on odd frames)
+    const target_cycle = (261 * 341) + 339;
     state.clock.ppu_cycles = target_cycle;
 
-    // Current position: scanline 261, dot 340
+    // Current position: scanline 261, dot 339
     try testing.expectEqual(@as(u16, 261), state.clock.scanline());
-    try testing.expectEqual(@as(u16, 340), state.clock.dot());
+    try testing.expectEqual(@as(u16, 339), state.clock.dot());
 
-    // Tick should skip dot 0 of scanline 0, advancing by 2 PPU cycles instead of 1
+    // Tick should skip dot 340, advancing by 2 PPU cycles (339→340→0)
     state.tick();
 
-    // After tick: Should be at scanline 0, dot 1 (skipped dot 0)
+    // After tick: Should be at scanline 0, dot 0 (skipped dot 340)
     try testing.expectEqual(@as(u16, 0), state.clock.scanline());
-    try testing.expectEqual(@as(u16, 1), state.clock.dot());
+    try testing.expectEqual(@as(u16, 0), state.clock.dot());
 
     // Odd frame should be cleared (next frame is even)
     try testing.expect(!state.odd_frame);
@@ -235,16 +241,16 @@ test "EmulationState: even frame does not skip dot" {
     state.odd_frame = false; // Even frame
     state.rendering_enabled = true;
 
-    // Advance to scanline 261, dot 340
-    const target_cycle = (261 * 341) + 340;
+    // Advance to scanline 261, dot 339 (same position as odd frame test)
+    const target_cycle = (261 * 341) + 339;
     state.clock.ppu_cycles = target_cycle;
 
-    // Tick should NOT skip, advancing by 1 PPU cycle normally
+    // Tick should NOT skip (even frame), advancing by 1 PPU cycle normally
     state.tick();
 
-    // After tick: Should be at scanline 0, dot 0 (normal progression)
-    try testing.expectEqual(@as(u16, 0), state.clock.scanline());
-    try testing.expectEqual(@as(u16, 0), state.clock.dot());
+    // After tick: Should be at scanline 261, dot 340 (normal progression, no skip)
+    try testing.expectEqual(@as(u16, 261), state.clock.scanline());
+    try testing.expectEqual(@as(u16, 340), state.clock.dot());
 }
 
 test "EmulationState: odd frame without rendering does not skip" {
@@ -260,16 +266,16 @@ test "EmulationState: odd frame without rendering does not skip" {
     state.odd_frame = true;
     state.rendering_enabled = false; // Rendering disabled
 
-    // Advance to scanline 261, dot 340
-    const target_cycle = (261 * 341) + 340;
+    // Advance to scanline 261, dot 339
+    const target_cycle = (261 * 341) + 339;
     state.clock.ppu_cycles = target_cycle;
 
-    // Tick should NOT skip (rendering disabled), advancing by 1 PPU cycle
+    // Tick should NOT skip (rendering disabled), advancing by 1 PPU cycle normally
     state.tick();
 
-    // After tick: Should be at scanline 0, dot 0 (normal progression)
-    try testing.expectEqual(@as(u16, 0), state.clock.scanline());
-    try testing.expectEqual(@as(u16, 0), state.clock.dot());
+    // After tick: Should be at scanline 261, dot 340 (normal progression, no skip)
+    try testing.expectEqual(@as(u16, 261), state.clock.scanline());
+    try testing.expectEqual(@as(u16, 340), state.clock.dot());
 }
 
 test "EmulationState: frame toggle at scanline boundary" {

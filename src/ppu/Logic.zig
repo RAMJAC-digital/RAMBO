@@ -64,7 +64,7 @@ pub inline fn writeVram(state: *PpuState, cart: ?*AnyCartridge, address: u16, va
 // ============================================================================
 
 /// Read from PPU register (via CPU memory bus)
-/// VBlank Migration (Phase 2): Now requires VBlankLedger and current_cycle
+/// VBlank Migration (Phase 2): Now requires VBlankLedger
 pub inline fn readRegister(
     state: *PpuState,
     cart: ?*AnyCartridge,
@@ -385,10 +385,13 @@ pub fn tick(
     }
 
     // === VBlank Flag Management ===
-    // Hardware behavior:
-    // - VBlank flag SET at scanline 241, dot 1 (PPU cycle 82,181)
-    // - VBlank flag CLEARED at scanline 261, dot 1 (PPU cycle 89,001)
+    // Hardware behavior (from nesdev.org + blargg's tests):
+    // - VBlank flag SET during SECOND dot of scanline 241 (dot index 1, PPU cycle 82,182)
+    // - VBlank flag CLEARED at scanline 261, dot 1 (PPU cycle 89,002)
     // - Also CLEARED when $2002 is read (handled in readRegister)
+    //
+    // CRITICAL TIMING: PPU sets flag during dot 1, but CPU reads can happen in same cycle
+    // Hardware sub-cycle ordering: CPU read executes before PPU flag update in same cycle
 
     // === VBlank Signal Management ===
     // VBlank Migration (Phase 3): VBlank flag is now managed by VBlankLedger only
@@ -417,8 +420,11 @@ pub fn tick(
     }
 
     // === Frame Complete ===
-    // Frame ends at the last dot of scanline 261 (just before wrapping to scanline 0)
-    if (scanline == 261 and dot == 340) {
+    // Frame completes when we transition to scanline 0, dot 0 of the NEXT frame
+    // NOT at the last dot of scanline 261!
+    // Hardware: Frame spans cycles 0-89,341 (scanline 0, dot 0 through scanline 261, dot 340)
+    // Frame is complete AFTER we've ticked past 89,341 and wrapped to (0, 0)
+    if (scanline == 0 and dot == 0) {
         flags.frame_complete = true;
 
         // Note: Diagnostic logging moved to EmulationState where frame number is available

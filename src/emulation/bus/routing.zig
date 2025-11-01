@@ -21,14 +21,13 @@ pub inline fn busRead(state: anytype, address: u16) u8 {
         0x2000...0x3FFF => blk: {
             const reg = address & 0x07;
 
-            // VBlank Migration (Phase 2): Pass VBlankLedger and current_cycle
+            // VBlank Migration (Phase 2): Pass VBlankLedger
             // readRegister now handles $2002 side effects internally (recordStatusRead)
             const result = PpuLogic.readRegister(
                 &state.ppu,
                 cart_ptr,
                 reg,
-                &state.vblank_ledger,
-                state.clock.ppu_cycles,
+                state.vblank_ledger,
             );
 
             // NOTE: recordStatusRead() is now called inside readRegister() for $2002

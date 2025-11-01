@@ -1,12 +1,15 @@
+
+@sessions/CLAUDE.sessions.md
+
 # CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview
 
-**RAMBO** is a cycle-accurate NES emulator written in Zig 0.15.1, targeting hardware-accurate 6502/2C02 emulation with cycle-level precision validated against the AccuracyCoin test suite.
+**RAMBO** is a cycle-accurate NES emulator written in Zig 0.15.1, targeting hardware-accurate 6502/2C02 emulation with cycle-level precision.
 
-**Current Status:** 990/995 tests passing (99.5%), AccuracyCoin PASSING ✅
+**Current Status:** 1023/1041 tests passing (98.3%) - See [docs/STATUS.md](docs/STATUS.md) for details
 
 **Commercial ROMs Status:**
 - ✅ **Fully Working:** Castlevania, Mega Man, Kid Icarus, Battletoads, SMB2
@@ -22,7 +25,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 zig build
 
 # Run tests
-zig build test              # All tests (expected 990/995 passing, 5 skipped)
+zig build test              # All tests (see docs/STATUS.md for current results)
 zig build test-unit         # Unit tests only (fast subset)
 zig build test-integration  # Integration tests only
 zig build bench-release     # Release-optimized benchmarks
@@ -304,9 +307,9 @@ git commit -m "type(scope): description"
 
 ## Known Issues & Current Investigation
 
-**Current Status:** 990/995 tests passing (99.5%), 5 skipped
-**Last Verified:** 2025-10-15 (Post-Phase 1 hardware accuracy fixes)
-**Full Details:** See `docs/CURRENT-ISSUES.md` for complete issue tracking
+**Current Status:** 1023/1041 tests passing (98.3%), 6 skipped, 12 failing
+**Last Verified:** 2025-10-20
+**Full Details:** See [docs/STATUS.md](docs/STATUS.md) and `docs/CURRENT-ISSUES.md` for complete issue tracking
 
 ### Recent Major Fixes (2025-10-14 to 2025-10-15)
 
@@ -363,11 +366,10 @@ git commit -m "type(scope): description"
 
 ## Test Coverage
 
-**Total:** 990/995 tests passing (99.5%), 5 skipped
-**AccuracyCoin:** ✅ PASSING (baseline CPU validation)
-**Current Focus:** Phase 2 investigation - Mid-frame register change timing
+**Total:** 1023/1041 tests passing (98.3%), 6 skipped, 12 failing
+**Current Focus:** VBlank/PPU/NMI timing bugs (TDD - failing tests identify bugs)
 
-See `docs/CURRENT-ISSUES.md` for detailed test status and game compatibility tracking.
+**See [docs/STATUS.md](docs/STATUS.md) for complete test breakdown** and `docs/CURRENT-ISSUES.md` for game compatibility tracking.
 
 ### By Component
 
@@ -451,7 +453,7 @@ See `compiler/README.md` for details.
 **Key Principle:** Hardware accuracy first. Cycle-accurate execution over performance optimization.
 
 **Version:** 0.2.0-alpha
-**Last Updated:** 2025-10-15
-**Status:** 990/995 tests passing (99.5%), AccuracyCoin PASSING ✅
-**Documentation:** Up to date - Current issues documented in `docs/CURRENT-ISSUES.md`
-**Current Focus:** Phase 2 investigation - Mid-frame register change timing (see `docs/sessions/2025-10-15-phase2-development-plan.md`)
+**Last Updated:** 2025-10-20
+**Status:** 1023/1041 tests passing (98.3%) - See [docs/STATUS.md](docs/STATUS.md)
+**Documentation:** Up to date - Current issues documented in `docs/STATUS.md` and `docs/CURRENT-ISSUES.md`
+**Current Focus:** VBlank/PPU/NMI timing bugs (TDD approach - failing tests identify bugs to fix)

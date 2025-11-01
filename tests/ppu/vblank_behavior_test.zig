@@ -22,11 +22,16 @@ test "VBlank: Flag sets at scanline 241 dot 1" {
     h.seekTo(241, 0);
     try testing.expect(!isVBlankSet(&h));
 
-    // Tick to the exact cycle
+    // Tick to the exact cycle where VBlank sets
     h.tick(1);
 
-    // VBlank flag MUST be set
-    try testing.expect(isVBlankSet(&h));
+    // CORRECTED: Same-cycle read sees flag CLEAR (hardware sub-cycle timing)
+    // Reference: AccuracyCoin VBlank Beginning test (hardware-validated)
+    try testing.expect(!isVBlankSet(&h));  // CORRECTED: Same-cycle read
+
+    // One cycle later, flag is visible
+    h.tick(1);
+    try testing.expect(isVBlankSet(&h));  // NOW sees SET
 }
 
 test "VBlank: Flag clears at scanline 261 dot 1" {

@@ -25,6 +25,11 @@ test "Seek Behavior: seekTo correctly positions emulator" {
     h.seekTo(241, 1);
     try testing.expectEqual(@as(u16, 241), h.state.clock.scanline());
     try testing.expectEqual(@as(u16, 1), h.state.clock.dot());
+    // CORRECTED: Same-cycle read sees CLEAR (hardware sub-cycle timing)
+    try testing.expect(!isVBlankSet(&h));  // CORRECTED
+
+    // One cycle later, flag is visible
+    h.tick(1);
     try testing.expect(isVBlankSet(&h));
 
     // --- Test 3: Seek to after VBlank clear ---

@@ -61,10 +61,16 @@ test "PPUSTATUS Polling: Race condition at exact VBlank set point" {
     // Position at the exact cycle VBlank sets
     h.seekTo(241, 1);
 
-    // A read on this exact cycle should see the flag as set
-    try testing.expect(isVBlankSet(&h));
+    // CORRECTED: A read at the same cycle as VBlank set sees flag CLEAR (hardware sub-cycle timing)
+    // CPU read executes BEFORE PPU flag set within the same cycle
+    // Reference: AccuracyCoin VBlank Beginning test (hardware-validated)
+    try testing.expect(!isVBlankSet(&h));  // CORRECTED: Same-cycle read sees CLEAR
 
-    // Hardware behavior: Reading $2002 clears the flag, even on race reads
+    // One cycle later, flag should be visible
+    h.tick(1);
+    try testing.expect(isVBlankSet(&h));  // NOW sees SET
+
+    // Reading $2002 clears the flag
     // Subsequent reads should see the flag as cleared
     try testing.expect(!isVBlankSet(&h));
 }

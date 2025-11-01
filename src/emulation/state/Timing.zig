@@ -55,10 +55,13 @@ pub const TimingHelpers = struct {
         scanline: u16,
         dot: u16,
     ) bool {
+        // Hardware: Odd frame skip jumps from (339,261) to (0,0)
+        // Reference: https://www.nesdev.org/wiki/PPU_frame_timing
+        // The skip occurs when we're AT dot 339, skipping dot 340
         return odd_frame and
             rendering_enabled and
             scanline == 261 and
-            dot == 340;
+            dot == 339;
     }
 };
 
@@ -73,7 +76,7 @@ test "TimingHelpers: shouldSkipOddFrame returns false on even frames" {
         false, // even frame
         true, // rendering enabled
         261, // scanline
-        340, // dot
+        339, // dot - skip occurs FROM 339, not 340
     );
     try testing.expect(!should_skip);
 }
@@ -83,7 +86,7 @@ test "TimingHelpers: shouldSkipOddFrame returns false when rendering disabled" {
         true, // odd frame
         false, // rendering disabled
         261,
-        340,
+        339,
     );
     try testing.expect(!should_skip);
 }
@@ -93,7 +96,7 @@ test "TimingHelpers: shouldSkipOddFrame returns false at wrong scanline" {
         true,
         true,
         260, // wrong scanline
-        340,
+        339,
     );
     try testing.expect(!should_skip);
 }
@@ -103,7 +106,7 @@ test "TimingHelpers: shouldSkipOddFrame returns false at wrong dot" {
         true,
         true,
         261,
-        339, // wrong dot
+        340, // wrong dot - should be 339
     );
     try testing.expect(!should_skip);
 }
@@ -113,7 +116,7 @@ test "TimingHelpers: shouldSkipOddFrame returns true when all conditions met" {
         true, // odd frame
         true, // rendering enabled
         261, // scanline 261
-        340, // dot 340
+        339, // dot 339 - skip occurs FROM here
     );
     try testing.expect(should_skip);
 }

@@ -31,9 +31,44 @@ test "Accuracy: VBLANK BEGINNING (AccuracyCoin)" {
 
     helpers.setupPpuTimingSuite(&h);
 
+    // DEBUG: Check frame lengths with rendering disabled
+    h.state.ppu.mask.show_bg = false;
+    h.state.ppu.mask.show_sprites = false;
+    h.state.rendering_enabled = false;
+    h.state.clock.ppu_cycles = 0;
+    h.state.frame_complete = false;
+    h.state.odd_frame = false;
+
+    const start0 = h.state.clock.ppu_cycles;
+    while (!h.state.frame_complete) h.state.tick();
+    const frame0_len = h.state.clock.ppu_cycles - start0;
+    h.state.frame_complete = false;
+
+    const start1 = h.state.clock.ppu_cycles;
+    while (!h.state.frame_complete) h.state.tick();
+    const frame1_len = h.state.clock.ppu_cycles - start1;
+
+    std.debug.print("\nFrame lengths (rendering DISABLED):\n", .{});
+    std.debug.print("  Frame 0: {} PPU cycles (expected 89342)\n", .{frame0_len});
+    std.debug.print("  Frame 1: {} PPU cycles (expected 89342)\n", .{frame1_len});
+    std.debug.print("  Drift per frame: {} % 3 = {}\n\n", .{frame0_len, frame0_len % 3});
+
     const result = helpers.runPpuTimingTest(&h, helpers.PpuTimingTest.vblank_beginning);
     const decoded = helpers.decodeResult(result);
     const expected_status = helpers.AccuracyStatus.pass;
+
+    // Debug: Print individual iteration results
+    std.debug.print("\nAccuracyCoin VBlank Beginning results:\n", .{});
+    std.debug.print("Expected: $02, $02, $02, $02, $00, $01, $01\n", .{});
+    std.debug.print("Actual:   ", .{});
+    for (0..7) |i| {
+        const byte = h.state.bus.ram[0x50 + i];
+        std.debug.print("${X:0>2}", .{byte});
+        if (i < 6) std.debug.print(", ", .{});
+    }
+    std.debug.print("\n", .{});
+    std.debug.print("Result byte: ${X:0>2} (binary: {b:0>8})\n", .{result, result});
+
     if (decoded.status != expected_status) {
         helpers.reportAccuracyMismatch("VBlank beginning", result, expected_status, 0);
     }

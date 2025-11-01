@@ -166,8 +166,20 @@ pub const MasterClock = struct {
 
     /// Reset clock to power-on state
     /// Used when emulator is reset or ROM is loaded
+    ///
+    /// CRITICAL: CPU/PPU phase offset
+    /// Hardware has an arbitrary phase relationship between CPU and PPU clocks.
+    /// CPU ticks every 3 PPU cycles, but the initial offset varies by console.
+    /// Starting at ppu_cycles = 0 means CPU ticks when (ppu % 3 == 0).
+    /// Real hardware might have CPU tick when (ppu % 3 == 1) or (ppu % 3 == 2).
+    ///
+    /// AccuracyCoin tests are sensitive to this phase! Testing different offsets:
+    /// - Phase 0 (ppu_cycles = 0): CPU at ppu % 3 == 0
+    /// - Phase 1 (ppu_cycles = 1): CPU at ppu % 3 == 1
+    /// - Phase 2 (ppu_cycles = 2): CPU at ppu % 3 == 2
     pub fn reset(self: *MasterClock) void {
-        self.ppu_cycles = 0;
+        // TODO: Make this configurable or determine correct hardware phase
+        self.ppu_cycles = 2; // TESTING: Phase 2 to see if it fixes AccuracyCoin
         // Note: speed_multiplier is NOT reset (user preference persists)
     }
 

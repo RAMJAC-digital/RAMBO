@@ -2,7 +2,7 @@
 
 Cycle-accurate NES emulator written in Zig 0.15.1.
 
-**Current Status:** 990/995 tests passing (99.5%), AccuracyCoin PASSING ✅
+**Current Status:** 1023/1041 tests passing (98.3%) - See [docs/STATUS.md](docs/STATUS.md) for details
 
 **Commercial ROMs:**
 - ✅ Castlevania, Mega Man, Kid Icarus, Battletoads, SMB2
@@ -18,7 +18,7 @@ Cycle-accurate NES emulator written in Zig 0.15.1.
 ### Progressive Sprite Evaluation (Phase 2)
 
 - ✅ **Cycle-Accurate Sprite Evaluation:** Replaced instant evaluation with hardware-accurate progressive evaluation
-  - **990/995 tests passing** (+3 tests fixed)
+  - See [docs/STATUS.md](docs/STATUS.md) for current test status
   - SMB1 title screen now animates correctly (coin bounces) 🎉
   - Odd cycles: Read from OAM, check sprite in range
   - Even cycles: Write to secondary OAM if in range
@@ -194,7 +194,7 @@ pub fn Cartridge(comptime MapperType: type) type {
 
 ### Test Status
 
-**Tests:** TBD (post-NMI fix verification needed)
+**See [docs/STATUS.md](docs/STATUS.md) for complete test breakdown and current status.**
 
 ```bash
 # All tests
@@ -428,7 +428,7 @@ MIT License (see LICENSE file)
 
 ---
 
-**Last Updated:** 2025-10-15
+**Last Updated:** 2025-10-20
 **Version:** 0.2.0-alpha
-**Status:** ~99% complete, AccuracyCoin PASSING ✅
-**Current Focus:** SMB1 sprite rendering issue, TMNT blank screen (see docs/CURRENT-ISSUES.md)
+**Status:** 1023/1041 tests passing (98.3%) - See [docs/STATUS.md](docs/STATUS.md)
+**Current Focus:** VBlank/PPU/NMI timing bugs (see docs/STATUS.md and docs/CURRENT-ISSUES.md)
