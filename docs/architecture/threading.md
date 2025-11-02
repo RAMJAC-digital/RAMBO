@@ -176,6 +176,9 @@ fn timerCallback(...) xev.CallbackAction {
         ctx.state.framebuffer = buffer;
 
         // 6. Emulate one frame (cycle-accurate)
+        // Each tick() call maintains hardware-accurate sub-cycle execution order:
+        //   - CPU memory operations execute BEFORE PPU flag updates
+        //   - See "Critical Hardware Behaviors" in CLAUDE.md for details
         const cycles = ctx.state.emulateFrame();
         ctx.total_cycles += cycles;
         ctx.frame_count += 1;

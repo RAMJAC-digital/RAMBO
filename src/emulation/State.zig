@@ -285,26 +285,20 @@ pub const EmulationState = struct {
 
             // PPU registers + mirrors ($2000-$3FFF)
             0x2000...0x3FFF => blk: {
-                // Check if this is a $2002 read (PPUSTATUS) for race condition handling
+                // Check if this is a $2002 read (PPUSTATUS) for NMI suppression tracking
                 const is_status_read = (address & 0x0007) == 0x0002;
 
-                // Race condition: If reading $2002 within 0-2 cycles of VBlank set,
-                // Record potential race BEFORE computing VBlank visibility
+                // Race condition tracking for NMI suppression:
+                // If reading $2002 within 0-2 cycles of VBlank set, suppress NMI
                 // Per NESDev: Reads on same cycle or 1-2 cycles after may suppress NMI
-                var same_cycle_as_vblank_set = false;
                 if (is_status_read) {
                     const scanline = self.clock.scanline();
                     const dot = self.clock.dot();
 
-                    // CORRECTED: With CPU-before-PPU execution order, last_set_cycle isn't updated
-                    // until AFTER CPU executes, so timestamp comparison doesn't work.
-                    // Instead, detect same-cycle by checking if we're AT the VBlank set position.
-                    // VBlank is set at scanline 241, dot 1.
+                    // Same-cycle read: CPU reading at exact cycle VBlank will be set
+                    // Hardware sub-cycle order: CPU reads BEFORE PPU sets flag
+                    // VBlank is set at scanline 241, dot 1
                     if (scanline == 241 and dot == 1) {
-                        // CPU is reading $2002 at the exact cycle VBlank will be set
-                        // With CPU-before-PPU order, CPU executes BEFORE PPU sets flag
-                        same_cycle_as_vblank_set = true;
-
                         // Record race for NMI suppression tracking
                         const vblank_set_cycle = self.clock.ppu_cycles;
                         self.vblank_ledger.last_race_cycle = vblank_set_cycle;
@@ -324,22 +318,12 @@ pub const EmulationState = struct {
                     }
                 }
 
-                var result = PpuLogic.readRegister(
+                const result = PpuLogic.readRegister(
                     &self.ppu,
                     cart_ptr,
                     address,
                     self.vblank_ledger,
                 );
-
-
-                // Hardware sub-cycle timing: CPU operations execute BEFORE PPU flag updates
-                // With PPU-before-CPU ordering (our implementation), VBlank is already set when CPU reads
-                // But hardware has sub-cycle timing - CPU reads DURING the cycle VBlank sets
-                // Mask the bit to emulate hardware race condition (CPU sees old value)
-                if (same_cycle_as_vblank_set) {
-                    result.value &= 0x7F;  // Clear bit 7 (VBlank flag) - emulate hardware race
-                }
-
 
                 ppu_read_result = result;
                 break :blk result.value;
@@ -384,23 +368,17 @@ pub const EmulationState = struct {
             else => self.bus.open_bus,
         };
 
-        // If a PPU read occurred, update the read cycle timestamp
-        // CRITICAL: Do NOT update last_read_cycle for same-cycle reads (when CPU read
-        // happens at the exact same cycle as VBlank set). In this case, the CPU read
-        // executes BEFORE the PPU sets the flag (sub-cycle timing), so the CPU never
-        // actually saw the flag and didn't clear it. The flag remains set.
+        // If a PPU read occurred, update the read cycle timestamp ONLY if flag was visible
+        // Hardware behavior: Reading $2002 only clears the VBlank flag if it's currently set.
+        // If the flag isn't set (e.g., same-cycle read where CPU reads before PPU sets flag),
+        // the read doesn't update the "last read" timestamp and doesn't affect future visibility.
         if (ppu_read_result) |result| {
             if (result.read_2002) {
-                const now = self.clock.ppu_cycles;
-                const is_same_cycle_as_set = (now == self.vblank_ledger.last_set_cycle) and
-                    (self.vblank_ledger.last_set_cycle > self.vblank_ledger.last_clear_cycle);
-
-                // Only update last_read_cycle if this is NOT a same-cycle read
-                if (!is_same_cycle_as_set) {
-                    self.vblank_ledger.last_read_cycle = now;
+                // Only record the read if the flag was actually visible and got cleared
+                // This prevents same-cycle reads from affecting subsequent reads
+                if (self.vblank_ledger.isFlagVisible()) {
+                    self.vblank_ledger.last_read_cycle = self.clock.ppu_cycles;
                 }
-                // Note: Race suppression tracking still applies for same-cycle reads
-                // (handled separately in the $2002 read logic above)
             }
         }
 
@@ -645,14 +623,23 @@ pub const EmulationState = struct {
         // This is the ONLY place clock advancement happens
         const step = self.nextTimingStep();
 
-        // CRITICAL: PPU executes BEFORE CPU within the same master cycle
-        // PPU sets flags at specific coordinates, then CPU can read them
-        // Same-cycle $2002 reads are handled by position-based masking in busRead()
+        // HARDWARE SUB-CYCLE EXECUTION ORDER:
+        // PPU rendering executes first (pixel output, sprite evaluation, etc.)
+        // CPU memory operations execute second (reads/writes including $2002)
+        // PPU state updates execute last (VBlank flag set, event timestamps)
+        //
+        // This matches NES hardware behavior where within a single PPU cycle:
+        //   1. CPU Read Operations (if CPU is active this cycle)
+        //   2. CPU Write Operations (if CPU is active this cycle)
+        //   3. PPU Events (VBlank flag set, sprite evaluation, etc.)
+        //   4. End of cycle
+        //
+        // Reference: https://www.nesdev.org/wiki/PPU_frame_timing
 
-        // Process PPU at the POST-advance position (current clock state)
+        // Process PPU rendering at the POST-advance position (current clock state)
         // VBlank/frame events happen at specific scanline/dot coordinates
         // Hardware: Events trigger when clock IS AT the coordinate, not before
-        // PPU processes at (241, 1) to SET VBlank, not at (241, 0)
+        // PPU processes at (241, 1) to signal VBlank, not at (241, 0)
         const scanline = self.clock.scanline();
         const dot = self.clock.dot();
 
@@ -665,17 +652,26 @@ pub const EmulationState = struct {
             ppu_result.frame_complete = true;
         }
 
-        // CRITICAL: Apply PPU state changes BEFORE CPU executes
-        // This ensures VBlankLedger timestamps are updated BEFORE CPU reads them
-        // Without this, CPU reads stale state from the previous cycle
-        self.applyPpuCycleResult(ppu_result);
-
         // Process APU if this is an APU tick (synchronized with CPU)
         // IMPORTANT: APU must tick BEFORE CPU to update IRQ state
         if (step.apu_tick) {
             const apu_result = self.stepApuCycle();
             _ = apu_result; // APU updates its own IRQ flags
         }
+
+        // HARDWARE SUB-CYCLE ORDERING: CPU memory operations execute BEFORE PPU flag updates
+        // Within a single PPU cycle, the NES hardware executes operations in this order:
+        //   1. CPU Read Operations (if CPU is active this cycle)
+        //   2. CPU Write Operations (if CPU is active this cycle)
+        //   3. PPU Events (VBlank flag set, sprite evaluation, etc.)
+        //   4. End of cycle
+        //
+        // This ordering is critical for VBlank race conditions:
+        // When CPU reads $2002 at exactly scanline 241, dot 1 (the same cycle VBlank is set),
+        // the CPU read executes BEFORE the VBlank flag is set, so CPU sees VBlank bit = 0.
+        //
+        // Reference: https://www.nesdev.org/wiki/PPU_frame_timing
+        // Verified by: AccuracyCoin test ROM (runs on real hardware)
 
         // Process CPU if this is a CPU tick
         if (step.cpu_tick) {
@@ -694,6 +690,12 @@ pub const EmulationState = struct {
                 return;
             }
         }
+
+        // CRITICAL: Apply PPU state changes AFTER CPU memory operations
+        // This matches hardware sub-cycle ordering where PPU flag updates happen
+        // AFTER CPU has executed its read/write operations within the same cycle.
+        // VBlankLedger timestamps are set here, AFTER CPU has had a chance to read $2002.
+        self.applyPpuCycleResult(ppu_result);
     }
 
     fn applyPpuCycleResult(self: *EmulationState, result: PpuCycleResult) void {

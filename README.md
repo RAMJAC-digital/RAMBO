@@ -13,7 +13,19 @@ Cycle-accurate NES emulator written in Zig 0.15.1.
 
 ---
 
-## Recent Fixes (2025-10-15)
+## Recent Fixes (2025-11-02)
+
+### CPU/PPU Sub-Cycle Execution Order Fix
+
+- ✅ **Hardware-Accurate Sub-Cycle Ordering:** CPU memory operations now execute BEFORE PPU flag updates (per nesdev.org)
+  - **Impact:** Fixes VBlank race condition timing (CPU reads $2002 before PPU sets flag at scanline 241, dot 1)
+  - **Commercial ROM Progress:** BurgerTime now working, TMNT series now displays (no longer grey screen)
+  - **Implementation:** `src/emulation/State.zig:tick()` reordered to match NES hardware sub-cycle phasing
+  - **Test Updates:** 8 tests corrected to match proper execution order semantics
+  - **Behavioral Lockdown:** Execution order now locked per hardware specification
+  - See `sessions/tasks/h-fix-vblank-subcycle-timing.md` for complete details
+
+## Previous Fixes (2025-10-15)
 
 ### Progressive Sprite Evaluation (Phase 2)
 

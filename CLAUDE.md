@@ -206,7 +206,31 @@ const NromCart = Cartridge(Mapper0);  // Zero runtime overhead
 
 ## Critical Hardware Behaviors
 
-### 1. Read-Modify-Write (RMW) Dummy Write
+### 1. CPU/PPU Sub-Cycle Execution Order 🔒
+
+**LOCKED BEHAVIOR** - Verified correct per nesdev.org hardware specification.
+
+Within a single PPU cycle, the NES hardware executes operations in this order:
+1. **CPU Read Operations** (if CPU is active this cycle)
+2. **CPU Write Operations** (if CPU is active this cycle)
+3. **PPU Events** (VBlank flag set, sprite evaluation, etc.)
+4. **End of cycle**
+
+**Critical Race Condition:** When CPU reads $2002 (PPUSTATUS) at exactly the same PPU cycle that VBlank is set (scanline 241, dot 1), the CPU read executes **BEFORE** the PPU sets the VBlank flag:
+- CPU reads $2002 → sees VBlank bit = 0 (flag not set yet)
+- PPU sets VBlank flag → flag becomes 1
+- Result: CPU missed seeing the VBlank flag (same-cycle race)
+
+**Implementation:** `src/emulation/State.zig:tick()` lines 617-699
+- CPU executes via `stepCpuCycle()` BEFORE `applyPpuCycleResult()`
+- PPU flag updates happen AFTER CPU memory operations
+- VBlankLedger timestamps set after CPU has executed
+
+**Hardware Citation:** https://www.nesdev.org/wiki/PPU_frame_timing
+
+**Do not modify this execution order without strong hardware justification.**
+
+### 2. Read-Modify-Write (RMW) Dummy Write
 
 ALL RMW instructions (ASL, LSR, ROL, ROR, INC, DEC) write the original value back before writing the modified value:
 
@@ -219,7 +243,7 @@ ALL RMW instructions (ASL, LSR, ROL, ROR, INC, DEC) write the original value bac
 
 This is visible to memory-mapped I/O and tested by AccuracyCoin.
 
-### 2. Dummy Reads on Page Crossing
+### 3. Dummy Reads on Page Crossing
 
 Indexed addressing crossing page boundaries performs a dummy read at the wrong address:
 
@@ -229,11 +253,11 @@ Indexed addressing crossing page boundaries performs a dummy read at the wrong a
 // Cycle 5: Read from $1101 (correct)
 ```
 
-### 3. Open Bus Behavior
+### 4. Open Bus Behavior
 
 Every bus read/write updates the data bus. Reading unmapped memory returns the last bus value (tracked in `BusState.open_bus` with decay timer).
 
-### 4. Zero Page Wrapping
+### 5. Zero Page Wrapping
 
 Zero page indexed addressing wraps within page 0:
 
@@ -242,11 +266,11 @@ Zero page indexed addressing wraps within page 0:
 address = @as(u16, (base +% index))  // Wraps at byte boundary
 ```
 
-### 5. NMI Edge Detection
+### 6. NMI Edge Detection
 
 NMI triggers on **falling edge** (high → low transition). IRQ is **level-triggered**.
 
-### 6. PPU Warm-Up Period
+### 7. PPU Warm-Up Period
 
 PPU ignores writes to $2000/$2001/$2005/$2006 for first 29,658 CPU cycles after power-on (implemented in `PpuState.warmup_complete` flag).
 

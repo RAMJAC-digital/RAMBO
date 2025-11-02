@@ -302,6 +302,61 @@ pub fn clearVBlankFlag(state: *EmulationState) void {
 }
 ```
 
+### Sub-Cycle Execution Order (CRITICAL)
+
+**LOCKED BEHAVIOR** - Do not modify without hardware justification.
+
+VBlank flag updates must follow hardware-accurate sub-cycle execution order:
+
+**Within a single PPU cycle:**
+1. CPU read operations (if CPU active this cycle)
+2. CPU write operations (if CPU active this cycle)
+3. PPU flag updates (VBlank set, sprite evaluation, etc.)
+4. End of cycle
+
+**Implementation in EmulationState.tick():**
+```zig
+pub fn tick(self: *EmulationState) void {
+    const step = self.nextTimingStep();  // Advance clock
+    const scanline = self.clock.scanline();
+    const dot = self.clock.dot();
+
+    // 1. PPU rendering (pixel output)
+    var ppu_result = self.stepPpuCycle(scanline, dot);
+
+    // 2. APU processing (BEFORE CPU for IRQ state)
+    if (step.apu_tick) {
+        const apu_result = self.stepApuCycle();
+    }
+
+    // 3. CPU memory operations (reads/writes including $2002)
+    if (step.cpu_tick) {
+        self.cpu.irq_line = ...;
+        _ = self.stepCpuCycle();  // ← CPU executes FIRST
+    }
+
+    // 4. PPU flag updates (VBlank set, sprite eval, etc.)
+    self.applyPpuCycleResult(ppu_result);  // ← VBlank flag set AFTER CPU
+}
+```
+
+**Critical Race Condition:**
+When CPU reads $2002 at scanline 241, dot 1 (same cycle VBlank is set):
+- CPU reads $2002 → sees VBlank bit = 0 (flag not set yet)
+- PPU sets VBlank flag → flag becomes 1
+- Result: CPU missed VBlank flag (same-cycle race)
+
+**Hardware Citation:** https://www.nesdev.org/wiki/PPU_frame_timing
+
+**Files:**
+- `src/emulation/State.zig:tick()` lines 617-699
+- `src/emulation/State.zig:applyPpuCycleResult()` lines 701-727
+- `src/emulation/VBlankLedger.zig` (pure data ledger)
+
+**Test Coverage:**
+- `tests/emulation/state/vblank_ledger_test.zig` (updated 2025-11-02)
+- `tests/emulation/state_test.zig` (updated 2025-11-02)
+
 ### Anti-Pattern: Business Logic in Ledger
 
 **WRONG:**
