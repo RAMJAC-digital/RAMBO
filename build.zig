@@ -11,8 +11,10 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const build_options = Options.create(b);
-    const deps = Dependencies.resolve(b, target, optimize);
+    const with_movy = b.option(bool, "with_movy", "Enable movy terminal rendering backend") orelse false;
+
+    const build_options = Options.create(b, with_movy);
+    const deps = Dependencies.resolve(b, target, optimize, with_movy);
 
     const wayland = Wayland.generate(b) catch return;
     const shaders = Graphics.setup(b);

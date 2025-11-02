@@ -76,6 +76,16 @@ pub const EmulationThread = @import("threads/EmulationThread.zig");
 pub const RenderThread = @import("threads/RenderThread.zig");
 
 // ============================================================================
+// Rendering Backends
+// ============================================================================
+
+/// Vulkan/Wayland rendering backend
+pub const VulkanBackend = @import("video/backends/VulkanBackend.zig").VulkanBackend;
+
+/// Movy terminal rendering backend (conditional on build option)
+pub const MovyBackend = @import("video/backends/MovyBackend.zig").MovyBackend;
+
+// ============================================================================
 // Re-export commonly used types for convenience
 // ============================================================================
 
@@ -133,10 +143,9 @@ pub const PpuType = Ppu.State.PpuState;
 // ============================================================================
 
 comptime {
-    // Reference all declarations to run their tests
-    std.testing.refAllDecls(@This());
-
     // Import and run tests from core modules
+    // NOTE: We manually reference modules instead of using refAllDecls(@This())
+    // to avoid compiling backends (which have C deps) during test compilation
     _ = Cpu;
     _ = Cartridge;
     _ = MapperRegistry;

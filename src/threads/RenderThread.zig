@@ -1,22 +1,20 @@
 //! Render Thread Module
 //!
-//! Wayland window management + Vulkan rendering on dedicated thread
+//! Generic rendering backend thread using comptime polymorphism
 //! Communicates with main/emulation threads via lock-free mailboxes
 //!
 //! Architecture:
-//! - Wayland window with XDG shell protocol
+//! - Comptime backend selection (Vulkan/Wayland or Movy/Terminal)
 //! - Polls frame mailbox for new frames (SPSC consumer)
-//! - Posts window/input events to main thread (SPSC producer)
-//! - Vulkan rendering with texture upload from FrameMailbox
+//! - Posts input events to main thread via mailboxes
+//! - Zero-cost abstraction (comptime dispatch, no VTable)
 //!
-//! Status: Phase 8.2 - Wayland Window + Vulkan Rendering ✅
+//! Status: Refactored for backend abstraction
 
 const std = @import("std");
-const xev = @import("xev");
 const Mailboxes = @import("../mailboxes/Mailboxes.zig").Mailboxes;
-const WaylandState = @import("../video/WaylandState.zig").WaylandState;
-const WaylandLogic = @import("../video/WaylandLogic.zig");
-const VulkanLogic = @import("../video/VulkanLogic.zig");
+const Backend = @import("../video/Backend.zig").Backend;
+const BackendConfig = @import("../video/Backend.zig").BackendConfig;
 
 /// Context passed to render loop
 pub const RenderContext = struct {
@@ -54,29 +52,27 @@ pub const ThreadConfig = struct {
     verbose: bool = false,
 };
 
-/// Render thread entry point
-/// Phase 1: Wayland window creation and event handling
-/// Phase 2+: Vulkan rendering (TBD)
+/// Generic render thread entry point using comptime backend selection
 pub fn threadMain(
+    comptime BackendImpl: type,
     mailboxes: *Mailboxes,
     running: *std.atomic.Value(bool),
     config: ThreadConfig,
 ) void {
-    _ = config;
+    // Convert ThreadConfig to BackendConfig
+    const backend_config = BackendConfig{
+        .title = config.title,
+        .width = config.width,
+        .height = config.height,
+        .verbose = config.verbose,
+    };
 
-    // Initialize Wayland window with mailbox dependency injection
-    var wayland: WaylandState = undefined;
-    WaylandLogic.init(&wayland, std.heap.c_allocator, &mailboxes.xdg_window_event, &mailboxes.xdg_input_event) catch {
-        // Wayland may not be available in test environments - silently exit
+    // Initialize backend (Vulkan/Wayland or Movy/Terminal)
+    var backend = BackendImpl.init(std.heap.c_allocator, backend_config, mailboxes) catch {
+        // Backend may not be available (e.g., Wayland in test environments)
         return;
     };
-    defer WaylandLogic.deinit(&wayland);
-
-    // Initialize Vulkan renderer
-    var vulkan = VulkanLogic.init(std.heap.c_allocator, &wayland) catch {
-        return;
-    };
-    defer VulkanLogic.deinit(&vulkan);
+    defer backend.deinit();
 
     var ctx = RenderContext{
         .mailboxes = mailboxes,
@@ -85,20 +81,20 @@ pub fn threadMain(
 
     // Render loop
     var last_fps_report: i128 = std.time.nanoTimestamp();
-    while (!wayland.closed and running.load(.acquire)) {
-        // 1. Dispatch Wayland events (non-blocking)
-        _ = WaylandLogic.dispatchOnce(&wayland);
+    while (!backend.shouldClose() and running.load(.acquire)) {
+        // 1. Poll backend for input events (non-blocking)
+        backend.pollInput() catch {};
 
         // 2. Check for new frame from emulation thread
         if (mailboxes.frame.hasNewFrame()) {
             const frame_buffer = mailboxes.frame.getReadBuffer();
 
-            // Upload frame to Vulkan and render
+            // Render frame using backend
             // CRITICAL: consumeFrame() must be called AFTER renderFrame() succeeds
             // to prevent race condition where emulation thread reuses buffer during @memcpy
-            VulkanLogic.renderFrame(&vulkan, frame_buffer) catch {
+            backend.renderFrame(frame_buffer) catch {
                 // On error, don't consume frame - will retry next iteration
-                // This prevents frame loss when Vulkan operations fail transiently
+                // This prevents frame loss when rendering operations fail transiently
                 continue;
             };
 
@@ -114,19 +110,27 @@ pub fn threadMain(
             }
         }
 
-        // 3. Small sleep to avoid busy-wait (will be removed in Phase 2 with vsync)
+        // 3. Small sleep to avoid busy-wait
         std.Thread.sleep(1_000_000); // 1ms
     }
 }
 
-/// Spawn render thread
+/// Spawn render thread with specified backend
 /// Returns thread handle for joining later
 pub fn spawn(
+    comptime BackendImpl: type,
     mailboxes: *Mailboxes,
     running: *std.atomic.Value(bool),
     config: ThreadConfig,
 ) !std.Thread {
-    return try std.Thread.spawn(.{}, threadMain, .{ mailboxes, running, config });
+    // Create wrapper function with captured BackendImpl
+    const Wrapper = struct {
+        fn run(mboxes: *Mailboxes, run_flag: *std.atomic.Value(bool), cfg: ThreadConfig) void {
+            threadMain(BackendImpl, mboxes, run_flag, cfg);
+        }
+    };
+
+    return try std.Thread.spawn(.{}, Wrapper.run, .{ mailboxes, running, config });
 }
 
 // ============================================================================

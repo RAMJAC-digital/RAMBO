@@ -12,14 +12,17 @@ RAMBO uses a **3-thread architecture** with **lock-free mailbox-based communicat
 
 1. **Main Thread** - Coordinator with minimal work (event loop coordination)
 2. **Emulation Thread** - RT-safe cycle-accurate emulation (timer-driven at 60 Hz)
-3. **Render Thread** - Wayland window management and Vulkan rendering
+3. **Render Thread** - Backend-agnostic rendering (comptime backend selection)
+   - VulkanBackend: Wayland + Vulkan (default, production use)
+   - MovyBackend: Terminal rendering via movy (optional, `-Dwith_movy=true`)
 
 This design ensures:
 - ✅ RT-safe emulation (zero heap allocations in hot path)
 - ✅ Deterministic execution (no race conditions)
 - ✅ Clean thread separation (no shared mutable state)
-- ✅ Responsive rendering (dedicated Vulkan thread with vsync)
+- ✅ Responsive rendering (dedicated render thread with vsync)
 - ✅ Lock-free communication (SPSC ring buffers and atomic operations)
+- ✅ Zero-cost backend abstraction (comptime polymorphism, no VTable overhead)
 
 ---
 
@@ -49,7 +52,13 @@ fn mainExec(ctx: zli.CommandContext) !void {
 
     // 3. Spawn worker threads
     const emulation_thread = try EmulationThread.spawn(&emu_state, &mailboxes, &running);
-    const render_thread = try RenderThread.spawn(&mailboxes, &running, .{});
+    const render_thread = blk: {
+        if (std.mem.eql(u8, backend_str, "terminal")) {
+            break :blk try RenderThread.spawn(MovyBackend, &mailboxes, &running, .{});
+        } else {
+            break :blk try RenderThread.spawn(VulkanBackend, &mailboxes, &running, .{});
+        }
+    };
 
     // 4. Main coordination loop
     while (running.load(.acquire)) {
@@ -200,46 +209,48 @@ fn timerCallback(...) xev.CallbackAction {
 - **Lock-free mailbox communication** (SPSC ring buffers with atomic operations)
 - **Frame pacing via libxev timer** (non-blocking, OS-scheduled)
 
-### 3. Render Thread (Wayland + Vulkan)
+### 3. Render Thread (Backend-Agnostic)
 
 **Responsibilities:**
-- Manage Wayland window (XDG shell protocol)
-- Dispatch Wayland events (window close, resize, focus)
-- Capture keyboard input and post to main thread
+- Initialize backend (comptime selection: VulkanBackend or MovyBackend)
 - Poll for new frames from emulation thread
-- Upload frame data to Vulkan texture
-- Render frame to window with vsync
+- Render frames via backend interface
+- Post input/window events to main thread via mailboxes
+- Handle backend lifecycle (init/deinit)
 
 **Code:** `src/threads/RenderThread.zig:56-112`
 
 ```zig
 pub fn threadMain(
+    comptime BackendImpl: type,
     mailboxes: *Mailboxes,
     running: *std.atomic.Value(bool),
     config: ThreadConfig,
 ) void {
-    // 1. Initialize Wayland window with mailbox dependency injection
-    var wayland = WaylandLogic.init(
-        std.heap.c_allocator,
-        &mailboxes.xdg_window_event,
-        &mailboxes.xdg_input_event
-    ) catch return;
-    defer WaylandLogic.deinit(&wayland);
+    // Convert ThreadConfig to BackendConfig
+    const backend_config = BackendConfig{
+        .title = config.title,
+        .width = config.width,
+        .height = config.height,
+        .verbose = config.verbose,
+    };
 
-    // 2. Initialize Vulkan renderer
-    var vulkan = VulkanLogic.init(std.heap.c_allocator, &wayland) catch return;
-    defer VulkanLogic.deinit(&vulkan);
+    // Initialize backend (Vulkan/Wayland or Movy/Terminal)
+    var backend = BackendImpl.init(std.heap.c_allocator, backend_config, mailboxes) catch {
+        // Backend may not be available (e.g., Wayland in test environments)
+        return;
+    };
+    defer backend.deinit();
 
     var ctx = RenderContext{
         .mailboxes = mailboxes,
         .running = running,
     };
 
-    // 3. Render loop
-    while (!wayland.closed and running.load(.acquire)) {
-        // Dispatch Wayland events (non-blocking)
-        // Posts window/input events to mailboxes
-        _ = WaylandLogic.dispatchOnce(&wayland);
+    // Render loop
+    while (backend.isRunning() and running.load(.acquire)) {
+        // Poll events (window close, keyboard input)
+        backend.pollEvents();
 
         // Check for new frame from emulation thread
         if (mailboxes.frame.hasNewFrame()) {
@@ -247,8 +258,8 @@ pub fn threadMain(
             mailboxes.frame.consumeFrameFlag();
             ctx.frame_count += 1;
 
-            // Upload frame to Vulkan and render
-            VulkanLogic.renderFrame(&vulkan, frame_buffer) catch {
+            // Render frame via backend
+            backend.renderFrame(frame_buffer) catch {
                 // Continue on transient errors (e.g., window resize)
             };
 
@@ -257,29 +268,63 @@ pub fn threadMain(
         }
 
         // Small sleep to avoid busy-wait (1ms)
-        // TODO: Will be replaced with vsync-driven blocking in future
         std.Thread.sleep(1_000_000);
     }
 }
 ```
 
-**Wayland Integration:**
-- **XDG Shell Protocol:** Window management (minimize, maximize, close)
-- **Keyboard Input:** Captured and posted to `XdgInputEventMailbox`
-- **Window Events:** Resize, focus, close posted to `XdgWindowEventMailbox`
-- **Non-blocking dispatch:** Events processed every iteration
+**Backend Implementations:**
 
-**Vulkan Rendering:**
-- **Texture Upload:** Frame buffer (256×240 RGBA) uploaded to GPU texture
-- **Rendering Pipeline:** Texture sampled and rendered to window framebuffer
-- **Vsync:** Enabled by default for smooth rendering at monitor refresh rate
-- **Error Handling:** Transient errors (window resize) handled gracefully
+#### VulkanBackend (Default - Production Use)
+- **Platform:** Wayland + Vulkan
+- **Implementation:** `src/video/backends/VulkanBackend.zig`
+- **Features:**
+  - XDG Shell Protocol (window management)
+  - Keyboard input captured and posted to `XdgInputEventMailbox`
+  - Window events posted to `XdgWindowEventMailbox`
+  - Texture upload: Frame buffer (256×240 RGBA) uploaded to GPU texture
+  - Rendering pipeline: Texture sampled and rendered to window framebuffer
+  - Vsync: Enabled by default for smooth rendering at monitor refresh rate
+- **Performance:**
+  - Frame Latency: <2ms from emulation completion to display
+  - Rendering Overhead: <1ms per frame on modern GPUs
+  - Memory Bandwidth: ~240KB per frame (256×240×4 bytes)
+  - Vsync Locked: Rendering synchronized to monitor refresh rate (typically 60 Hz)
 
-**Performance Characteristics:**
-- **Frame Latency:** <2ms from emulation completion to display
-- **Rendering Overhead:** <1ms per frame on modern GPUs
-- **Memory Bandwidth:** ~240KB per frame (256×240×4 bytes)
-- **Vsync Locked:** Rendering synchronized to monitor refresh rate (typically 60 Hz)
+#### MovyBackend (Optional - Development/Debugging)
+- **Platform:** Terminal rendering via movy library
+- **Build Flag:** Requires `-Dwith_movy=true`
+- **CLI Flag:** `--backend=terminal`
+- **Implementation:** `src/video/backends/MovyBackend.zig`
+- **Features:**
+  - Terminal raw mode + alternate screen buffer
+  - Half-block rendering (2 pixels per terminal cell)
+  - NES overscan cropping: 8px all edges (240×224 visible area, TV-accurate)
+  - Automatic terminal size detection and centering
+  - Overlay menu system: ESC for menu, ENTER to select, Y/N confirmation
+  - Keyboard input: Direct ButtonState updates (bypasses XDG mailbox layer)
+  - Auto-release mechanism: Buttons auto-release after 3 frames (compensates for terminal press-only input)
+  - Performance monitoring: Frame timing statistics built-in
+  - Color conversion: RGBA u32 → RGB triplets
+- **Use Cases:**
+  - Headless development environments
+  - SSH/remote debugging
+  - Visual regression testing without GUI
+  - Frame analysis during development
+- **Known Limitations:**
+  - Requires TTY (not suitable for CI/automated testing)
+  - Terminal raw mode can interfere with stdout/stderr logging
+  - Frame rate varies with terminal performance
+
+**Backend Interface:**
+- Comptime polymorphism (zero VTable overhead)
+- Duck-typed interface (no explicit interface definition required)
+- Required methods:
+  - `init(allocator, config, mailboxes) !Self`
+  - `deinit(self: *Self) void`
+  - `isRunning(self: *const Self) bool`
+  - `pollEvents(self: *Self) void`
+  - `renderFrame(self: *Self, frame: []const u32) !void`
 
 ---
 

@@ -39,6 +39,10 @@ pub const KeyboardMapper = struct {
         pub const KEY_RSHIFT: u32 = 0xffe2; // XKB_KEY_Shift_R (Select)
         pub const KEY_ENTER: u32 = 0xff0d; // XKB_KEY_Return (Start)
         pub const KEY_KP_ENTER: u32 = 0xff8d; // XKB_KEY_KP_Enter (Start - Keypad Enter)
+
+        // Menu input keys
+        pub const KEY_Y: u32 = 0x0079; // XKB_KEY_y (Yes confirmation)
+        pub const KEY_N: u32 = 0x006e; // XKB_KEY_n (No confirmation)
     };
 
     /// Process a key press event

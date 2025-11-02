@@ -53,7 +53,8 @@ git clone <repository-url>
 cd RAMBO
 
 # Build executable
-zig build
+zig build                   # Default build (Vulkan/Wayland backend)
+zig build -Dwith_movy=true  # Build with terminal backend support (enables --backend=terminal)
 
 # Run tests
 zig build test
@@ -64,6 +65,22 @@ zig build run
 # Run with debugger (see docs/sessions/debugger-quick-start.md)
 ./zig-out/bin/RAMBO "path/to/rom.nes" --break-at 0x8000 --inspect
 ./zig-out/bin/RAMBO "path/to/rom.nes" --watch 0x2001 --inspect
+
+# Backend selection and frame dumping
+./zig-out/bin/RAMBO "path/to/rom.nes" --backend=terminal  # Terminal rendering (requires -Dwith_movy=true)
+./zig-out/bin/RAMBO "path/to/rom.nes" --backend=wayland  # Vulkan/Wayland rendering (default)
+./zig-out/bin/RAMBO "path/to/rom.nes" --dump-frame 120   # Dump frame 120 to frame_0120.ppm
+```
+
+**Terminal Mode:** For SSH/remote development or visual debugging without GUI:
+```bash
+# Build with movy support
+zig build -Dwith_movy=true
+
+# Run in terminal mode (displays NES frames in terminal using half-blocks)
+./zig-out/bin/RAMBO "path/to/rom.nes" --backend=terminal
+
+# Menu system: Press ESC for overlay menu, ENTER to select options, Y/N for confirmation
 ```
 
 ### Requirements
@@ -90,11 +107,13 @@ zig build run
   - Sprite 0 hit detection
   - Hardware warm-up period (29,658 cycles)
 
-- **Video Display:** 100% complete - Wayland + Vulkan
-  - XDG shell window management
+- **Video Display:** 100% complete - Backend-agnostic rendering
+  - VulkanBackend: Wayland + Vulkan (default, production use)
+  - MovyBackend: Terminal rendering via movy (optional, `-Dwith_movy=true`)
   - 60 FPS rendering at 256×240
   - Nearest-neighbor filtering
   - Lock-free frame delivery
+  - Frame dumping to PPM files (`--dump-frame N`)
 
 - **Input System:** 100% complete (40 tests)
   - NES controller emulation (ButtonState)
@@ -186,7 +205,9 @@ pub fn Cartridge(comptime MapperType: type) type {
 
 1. **Main Thread:** Coordinator (minimal work)
 2. **Emulation Thread:** RT-safe cycle-accurate emulation
-3. **Render Thread:** Wayland window + Vulkan rendering
+3. **Render Thread:** Backend-agnostic rendering (comptime selection)
+   - VulkanBackend (Wayland + Vulkan, default)
+   - MovyBackend (Terminal rendering, optional)
 
 ---
 
@@ -296,8 +317,11 @@ RAMBO/
 │   ├── cpu/              # 6502 CPU emulation
 │   ├── ppu/              # 2C02 PPU emulation
 │   ├── apu/              # Audio Processing Unit
-│   ├── video/            # Wayland + Vulkan rendering
+│   ├── video/            # Rendering system
+│   │   ├── backends/     # VulkanBackend, MovyBackend
+│   │   └── ...           # Wayland/Vulkan implementation
 │   ├── input/            # Input system (keyboard mapping)
+│   ├── debug/            # Debug utilities (frame dumping, etc.)
 │   ├── cartridge/        # Cartridge and mapper system
 │   │   ├── ines/         # iNES ROM parser
 │   │   └── mappers/      # Mapper implementations + registry
@@ -363,6 +387,7 @@ RAMBO/
 - **libxev:** Event loop library (timer-driven emulation)
 - **zig-wayland:** Wayland protocol bindings (window management)
 - **zli:** CLI argument parsing
+- **movy:** Terminal rendering library (optional, requires `-Dwith_movy=true`)
 
 ### System Requirements
 

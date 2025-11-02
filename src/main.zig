@@ -2,8 +2,14 @@ const std = @import("std");
 const RAMBO = @import("RAMBO");
 const xev = @import("xev");
 const zli = @import("zli");
+const build_options = @import("build_options");
 const EmulationThread = RAMBO.EmulationThread;
 const RenderThread = RAMBO.RenderThread;
+const frame_dump = @import("debug/frame_dump.zig");
+
+// Backend implementations
+const VulkanBackend = RAMBO.VulkanBackend;
+const MovyBackend = RAMBO.MovyBackend;
 
 /// Debug configuration flags from CLI
 const DebugFlags = struct {
@@ -13,6 +19,7 @@ const DebugFlags = struct {
     watch: ?[]const u16 = null,
     cycles: ?u64 = null,
     frames: ?u64 = null,
+    dump_frame: ?u64 = null,
     inspect: bool = false,
     verbose: bool = false,
     trace_nmi: bool = false,
@@ -89,12 +96,16 @@ fn mainExec(ctx: zli.CommandContext) !void {
         return error.NoRomFile;
     };
 
+    // Extract backend selection
+    const backend_str = ctx.flag("backend", []const u8);
+
     // Extract debug flags
     const trace_file_str = ctx.flag("trace-file", []const u8);
     const break_at_str = ctx.flag("break-at", []const u8);
     const watch_str = ctx.flag("watch", []const u8);
     const cycles_int = ctx.flag("cycles", i32);
     const frames_int = ctx.flag("frames", i32);
+    const dump_frame_int = ctx.flag("dump-frame", i32);
 
     var debug_flags = DebugFlags{
         .trace = ctx.flag("trace", bool),
@@ -103,6 +114,7 @@ fn mainExec(ctx: zli.CommandContext) !void {
         .watch = try parseHexArray(allocator, if (watch_str.len > 0) watch_str else null),
         .cycles = if (cycles_int > 0) @as(u64, @intCast(cycles_int)) else null,
         .frames = if (frames_int > 0) @as(u64, @intCast(frames_int)) else null,
+        .dump_frame = if (dump_frame_int > 0) @as(u64, @intCast(dump_frame_int)) else null,
         .inspect = ctx.flag("inspect", bool),
         .verbose = ctx.flag("verbose", bool),
         .trace_nmi = ctx.flag("trace-nmi", bool),
@@ -190,8 +202,23 @@ fn mainExec(ctx: zli.CommandContext) !void {
     // Spawn emulation thread (timer-driven, RT-safe)
     const emulation_thread = try EmulationThread.spawn(&emu_state, &mailboxes, &running);
 
-    // Spawn render thread (Wayland + Vulkan stub)
-    const render_thread = try RenderThread.spawn(&mailboxes, &running, .{});
+    // Spawn render thread with selected backend
+    const render_thread = blk: {
+        if (std.mem.eql(u8, backend_str, "terminal")) {
+            // Terminal backend (movy)
+            if (!build_options.with_movy) {
+                try ctx.writer.print("Error: Terminal backend not enabled. Build with -Dwith_movy=true\n", .{});
+                return error.MovyNotEnabled;
+            }
+            break :blk try RenderThread.spawn(MovyBackend, &mailboxes, &running, .{});
+        } else if (std.mem.eql(u8, backend_str, "wayland")) {
+            // Wayland/Vulkan backend (default)
+            break :blk try RenderThread.spawn(VulkanBackend, &mailboxes, &running, .{});
+        } else {
+            try ctx.writer.print("Error: Unknown backend '{s}'. Use 'wayland' or 'terminal'.\n", .{backend_str});
+            return error.InvalidBackend;
+        }
+    };
 
     // ========================================================================
     // 5. Main Coordination Loop
@@ -234,32 +261,68 @@ fn mainExec(ctx: zli.CommandContext) !void {
         }
         diagnostic_frame_count += 1;
 
-        // Process window events (from render thread)
+        // Frame dump check (dump specific frame and exit)
+        if (debug_flags.dump_frame) |target_frame| {
+            const current_frame = emu_state.clock.frame();
+            if (current_frame >= target_frame) {
+                // Wait for frame to be available in mailbox
+                if (mailboxes.frame.hasNewFrame()) {
+                    const frame_buffer = mailboxes.frame.getReadBuffer();
+
+                    std.debug.print("Dumping frame {d} to PPM file...\n", .{current_frame});
+                    const filename = frame_dump.dumpFrameToPpm(allocator, frame_buffer, current_frame) catch |err| {
+                        std.debug.print("Error dumping frame: {}\n", .{err});
+                        mailboxes.frame.consumeFrame(); // Consume frame even on error
+                        running.store(false, .release);
+                        break;
+                    };
+                    std.debug.print("Frame dumped to: {s}\n", .{filename});
+                    allocator.free(filename);
+
+                    // CRITICAL: Consume frame to unblock emulation thread
+                    mailboxes.frame.consumeFrame();
+
+                    // Exit after dumping
+                    running.store(false, .release);
+                    break;
+                }
+            } else if (mailboxes.frame.hasNewFrame()) {
+                // Consume frames before target to prevent mailbox blocking
+                mailboxes.frame.consumeFrame();
+            }
+        }
+
+        // Process window events (from Wayland render thread only)
         var window_events: [16]RAMBO.Mailboxes.XdgWindowEvent = undefined;
         const window_count = mailboxes.xdg_window_event.drainEvents(&window_events);
         _ = window_count; // Discard for now
 
-        // Process input events (from render thread)
-        var input_events: [32]RAMBO.Mailboxes.XdgInputEvent = undefined;
-        const input_count = mailboxes.xdg_input_event.drainEvents(&input_events);
+        // Process input events (Wayland backend only)
+        // Terminal backend (MovyBackend) posts directly to ControllerInputMailbox,
+        // bypassing the XDG event layer entirely for lower latency and cleaner architecture
+        if (std.mem.eql(u8, backend_str, "wayland")) {
+            var input_events: [32]RAMBO.Mailboxes.XdgInputEvent = undefined;
+            const input_count = mailboxes.xdg_input_event.drainEvents(&input_events);
 
-        // Process keyboard events through KeyboardMapper
-        for (input_events[0..input_count]) |event| {
-            switch (event) {
-                .key_press => |key| {
-                    keyboard_mapper.keyPress(key.keysym);
-                },
-                .key_release => |key| {
-                    keyboard_mapper.keyRelease(key.keysym);
-                },
-                else => {}, // Ignore mouse events for now
+            // Process keyboard events through KeyboardMapper
+            for (input_events[0..input_count]) |event| {
+                switch (event) {
+                    .key_press => |key| {
+                        keyboard_mapper.keyPress(key.keysym);
+                    },
+                    .key_release => |key| {
+                        keyboard_mapper.keyRelease(key.keysym);
+                    },
+                    else => {}, // Ignore mouse events for now
+                }
             }
-        }
 
-        // Post button state EVERY frame (not just when events occur)
-        // This ensures emulation always has current state, including button holds
-        const button_state = keyboard_mapper.getState();
-        mailboxes.controller_input.postController1(button_state);
+            // Post button state EVERY frame (not just when events occur)
+            // This ensures emulation always has current state, including button holds
+            const button_state = keyboard_mapper.getState();
+            mailboxes.controller_input.postController1(button_state);
+        }
+        // Terminal backend handles input internally and posts directly to ControllerInputMailbox
 
         // Process debug events (from emulation thread)
         if (emu_state.debugger != null) {
@@ -394,6 +457,12 @@ pub fn main() !void {
         .default_value = .{ .Int = 0 },
     });
     try app.addFlag(.{
+        .name = "dump-frame",
+        .description = "Dump frame N to PPM file and exit (0 = disabled)",
+        .type = .Int,
+        .default_value = .{ .Int = 0 },
+    });
+    try app.addFlag(.{
         .name = "inspect",
         .shortcut = "i",
         .description = "Print state on exit or breakpoint",
@@ -412,6 +481,12 @@ pub fn main() !void {
         .description = "Verbose debug output",
         .type = .Bool,
         .default_value = .{ .Bool = false },
+    });
+    try app.addFlag(.{
+        .name = "backend",
+        .description = "Rendering backend: 'wayland' (graphical) or 'terminal' (movy)",
+        .type = .String,
+        .default_value = .{ .String = "wayland" },
     });
 
     // Execute command (parses args and calls mainExec)

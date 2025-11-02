@@ -11,7 +11,6 @@ description: Tasks related to build system, tooling, project infrastructure, and
 ### High Priority
 
 ### Medium Priority
-- `m-implement-movy-integration/` - Add terminal rendering backend using movy library for development
 
 ### Low Priority
 
@@ -19,3 +18,4 @@ description: Tasks related to build system, tooling, project infrastructure, and
 
 ## Completed Tasks
 <!-- Move tasks here when completed, maintaining the format -->
+- `m-implement-movy-integration/` - Add terminal rendering backend using movy library for development

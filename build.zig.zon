@@ -49,6 +49,11 @@
             .url = "https://github.com/xcaeser/zli/archive/v4.1.1.tar.gz",
             .hash = "zli-4.1.1-LeUjpljfAAAak_E3L4NPowuzPs_FUF9-jYyxuTSNSthM",
         },
+        // movy: Terminal rendering engine for development/debugging
+        // Local development dependency (sibling directory)
+        .movy = .{
+            .path = "../movy",
+        },
     },
     // Specifies the set of files and directories that are included in this package.
     // Only files and directories listed here are included in the `hash` that

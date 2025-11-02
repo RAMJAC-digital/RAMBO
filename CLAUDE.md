@@ -23,6 +23,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 # Build executable
 zig build
+zig build -Dwith_movy=true  # Build with terminal backend support
 
 # Run tests
 zig build test              # All tests (see docs/STATUS.md for current results)
@@ -31,7 +32,7 @@ zig build test-integration  # Integration tests only
 zig build bench-release     # Release-optimized benchmarks
 
 # Adapt this pattern to run singular tests, this is simply an example.
-zig test --dep RAMBO  -Mroot=tests/integration/mmc3_visual_regression_test.zig -MRAMBO=src/root.zig -ODebug 
+zig test --dep RAMBO  -Mroot=tests/integration/mmc3_visual_regression_test.zig -MRAMBO=src/root.zig -ODebug
 
 # Short form (via build system)
 zig build test-integration
@@ -49,7 +50,42 @@ zig build run
 ./zig-out/bin/RAMBO path/to/rom.nes --inspect
 ./zig-out/bin/RAMBO path/to/rom.nes --break-at 0x8000 --inspect
 ./zig-out/bin/RAMBO path/to/rom.nes --watch 0x2001 --inspect
+
+# Backend and frame dumping
+./zig-out/bin/RAMBO path/to/rom.nes --backend=terminal  # Terminal rendering (requires -Dwith_movy=true)
+./zig-out/bin/RAMBO path/to/rom.nes --backend=wayland  # Vulkan/Wayland rendering (default)
+./zig-out/bin/RAMBO path/to/rom.nes --dump-frame 120   # Dump frame 120 to frame_0120.ppm
 ```
+
+### Terminal Backend Usage
+
+**Build with movy support:**
+```bash
+zig build -Dwith_movy=true
+```
+
+**Run in terminal mode:**
+```bash
+./zig-out/bin/RAMBO path/to/rom.nes --backend=terminal
+```
+
+**Features:**
+- SSH-friendly development (no GUI required)
+- Half-block ANSI rendering (2 pixels per terminal cell)
+- TV-accurate overscan cropping (8px all edges, 240×224 visible area)
+- Automatic terminal centering and size detection
+- Overlay menu system (ESC for menu, ENTER to select, Y/N confirmation)
+
+**Input handling:**
+- Direct ButtonState updates (bypasses XDG layer)
+- Auto-release mechanism: Buttons auto-release after 3 frames (compensates for terminal press-only limitation)
+- Standard keyboard mapping (Arrow keys=D-pad, Z=B, X=A, RShift=Select, Enter=Start)
+
+**Known limitations:**
+- Requires TTY (not suitable for CI/automated testing)
+- Frame rate may vary based on terminal performance
+- Uses terminal raw mode + alternate screen buffer
+- Can interfere with stdout/stderr logging during operation
 
 ### Build System Layout
 
@@ -156,13 +192,17 @@ const NromCart = Cartridge(Mapper0);  // Zero runtime overhead
 
 1. **Main Thread:** Coordinator (minimal work)
 2. **Emulation Thread:** Cycle-accurate CPU/PPU emulation (RT-safe, zero heap allocations)
-3. **Render Thread:** Wayland window + Vulkan rendering (60 FPS)
+3. **Render Thread:** Backend-agnostic rendering (60 FPS, comptime backend selection)
+
+**Rendering Backends** (comptime polymorphism, zero VTable overhead):
+- **VulkanBackend:** Wayland + Vulkan rendering (default, production use)
+- **MovyBackend:** Terminal rendering via movy (requires `-Dwith_movy=true`, for development/debugging)
 
 **Communication via lock-free mailboxes:**
 - `FrameMailbox` - Emulation → Render (double-buffered RGBA frame data)
 - `ControllerInputMailbox` - Main → Emulation (NES button state)
 - `DebugCommandMailbox` / `DebugEventMailbox` - Bidirectional debugging
-- `XdgInputEventMailbox` / `XdgWindowEventMailbox` - Wayland events → Main
+- `XdgInputEventMailbox` / `XdgWindowEventMailbox` - Input events → Main
 
 ## Critical Hardware Behaviors
 
@@ -230,7 +270,7 @@ src/
 │   ├── Logic.zig         # APU operations
 │   ├── Dmc.zig           # DMC channel
 │   ├── Envelope.zig      # Generic envelope component
-│   └── Sweep.zig         # Generic sweep component
+│   └── Sweep.zig         # Generic envelope component
 ├── cartridge/        # Cartridge system
 │   ├── Cartridge.zig     # Generic Cartridge(MapperType) factory
 │   ├── ines/             # iNES ROM parser (5 modules)
@@ -241,7 +281,11 @@ src/
 │   ├── State.zig         # EmulationState (CPU/PPU/APU/Bus integration)
 │   ├── Ppu.zig           # PPU orchestration helpers
 │   └── MasterClock.zig   # Cycle counting and synchronization
-├── video/            # Wayland + Vulkan rendering (100% complete)
+├── video/            # Rendering system (100% complete)
+│   ├── Backend.zig       # Backend interface definition
+│   ├── backends/         # Backend implementations
+│   │   ├── VulkanBackend.zig  # Wayland + Vulkan rendering (default)
+│   │   └── MovyBackend.zig    # Terminal rendering (movy, optional)
 │   ├── WaylandState.zig  # Wayland window state
 │   ├── WaylandLogic.zig  # XDG shell protocol logic
 │   ├── VulkanState.zig   # Vulkan rendering state
@@ -250,7 +294,9 @@ src/
 │   └── shaders/          # GLSL shaders (texture.vert, texture.frag)
 ├── input/            # Input system (100% complete)
 │   ├── ButtonState.zig   # NES controller state (8 buttons)
-│   └── KeyboardMapper.zig# Wayland keyboard → NES buttons
+│   └── KeyboardMapper.zig# Keyboard → NES buttons
+├── debug/            # Debug utilities
+│   └── frame_dump.zig    # PPM frame dumping (--dump-frame)
 ├── debugger/         # Debugging system (100% complete)
 │   └── Debugger.zig      # Breakpoints, watchpoints, stepping
 ├── mailboxes/        # Thread communication (lock-free)
@@ -263,7 +309,7 @@ src/
 ├── snapshot/         # Save state system
 ├── threads/          # Threading system
 │   ├── EmulationThread.zig# RT-safe emulation loop
-│   └── RenderThread.zig  # Wayland + Vulkan rendering
+│   └── RenderThread.zig  # Backend-agnostic rendering (comptime dispatch)
 ├── timing/           # Frame timing utilities
 ├── benchmark/        # Performance benchmarking
 ├── memory/           # Memory adapters
@@ -415,6 +461,7 @@ See `compiler/README.md` for details.
 - **libxev:** Event loop library (timer-driven emulation)
 - **zig-wayland:** Wayland protocol bindings (window management)
 - **zli:** CLI argument parsing
+- **movy:** Terminal rendering library (optional, requires `-Dwith_movy=true`)
 
 ### System Requirements
 
