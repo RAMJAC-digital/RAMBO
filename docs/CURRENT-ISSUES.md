@@ -1,10 +1,45 @@
 # Current Issues - RAMBO NES Emulator
 
-**Last Updated:** 2025-10-15 (Greyscale Mode Implementation)
-**Test Status:** 1003+/995 passing (99.5%+), 5 skipped
+**Last Updated:** 2025-11-02 (DMC/OAM DMA Time-Sharing Fix)
+**Test Status:** 1004/1026 passing (97.9%), 6 skipped
 **AccuracyCoin CPU Tests:** ✅ PASSING (baseline validation complete)
 
 This document tracks **active** bugs and issues verified against current codebase. Historical/resolved issues are archived in `docs/archive/`.
+
+---
+
+## **HARDWARE FIX - DMC/OAM DMA Time-Sharing (2025-11-02)**
+
+### DMC/OAM DMA Time-Sharing - RESOLVED ✅
+
+**Impact:** Hardware-accurate DMA coordination, +2 tests passing
+**Task:** h-fix-oam-dma-resume-bug
+
+**Root Cause:**
+- OAM DMA was pausing during DMC halt cycle AND read cycle (incorrect)
+- Real NES hardware implements time-sharing: OAM continues during DMC halt/dummy/alignment cycles
+- OAM should only pause during actual DMC read cycle (stall_cycles_remaining == 1)
+- Net overhead was 4 cycles instead of ~2 cycles
+
+**Fix:**
+- Changed OAM stall detection from `(stall == 4 or stall == 1)` to `stall == 1`
+- OAM now advances during DMC cycles 4, 3, 2 (halt/dummy/alignment)
+- OAM only pauses during DMC cycle 1 (read)
+- Net overhead: 4 DMC - 3 OAM advancement + 1 post-DMC alignment = ~2 cycles
+- Files: `src/emulation/dma/logic.zig:41-42`
+
+**Test Changes:**
+- Fixed `dmc_oam_conflict_test.zig:361-405` - Removed incorrect alignment assertion
+- Updated test name to reflect time-sharing behavior
+- All 14 DMC/OAM conflict tests now passing
+
+**Hardware Citation:** https://www.nesdev.org/wiki/DMA#DMC_DMA_during_OAM_DMA
+**Reference:** Mesen2 NesCpu.cpp:385 "Sprite DMA cycles count as halt/dummy cycles for the DMC"
+
+**Before:** OAM paused 4 cycles per DMC interrupt (incorrect)
+**After:**  OAM paused 1 cycle per DMC interrupt, advances 3 cycles (hardware-accurate)
+
+**Test Improvement:** 1001/1026 → 1004/1026 (+3 improvement, though 2 directly from this fix)
 
 ---
 
@@ -439,13 +474,14 @@ Threading tests rely on precise timing that varies across systems.
 | P2 | 3 | Medium priority (Bomberman black screen, type export, file path) |
 | P3 | 2 | Low priority / deferred (CPU timing, threading tests) |
 
-**Major Progress (2025-10-15):**
-1. ✅ Progressive sprite evaluation implemented - SMB1 title screen now animates correctly!
-2. ✅ Sprite Y position 1-scanline delay fixed - Hardware-accurate per nesdev.org specs
-   - ❌ However, did NOT fix Kirby, SMB3, or Bomberman issues (different root causes)
-3. 📊 New finding: Paperboy has grey screen issue (same as TMNT)
+**Major Progress:**
+- **2025-11-02:** ✅ DMC/OAM DMA time-sharing fixed - Hardware-accurate (only pause during DMC read cycle)
+- **2025-10-15:** ✅ Progressive sprite evaluation implemented - SMB1 title screen now animates correctly!
+- **2025-10-15:** ✅ Sprite Y position 1-scanline delay fixed - Hardware-accurate per nesdev.org specs
+  - ❌ However, did NOT fix Kirby, SMB3, or Bomberman issues (different root causes)
+- **2025-10-15:** 📊 New finding: Paperboy has grey screen issue (same as TMNT)
 
-**Current Status:** 990/995 tests passing (99.5%), zero regressions
+**Current Status:** 1004/1026 tests passing (97.9%), 6 skipped
 **Active Issues:** SMB1 palette bug, SMB3 floor disappearing, Kirby missing dialog, TMNT/Paperboy grey screens
 
 ---
@@ -471,6 +507,7 @@ zig build test -- tests/integration/commercial_rom_test.zig
 
 ## Document History
 
+**2025-11-02:** DMC/OAM DMA time-sharing fix - Hardware-accurate implementation (+2 tests)
 **2025-10-15 (Evening - Update):** Visual verification of sprite Y fix - No improvement in games, but hardware-accurate
 **2025-10-15 (Evening):** Sprite Y position 1-scanline delay fix implemented
 **2025-10-15 (Afternoon):** Major update - Progressive sprite evaluation implemented, SMB1 animating

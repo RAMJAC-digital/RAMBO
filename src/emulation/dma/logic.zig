@@ -22,14 +22,27 @@ pub fn tickOamDma(state: anytype) void {
     const dma = &state.dma;
 
     // Check 1: Is DMC stalling OAM?
-    // Per nesdev.org wiki: OAM pauses during DMC's halt cycle (stall==4) AND read cycle (stall==1)
-    // OAM continues during dummy (stall==3) and alignment (stall==2) cycles (time-sharing)
+    //
+    // Hardware time-sharing behavior per nesdev.org:
+    // When DMC and OAM both need memory access, DMC has priority but OAM execution
+    // during DMC's idle cycles counts as DMC's halt/dummy cycles (time-sharing).
+    //
+    // DMC DMA cycle breakdown (stall_cycles_remaining countdown):
+    //   Cycle 4 (halt):      OAM continues executing ✓ (counts as DMC halt cycle)
+    //   Cycle 3 (dummy):     OAM continues executing ✓ (counts as DMC dummy cycle)
+    //   Cycle 2 (alignment): OAM continues executing ✓ (counts as DMC alignment cycle)
+    //   Cycle 1 (read):      OAM PAUSES ✗ (DMC reads memory, OAM must wait)
+    //
+    // Net result: OAM advances 3 cycles during DMC's 4-cycle operation
+    // Hardware overhead: 4 (DMC) - 3 (OAM advancement) = 1 cycle + 1 post-DMC alignment = ~2 cycles total
+    //
+    // Hardware reference: https://www.nesdev.org/wiki/DMA#DMC_DMA_during_OAM_DMA
+    // Implementation reference: Mesen2 NesCpu.cpp:385 "Sprite DMA cycles count as halt/dummy cycles for the DMC"
     const dmc_is_stalling_oam = state.dmc_dma.rdy_low and
-        (state.dmc_dma.stall_cycles_remaining == 4 or  // Halt cycle
-         state.dmc_dma.stall_cycles_remaining == 1);   // Read cycle
+        state.dmc_dma.stall_cycles_remaining == 1;  // Only DMC read cycle pauses OAM
 
     if (dmc_is_stalling_oam) {
-        // OAM must wait during DMC halt and read cycles
+        // OAM must wait during DMC read cycle only
         // Do not advance current_cycle - will retry this same cycle next tick
         return;
     }

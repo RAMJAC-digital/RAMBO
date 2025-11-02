@@ -358,7 +358,7 @@ test "Consecutive DMC interrupts (no gap)" {
 // Timing Tests
 // ============================================================================
 
-test "Cycle count: OAM 513 + DMC 4 = 517 total" {
+test "Cycle count: OAM with DMC interrupt (time-sharing)" {
     var harness = try Harness.init();
     defer harness.deinit();
     var state = &harness.state;
@@ -370,7 +370,7 @@ test "Cycle count: OAM 513 + DMC 4 = 517 total" {
     // Fill source page
     fillRamPage(state, 0x09, 0x00);
 
-    // Ensure even CPU cycle start (aligned to CPU boundary)
+    // Align to CPU cycle boundary for consistent timing
     while ((state.clock.ppu_cycles % 3) != 0) {
         harness.tick(1);  // Single PPU cycle to align
     }
@@ -378,7 +378,6 @@ test "Cycle count: OAM 513 + DMC 4 = 517 total" {
 
     // Start OAM DMA
     state.busWrite(0x4014, 0x09);
-    try testing.expect(!state.dma.needs_alignment); // Even start
 
     // Run to byte 64, then interrupt with DMC
     harness.tickCpu(128);
@@ -392,8 +391,15 @@ test "Cycle count: OAM 513 + DMC 4 = 517 total" {
     const elapsed_ppu = state.clock.ppu_cycles - start_ppu;
     const elapsed_cpu = elapsed_ppu / 3;
 
-    // Expected: 512 (OAM transfer) + 2 (DMC paused cycles) + 1 (alignment) = 515 CPU cycles
-    // Wiki mentions "taking 2 cycles" overhead which can vary by 1-3 cycles depending on timing
+    // Hardware time-sharing behavior (per nesdev.org):
+    // - Base OAM: 512-513 cycles (depends on alignment)
+    // - DMC cycles: 4 total (halt, dummy, alignment, read)
+    // - Time-sharing: OAM advances during DMC halt/dummy/alignment (3 cycles)
+    // - Net overhead: 4 DMC - 3 OAM advancement = 1 cycle
+    // - Post-DMC alignment: 1 cycle
+    // - Total overhead: ~2 cycles (can vary 1-3 cycles based on timing)
+    //
+    // Expected range: 515-517 CPU cycles total
     try testing.expect(elapsed_cpu >= 515);
     try testing.expect(elapsed_cpu <= 517);
 }

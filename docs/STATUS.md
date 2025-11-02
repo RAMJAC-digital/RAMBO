@@ -1,6 +1,6 @@
 # Project Status - Single Source of Truth
 
-**Last Updated:** 2025-10-20
+**Last Updated:** 2025-11-02
 **Test Run:** `zig build test --summary failures`
 
 > **NOTE:** This is the ONLY authoritative source for test counts and component status.
@@ -11,8 +11,8 @@
 ## Test Results
 
 ```
-Total: 1023/1041 (98.3% passing)
-Failing: 12
+Total: 1004/1026 (97.9% passing)
+Failing: 16
 Skipped: 6
 ```
 
@@ -88,6 +88,17 @@ Tests now correctly identify VBlank/NMI timing bugs in the emulator.
 - Bus & Memory: ~20 tests passing
 
 ---
+
+## Recent Fixes
+
+**2025-11-02:** DMC/OAM DMA Time-Sharing
+- Fixed OAM stall detection to only pause during DMC read cycle (stall==1)
+- OAM now continues during DMC halt/dummy/alignment cycles (hardware-accurate time-sharing)
+- Net overhead reduced from 4 cycles to ~2 cycles
+- Test improvement: +2 tests passing
+- All 14 DMC/OAM conflict tests now passing
+- Hardware citation: nesdev.org/wiki/DMA#DMC_DMA_during_OAM_DMA
+- Reference: Mesen2 NesCpu.cpp:385
 
 ## Current Focus
 

@@ -404,24 +404,36 @@ pub fn handleOamPause(state: *EmulationState, oam_state: OamState) void {
 DMC DMA has absolute priority over OAM DMA.
 
 When DMC triggers during OAM:
-- OAM pauses ONLY during DMC halt (cycle 1) and read (cycle 4)
-- OAM continues during DMC dummy (cycle 2) and alignment (cycle 3)
+- OAM continues during DMC halt (cycle 4), dummy (cycle 3), and alignment (cycle 2)
+- OAM pauses ONLY during DMC read (cycle 1)
 - Total DMC: 4 cycles (halt, dummy, align, read)
-- OAM resumes after DMC read completes
+- Net overhead: ~2 cycles (4 DMC - 3 OAM advancement + 1 post-DMC alignment)
+- OAM resumes after DMC read completes with one alignment cycle
 ```
+
+**Hardware Citations:**
+- Primary: https://www.nesdev.org/wiki/DMA#DMC_DMA_during_OAM_DMA
+- Reference Implementation: Mesen2 NesCpu.cpp:385 "Sprite DMA cycles count as halt/dummy cycles for the DMC"
 
 ### Implementation Pattern
 
 ```zig
 // Functional edge detection (no state machine)
 pub fn tickOamDma(state: *EmulationState) void {
-    // Check if DMC is halting OAM
-    const dmc_is_halting = state.dmc_dma.rdy_low and
-        (state.dmc_dma.stall_cycles_remaining == 4 or  // Halt cycle
-         state.dmc_dma.stall_cycles_remaining == 1);   // Read cycle
+    // Check if DMC is stalling OAM
+    // Hardware time-sharing: OAM continues during halt/dummy/alignment,
+    // only pauses during actual DMC read cycle
+    const dmc_is_stalling_oam = state.dmc_dma.rdy_low and
+        state.dmc_dma.stall_cycles_remaining == 1;  // Only DMC read cycle
 
-    if (dmc_is_halting) {
-        return;  // Pause OAM during DMC cycles 1 and 4 only
+    if (dmc_is_stalling_oam) {
+        return;  // Pause OAM during DMC read cycle only
+    }
+
+    // Check if post-DMC alignment cycle needed
+    if (state.dma_interaction_ledger.needs_alignment_after_dmc) {
+        state.dma_interaction_ledger.needs_alignment_after_dmc = false;
+        return;  // Consume alignment cycle
     }
 
     // Otherwise OAM executes normally (time-sharing on bus)
@@ -587,6 +599,7 @@ pub fn swap(self: *Mailbox, new_data: *Data) void {
 
 ---
 
-**Version:** 1.0
-**Last Updated:** 2025-10-17
+**Version:** 1.1
+**Last Updated:** 2025-11-02
 **Status:** Complete reference for Phase 2 patterns
+**Recent Update:** DMC/OAM DMA time-sharing corrected (only pause during DMC read cycle)
