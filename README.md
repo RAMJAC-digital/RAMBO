@@ -25,6 +25,17 @@ Cycle-accurate NES emulator written in Zig 0.15.1.
   - **Behavioral Lockdown:** Execution order now locked per hardware specification
   - See `sessions/tasks/h-fix-vblank-subcycle-timing.md` for complete details
 
+### PPU Sprite Wrapping Fix
+
+- ✅ **Pre-Render Scanline Sprite Fetching:** Fixed unsigned underflow in vertical flip calculation
+  - **Issue:** Pre-render scanline (261) uses stale secondary OAM from scanline 239, causing out-of-bounds row values
+  - **Fix:** Changed vertical flip from regular subtraction to wrapping subtraction (`--%` operator)
+  - **Impact:** Prevents undefined behavior when sprite Y positions cause row wrapping (e.g., `7 -% 56 = 207`)
+  - **Hardware Accuracy:** Matches NES hardware behavior - uses wrapped value to fetch arbitrary pattern data
+  - **Tests Added:** 3 comprehensive pre-render sprite fetch tests (all passing)
+  - **Implementation:** `src/ppu/logic/sprites.zig` - `getSpritePatternAddress()` and `getSprite16PatternAddress()`
+  - See `sessions/tasks/h-refactor-ppu-shift-register-rewrite.md` for complete details
+
 ## Previous Fixes (2025-10-15)
 
 ### Progressive Sprite Evaluation (Phase 2)
@@ -113,11 +124,12 @@ zig build -Dwith_movy=true
   - NMI edge detection, IRQ level triggering
   - Hardware-accurate timing quirks
 
-- **PPU (2C02):** 100% complete (~90 tests)
+- **PPU (2C02):** 100% complete (~93 tests)
   - Background rendering (tile fetching, scroll, palette)
   - Sprite rendering (evaluation, fetching, priority)
   - Sprite 0 hit detection
   - Hardware warm-up period (29,658 cycles)
+  - Pre-render scanline sprite fetching (stale secondary OAM handling)
 
 - **Video Display:** 100% complete - Backend-agnostic rendering
   - VulkanBackend: Wayland + Vulkan (default, production use)

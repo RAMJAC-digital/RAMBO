@@ -12,7 +12,12 @@ const memory = @import("memory.zig");
 /// Get sprite pattern address for 8×8 sprites
 /// Returns CHR ROM address for the specified sprite tile and row
 pub fn getSpritePatternAddress(tile_index: u8, row: u8, bitplane: u1, pattern_table: bool, vertical_flip: bool) u16 {
-    const flipped_row = if (vertical_flip) 7 - row else row;
+    // Hardware behavior: Row calculation wraps naturally with 8-bit arithmetic
+    // On pre-render scanline (261), sprite fetches use stale secondary OAM from scanline 239,
+    // which can contain Y positions that make row wrap (e.g., next_scanline=0, sprite_y=200 → row=56).
+    // Hardware doesn't crash - it just uses the wrapped value to fetch pattern data.
+    // Reference: nesdev.org/wiki/PPU_rendering (pre-render scanline sprite fetching)
+    const flipped_row = if (vertical_flip) 7 -% row else row;
     const pattern_table_base: u16 = if (pattern_table) 0x1000 else 0x0000;
     const tile_offset: u16 = @as(u16, tile_index) * 16;
     const row_offset: u16 = flipped_row;
@@ -26,8 +31,10 @@ pub fn getSprite16PatternAddress(tile_index: u8, row: u8, bitplane: u1, vertical
     // In 8×16 mode, bit 0 of tile index selects pattern table (not PPUCTRL)
     const pattern_table_base: u16 = if ((tile_index & 0x01) != 0) 0x1000 else 0x0000;
 
+    // Hardware behavior: Row calculation wraps naturally with 8-bit arithmetic
+    // Same pre-render scanline edge case as 8x8 sprites (see getSpritePatternAddress)
     // Apply vertical flip (flip across all 16 rows)
-    const flipped_row = if (vertical_flip) 15 - row else row;
+    const flipped_row = if (vertical_flip) 15 -% row else row;
 
     // Determine which 8×8 tile (top or bottom half)
     const half = flipped_row / 8; // 0 = top, 1 = bottom

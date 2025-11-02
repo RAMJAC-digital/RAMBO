@@ -274,6 +274,31 @@ NMI triggers on **falling edge** (high → low transition). IRQ is **level-trigg
 
 PPU ignores writes to $2000/$2001/$2005/$2006 for first 29,658 CPU cycles after power-on (implemented in `PpuState.warmup_complete` flag).
 
+### 8. PPU Sprite Vertical Flip Wrapping 🔒
+
+**LOCKED BEHAVIOR** - Verified correct per nesdev.org pre-render scanline specification.
+
+Sprite pattern address calculations use wrapping subtraction for vertical flip to match hardware behavior:
+
+```zig
+// 8x8 sprites: Vertical flip calculation wraps naturally
+const flipped_row = if (vertical_flip) 7 -% row else row;
+
+// 8x16 sprites: Vertical flip across all 16 rows
+const flipped_row = if (vertical_flip) 15 -% row else row;
+```
+
+**Critical Edge Case:** On pre-render scanline (261), sprite fetches use stale secondary OAM from scanline 239. When `next_scanline = 0` and `sprite_y = 200`, the row calculation wraps:
+- `row = 0 -% 200 = 56` (out of bounds for 8x8 sprite)
+- Hardware doesn't crash - it uses the wrapped value to fetch arbitrary pattern data
+- Without wrapping subtraction (`--%`), vertical flip would cause undefined behavior
+
+**Implementation:** `src/ppu/logic/sprites.zig` - `getSpritePatternAddress()` and `getSprite16PatternAddress()`
+
+**Hardware Citation:** https://www.nesdev.org/wiki/PPU_rendering (pre-render scanline sprite fetching)
+
+**Do not change this wrapping behavior - it matches hardware edge case handling.**
+
 ## Component Structure
 
 ```
@@ -287,6 +312,12 @@ src/
 ├── ppu/              # 2C02 PPU emulation
 │   ├── State.zig         # PPU registers, VRAM, OAM, rendering state
 │   ├── Logic.zig         # PPU operations (background + sprite rendering)
+│   ├── logic/            # PPU logic modules
+│   │   ├── background.zig # Background tile fetching
+│   │   ├── sprites.zig    # Sprite evaluation and rendering
+│   │   ├── memory.zig     # VRAM access
+│   │   ├── scrolling.zig  # Scroll register manipulation
+│   │   └── registers.zig  # CPU register I/O
 │   ├── palette.zig       # NES color palette (64 colors)
 │   └── timing.zig        # PPU timing constants (341 dots × 262 scanlines)
 ├── apu/              # Audio Processing Unit (emulation logic 100%, audio output TODO)
@@ -446,7 +477,7 @@ git commit -m "type(scope): description"
 | Component | Tests | Status |
 |-----------|-------|--------|
 | CPU | ~280 | ✅ All passing |
-| PPU | ~90 | ✅ All passing |
+| PPU | ~93 | ✅ All passing |
 | APU | 135 | ✅ All passing |
 | Debugger | ~66 | ✅ All passing |
 | Integration | 94 | ✅ All passing |
