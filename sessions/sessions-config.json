@@ -40,6 +40,7 @@
       "NotebookEdit"
     ],
     "bash_read_patterns": [
+      "rg",
       "eza",
       "tree"
     ],
