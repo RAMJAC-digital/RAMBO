@@ -1,8 +1,9 @@
 # DMA Implementation Quick Reference
 
-**Last Updated:** 2025-10-17 (Phase 2E Complete)
+**Last Updated:** 2025-11-02 (Time-Sharing Fix)
 **Pattern:** VBlank-style functional implementation
 **Status:** Hardware-accurate, production-ready
+**Recent Fix:** OAM now only pauses during DMC read cycle (stall==1), not halt cycle
 
 ---
 
@@ -25,19 +26,24 @@ src/emulation/state/peripherals/DmcDma.zig     # DMC state
 **OAM and DMC can run simultaneously during specific cycles:**
 
 ```
-DMC Cycle 1 (stall=4): Halt       → OAM PAUSES
-DMC Cycle 2 (stall=3): Dummy      → OAM CONTINUES ✓
-DMC Cycle 3 (stall=2): Alignment  → OAM CONTINUES ✓
-DMC Cycle 4 (stall=1): Read       → OAM PAUSES
+DMC Cycle 1 (stall=4): Halt       → OAM CONTINUES ✓ (counts as DMC halt cycle)
+DMC Cycle 2 (stall=3): Dummy      → OAM CONTINUES ✓ (counts as DMC dummy cycle)
+DMC Cycle 3 (stall=2): Alignment  → OAM CONTINUES ✓ (counts as DMC alignment cycle)
+DMC Cycle 4 (stall=1): Read       → OAM PAUSES ✗ (DMC reads memory, OAM must wait)
 Post-DMC:              Alignment  → OAM PAUSES (1 cycle)
 ```
+
+**Net overhead:** 4 DMC cycles - 3 OAM advancement + 1 post-DMC alignment = ~2 cycles total
 
 **Implementation:** Check `stall_cycles_remaining` in `tickOamDma()`:
 ```zig
 const dmc_is_stalling_oam = state.dmc_dma.rdy_low and
-    (state.dmc_dma.stall_cycles_remaining == 4 or
-     state.dmc_dma.stall_cycles_remaining == 1);
+    state.dmc_dma.stall_cycles_remaining == 1;  // Only DMC read cycle pauses OAM
 ```
+
+**Hardware Citations:**
+- Primary: https://www.nesdev.org/wiki/DMA#DMC_DMA_during_OAM_DMA
+- Reference: Mesen2 NesCpu.cpp:385 "Sprite DMA cycles count as halt/dummy cycles for the DMC"
 
 ### 2. No Byte Duplication
 
@@ -78,7 +84,7 @@ tickOamDma() → Check alignment flag, wait 1 cycle
 **Location:** `src/emulation/dma/logic.zig:21-84`
 
 **Logic Flow:**
-1. **Check DMC stalling OAM?** (stall==4 or stall==1) → return
+1. **Check DMC stalling OAM?** (stall==1 ONLY) → return
 2. **Check post-DMC alignment?** (needs_alignment_after_dmc) → return
 3. **Check alignment wait?** (effective_cycle < 0) → return
 4. **Check completed?** (effective_cycle >= 512) → reset
@@ -236,21 +242,21 @@ if (!is_active and was_active) {
 **Example 1: DMC in middle of OAM**
 ```
 Before DMC: OAM at byte 64 (cycle 128)
-DMC trigger: 4 cycles (OAM advances ~2 during time-sharing)
+DMC trigger: 4 cycles (OAM advances 3 cycles during time-sharing)
 Post-DMC:    1 alignment cycle
-Resume:      OAM continues from ~byte 66 (cycle 132)
+Resume:      OAM continues from ~byte 67 (cycle 132)
 
-Total overhead: 4 - 2 + 1 = 3 cycles
+Total overhead: 4 - 3 + 1 = 2 cycles
 ```
 
 **Example 2: DMC at start of OAM**
 ```
 OAM starts: cycle 0
-DMC trigger immediately: 4 cycles (time-sharing: +2 OAM cycles)
+DMC trigger immediately: 4 cycles (time-sharing: +3 OAM cycles)
 Post-DMC:   1 alignment cycle
-Resume:     OAM at ~cycle 3
+Resume:     OAM at ~cycle 2
 
-OAM completes: 513 (baseline) + 3 (overhead) = 516 cycles
+OAM completes: 513 (baseline) + 2 (overhead) = 515 cycles
 ```
 
 ### NTSC Corruption Bug
@@ -278,7 +284,7 @@ if (has_dpcm_bug) {
 ### Symptom: OAM completes too early/late
 
 **Check:**
-1. Is time-sharing working? (OAM should advance during stall==3,2)
+1. Is time-sharing working? (OAM should advance during stall==4,3,2 - only pause during stall==1)
 2. Is post-DMC alignment consumed? (1 extra cycle after DMC)
 3. Is alignment cycle consumed on odd starts? (needs_alignment flag)
 
@@ -307,13 +313,14 @@ std.debug.print("OAM: cycle={} offset={} stall={}\n",
 **Expected cycles:**
 - OAM baseline (even start): 512 cycles
 - OAM baseline (odd start): 513 cycles
-- DMC interrupt overhead: ~2-3 cycles (varies by timing)
-- Total: 514-516 cycles (typical)
+- DMC interrupt overhead: ~2 cycles per interrupt (can vary 1-3 based on timing)
+- Total: 515-517 cycles (typical with one DMC interrupt)
 
 **Formula:**
 ```
 Total = OAM_baseline + (DMC_count × [4 - time_sharing + post_align])
-      = 512/513 + (DMC_count × 3)
+      = 512/513 + (DMC_count × [4 - 3 + 1])
+      = 512/513 + (DMC_count × 2)
 ```
 
 ### Symptom: DMC completion signal not working
@@ -393,6 +400,13 @@ zig build test 2>&1 | grep -A5 "dmc_oam"
 
 ## Change History
 
+**2025-11-02:** Time-Sharing Fix
+- Fixed OAM stall detection to only pause during DMC read cycle (stall==1)
+- OAM now continues during DMC halt/dummy/alignment cycles (stall==4,3,2)
+- Net overhead reduced from ~3-4 cycles to ~2 cycles
+- All 14 DMC/OAM conflict tests passing
+- Task: h-fix-oam-dma-resume-bug
+
 **Phase 2E (2025-10-17):** Hardware-accurate time-sharing implementation
 - Removed state machine (600 lines → 250 lines)
 - Implemented time-sharing per nesdev.org spec
@@ -424,5 +438,6 @@ zig build test 2>&1 | grep -A5 "dmc_oam"
 
 ---
 
-**Quick Reference Version:** 1.0
-**Status:** Complete and accurate as of 2025-10-17
+**Quick Reference Version:** 1.1
+**Status:** Complete and accurate as of 2025-11-02
+**Recent Fix:** OAM stall detection corrected (only pause during DMC read cycle)

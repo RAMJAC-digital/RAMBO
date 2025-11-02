@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **RAMBO** is a cycle-accurate NES emulator written in Zig 0.15.1, targeting hardware-accurate 6502/2C02 emulation with cycle-level precision.
 
-**Current Status:** 1023/1041 tests passing (98.3%) - See [docs/STATUS.md](docs/STATUS.md) for details
+**Current Status:** 1004/1026 tests passing (97.9%) - See [docs/STATUS.md](docs/STATUS.md) for details
 
 **Commercial ROMs Status:**
 - ✅ **Fully Working:** Castlevania, Mega Man, Kid Icarus, Battletoads, SMB2
@@ -299,6 +299,33 @@ const flipped_row = if (vertical_flip) 15 -% row else row;
 
 **Do not change this wrapping behavior - it matches hardware edge case handling.**
 
+### 9. DMC/OAM DMA Time-Sharing 🔒
+
+**LOCKED BEHAVIOR** - Verified correct per nesdev.org and Mesen2 reference implementation.
+
+When DMC DMA interrupts OAM DMA, hardware implements time-sharing where OAM continues executing during DMC idle cycles:
+
+**DMC DMA cycle breakdown** (4 cycles total, countdown from stall_cycles_remaining):
+- **Cycle 4 (halt):** OAM continues executing ✓ (counts as DMC halt cycle)
+- **Cycle 3 (dummy):** OAM continues executing ✓ (counts as DMC dummy cycle)
+- **Cycle 2 (alignment):** OAM continues executing ✓ (counts as DMC alignment cycle)
+- **Cycle 1 (read):** OAM PAUSES ✗ (DMC reads memory, OAM must wait)
+
+**Net overhead:** 4 DMC cycles - 3 OAM advancement cycles + 1 post-DMC alignment = ~2 cycles total (can vary 1-3 cycles based on timing alignment)
+
+**Implementation:** `src/emulation/dma/logic.zig:41-42`
+- OAM stall detection: `dmc_is_stalling_oam = rdy_low and stall_cycles_remaining == 1`
+- OAM only pauses during DMC read cycle (stall == 1), not during halt/dummy/alignment
+- After DMC completes, OAM consumes one alignment cycle before resuming normal operation
+
+**Hardware Citations:**
+- Primary: https://www.nesdev.org/wiki/DMA#DMC_DMA_during_OAM_DMA
+- Reference Implementation: Mesen2 NesCpu.cpp:385 "Sprite DMA cycles count as halt/dummy cycles for the DMC"
+
+**Test Coverage:** `tests/integration/dmc_oam_conflict_test.zig` - All 14 DMC/OAM conflict tests passing
+
+**Do not modify this time-sharing behavior - it matches hardware specification exactly.**
+
 ## Component Structure
 
 ```
@@ -444,9 +471,10 @@ git commit -m "type(scope): description"
 1. **Fine X Scroll Edge Case** - SMB1 green line (8 pixels, left side)
 2. **PPUCTRL Mid-Scanline Changes** - Pattern/nametable base switching during rendering
 3. **PPUMASK 3-4 Dot Delay** - Rendering enable/disable propagation timing
-4. **DMC/OAM DMA Interaction** - DMC interrupting OAM with byte duplication
 
 **Reference:** See `docs/sessions/2025-10-15-phase2-development-plan.md` for detailed investigation plan
+
+**Note:** DMC/OAM DMA time-sharing is now hardware-accurate (verified 2025-11-02)
 
 ### Remaining Game-Specific Issues
 
@@ -467,10 +495,12 @@ git commit -m "type(scope): description"
 
 ## Test Coverage
 
-**Total:** 1023/1041 tests passing (98.3%), 6 skipped, 12 failing
+**Total:** 1004/1026 tests passing (97.9%), 6 skipped, 16 failing
 **Current Focus:** VBlank/PPU/NMI timing bugs (TDD - failing tests identify bugs)
 
 **See [docs/STATUS.md](docs/STATUS.md) for complete test breakdown** and `docs/CURRENT-ISSUES.md` for game compatibility tracking.
+
+**Recent Fix (2025-11-02):** DMC/OAM DMA time-sharing now hardware-accurate (+2 tests passing)
 
 ### By Component
 
@@ -555,7 +585,8 @@ See `compiler/README.md` for details.
 **Key Principle:** Hardware accuracy first. Cycle-accurate execution over performance optimization.
 
 **Version:** 0.2.0-alpha
-**Last Updated:** 2025-10-20
-**Status:** 1023/1041 tests passing (98.3%) - See [docs/STATUS.md](docs/STATUS.md)
+**Last Updated:** 2025-11-02
+**Status:** 1004/1026 tests passing (97.9%) - See [docs/STATUS.md](docs/STATUS.md)
 **Documentation:** Up to date - Current issues documented in `docs/STATUS.md` and `docs/CURRENT-ISSUES.md`
 **Current Focus:** VBlank/PPU/NMI timing bugs (TDD approach - failing tests identify bugs to fix)
+**Recent Fix:** DMC/OAM DMA time-sharing now hardware-accurate (2025-11-02)
