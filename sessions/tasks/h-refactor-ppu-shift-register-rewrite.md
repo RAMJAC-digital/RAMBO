@@ -3,7 +3,6 @@ name: h-refactor-ppu-shift-register-rewrite
 branch: feature/h-refactor-ppu-shift-register-rewrite
 status: pending
 created: 2025-11-02
-parent-task: h-fix-vblank-subcycle-timing
 ---
 
 # PPU Shift Register Cycle-Accurate Rewrite
@@ -1013,12 +1012,16 @@ pub fn fetchBackgroundTile(state: *PpuState, cart: ?*AnyCartridge, dot: u16) voi
 
 ## User Notes
 
+**Parent Task:** `h-fix-vblank-subcycle-timing`
+- This task emerged from investigating remaining issues after the VBlank sub-cycle timing fix
+- Zero regressions in AccuracyCoin after parent task fix
+- Focus shifted from VBlank timing to PPU shift register edge cases
+
 **Reference Resources:**
 - Mesen2 emulator source code at `/home/colin/Development/Mesen2`
 - Use Mesen2 as reference for shift register implementation
 
 **From parent task investigation:**
-- Zero regressions in AccuracyCoin after VBlank sub-cycle fix
 - Performance is not a concern - accuracy first
 - User directive: "make PPU behave like shift register"
 
