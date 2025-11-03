@@ -69,6 +69,8 @@ pub fn readRegister(
     scanline: i16,
     dot: u16,
 ) PpuReadResult {
+    _ = scanline; // Race window prevention handled in State.zig
+    _ = dot; // Race window prevention handled in State.zig
     // Registers are mirrored every 8 bytes through $3FFF
     const reg = address & 0x0007;
 
@@ -92,32 +94,31 @@ pub fn readRegister(
             const vblank_active = vblank_ledger.isFlagVisible();
 
             // Build status byte using the computed flag.
-            var value = buildStatusByte(
+            const value = buildStatusByte(
                 state.status.sprite_overflow,
                 state.status.sprite_0_hit,
                 vblank_active,
                 state.open_bus.value,
             );
 
-            // CRITICAL: Read-time VBlank masking for race condition
+            // CRITICAL: NO race window masking in hardware reads!
             // Hardware behavior per nesdev.org/wiki/PPU_frame_timing:
-            // Reading $2002 during scanline 241, dots 0-2 returns VBlank bit = 0
-            // even if the flag is set internally.
+            // "Reading on the same PPU clock or one later reads it as set,
+            //  clears it, and suppresses the NMI for that frame."
             //
-            // Per Mesen2 NesPpu.cpp:290-292:
-            // if(_scanline == _nmiScanline && _cycle < 3) {
-            //     returnValue &= 0x7F;  // Clear bit 7 (VBlank)
-            // }
+            // Mesen2 NesPpu.cpp ReadRam (line 332-348):
+            // - Reads actual flag value (no masking)
+            // - Calls UpdateStatusFlag() to clear it
+            // - Race window masking ONLY in PeekRam (debugger), not ReadRam!
             //
-            // This matches hardware behavior where CPU sees VBlank=0 during race window
-            // regardless of internal flag state.
+            // Race window behavior:
+            // - Dot 0: Prevents flag from being set (handled in State.zig)
+            // - Dot 1-2: Returns actual flag (1 if set), clears it, suppresses NMI
             //
-            // Reference: https://www.nesdev.org/wiki/PPU_frame_timing
-            // Verified by: Mesen2 (reference emulator)
-            const in_race_window = (scanline == 241 and dot < 3);
-            if (in_race_window) {
-                value &= 0x7F;  // Clear bit 7 (VBlank bit)
-            }
+            // Previous bug: We were masking to 0 (copied from Mesen2 PeekRam by mistake)
+            // This caused subsequent reads to see flag as already cleared.
+            //
+            // Reference: nesdev.org/wiki/PPU_frame_timing, Mesen2 NesPpu.cpp:332-348
 
             // Side effects handled locally or signaled upwards:
             // 1. Signal that a $2002 read occurred. EmulationState will update the ledger.
@@ -202,7 +203,7 @@ pub fn readRegister(
 
 /// Write to PPU register (via CPU memory bus)
 /// Handles register mirroring and open bus updates
-pub fn writeRegister(state: *PpuState, cart: ?*AnyCartridge, address: u16, value: u8) void {
+pub fn writeRegister(state: *PpuState, cart: ?*AnyCartridge, address: u16, value: u8, scanline: i16, master_cycles: u64) void {
     // Registers are mirrored every 8 bytes through $3FFF
     const reg = address & 0x0007;
 
@@ -231,7 +232,32 @@ pub fn writeRegister(state: *PpuState, cart: ?*AnyCartridge, address: u16, value
                 return;
             }
 
-            state.mask = PpuMask.fromByte(value);
+            // OAM Corruption: Detect rendering enable/disable during visible/pre-render scanlines
+            // Reference: AccuracyCoin OAM corruption test, nesdev.org wiki
+            const was_rendering = state.mask.renderingEnabled();
+            const new_mask = PpuMask.fromByte(value);
+            const is_rendering = new_mask.renderingEnabled();
+
+            // Rendering disabled mid-scanline - record corruption seed
+            if (was_rendering and !is_rendering) {
+                if (scanline >= -1 and scanline <= 239) {
+                    state.oam_corruption_pending = true;
+                    state.oam_corruption_seed = state.sprite_state.secondary_oam_addr;
+                }
+            }
+
+            // Rendering enabled - schedule corruption if pending
+            if (!was_rendering and is_rendering) {
+                if (state.oam_corruption_pending and scanline >= -1 and scanline <= 239) {
+                    // Compute trigger cycle based on phase (CPU/PPU alignment)
+                    // Phase 0/3: 2 PPU cycles delay, Phase 1/2: 3 PPU cycles delay
+                    const phase = master_cycles % 3;
+                    const delay: u64 = if (phase == 0 or phase == 3) @as(u64, 2) else @as(u64, 3);
+                    state.oam_corruption_trigger_cycle = master_cycles + delay;
+                }
+            }
+
+            state.mask = new_mask;
         },
         0x0002 => {
             // $2002 PPUSTATUS - Read-only, write has no effect

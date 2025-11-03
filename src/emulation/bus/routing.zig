@@ -102,7 +102,10 @@ pub inline fn busWrite(state: anytype, address: u16, value: u8) void {
         // PPU registers + mirrors ($2000-$3FFF)
         0x2000...0x3FFF => |addr| {
             const reg = addr & 0x07;
-            PpuLogic.writeRegister(&state.ppu, cart_ptr, reg, value);
+            // OAM corruption requires scanline and master_cycles
+            const scanline = state.ppu.scanline;
+            const master_cycles = state.clock.master_cycles;
+            PpuLogic.writeRegister(&state.ppu, cart_ptr, reg, value, scanline, master_cycles);
             // NOTE: PPUCTRL writes ($2000) are handled by State.busWrite() which records
             // NMI enable toggles in VBlankLedger for edge detection
         },

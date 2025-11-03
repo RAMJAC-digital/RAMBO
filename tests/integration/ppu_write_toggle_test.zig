@@ -20,7 +20,7 @@ test "PPU Write Toggle: Cleared at scanline -1 dot 1" {
     // Set write toggle to 1 by writing to PPUSCROLL once
     harness.state.ppu.internal.w = false; // Start at 0
     _ = RAMBO.Ppu.Logic.readRegister(&harness.state.ppu, null, 0x2005, harness.state.vblank_ledger, harness.state.ppu.scanline, harness.state.ppu.cycle); // Dummy read
-    RAMBO.Ppu.Logic.writeRegister(&harness.state.ppu, null, 0x2005, 0x10); // First write (w: 0→1)
+    RAMBO.Ppu.Logic.writeRegister(&harness.state.ppu, null, 0x2005, 0x10, harness.state.ppu.scanline, harness.state.clock.master_cycles); // First write (w: 0→1)
 
     // Verify toggle is now 1
     try testing.expect(harness.state.ppu.internal.w);
@@ -40,8 +40,8 @@ test "PPU Write Toggle: PPUSCROLL consistency across frames" {
     defer harness.deinit();
 
     // Frame 1: Write to PPUSCROLL twice (complete sequence)
-    RAMBO.Ppu.Logic.writeRegister(&harness.state.ppu, null, 0x2005, 0x10); // X scroll (w: 0→1)
-    RAMBO.Ppu.Logic.writeRegister(&harness.state.ppu, null, 0x2005, 0x20); // Y scroll (w: 1→0)
+    RAMBO.Ppu.Logic.writeRegister(&harness.state.ppu, null, 0x2005, 0x10, harness.state.ppu.scanline, harness.state.clock.master_cycles); // X scroll (w: 0→1)
+    RAMBO.Ppu.Logic.writeRegister(&harness.state.ppu, null, 0x2005, 0x20, harness.state.ppu.scanline, harness.state.clock.master_cycles); // Y scroll (w: 1→0)
 
     // Verify toggle is back to 0 after complete sequence
     try testing.expect(!harness.state.ppu.internal.w);
@@ -57,7 +57,7 @@ test "PPU Write Toggle: PPUSCROLL consistency across frames" {
     const w_before = harness.state.ppu.internal.w;
     try testing.expect(!w_before); // Toggle should start at 0 in new frame
 
-    RAMBO.Ppu.Logic.writeRegister(&harness.state.ppu, null, 0x2005, 0x30); // Should be X scroll
+    RAMBO.Ppu.Logic.writeRegister(&harness.state.ppu, null, 0x2005, 0x30, harness.state.ppu.scanline, harness.state.clock.master_cycles); // Should be X scroll
 
     // Verify toggle advanced to 1 (correct interpretation as first write)
     try testing.expect(harness.state.ppu.internal.w);
@@ -68,7 +68,7 @@ test "PPU Write Toggle: Cleared on $2002 read" {
     defer harness.deinit();
 
     // Set toggle to 1
-    RAMBO.Ppu.Logic.writeRegister(&harness.state.ppu, null, 0x2005, 0x10);
+    RAMBO.Ppu.Logic.writeRegister(&harness.state.ppu, null, 0x2005, 0x10, harness.state.ppu.scanline, harness.state.clock.master_cycles);
     try testing.expect(harness.state.ppu.internal.w);
 
     // Read $2002 (PPUSTATUS) - should clear toggle
@@ -83,7 +83,7 @@ test "PPU Write Toggle: PPUADDR sequence across frame boundary" {
     defer harness.deinit();
 
     // Frame 1: Incomplete PPUADDR write (only first byte)
-    RAMBO.Ppu.Logic.writeRegister(&harness.state.ppu, null, 0x2006, 0x20); // High byte (w: 0→1)
+    RAMBO.Ppu.Logic.writeRegister(&harness.state.ppu, null, 0x2006, 0x20, harness.state.ppu.scanline, harness.state.clock.master_cycles); // High byte (w: 0→1)
     try testing.expect(harness.state.ppu.internal.w); // Toggle at 1
 
     // Advance to next frame
@@ -95,10 +95,10 @@ test "PPU Write Toggle: PPUADDR sequence across frame boundary" {
     // Frame 2: Toggle should be cleared, so next write is interpreted as high byte again
     try testing.expect(!harness.state.ppu.internal.w); // Cleared at frame boundary
 
-    RAMBO.Ppu.Logic.writeRegister(&harness.state.ppu, null, 0x2006, 0x21); // Should be high byte (not low)
+    RAMBO.Ppu.Logic.writeRegister(&harness.state.ppu, null, 0x2006, 0x21, harness.state.ppu.scanline, harness.state.clock.master_cycles); // Should be high byte (not low)
     try testing.expect(harness.state.ppu.internal.w); // Advances to 1
 
-    RAMBO.Ppu.Logic.writeRegister(&harness.state.ppu, null, 0x2006, 0x00); // Low byte
+    RAMBO.Ppu.Logic.writeRegister(&harness.state.ppu, null, 0x2006, 0x00, harness.state.ppu.scanline, harness.state.clock.master_cycles); // Low byte
     try testing.expect(!harness.state.ppu.internal.w); // Back to 0
 
     // VRAM address should be $2100 (not $2000 from incomplete Frame 1 write)
@@ -112,7 +112,7 @@ test "PPU Write Toggle: Mixed PPUSCROLL and PPUADDR across frames" {
     defer harness.deinit();
 
     // Frame 1: Write to PPUSCROLL (w: 0→1)
-    RAMBO.Ppu.Logic.writeRegister(&harness.state.ppu, null, 0x2005, 0x10);
+    RAMBO.Ppu.Logic.writeRegister(&harness.state.ppu, null, 0x2005, 0x10, harness.state.ppu.scanline, harness.state.clock.master_cycles);
     try testing.expect(harness.state.ppu.internal.w);
 
     // Advance to next frame
@@ -125,10 +125,10 @@ test "PPU Write Toggle: Mixed PPUSCROLL and PPUADDR across frames" {
     try testing.expect(!harness.state.ppu.internal.w);
 
     // Write to PPUADDR (different register, same toggle)
-    RAMBO.Ppu.Logic.writeRegister(&harness.state.ppu, null, 0x2006, 0x20); // High byte
+    RAMBO.Ppu.Logic.writeRegister(&harness.state.ppu, null, 0x2006, 0x20, harness.state.ppu.scanline, harness.state.clock.master_cycles); // High byte
     try testing.expect(harness.state.ppu.internal.w); // Should be 1
 
-    RAMBO.Ppu.Logic.writeRegister(&harness.state.ppu, null, 0x2006, 0x00); // Low byte
+    RAMBO.Ppu.Logic.writeRegister(&harness.state.ppu, null, 0x2006, 0x00, harness.state.ppu.scanline, harness.state.clock.master_cycles); // Low byte
     try testing.expect(!harness.state.ppu.internal.w); // Back to 0
 
     // Verify PPUADDR write was correctly interpreted (not corrupted by previous PPUSCROLL)
@@ -145,15 +145,14 @@ test "PPU Write Toggle: Not affected by rendering state" {
     harness.state.ppu.mask.show_sprites = true;
 
     // Set toggle to 1
-    RAMBO.Ppu.Logic.writeRegister(&harness.state.ppu, null, 0x2005, 0x10);
+    RAMBO.Ppu.Logic.writeRegister(&harness.state.ppu, null, 0x2005, 0x10, harness.state.ppu.scanline, harness.state.clock.master_cycles);
     try testing.expect(harness.state.ppu.internal.w);
 
-    // Advance to scanline -1 dot 1 (with rendering enabled)
-    while (harness.state.ppu.scanline < -1 or harness.state.ppu.cycle < 1) {
-        harness.state.tick();
-    }
+    // PHASE-INDEPENDENT: Advance to scanline -1 (pre-render) dot 1
+    // Toggle is cleared at scanline -1, dot 1 (start of pre-render)
+    harness.seekTo(-1, 1);
 
-    // Toggle should still be cleared (regardless of rendering state)
+    // Toggle should be cleared (hardware behavior at pre-render scanline)
     try testing.expect(!harness.state.ppu.internal.w);
 
     // Disable rendering and verify toggle still cleared correctly
@@ -161,14 +160,17 @@ test "PPU Write Toggle: Not affected by rendering state" {
     harness.state.ppu.mask.show_sprites = false;
 
     // Set toggle again
-    RAMBO.Ppu.Logic.writeRegister(&harness.state.ppu, null, 0x2005, 0x10);
+    RAMBO.Ppu.Logic.writeRegister(&harness.state.ppu, null, 0x2005, 0x10, harness.state.ppu.scanline, harness.state.clock.master_cycles);
     try testing.expect(harness.state.ppu.internal.w);
 
-    // Advance to next frame
-    while (harness.state.ppu.scanline != 0) {
-        harness.state.tick();
-        if (harness.state.ppu.scanline > 261) break;
-    }
+    // Advance to next frame's pre-render scanline where toggle is cleared
+    // First advance to visible region (scanline 0) to ensure we wrap to next frame
+    harness.seekTo(0, 0);
+    // Then advance to the pre-render scanline -1, dot 1 where toggle is cleared
+    harness.seekTo(-1, 1);
+    // seekTo positions AT the target but doesn't execute that cycle
+    // Advance one more cycle to actually execute the toggle reset
+    harness.state.tick();
 
     // Should still be cleared (rendering disabled doesn't affect toggle clear)
     try testing.expect(!harness.state.ppu.internal.w);

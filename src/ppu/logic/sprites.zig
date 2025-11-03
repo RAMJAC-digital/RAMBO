@@ -59,6 +59,10 @@ pub fn fetchSprites(state: *PpuState, cart: ?*AnyCartridge, scanline: i16, dot: 
         state.sprite_state.sprite_0_present = false;
         state.sprite_state.sprite_0_index = 0xFF;
 
+        // Reset secondary OAM address at start of sprite fetch
+        // Reference: AccuracyCoin OAM corruption test documentation (lines 12336-12347)
+        state.sprite_state.secondary_oam_addr = 0;
+
         // Clear all sprite shift registers
         for (0..8) |i| {
             state.sprite_state.pattern_shift_lo[i] = 0;
@@ -77,6 +81,13 @@ pub fn fetchSprites(state: *PpuState, cart: ?*AnyCartridge, scanline: i16, dot: 
         // Only fetch if we have sprites in secondary OAM
         if (sprite_index < 8) {
             const oam_offset = sprite_index * 4;
+
+            // Secondary OAM address increments during sprite fetch cycles
+            // Hardware reads 4 bytes per sprite (Y, tile, attr, X) over 8 cycles
+            // Reference: AccuracyCoin OAM corruption test documentation (lines 12336-12347)
+            if (fetch_cycle >= 1 and fetch_cycle <= 4) {
+                state.sprite_state.secondary_oam_addr = @truncate(oam_offset + (fetch_cycle - 1));
+            }
 
             // Check if this sprite slot is valid (secondary OAM not $FF)
             if (state.secondary_oam[oam_offset] != 0xFF) {
@@ -294,6 +305,10 @@ pub fn tickSpriteEvaluation(state: *PpuState, scanline: i16, cycle: u16) void {
                 const oam_offset = n * 4 + m;
                 const secondary_offset = secondary_n * 4 + m;
                 state.secondary_oam[secondary_offset] = state.oam[oam_offset];
+
+                // Secondary OAM address increments on every write during sprite evaluation
+                // Reference: AccuracyCoin OAM corruption test documentation
+                state.sprite_state.secondary_oam_addr = @truncate(secondary_offset);
 
                 // Track sprite 0 and source index on first byte (Y coordinate)
                 if (m == 0) {

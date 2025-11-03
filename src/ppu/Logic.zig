@@ -113,8 +113,8 @@ pub inline fn readRegister(
 }
 
 /// Write to PPU register (via CPU memory bus)
-pub inline fn writeRegister(state: *PpuState, cart: ?*AnyCartridge, address: u16, value: u8) void {
-    registers.writeRegister(state, cart, address, value);
+pub inline fn writeRegister(state: *PpuState, cart: ?*AnyCartridge, address: u16, value: u8, scanline: i16, master_cycles: u64) void {
+    registers.writeRegister(state, cart, address, value, scanline, master_cycles);
 }
 
 // ============================================================================
@@ -346,6 +346,9 @@ pub fn tick(
         const clear_index = dot - 1;
         if (clear_index < 32) {
             state.secondary_oam[clear_index] = 0xFF;
+            // Secondary OAM address increments on every write (every cycle during clearing)
+            // Reference: AccuracyCoin OAM corruption test documentation (lines 12336-12347)
+            state.sprite_state.secondary_oam_addr = @truncate(clear_index);
         }
     }
 

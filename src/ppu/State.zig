@@ -257,6 +257,11 @@ pub const SpriteState = struct {
     /// Whether current sprite is in range for this scanline
     eval_sprite_in_range: bool = false,
 
+    /// Secondary OAM address (0-31) - used for OAM corruption tracking
+    /// Hardware increments this during sprite evaluation and clearing
+    /// Reference: AccuracyCoin OAM corruption test
+    secondary_oam_addr: u8 = 0,
+
     /// Evaluation complete flag (all 64 sprites checked or 8 sprites found)
     eval_done: bool = false,
 };
@@ -365,6 +370,12 @@ pub const PpuState = struct {
 
     /// OAM Address Register ($2003)
     oam_addr: u8 = 0,
+
+    /// OAM Corruption tracking (hardware quirk when rendering disabled mid-scanline)
+    /// Reference: nesdev.org wiki, AccuracyCoin test suite
+    oam_corruption_pending: bool = false,
+    oam_corruption_seed: u8 = 0,
+    oam_corruption_trigger_cycle: u64 = 0,
 
     /// PPU Open Bus (data bus latch)
     open_bus: OpenBus = .{},
