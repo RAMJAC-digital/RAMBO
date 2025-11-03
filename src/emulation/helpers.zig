@@ -16,7 +16,12 @@ const std = @import("std");
 /// Parameters:
 ///   - state: Mutable pointer to emulation state
 pub fn tickCpuWithClock(state: anytype) void {
-    state.clock.advance(3); // 1 CPU cycle = 3 PPU cycles
+    // 1 CPU cycle = 3 PPU cycles
+    // With new advance() semantics, must call 3 times for monotonic master_cycles
+    state.clock.advance(1); // master +1, ppu +1
+    state.clock.advance(1); // master +1, ppu +1
+    state.clock.advance(1); // master +1, ppu +1
+    // Total: master +3, ppu +3
     state.tickCpu();
 }
 

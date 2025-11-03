@@ -3,7 +3,9 @@ const std = @import("std");
 const checksum = @import("checksum.zig");
 
 /// Snapshot format version
-pub const SNAPSHOT_VERSION: u32 = 1;
+/// Version 2: Added master_cycles field to MasterClock (master_cycles + ppu_cycles, 16 bytes)
+/// Version 1: Original format (ppu_cycles only, 8 bytes)
+pub const SNAPSHOT_VERSION: u32 = 2;
 
 /// Snapshot header (72 bytes total when serialized)
 /// Uses regular struct with manual serialization to ensure cross-platform compatibility

@@ -41,6 +41,10 @@ pub const FrameTimer = @import("timing/FrameTimer.zig");
 /// Emulation state machine (RT loop)
 pub const EmulationState = @import("emulation/State.zig");
 // EmulationPpu removed - internal to EmulationState only
+
+/// Master clock (timing system)
+pub const MasterClock = @import("emulation/MasterClock.zig").MasterClock;
+
 /// Shared test harness utilities
 pub const TestHarness = @import("test/Harness.zig");
 

@@ -81,13 +81,23 @@ pub fn readConfig(reader: anytype) !ConfigValues {
 
 /// Write MasterClock to binary format
 pub fn writeClock(writer: anytype, clock: *const MasterClock) !void {
+    // Write both master_cycles (monotonic, primary) and ppu_cycles (can skip)
+    // master_cycles written first as it's the authoritative timing source
+    try writer.writeInt(u64, clock.master_cycles, .little);
     try writer.writeInt(u64, clock.ppu_cycles, .little);
 }
 
 /// Read MasterClock from binary format
 pub fn readClock(reader: anytype) !MasterClock {
+    const master = try reader.readInt(u64, .little);
+    const ppu = try reader.readInt(u64, .little);
+
+    // TODO: Could add verification that ppu <= master (accounting for odd frame skips)
+    // For now, trust the saved values
+
     return .{
-        .ppu_cycles = try reader.readInt(u64, .little),
+        .master_cycles = master,
+        .ppu_cycles = ppu,
     };
 }
 

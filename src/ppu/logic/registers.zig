@@ -57,11 +57,17 @@ pub fn buildStatusByte(
 /// VBlank Refactor (Phase 4): This function is now pure regarding the VBlankLedger.
 /// It accepts the ledger by value, computes the VBlank status, and returns a
 /// `PpuReadResult` to signal a $2002 read to the orchestrator (EmulationState).
+///
+/// Race Condition Fix: Added scanline/dot parameters for read-time VBlank masking.
+/// Per Mesen2 and nesdev.org, reading $2002 during scanline 241, dots 0-2 returns
+/// VBlank bit = 0 even if flag is set internally.
 pub fn readRegister(
     state: *PpuState,
     cart: ?*AnyCartridge,
     address: u16,
     vblank_ledger: VBlankLedger,
+    scanline: u16,
+    dot: u16,
 ) PpuReadResult {
     // Registers are mirrored every 8 bytes through $3FFF
     const reg = address & 0x0007;
@@ -86,12 +92,32 @@ pub fn readRegister(
             const vblank_active = vblank_ledger.isFlagVisible();
 
             // Build status byte using the computed flag.
-            const value = buildStatusByte(
+            var value = buildStatusByte(
                 state.status.sprite_overflow,
                 state.status.sprite_0_hit,
                 vblank_active,
                 state.open_bus.value,
             );
+
+            // CRITICAL: Read-time VBlank masking for race condition
+            // Hardware behavior per nesdev.org/wiki/PPU_frame_timing:
+            // Reading $2002 during scanline 241, dots 0-2 returns VBlank bit = 0
+            // even if the flag is set internally.
+            //
+            // Per Mesen2 NesPpu.cpp:290-292:
+            // if(_scanline == _nmiScanline && _cycle < 3) {
+            //     returnValue &= 0x7F;  // Clear bit 7 (VBlank)
+            // }
+            //
+            // This matches hardware behavior where CPU sees VBlank=0 during race window
+            // regardless of internal flag state.
+            //
+            // Reference: https://www.nesdev.org/wiki/PPU_frame_timing
+            // Verified by: Mesen2 (reference emulator)
+            const in_race_window = (scanline == 241 and dot < 3);
+            if (in_race_window) {
+                value &= 0x7F;  // Clear bit 7 (VBlank bit)
+            }
 
             // Side effects handled locally or signaled upwards:
             // 1. Signal that a $2002 read occurred. EmulationState will update the ledger.
@@ -100,7 +126,7 @@ pub fn readRegister(
             // 2. Reset write toggle (local PPU state).
             state.internal.resetToggle();
 
-            // 3. Update open bus with the final status byte.
+            // 3. Update open bus with the final status byte (after masking).
             state.open_bus.write(value);
 
             result.value = value;

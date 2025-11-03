@@ -57,7 +57,8 @@ pub const Harness = struct {
     }
 
     pub fn setPpuTiming(self: *Harness, scanline: u16, dot: u16) void {
-        self.state.clock.ppu_cycles = (@as(u64, scanline) * 341) + dot;
+        // Use MasterClock helper to set both master_cycles and ppu_cycles correctly
+        self.state.clock.setPpuPosition(scanline, dot);
     }
 
     pub fn tickPpu(self: *Harness) void {

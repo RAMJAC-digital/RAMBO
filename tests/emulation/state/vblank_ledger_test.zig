@@ -38,7 +38,10 @@ test "VBlankLedger: Flag is set at scanline 241, dot 1" {
     // But after tick() returns, both have completed, so flag is visible.
     // To test true same-cycle race, CPU would need to read DURING the tick (not after).
     try testing.expect(isVBlankSet(&h));  // UPDATED: After tick completes, flag IS visible
-    try testing.expectEqual(@as(u64, 82182), h.state.vblank_ledger.last_set_cycle);
+
+    // Verify VBlank was set at expected master_cycles position
+    const expected_set_cycle = RAMBO.MasterClock.expectedMasterCyclesFromReset(241, 1);
+    try testing.expectEqual(expected_set_cycle, h.state.vblank_ledger.last_set_cycle);
 
     // Subsequent read clears the flag
     try testing.expect(!isVBlankSet(&h));  // Second read sees CLEAR (first read cleared it)
@@ -84,7 +87,10 @@ test "VBlankLedger: Flag is cleared at scanline 261, dot 1" {
 
     // The flag is now cleared by timing
     try testing.expect(!h.state.vblank_ledger.isActive());
-    try testing.expectEqual(@as(u64, 89002), h.state.vblank_ledger.last_clear_cycle);
+
+    // Verify VBlank was cleared at expected master_cycles position
+    const expected_clear_cycle = RAMBO.MasterClock.expectedMasterCyclesFromReset(261, 1);
+    try testing.expectEqual(expected_clear_cycle, h.state.vblank_ledger.last_clear_cycle);
 }
 
 test "VBlankLedger: Race condition - read on same cycle as set" {

@@ -134,14 +134,15 @@ pub fn stepCycle(state: anytype) CpuCycleResult {
     if (state.dmc_dma.transfer_complete) {
         // Clear signal and record timestamp atomically
         // Pattern follows NMI/VBlank: timestamp updated when state changes
+        // Use master_cycles (monotonic) for all DMA coordination timestamps
         state.dmc_dma.transfer_complete = false;
-        state.dma_interaction_ledger.last_dmc_inactive_cycle = state.clock.ppu_cycles;
+        state.dma_interaction_ledger.last_dmc_inactive_cycle = state.clock.master_cycles;
 
         // If OAM was paused, mark it as resumed and set alignment flag
         const was_paused = state.dma_interaction_ledger.oam_pause_cycle >
             state.dma_interaction_ledger.oam_resume_cycle;
         if (was_paused and state.dma.active) {
-            state.dma_interaction_ledger.oam_resume_cycle = state.clock.ppu_cycles;
+            state.dma_interaction_ledger.oam_resume_cycle = state.clock.master_cycles;
             state.dma_interaction_ledger.needs_alignment_after_dmc = true;
         }
     }
@@ -152,11 +153,13 @@ pub fn stepCycle(state: anytype) CpuCycleResult {
     const dmc_is_active = state.dmc_dma.rdy_low;
 
     if (dmc_is_active and !dmc_was_active) {
-        state.dma_interaction_ledger.last_dmc_active_cycle = state.clock.ppu_cycles;
+        // Use master_cycles (monotonic) for timestamp
+        state.dma_interaction_ledger.last_dmc_active_cycle = state.clock.master_cycles;
 
         // If OAM is active, mark it as paused
         if (state.dma.active) {
-            state.dma_interaction_ledger.oam_pause_cycle = state.clock.ppu_cycles;
+            // Use master_cycles (monotonic) for timestamp
+            state.dma_interaction_ledger.oam_pause_cycle = state.clock.master_cycles;
         }
     }
 

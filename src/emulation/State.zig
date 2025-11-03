@@ -285,35 +285,77 @@ pub const EmulationState = struct {
 
             // PPU registers + mirrors ($2000-$3FFF)
             0x2000...0x3FFF => blk: {
+                // Get current PPU position for race detection and read-time masking
+                const scanline = self.clock.scanline();
+                const dot = self.clock.dot();
+
                 // Check if this is a $2002 read (PPUSTATUS) for NMI suppression tracking
                 const is_status_read = (address & 0x0007) == 0x0002;
 
                 // Race condition tracking for NMI suppression:
-                // If reading $2002 within 0-2 cycles of VBlank set, suppress NMI
-                // Per NESDev: Reads on same cycle or 1-2 cycles after may suppress NMI
+                // Hardware race window: Reading $2002 at scanline 241, dots 0-2
+                //
+                // Per nesdev.org/wiki/PPU_frame_timing:
+                // - Reading one PPU clock BEFORE (dot 0): Flag doesn't set, NMI doesn't fire
+                // - Reading same clock (dot 1): Flag sets but NMI suppressed
+                // - Reading 1-2 clocks after (dots 2-3): Flag visible, NMI suppressed
+                //
+                // Per Mesen2 NesPpu.cpp:585-594 and lines 290-292:
+                // - Cycle 0 detection prevents flag set at cycle 1
+                // - Cycles 0-2 return VBlank=0 in read value (masking)
+                //
+                // Reference: https://www.nesdev.org/wiki/PPU_frame_timing
+                // Verified by: Mesen2 (reference emulator)
                 if (is_status_read) {
-                    const scanline = self.clock.scanline();
-                    const dot = self.clock.dot();
 
-                    // Same-cycle read: CPU reading at exact cycle VBlank will be set
-                    // Hardware sub-cycle order: CPU reads BEFORE PPU sets flag
+                    // Race window: scanline 241, dots 1-2
                     // VBlank is set at scanline 241, dot 1
-                    if (scanline == 241 and dot == 1) {
+                    // CPU can only execute at dot 1, 4, 7, 10... (ppu_cycles % 3 == 0)
+                    if (scanline == 241 and dot >= 1 and dot <= 2) {
+                        // CRITICAL FIX: Check dot == 1, not dot == 0
+                        // CPU physically cannot execute at dot 0 due to CPU/PPU phase alignment.
+                        // CPU only executes when ppu_cycles % 3 == 0.
+                        // At scanline 241:
+                        //   dot 0: ppu_cycles = 82181, 82181 % 3 = 2 (NOT CPU tick)
+                        //   dot 1: ppu_cycles = 82182, 82182 % 3 = 0 (IS CPU tick - VBlank sets here)
+                        //
+                        // Per Mesen2 NesPpu.cpp:590-592: Checks if _cycle == 0, sets _preventVblFlag
+                        // Hardware: "Reading one PPU clock before...never sets the flag"
+                        // (nesdev.org/wiki/PPU_frame_timing)
+                        //
+                        // User guidance: "MC + 1 holds the race" refers to Mesen2's perspective:
+                        // - Mesen2 reads at cycle 0, prevents at cycle 1
+                        // - RAMBO reads at post-advance cycle 1, prevents at CURRENT master cycle
+                        // - No +1 needed because we're already at the race cycle
+                        if (dot == 1) {
+                            // Use master_cycles (monotonic) not ppu_cycles (can skip)
+                            // Set prevention for CURRENT cycle (already at dot 1 post-advance)
+                            self.vblank_ledger.prevent_vbl_set_cycle = self.clock.master_cycles;
+                        }
+
                         // Record race for NMI suppression tracking
-                        const vblank_set_cycle = self.clock.ppu_cycles;
-                        self.vblank_ledger.last_race_cycle = vblank_set_cycle;
-                    } else {
-                        // Check for reads 1-2 cycles AFTER VBlank set (also cause NMI suppression)
-                        const now = self.clock.ppu_cycles;
-                        const last_set = self.vblank_ledger.last_set_cycle;
-                        const last_clear = self.vblank_ledger.last_clear_cycle;
-                        if (last_set > last_clear) {
-                            const delta = if (now >= last_set) now - last_set else 0;
-                            if (delta > 0 and delta <= 2) {
-                                // Race condition: Read $2002 within 1-2 cycles after VBlank set
-                                // This suppresses NMI but flag is visible and gets cleared
-                                self.vblank_ledger.last_race_cycle = last_set;
+                        // Use the WOULD-BE set cycle (241:1) for consistency
+                        // even if read happens before (dot 0) or after (dot 2)
+                        const vblank_set_cycle = self.vblank_ledger.last_set_cycle;
+                        if (vblank_set_cycle == 0) {
+                            // VBlank hasn't been set yet this frame (reading at dot 0)
+                            // Use current master_cycles + offset to dot 1
+                            // We're at scanline 241, some dot 0-2
+                            // Need to predict master_cycles at dot 1
+                            const current_dot = dot;
+                            if (current_dot == 0) {
+                                // Next cycle will be dot 1 (VBlank set cycle)
+                                self.vblank_ledger.last_race_cycle = self.clock.master_cycles + 1;
+                            } else if (current_dot == 1) {
+                                // We're AT the set cycle (shouldn't happen since last_set_cycle would be set)
+                                self.vblank_ledger.last_race_cycle = self.clock.master_cycles;
+                            } else {
+                                // dot 2 - VBlank was set 1 cycle ago
+                                self.vblank_ledger.last_race_cycle = self.clock.master_cycles - 1;
                             }
+                        } else {
+                            // VBlank was already set (reading at dot 1 or 2)
+                            self.vblank_ledger.last_race_cycle = vblank_set_cycle;
                         }
                     }
                 }
@@ -323,6 +365,8 @@ pub const EmulationState = struct {
                     cart_ptr,
                     address,
                     self.vblank_ledger,
+                    scanline,
+                    dot,
                 );
 
                 ppu_read_result = result;
@@ -377,7 +421,8 @@ pub const EmulationState = struct {
                 // Only record the read if the flag was actually visible and got cleared
                 // This prevents same-cycle reads from affecting subsequent reads
                 if (self.vblank_ledger.isFlagVisible()) {
-                    self.vblank_ledger.last_read_cycle = self.clock.ppu_cycles;
+                    // Use master_cycles (monotonic) for timestamp, not ppu_cycles (can skip)
+                    self.vblank_ledger.last_read_cycle = self.clock.master_cycles;
                 }
             }
         }
@@ -567,13 +612,16 @@ pub const EmulationState = struct {
             current_dot,
         );
 
-        // Advance clock by 1 PPU cycle (always happens)
-        self.clock.advance(1);
-
-        // If skip condition met, advance by additional 1 cycle
-        // This simulates the skipped PPU clock tick
+        // Advance clock: master_cycles ALWAYS +1 (monotonic)
+        // PPU cycles: +2 on odd frame skip (skips dot 340), +1 normally
+        //
+        // CRITICAL FIX: Previously called advance(1) twice, which made master_cycles
+        // non-monotonic (skipped values). Now master_cycles always advances by 1,
+        // only ppu_cycles skips on odd frames.
         if (skip_slot) {
-            self.clock.advance(1);
+            self.clock.advance(2); // master +1, ppu +2 (skip dot 340)
+        } else {
+            self.clock.advance(1); // master +1, ppu +1 (normal)
         }
 
         // Build timing step descriptor with PRE-advance position
@@ -715,13 +763,26 @@ pub const EmulationState = struct {
         // Handle VBlank events by updating the ledger's timestamps.
         if (result.nmi_signal) {
             // VBlank flag set at scanline 241 dot 1.
-            self.vblank_ledger.last_set_cycle = self.clock.ppu_cycles;
+            // CRITICAL: Check prevention flag before setting
+            // Per Mesen2 NesPpu.cpp:1340-1344: if(!_preventVblFlag) { set flag }
+            // Hardware: Read at dot 1 prevents flag set at same cycle
+            //
+            // Use master_cycles (monotonic) for all comparisons and assignments
+            // This ensures prevention works correctly even on odd frame skips
+            const is_prevented = (self.clock.master_cycles == self.vblank_ledger.prevent_vbl_set_cycle);
+            if (!is_prevented) {
+                self.vblank_ledger.last_set_cycle = self.clock.master_cycles;
+            }
+            // One-shot: ALWAYS clear prevention flag after checking (match Mesen2 exactly)
+            // Per Mesen2 NesPpu.cpp:1344: _preventVblFlag = false (unconditional)
+            self.vblank_ledger.prevent_vbl_set_cycle = 0;
             // DO NOT clear last_race_cycle here - preserve race state across VBlank period
         }
 
         if (result.vblank_clear) {
             // VBlank span ends at scanline 261 dot 1 (pre-render).
-            self.vblank_ledger.last_clear_cycle = self.clock.ppu_cycles;
+            // Use master_cycles (monotonic) for timestamp
+            self.vblank_ledger.last_clear_cycle = self.clock.master_cycles;
             self.vblank_ledger.last_race_cycle = 0;  // Clear race state at VBlank end
         }
     }

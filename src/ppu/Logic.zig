@@ -65,13 +65,16 @@ pub inline fn writeVram(state: *PpuState, cart: ?*AnyCartridge, address: u16, va
 
 /// Read from PPU register (via CPU memory bus)
 /// VBlank Migration (Phase 2): Now requires VBlankLedger
+/// Race Condition Fix: Added scanline/dot for read-time VBlank masking
 pub inline fn readRegister(
     state: *PpuState,
     cart: ?*AnyCartridge,
     address: u16,
     vblank_ledger: @import("../emulation/VBlankLedger.zig").VBlankLedger,
+    scanline: u16,
+    dot: u16,
 ) registers.PpuReadResult {
-    return registers.readRegister(state, cart, address, vblank_ledger);
+    return registers.readRegister(state, cart, address, vblank_ledger, scanline, dot);
 }
 
 /// Write to PPU register (via CPU memory bus)
