@@ -90,7 +90,7 @@ test "Debugger: step scanline" {
     defer debugger.deinit();
 
     var state = test_fixtures.createTestState(&config);
-    state.clock.master_cycles = 100 * 341; // Scanline 100
+    state.ppu.scanline = 100; // Scanline 100
 
     debugger.stepScanline(&state);
     try testing.expectEqual(DebugMode.step_scanline, debugger.state.mode);
@@ -100,7 +100,7 @@ test "Debugger: step scanline" {
     try testing.expect(!try debugger.shouldBreak(&state));
 
     // Should break on target scanline
-    state.clock.master_cycles = 101 * 341; // Scanline 101
+    state.ppu.scanline = 101; // Scanline 101
     try testing.expect(try debugger.shouldBreak(&state));
 }
 
@@ -112,7 +112,7 @@ test "Debugger: step frame" {
     defer debugger.deinit();
 
     var state = test_fixtures.createTestState(&config);
-    state.clock.master_cycles = 10 * 89342; // Frame 10
+    state.ppu.frame_count = 10; // Frame 10
 
     debugger.stepFrame(&state);
     try testing.expectEqual(DebugMode.step_frame, debugger.state.mode);
@@ -122,6 +122,6 @@ test "Debugger: step frame" {
     try testing.expect(!try debugger.shouldBreak(&state));
 
     // Should break on target frame
-    state.clock.master_cycles = 11 * 89342; // Frame 11
+    state.ppu.frame_count = 11; // Frame 11
     try testing.expect(try debugger.shouldBreak(&state));
 }

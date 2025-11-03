@@ -43,7 +43,7 @@ pub const NTSC = struct {
     pub const POST_RENDER_SCANLINE: u16 = 240;
     pub const VBLANK_SCANLINE_START: u16 = 241;
     pub const VBLANK_SCANLINE_END: u16 = 260;
-    pub const PRE_RENDER_SCANLINE: u16 = 261;
+    pub const PRE_RENDER_SCANLINE: i16 = -1;
 
     /// Horizontal timing (cycles within scanline, 1-indexed for visible)
     pub const VISIBLE_DOT_START: u16 = 1;
@@ -226,4 +226,8 @@ test "timing: ScanlinePosition absolute cycle conversion" {
     const pos2 = ScanlinePosition.fromAbsoluteCycle(abs_cycle);
     try testing.expectEqual(@as(u16, 10), pos2.scanline);
     try testing.expectEqual(@as(u16, 50), pos2.cycle);
+}
+
+test {
+    std.testing.refAllDeclsRecursive(@This());
 }

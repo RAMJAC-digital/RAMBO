@@ -34,15 +34,15 @@ test "VBlank: Flag sets at scanline 241 dot 1" {
     try testing.expect(isVBlankSet(&h));  // NOW sees SET
 }
 
-test "VBlank: Flag clears at scanline 261 dot 1" {
+test "VBlank: Flag clears at scanline -1 dot 1 (pre-render)" {
     var h = try Harness.init();
     defer h.deinit();
     h.state.ppu.warmup_complete = true; // Skip PPU warmup for VBlank timing tests
 
     // Seek to just before VBlank clears
     // Ensure we have not performed a prior $2002 read that clears the flag
-    h.seekTo(261, 0);
-    try testing.expect(isVBlankSet(&h)); // Still set at 261,0
+    h.seekTo(-1, 0);
+    try testing.expect(isVBlankSet(&h)); // Still set at -1,0
 
     // Tick to the exact clear cycle
     h.tick(1);

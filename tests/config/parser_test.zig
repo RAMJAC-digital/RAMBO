@@ -2,7 +2,7 @@ const std = @import("std");
 const testing = std.testing;
 const RAMBO = @import("RAMBO");
 const Config = RAMBO.Config;
-const parser = RAMBO.ConfigParser;
+const parser = Config.parser;
 
 // ============================================================================
 // Basic Parsing Tests
@@ -10,7 +10,7 @@ const parser = RAMBO.ConfigParser;
 
 test "parseKdl: empty content returns default config" {
     const allocator = testing.allocator;
-    const config = try parser.parseKdl("", allocator);
+    var config = try parser.parseKdl("", allocator);
     defer config.deinit();
 
     // Should have all default values
@@ -25,7 +25,7 @@ test "parseKdl: simple CPU variant" {
         \\    variant "RP2A03H"
         \\}
     ;
-    const config = try parser.parseKdl(kdl, allocator);
+    var config = try parser.parseKdl(kdl, allocator);
     defer config.deinit();
 
     try testing.expectEqual(Config.CpuVariant.rp2a03h, config.cpu.variant);
@@ -40,7 +40,7 @@ test "parseKdl: PPU configuration" {
         \\    accuracy "frame"
         \\}
     ;
-    const config = try parser.parseKdl(kdl, allocator);
+    var config = try parser.parseKdl(kdl, allocator);
     defer config.deinit();
 
     try testing.expectEqual(Config.PpuVariant.rp2c07_pal, config.ppu.variant);
@@ -65,7 +65,7 @@ test "parseKdl: complete AccuracyCoin configuration" {
         \\    accuracy "cycle"
         \\}
     ;
-    const config = try parser.parseKdl(kdl, allocator);
+    var config = try parser.parseKdl(kdl, allocator);
     defer config.deinit();
 
     try testing.expectEqual(Config.ConsoleVariant.nes_ntsc_frontloader, config.console);
@@ -89,7 +89,7 @@ test "parseKdl: handles comments correctly" {
         \\    region "NTSC"
         \\}
     ;
-    const config = try parser.parseKdl(kdl, allocator);
+    var config = try parser.parseKdl(kdl, allocator);
     defer config.deinit();
 
     try testing.expectEqual(Config.CpuVariant.rp2a03g, config.cpu.variant);
@@ -107,7 +107,7 @@ test "parseKdl: handles empty lines and whitespace" {
         \\  }
         \\
     ;
-    const config = try parser.parseKdl(kdl, allocator);
+    var config = try parser.parseKdl(kdl, allocator);
     defer config.deinit();
 
     try testing.expectEqual(Config.CpuVariant.rp2a03g, config.cpu.variant);
@@ -122,7 +122,7 @@ test "parseKdl: malformed input doesn't crash - unknown key" {
         \\}
     ;
     // Should not crash, should ignore unknown key
-    const config = try parser.parseKdl(kdl, allocator);
+    var config = try parser.parseKdl(kdl, allocator);
     defer config.deinit();
 
     try testing.expectEqual(Config.CpuVariant.rp2a03g, config.cpu.variant);
@@ -136,7 +136,7 @@ test "parseKdl: malformed input doesn't crash - invalid variant name" {
         \\}
     ;
     // Should not crash, should use default
-    const config = try parser.parseKdl(kdl, allocator);
+    var config = try parser.parseKdl(kdl, allocator);
     defer config.deinit();
 
     // Should have default CPU variant
@@ -151,18 +151,18 @@ test "parseKdl: respects maximum line limit" {
     const allocator = testing.allocator;
 
     // Create config with more than MAX_LINES (1000)
-    var buffer = std.ArrayList(u8).init(allocator);
-    defer buffer.deinit();
+    var buffer: std.ArrayList(u8) = .{};
+    defer buffer.deinit(allocator);
 
-    try buffer.appendSlice("cpu {\n");
+    try buffer.appendSlice(allocator, "cpu {\n");
     var i: usize = 0;
     while (i < 1500) : (i += 1) {
-        try buffer.writer().print("    variant \"RP2A03G\"  // line {}\n", .{i});
+        try buffer.writer(allocator).print("    variant \"RP2A03G\"  // line {}\n", .{i});
     }
-    try buffer.appendSlice("}\n");
+    try buffer.appendSlice(allocator, "}\n");
 
     // Should not hang or crash
-    const config = try parser.parseKdl(buffer.items, allocator);
+    var config = try parser.parseKdl(buffer.items, allocator);
     defer config.deinit();
 
     // Should have parsed something before hitting limit
@@ -173,18 +173,18 @@ test "parseKdl: handles very long lines gracefully" {
     const allocator = testing.allocator;
 
     // Create line longer than MAX_LINE_LENGTH (1024)
-    var buffer = std.ArrayList(u8).init(allocator);
-    defer buffer.deinit();
+    var buffer: std.ArrayList(u8) = .{};
+    defer buffer.deinit(allocator);
 
-    try buffer.appendSlice("cpu { variant \"RP2A03G\"");
+    try buffer.appendSlice(allocator, "cpu { variant \"RP2A03G\"");
     var i: usize = 0;
     while (i < 2000) : (i += 1) {
-        try buffer.append(' ');
+        try buffer.append(allocator, ' ');
     }
-    try buffer.appendSlice("}\n");
+    try buffer.appendSlice(allocator, "}\n");
 
     // Should not crash, should skip the long line or truncate safely
-    const config = try parser.parseKdl(buffer.items, allocator);
+    var config = try parser.parseKdl(buffer.items, allocator);
     defer config.deinit();
 
     // May or may not parse depending on line length handling
@@ -205,7 +205,7 @@ test "parseKdl: video backend configuration" {
         \\    scale 4
         \\}
     ;
-    const config = try parser.parseKdl(kdl, allocator);
+    var config = try parser.parseKdl(kdl, allocator);
     defer config.deinit();
 
     try testing.expectEqual(Config.VideoBackend.vulkan, config.video.backend);
@@ -247,7 +247,7 @@ test "parseKdl: multiple sections together" {
         \\    scale 2
         \\}
     ;
-    const config = try parser.parseKdl(kdl, allocator);
+    var config = try parser.parseKdl(kdl, allocator);
     defer config.deinit();
 
     try testing.expectEqual(Config.ConsoleVariant.nes_pal, config.console);
@@ -278,7 +278,7 @@ test "parseKdl: fuzz with various inputs" {
 
     for (fuzz_inputs) |input| {
         // Should not crash regardless of input
-        const config = try parser.parseKdl(input, allocator);
+        var config = try parser.parseKdl(input, allocator);
         defer config.deinit();
 
         // Should return some valid config (likely defaults)

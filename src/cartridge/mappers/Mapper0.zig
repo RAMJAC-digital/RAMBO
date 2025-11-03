@@ -372,3 +372,7 @@ test "Mapper0: duck typing - no Cartridge import needed" {
     // Works with any struct that has the required fields!
     try testing.expectEqual(@as(u8, 0x42), mapper.cpuRead(&cart, 0x8000));
 }
+
+test {
+    std.testing.refAllDeclsRecursive(@This());
+}

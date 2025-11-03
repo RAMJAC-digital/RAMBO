@@ -33,8 +33,8 @@ test "Seek Behavior: seekTo correctly positions emulator" {
     try testing.expect(isVBlankSet(&h));
 
     // --- Test 3: Seek to after VBlank clear ---
-    h.seekTo(261, 2);
-    try testing.expectEqual(@as(i16, 261), h.state.ppu.scanline);
+    h.seekTo(-1, 2);
+    try testing.expectEqual(@as(i16, -1), h.state.ppu.scanline);
     try testing.expectEqual(@as(u16, 2), h.state.ppu.cycle);
     try testing.expect(!isVBlankSet(&h));
 }

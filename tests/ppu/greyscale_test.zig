@@ -8,9 +8,10 @@
 
 const std = @import("std");
 const testing = std.testing;
-const PpuState = @import("../../src/ppu/State.zig").PpuState;
-const background = @import("../../src/ppu/logic/background.zig");
-const palette = @import("../../src/ppu/palette.zig");
+const RAMBO = @import("RAMBO");
+const PpuState = RAMBO.PpuType;
+const PpuLogic = RAMBO.Ppu.Logic;
+const palette = RAMBO.PpuPalette;
 
 // ============================================================================
 // Basic Greyscale Mode Tests
@@ -25,7 +26,7 @@ test "Greyscale mode: disabled - colors pass through unchanged" {
 
     for (test_colors) |color_index| {
         state.palette_ram[0] = color_index;
-        const result = background.getPaletteColor(&state, 0);
+        const result = PpuLogic.getPaletteColor(&state, 0);
         const expected = palette.getNesColorRgba(color_index);
 
         try testing.expectEqual(expected, result);
@@ -62,7 +63,7 @@ test "Greyscale mode: enabled - colors masked with $30" {
 
     for (test_cases) |case| {
         state.palette_ram[0] = case.input;
-        const result = background.getPaletteColor(&state, 0);
+        const result = PpuLogic.getPaletteColor(&state, 0);
         const expected = palette.getNesColorRgba(case.expected);
 
         try testing.expectEqual(expected, result);
@@ -78,7 +79,7 @@ test "Greyscale mode: hue bits removed, value bits preserved" {
     const row0_colors = [_]u8{ 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x0C, 0x0D };
     for (row0_colors) |color| {
         state.palette_ram[0] = color;
-        const result = background.getPaletteColor(&state, 0);
+        const result = PpuLogic.getPaletteColor(&state, 0);
         const expected = palette.getNesColorRgba(0x00);
         try testing.expectEqual(expected, result);
     }
@@ -87,7 +88,7 @@ test "Greyscale mode: hue bits removed, value bits preserved" {
     const row1_colors = [_]u8{ 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x1C, 0x1D };
     for (row1_colors) |color| {
         state.palette_ram[0] = color;
-        const result = background.getPaletteColor(&state, 0);
+        const result = PpuLogic.getPaletteColor(&state, 0);
         const expected = palette.getNesColorRgba(0x10);
         try testing.expectEqual(expected, result);
     }
@@ -96,7 +97,7 @@ test "Greyscale mode: hue bits removed, value bits preserved" {
     const row2_colors = [_]u8{ 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x2C, 0x2D };
     for (row2_colors) |color| {
         state.palette_ram[0] = color;
-        const result = background.getPaletteColor(&state, 0);
+        const result = PpuLogic.getPaletteColor(&state, 0);
         const expected = palette.getNesColorRgba(0x20);
         try testing.expectEqual(expected, result);
     }
@@ -105,7 +106,7 @@ test "Greyscale mode: hue bits removed, value bits preserved" {
     const row3_colors = [_]u8{ 0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x3C, 0x3D };
     for (row3_colors) |color| {
         state.palette_ram[0] = color;
-        const result = background.getPaletteColor(&state, 0);
+        const result = PpuLogic.getPaletteColor(&state, 0);
         const expected = palette.getNesColorRgba(0x30);
         try testing.expectEqual(expected, result);
     }
@@ -127,18 +128,18 @@ test "Greyscale mode: palette index masking with $1F" {
     state.palette_ram[0x10] = 0x2D; // Pink
 
     // Access background palette 0, color 0
-    const result1 = background.getPaletteColor(&state, 0x00);
+    const result1 = PpuLogic.getPaletteColor(&state, 0x00);
     const expected1 = palette.getNesColorRgba(0x00); // 0x0C & 0x30 = 0x00
     try testing.expectEqual(expected1, result1);
 
     // Access sprite palette 0, color 0
-    const result2 = background.getPaletteColor(&state, 0x10);
+    const result2 = PpuLogic.getPaletteColor(&state, 0x10);
     const expected2 = palette.getNesColorRgba(0x20); // 0x2D & 0x30 = 0x20
     try testing.expectEqual(expected2, result2);
 
     // Test with out-of-range index (should wrap via & 0x1F)
     state.palette_ram[0x1F] = 0x3A; // Light cyan
-    const result3 = background.getPaletteColor(&state, 0x1F);
+    const result3 = PpuLogic.getPaletteColor(&state, 0x1F);
     const expected3 = palette.getNesColorRgba(0x30); // 0x3A & 0x30 = 0x30
     try testing.expectEqual(expected3, result3);
 }
@@ -155,7 +156,7 @@ test "Greyscale mode: all 64 NES colors map to 4 greyscale values" {
         const color_index: u8 = @intCast(i);
         state.palette_ram[0] = color_index;
 
-        const result = background.getPaletteColor(&state, 0);
+        const result = PpuLogic.getPaletteColor(&state, 0);
 
         // Determine expected greyscale value
         const expected_index = color_index & 0x30;
@@ -242,17 +243,17 @@ test "Greyscale mode: works with both background and sprite palettes" {
     state.palette_ram[0x15] = 0x38; // Yellow
 
     // Test background palette access
-    const bg_result1 = background.getPaletteColor(&state, 0x00);
+    const bg_result1 = PpuLogic.getPaletteColor(&state, 0x00);
     try testing.expectEqual(palette.getNesColorRgba(0x00), bg_result1);
 
-    const bg_result2 = background.getPaletteColor(&state, 0x05);
+    const bg_result2 = PpuLogic.getPaletteColor(&state, 0x05);
     try testing.expectEqual(palette.getNesColorRgba(0x10), bg_result2);
 
     // Test sprite palette access
-    const sprite_result1 = background.getPaletteColor(&state, 0x10);
+    const sprite_result1 = PpuLogic.getPaletteColor(&state, 0x10);
     try testing.expectEqual(palette.getNesColorRgba(0x20), sprite_result1);
 
-    const sprite_result2 = background.getPaletteColor(&state, 0x15);
+    const sprite_result2 = PpuLogic.getPaletteColor(&state, 0x15);
     try testing.expectEqual(palette.getNesColorRgba(0x30), sprite_result2);
 }
 
@@ -264,13 +265,13 @@ test "Greyscale mode: runtime toggle affects rendering" {
 
     // Render without greyscale
     state.mask.greyscale = false;
-    const color_result = background.getPaletteColor(&state, 0);
+    const color_result = PpuLogic.getPaletteColor(&state, 0);
     const expected_color = palette.getNesColorRgba(0x1C);
     try testing.expectEqual(expected_color, color_result);
 
     // Enable greyscale and render again
     state.mask.greyscale = true;
-    const grey_result = background.getPaletteColor(&state, 0);
+    const grey_result = PpuLogic.getPaletteColor(&state, 0);
     const expected_grey = palette.getNesColorRgba(0x10); // 0x1C & 0x30 = 0x10
     try testing.expectEqual(expected_grey, grey_result);
 
@@ -292,9 +293,9 @@ test "Greyscale mode: already greyscale colors unchanged" {
     for (greyscale_colors) |color| {
         state.palette_ram[0] = color;
 
-        const result_enabled = background.getPaletteColor(&state, 0);
+        const result_enabled = PpuLogic.getPaletteColor(&state, 0);
         state.mask.greyscale = false;
-        const result_disabled = background.getPaletteColor(&state, 0);
+        const result_disabled = PpuLogic.getPaletteColor(&state, 0);
 
         // Greyscale colors should be identical with or without greyscale mode
         try testing.expectEqual(result_enabled, result_disabled);
@@ -310,7 +311,7 @@ test "Greyscale mode: maximum color value" {
     // Color $3F is the maximum 6-bit value
     state.palette_ram[0] = 0x3F;
 
-    const result = background.getPaletteColor(&state, 0);
+    const result = PpuLogic.getPaletteColor(&state, 0);
     const expected = palette.getNesColorRgba(0x30); // 0x3F & 0x30 = 0x30
 
     try testing.expectEqual(expected, result);
@@ -323,7 +324,7 @@ test "Greyscale mode: zero palette index special case" {
     // Palette index 0 is the universal backdrop color
     state.palette_ram[0] = 0x0D; // Black
 
-    const result = background.getPaletteColor(&state, 0);
+    const result = PpuLogic.getPaletteColor(&state, 0);
     const expected = palette.getNesColorRgba(0x00); // 0x0D & 0x30 = 0x00
 
     try testing.expectEqual(expected, result);

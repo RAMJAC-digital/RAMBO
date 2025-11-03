@@ -274,3 +274,7 @@ test "MasterClock: CPU/master ratio verification" {
     try testing.expectEqual(cpu_cycles_target, clock.cpuCycles());
     try testing.expectEqual(master_cycles_needed, clock.master_cycles);
 }
+
+test {
+    std.testing.refAllDeclsRecursive(@This());
+}

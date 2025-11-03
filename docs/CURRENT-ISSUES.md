@@ -187,7 +187,7 @@ This document tracks **active** bugs and issues verified against current codebas
    - Impact: Hardware accuracy improvement, prevents spurious sprite 0 hits
    - Test Coverage: `tests/ppu/sprite_edge_cases_test.zig`
 
-5. **PPU Write Toggle Not Cleared at Pre-render** - Added missing write toggle (w register) reset at scanline 261 dot 1
+5. **PPU Write Toggle Not Cleared at Pre-render** - Added missing write toggle (w register) reset at scanline -1 dot 1
    - File: `src/ppu/Logic.zig:336`
    - Impact: Prevents scroll/address corruption across frame boundaries
    - Test Coverage: 6 tests in `tests/integration/ppu_write_toggle_test.zig`

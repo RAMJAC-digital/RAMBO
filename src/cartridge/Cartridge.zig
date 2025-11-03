@@ -455,3 +455,7 @@ test "Cartridge: type alias - NromCart" {
     // Should have Mapper0
     try testing.expect(@TypeOf(cart.mapper) == Mapper0);
 }
+
+test {
+    std.testing.refAllDeclsRecursive(@This());
+}

@@ -288,7 +288,7 @@ const flipped_row = if (vertical_flip) 7 -% row else row;
 const flipped_row = if (vertical_flip) 15 -% row else row;
 ```
 
-**Critical Edge Case:** On pre-render scanline (261), sprite fetches use stale secondary OAM from scanline 239. When `next_scanline = 0` and `sprite_y = 200`, the row calculation wraps:
+**Critical Edge Case:** On pre-render scanline (-1), sprite fetches use stale secondary OAM from scanline 239. When `next_scanline = 0` and `sprite_y = 200`, the row calculation wraps:
 - `row = 0 -% 200 = 56` (out of bounds for 8x8 sprite)
 - Hardware doesn't crash - it uses the wrapped value to fetch arbitrary pattern data
 - Without wrapping subtraction (`--%`), vertical flip would cause undefined behavior

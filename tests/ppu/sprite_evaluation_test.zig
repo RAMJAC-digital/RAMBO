@@ -368,9 +368,9 @@ test "Sprite Evaluation: Sprite overflow cleared at pre-render scanline" {
     // Set overflow flag
     ppu.status.sprite_overflow = true;
 
-    // Advance to pre-render scanline (261), dot 1
+    // Advance to pre-render scanline (-1), dot 1
     // Flags are cleared DURING dot 1, so we need to tick AT dot 1
-    harness.setPpuTiming(261, 1);
+    harness.setPpuTiming(-1, 1);
     harness.tickPpu(); // Ticks at dot 1 (where clearing happens)
 
     // Overflow flag should be cleared
@@ -446,9 +446,9 @@ test "Sprite 0 Hit: Cleared at pre-render scanline" {
     // Set sprite 0 hit flag
     ppu.status.sprite_0_hit = true;
 
-    // Advance to pre-render scanline (261), dot 1
+    // Advance to pre-render scanline (-1), dot 1
     // Flags are cleared DURING dot 1, so we need to tick AT dot 1
-    harness.setPpuTiming(261, 1);
+    harness.setPpuTiming(-1, 1);
     harness.tickPpu();
 
     // Flag should be cleared
@@ -484,8 +484,8 @@ test "Sprite Evaluation: Only occurs on visible scanlines (0-239)" {
     // Secondary OAM should be all $FF (no evaluation during VBlank)
     try testing.expectEqual(@as(u8, 0xFF), ppu.secondary_oam[0]);
 
-    // Test pre-render scanline (261) - no evaluation
-    harness.setPpuTiming(261, 0);
+    // Test pre-render scanline (-1) - no evaluation
+    harness.setPpuTiming(-1, 0);
 
     harness.tickPpuCycles(256);
 

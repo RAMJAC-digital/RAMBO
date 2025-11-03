@@ -62,10 +62,27 @@ pub const Harness = struct {
         self.state.ppu.cycle = dot;
     }
 
+    /// Set PPU position directly without advancing emulation
+    /// This positions the PPU at a specific scanline/dot WITHOUT triggering
+    /// any side effects (VBlank flag changes, NMI signals, etc.)
+    ///
+    /// Use this for testing behavior BEFORE events at a specific position fire.
+    /// Use seekTo() for advancing through time normally with all side effects.
+    ///
+    /// Example:
+    ///   setPpuPosition(241, 1) - Position AT VBlank set point, flag NOT set yet
+    ///   seekTo(241, 1) - Advance TO VBlank set point, flag IS set (tick completed)
+    pub fn setPpuPosition(self: *Harness, scanline: i16, dot: u16) void {
+        self.state.ppu.scanline = scanline;
+        self.state.ppu.cycle = dot;
+    }
+
     pub fn tickPpu(self: *Harness) void {
         const scanline = self.state.ppu.scanline;
         const dot = self.state.ppu.cycle;
+        const rendering_enabled = self.state.ppu.mask.renderingEnabled();
         _ = PpuLogic.tick(&self.state.ppu, scanline, dot, self.cartPtr(), null);
+        PpuLogic.advanceClock(&self.state.ppu, rendering_enabled);
         self.state.clock.advance();
     }
 
@@ -92,10 +109,16 @@ pub const Harness = struct {
         }
     }
 
-    /// Seek the emulator to a specific PPU scanline and dot.
-    /// Simple implementation: just tick until we reach the target position.
+    /// Seek the emulator to a specific PPU scanline and dot by advancing through time.
+    /// This advances emulation normally, triggering all side effects along the way.
+    ///
+    /// After this function returns, the PPU is positioned AT the target scanline/dot,
+    /// and all events at that position HAVE ALREADY FIRED (VBlank flag set, NMI triggered, etc.)
+    ///
     /// IMPORTANT: This does NOT reset the VBlank ledger. If you need a clean ledger
     /// state, call `self.state.vblank_ledger.reset()` before calling this function.
+    ///
+    /// For positioning WITHOUT side effects, use setPpuPosition() instead.
     pub fn seekTo(self: *Harness, target_scanline: i16, target_dot: u16) void {
         while (self.state.ppu.scanline != target_scanline or self.state.ppu.cycle != target_dot) {
             self.state.tick();
@@ -117,7 +140,9 @@ pub const Harness = struct {
     pub fn tickPpuWithFramebuffer(self: *Harness, framebuffer: []u32) void {
         const scanline = self.state.ppu.scanline;
         const dot = self.state.ppu.cycle;
+        const rendering_enabled = self.state.ppu.mask.renderingEnabled();
         _ = PpuLogic.tick(&self.state.ppu, scanline, dot, self.cartPtr(), framebuffer);
+        PpuLogic.advanceClock(&self.state.ppu, rendering_enabled);
         self.state.clock.advance();
     }
 
@@ -177,6 +202,39 @@ pub const Harness = struct {
         }
 
         @panic("seekToScanlineDot: Failed to reach target position");
+    }
+
+    /// Advance emulation to a specific frame (efficient frame skipping)
+    /// Advances until ppu.frame_count >= target_frame
+    /// Preserves all side effects (VBlank ledger, etc.)
+    pub fn advanceToFrame(self: *Harness, target_frame: u64) void {
+        while (self.state.ppu.frame_count < target_frame) {
+            self.state.tick();
+        }
+    }
+
+    /// Advance emulation to a specific scanline within current or next frame
+    /// Advances until ppu.scanline == target_scanline
+    /// Preserves all side effects (VBlank ledger, etc.)
+    pub fn advanceToScanline(self: *Harness, target_scanline: i16) void {
+        const starting_frame = self.state.ppu.frame_count;
+        const max_frames: u64 = 2; // Safety: don't advance more than 2 frames
+
+        while (self.state.ppu.scanline != target_scanline) {
+            if (self.state.ppu.frame_count > starting_frame + max_frames) {
+                @panic("advanceToScanline: Target scanline not reached within 2 frames");
+            }
+            self.state.tick();
+        }
+    }
+
+    /// Advance emulation by exact cycle count
+    /// count: number of master clock cycles to advance
+    /// Preserves all side effects (VBlank ledger, etc.)
+    pub fn advanceCycles(self: *Harness, count: u64) void {
+        for (0..count) |_| {
+            self.state.tick();
+        }
     }
 
     /// Helper: Get current scanline

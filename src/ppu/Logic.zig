@@ -66,8 +66,9 @@ pub fn advanceClock(ppu: *PpuState, rendering_enabled: bool) void {
         ppu.cycle = 0;
         ppu.scanline += 1;
 
-        // Frame wrap: scanline 261 → -1 (pre-render, advance frame)
-        if (ppu.scanline > 261) {
+        // Frame wrap: scanline 260 → -1 (pre-render, advance frame)
+        // Hardware: 262 scanlines total (scanlines -1, 0-260)
+        if (ppu.scanline > 260) {
             ppu.scanline = -1; // Back to pre-render line
             ppu.frame_count += 1;
         }
@@ -252,7 +253,7 @@ pub fn tick(
 
     // No timing advancement - timing is externally controlled
     const is_visible = scanline < 240;
-    const is_prerender = scanline == 261;
+    const is_prerender = scanline == -1;
     const is_rendering_line = is_visible or is_prerender;
     // Use immediate mask for register updates/side effects (not delayed)
     const rendering_enabled = state.mask.renderingEnabled();
@@ -441,8 +442,8 @@ pub fn tick(
         flags.nmi_signal = true;
     }
 
-    // Clear sprite flags and signal VBlank end (scanline 261 dot 1)
-    if (scanline == 261 and dot == 1) {
+    // Clear sprite flags and signal VBlank end (scanline -1 dot 1, pre-render)
+    if (scanline == -1 and dot == 1) {
         // Clear sprite flags (these are NOT managed by VBlankLedger)
         state.status.sprite_0_hit = false;
         state.status.sprite_overflow = false;
@@ -457,11 +458,12 @@ pub fn tick(
     }
 
     // === Frame Complete ===
-    // Frame completes when we transition to scanline 0, dot 0 of the NEXT frame
-    // NOT at the last dot of scanline 261!
-    // Hardware: Frame spans cycles 0-89,341 (scanline 0, dot 0 through scanline 261, dot 340)
-    // Frame is complete AFTER we've ticked past 89,341 and wrapped to (0, 0)
-    if (scanline == 0 and dot == 0) {
+    // Frame completes when wrapping back to pre-render scanline (scanline -1, dot 0)
+    // Hardware: Frame spans scanlines -1 through 260 (262 total scanlines)
+    // Total: 89,342 PPU cycles (262 scanlines × 341 dots, minus 1 for odd frame skip)
+    // Guard with frame_count > 0 to avoid triggering on power-on initialization
+    // Reference: Mesen2 increments _frameCount at scanline 240 (NesPpu.cpp:1417)
+    if (scanline == -1 and dot == 0 and state.frame_count > 0) {
         flags.frame_complete = true;
 
         // Note: Diagnostic logging moved to EmulationState where frame number is available

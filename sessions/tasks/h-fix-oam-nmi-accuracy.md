@@ -50,7 +50,7 @@ According to NES hardware documentation, OAM DMA, NMI generation, and VBlank tim
 
 **VBlank Timing** (https://www.nesdev.org/wiki/PPU_frame_timing):
 - VBlank flag set at scanline 241, dot 1 (start of VBlank period)
-- VBlank flag cleared at scanline 261, dot 1 (pre-render scanline)
+- VBlank flag cleared at scanline -1, dot 1 (pre-render scanline)
 - VBlank flag also cleared by reading $2002 (PPUSTATUS)
 - **CRITICAL:** Race condition - reading $2002 at exact cycle VBlank sets suppresses NMI but clears flag normally
 
@@ -140,7 +140,7 @@ pub const DmaInteractionLedger = struct {
 ```zig
 pub const VBlankLedger = struct {
     last_set_cycle: u64 = 0,     // VBlank set (scanline 241, dot 1)
-    last_clear_cycle: u64 = 0,   // VBlank cleared by timing (scanline 261, dot 1)
+    last_clear_cycle: u64 = 0,   // VBlank cleared by timing (scanline -1, dot 1)
     last_read_cycle: u64 = 0,    // $2002 read timestamp
     last_race_cycle: u64 = 0,    // Race read (same cycle as set)
 
@@ -354,7 +354,7 @@ if (ppu_result.set_vblank) {
     self.vblank_ledger.last_set_cycle = self.clock.ppu_cycles;
 }
 
-// VBlank flag cleared by timing (scanline 261, dot 1)
+// VBlank flag cleared by timing (scanline -1, dot 1)
 if (ppu_result.clear_vblank) {
     self.vblank_ledger.last_clear_cycle = self.clock.ppu_cycles;
 }
@@ -455,7 +455,7 @@ No new state fields needed - current structures are hardware-complete.
 
 4. **VBlank flag timing:**
    - Verify flag set at scanline 241, dot 1
-   - Verify flag cleared at scanline 261, dot 1
+   - Verify flag cleared at scanline -1, dot 1
    - Verify flag cleared by $2002 read
    - Verify race condition handling (same-cycle read)
 
@@ -1016,6 +1016,341 @@ if(_scanline == -1 && _cycle == 339 && ...) {
 
 ---
 
+### 2025-11-03: Test Regression Investigation and Fixes
+
+#### Investigation Summary
+
+**Session Focus:** Fix test regressions from PPU clock decoupling (commit 9f486e5) and restore test baseline.
+
+**Test Status Progression:**
+- **Baseline before work:** 971/1017 passing (95.5%), 40 failing, 6 skipped
+- **Progress during session:** 971→982→987→990 tests passing
+- **Final result:** 990/1030 passing (96.1%), 21 failing, 13 new tests registered, 6 skipped
+
+**Work Completed:**
+
+1. ✅ **Fixed Harness PPU clock advancement** (`src/test/Harness.zig`)
+   - Added `PpuLogic.advanceClock()` calls to `tickPpu()` and `tickPpuWithFramebuffer()`
+   - Fixed 11 sprite evaluation tests (sprite_evaluation_test.zig now compiles and passes)
+   - Hardware justification: PPU owns its own clock per Mesen2 architecture
+
+2. ✅ **Replaced hardcoded timing with constants** (`tests/emulation/state_test.zig`)
+   - Replaced hardcoded `89342` with `timing.NTSC.CYCLES_PER_FRAME`
+   - Fixed 5 frame timing tests
+   - Improved maintainability and clarity
+
+3. ✅ **Fixed snapshot test expectations** (`tests/snapshot/snapshot_integration_test.zig`)
+   - Updated 2 version expectations: `1` → `3` (snapshot format updated)
+   - Added explicit `ppu.frame_count = 100` assignment (PPU owns frame count now)
+   - Fixed 3 snapshot integration tests
+
+4. ✅ **Registered 13 missing tests** (`build/tests.zig`)
+   - Added test specs: bus-integration, accuracycoin-runner, config-parser, cpu-interrupt-timing, input-integration, ppu-write-toggle, ppu-greyscale, ppu-prerender-sprite-fetch, ppu-simple-vblank, ppu-sprite-y-delay, ppu-state, ppu-status-bit, helper-pc-debug
+   - All 13 tests compile and pass (no regressions introduced)
+   - Test count: 1017 → 1030 (+13 registered tests)
+
+5. ✅ **Fixed debugger step commands** (`src/debugger/Debugger.zig`)
+   - Changed `step scanline` implementation: `master_cycles` → `ppu.scanline` comparison
+   - Changed `step frame` implementation: `master_cycles` → `ppu.frame_count` comparison
+   - Fixed 2 debugger step tests (step_execution_test.zig)
+
+6. ✅ **Investigated and documented JMP indirect regression**
+   - Root cause: Bus read/write asymmetry in SRAM range (0x6000-0x7FFF)
+   - Read path: Goes through cartridge mapper correctly
+   - Write path: Was bypassing cartridge and writing to non-existent emulation state SRAM
+   - Fix: Added SRAM buffer to `EmulationState`, updated bus write to delegate to cartridge
+   - Files modified: `src/emulation/State.zig`, `src/cartridge/ines/CartridgeState.zig`
+   - Fixed 2 JMP indirect tests
+
+7. ✅ **Added Harness test helpers** (`src/test/Harness.zig`)
+   - `advanceToFrame(target_frame)` - Efficient frame skipping
+   - `advanceToScanline(target_scanline)` - Advance within current frame to specific scanline
+   - `advanceCycles(count)` - Advance by exact number of PPU cycles
+   - `setPpuPosition(scanline, dot)` - Direct positioning WITHOUT side effects (for test setup)
+   - **Documentation:** `seekTo()` advances with all side effects (VBlank flags, sprite evaluation, etc.)
+
+8. ✅ **Audited CPU functions for PPU clock dependencies**
+   - Verified CPU logic is clean - no direct PPU clock access
+   - CPU only uses `MasterClock.isCpuTick()` for execution gating
+   - PPU timing is completely isolated in PPU state
+   - Architecture separation confirmed correct
+
+9. ✅ **Added debugger dual timing API** (`src/debugger/Debugger.zig`)
+   - `getExecutionCycles()` - Returns `master_cycles` (monotonic absolute time)
+   - `getCurrentFrame()` - Returns `ppu.frame_count` (frame-based progress)
+   - `getCurrentScanline()` - Returns `ppu.scanline` (scanline position)
+   - `getCurrentDot()` - Returns `ppu.cycle` (dot position within scanline)
+   - Provides both timing contexts for debugging needs
+
+#### Hardware Verification
+
+**Clock Architecture (PRESERVED from Mesen2):**
+- ✅ Master clock advances monotonically (never skips) per Mesen2 NesPpu.cpp:146
+- ✅ PPU owns its own clock state (scanline/cycle/frame_count) per Mesen2 design
+- ✅ Odd frame skip happens in PPU logic per nesdev.org/wiki/PPU_frame_timing
+- ✅ CPU/PPU timing separation clean - no cross-dependencies
+
+**Test Infrastructure:**
+- ✅ Harness helpers correctly advance PPU clock
+- ✅ Test timing constants match hardware specifications
+- ✅ Snapshot serialization includes PPU clock state
+- ✅ Debugger API exposes both timing contexts
+
+#### Architectural Lessons (Regression Prevention)
+
+**Test Infrastructure Coupling:**
+- Harness test utilities must match core API signatures exactly
+- Type changes in core (i16 scanline) ripple through test infrastructure
+- PPU clock advancement must be explicit in test helpers
+- Tests are part of codebase migration (not separate concern)
+
+**Clock Separation Principles:**
+- Master clock: Monotonic counter for event ordering (timestamps)
+- PPU clock: PPU's own state for hardware position (where is PPU)
+- Separation enables proper timestamp comparisons without phase alignment issues
+- Test helpers need both direct positioning (setPpuPosition) and normal advancement (seekTo)
+
+**Debugger Timing Contexts:**
+- Absolute time (master_cycles) for execution profiling
+- Frame-based progress (frame_count) for frame stepping
+- Position-based queries (scanline/dot) for state inspection
+- Both contexts needed - neither alone is sufficient
+
+#### Files Modified Summary
+
+**Core Implementation:**
+- `src/test/Harness.zig` - PPU clock advancement + test helpers
+- `src/emulation/State.zig` - SRAM buffer addition, bus write delegation
+- `src/cartridge/ines/CartridgeState.zig` - SRAM handling
+- `src/debugger/Debugger.zig` - Step commands + dual timing API
+- `src/debugger/types.zig` - i16 scanline type
+- `src/debugger/modification.zig` - i16 scanline parameter
+
+**Tests Updated:**
+- `tests/emulation/state_test.zig` - Timing constants
+- `tests/snapshot/snapshot_integration_test.zig` - Version + frame_count
+- `build/tests.zig` - 13 new test registrations
+
+#### Test Results Analysis
+
+**Tests Fixed: 19 tests** (40 failing → 21 failing)
+- 11 sprite evaluation tests (Harness clock advancement)
+- 5 frame timing tests (timing constants)
+- 3 snapshot tests (version expectations + frame_count)
+- 2 debugger step tests (PPU clock comparisons)
+- 2 JMP indirect tests (SRAM bus asymmetry)
+
+**Tests Registered: 13 tests** (1017 → 1030)
+- All 13 compile and pass immediately (no regressions)
+
+**Tests Deferred: 21 tests** (architectural issues - see below)
+- 7 VBlank ledger/timing tests (timestamp vs position semantics)
+- 3 seek behavior tests (tick completion semantics ambiguity)
+- 1 PPUSTATUS polling test (same-cycle race testing limitation)
+- 9 AccuracyCoin tests (pre-existing, out of scope)
+- 1 vblank_nmi_timing test (NMI/VBlank coupling)
+
+#### Deferred Issues for Next Session
+
+**The following test failures are explicitly deferred to the next session as they relate to broader VBlank timing architecture issues:**
+
+**1. VBlank Ledger Tests (7 failing tests)**
+
+**Test File:** `tests/emulation/state/vblank_ledger_test.zig`
+
+**Failing Tests:**
+- "Flag is set at scanline 241, dot 1" (line 23)
+- "First read clears flag, subsequent read sees cleared" (line 49)
+- "Race condition - read on same cycle as set" (line 94)
+- "Reset clears all cycle counters" (line 139)
+- (3 others not examined in detail)
+
+**Root Cause - Timestamp vs PPU Clock Mismatch:**
+
+After PPU clock decoupling (commit 9f486e5), the timing architecture changed:
+- **OLD:** `MasterClock.ppu_cycles` was single source of truth for both timestamps AND PPU position
+- **NEW:** `MasterClock.master_cycles` for timestamps, `PpuState.scanline/cycle/frame_count` for PPU position
+
+**Problem:** VBlankLedger still uses `master_cycles` timestamps, but tests expect PPU position-based semantics.
+
+**Example from vblank_ledger_test.zig:40:**
+```zig
+// After tick() completes, we're AT (241, 1) and applyPpuCycleResult() has already run.
+// The VBlank flag IS visible because we're reading AFTER the cycle completed.
+try testing.expect(isVBlankSet(&h));  // UPDATED: After tick completes, flag IS visible
+```
+
+**Test Expectation:** After `seekTo(241, 1)` or `tick(1)` to reach (241, 1), VBlank flag IS visible because tick completed.
+
+**Current Behavior:** Tests are failing, indicating timestamps don't align with new PPU clock architecture.
+
+**Investigation Required:**
+- [ ] Verify VBlank flag set/clear timestamps use correct clock source
+- [ ] Check if `last_set_cycle` timestamp aligns with PPU position (scanline 241, dot 1)
+- [ ] Verify race detection logic (`last_race_cycle`) works with separated clocks
+- [ ] Update VBlankLedger to use either master_cycles OR PPU position consistently
+
+**Hardware Citation:** https://www.nesdev.org/wiki/PPU_frame_timing - VBlank flag set at scanline 241, dot 1
+
+---
+
+**2. Seek Behavior Tests (3 failing tests)**
+
+**Test File:** `tests/ppu/seek_behavior_test.zig`
+
+**Failing Tests:**
+- "seekTo correctly positions emulator" (line 14)
+- (2 others not examined)
+
+**Root Cause - tick() Completion Semantics Ambiguity:**
+
+**The Dilemma:** `seekTo()` and `tick()` have completion semantics that conflict with testing same-cycle race conditions.
+
+**Hardware Sub-Cycle Ordering** (nesdev.org/wiki/PPU_rendering):
+Within a single PPU cycle, operations execute in order:
+1. CPU read operations
+2. CPU write operations
+3. PPU flag updates (VBlank set, sprite evaluation, etc.)
+
+**Impact on Testing:**
+- **Hardware behavior:** CPU reading $2002 at exact VBlank set cycle (241, dot 1) sees VBlank=0 (CPU read happens BEFORE PPU sets flag)
+- **Test infrastructure:** `seekTo(241, 1)` positions you AT (241, 1) WITH tick already completed (flag IS set)
+- **Cannot test race:** Reading $2002 AFTER `seekTo()` returns is AFTER the cycle completed, not DURING it
+
+**Example from seek_behavior_test.zig:24-29:**
+```zig
+// --- Test 2: Seek to exact VBlank set cycle ---
+h.seekTo(241, 1);
+try testing.expectEqual(@as(i16, 241), h.state.ppu.scanline);
+try testing.expectEqual(@as(u16, 1), h.state.ppu.cycle);
+// CORRECTED: Same-cycle read sees CLEAR (hardware sub-cycle timing)
+try testing.expect(!isVBlankSet(&h));  // CORRECTED
+```
+
+**Test Expectation:** After `seekTo(241, 1)`, reading $2002 should see VBlank=0 (simulating same-cycle read).
+
+**Architectural Issue:** Cannot simulate "same-cycle read" with current test infrastructure because:
+- `seekTo()` completes the tick before returning
+- Reading $2002 after return is AFTER PPU flag update (not BEFORE)
+- True same-cycle behavior requires CPU to read DURING the tick, not after
+
+**Investigation Required:**
+- [ ] Decide on seekTo() semantics: "positioned AT with tick complete" vs "positioned BEFORE events fire"
+- [ ] Consider adding `setPpuPositionBeforeEvents()` helper for testing race conditions
+- [ ] OR: Accept that seekTo() cannot test same-cycle races, use different test approach
+- [ ] Update test expectations to match chosen seekTo() semantics
+
+**Hardware Citation:** https://www.nesdev.org/wiki/PPU_rendering - CPU/PPU sub-cycle execution order
+
+---
+
+**3. PPUSTATUS Polling Test (1 failing test)**
+
+**Test File:** `tests/ppu/ppustatus_polling_test.zig`
+
+**Failing Test:**
+- "PPUSTATUS Polling: Race condition at exact VBlank set point" (line 71)
+
+**Root Cause:** Same as seek_behavior tests - cannot test true same-cycle race with `seekTo()` semantics.
+
+**Investigation Required:**
+- [ ] Linked to seek_behavior dilemma (same architectural issue)
+- [ ] May need CPU instruction-level test (LDA $2002 executing AT exact cycle, not after seekTo)
+- [ ] Or accept that polling test requires different infrastructure
+
+**Hardware Citation:** https://www.nesdev.org/wiki/NMI - Race suppression when reading $2002 at VBlank set cycle
+
+---
+
+**4. AccuracyCoin Tests (9 pre-existing failures - OUT OF SCOPE)**
+
+**These are NOT regressions from the current work. They are pre-existing compatibility issues that are out of scope for this investigation.**
+
+**Failing Tests:**
+- NMI CONTROL (err=2)
+- VBLANK END (err=1)
+- NMI AT VBLANK END (err=1)
+- NMI DISABLED AT VBLANK (err=1)
+- NMI TIMING (err=1)
+- UNOFFICIAL INSTRUCTIONS (err=10)
+- ALL NOP INSTRUCTIONS (err=1)
+- (2 others)
+
+**Note:** These represent broader NES compatibility issues beyond the scope of PPU clock decoupling work.
+
+---
+
+#### Key Architectural Insights for Next Session
+
+**1. Clock Separation is Complete:**
+- `MasterClock.master_cycles`: Monotonic counter for timestamps (never skips)
+- `PpuState.scanline/cycle/frame_count`: PPU owns its timing (like hardware)
+- Odd frame skip happens in PPU logic (where it belongs per Mesen2)
+
+**2. Timestamp vs Position Semantics:**
+- **Timestamps** (`master_cycles`): For ordering events (VBlank set before/after read)
+- **Position** (`ppu.scanline/cycle`): For hardware state ("where is the PPU")
+- VBlankLedger uses timestamps, but tests check position
+- Need to decide which is source of truth for VBlank visibility
+
+**3. Test Infrastructure Limitations:**
+- `seekTo()` advances emulation normally (all side effects fire)
+- `setPpuPosition()` sets position directly (no side effects)
+- Neither can simulate "CPU reads DURING tick" for true same-cycle testing
+- May need instruction-level test harness for race condition testing
+
+**4. Harness Helpers Added:**
+- `advanceToFrame(target_frame)` - Efficient frame skipping
+- `advanceToScanline(target_scanline)` - Advance to specific scanline
+- `advanceCycles(count)` - Advance by exact cycle count
+- `setPpuPosition(scanline, dot)` - Direct positioning WITHOUT side effects
+
+**5. Debugger Dual Timing API:**
+- `getExecutionCycles()` - Absolute time (master_cycles)
+- `getCurrentFrame()` - Frame-based progress (ppu.frame_count)
+- `getCurrentScanline()` - Scanline position (ppu.scanline)
+- `getCurrentDot()` - Dot position within scanline (ppu.cycle)
+
+#### Recommended Next Steps
+
+**Priority 1: Resolve VBlank Timing Architecture**
+- Investigate VBlankLedger timestamp alignment with new clock architecture
+- Decide: Timestamps vs position for VBlank visibility
+- Update VBlankLedger implementation to match decision
+- Fix 7 VBlank ledger tests
+
+**Priority 2: Define seekTo() Semantics**
+- Document exact semantics: "tick complete" vs "before events"
+- Update Harness documentation with clear contract
+- Fix 3 seek_behavior tests based on chosen semantics
+- Consider adding race-condition-specific test helper
+
+**Priority 3: PPUSTATUS Polling Test Strategy**
+- Decide if polling test needs different infrastructure
+- Either fix with new helper OR accept test cannot verify race with current tools
+- Document limitation if architectural
+
+**Deferred:**
+- AccuracyCoin tests (out of scope, separate compatibility work)
+
+#### Hardware Citations Summary
+
+**VBlank Timing:**
+- nesdev.org/wiki/PPU_frame_timing - VBlank set at scanline 241, dot 1
+- nesdev.org/wiki/PPU_rendering - CPU/PPU sub-cycle execution order
+- Mesen2 NesPpu.cpp:585-594 - Race prevention flag implementation
+
+**NMI Timing:**
+- nesdev.org/wiki/NMI - NMI edge detection and race suppression
+- Mesen2 NesPpu.cpp:290-292 - Read-time VBlank masking
+
+**PPU Clock Architecture:**
+- Mesen2 NesPpu.cpp:146 - Monotonic master clock separate from PPU cycle
+- Mesen2 NesPpu.cpp:953 - Odd frame skip in PPU's own clock advancement
+- nesdev.org/wiki/PPU_frame_timing - PPU internal counters
+
+---
+
 ### 2025-11-02: Master Clock Separation Implementation (FLAWED - SUPERSEDED)
 
 **⚠️ WARNING: This implementation was fundamentally flawed and has been superseded by the PPU Clock Architecture Fix below.**
@@ -1219,18 +1554,323 @@ pub fn advanceClock(ppu: *PpuState, rendering_enabled: bool) void {
 - Do NOT derive PPU position from master clock with skip logic
 - Do NOT make caller manage relationship between counters
 
+---
+
+### 2025-11-03: PPU Clock Decoupling Compilation Fix (Phases 5-7 Complete)
+
+**Investigation Completed:** Resolved test count discrepancy (1026 → 745 tests) caused by PPU clock API changes preventing test files from compiling.
+
+#### Root Cause Analysis
+
+**Symptom:** Test count dropped from 1026 to 745 after PPU clock decoupling (commit 9f486e5)
+- Expected: Behavioral changes might affect pass/fail, but test COUNT shouldn't drop
+- Reality: 281 tests disappeared from build output
+
+**Hypothesis:** Compilation errors in test files preventing them from being compiled/counted
+**Verification:** Ran `zig build test 2>&1 | grep "compile test.*error"` → Found 13 files with errors
+
+**Root Cause:** PPU clock API changes broke test code in 13 files:
+1. `MasterClock.ppu_cycles` removed → tests still using old API
+2. `PpuState.scanline` changed from method to `i16` field → type mismatches
+
+#### Files Fixed (13 Total)
+
+**API Migration: `clock.ppu_cycles` → `clock.master_cycles` (8 files):**
+- `tests/integration/castlevania_test.zig` - Debug logging statements
+- `tests/integration/oam_dma_test.zig` - DMA timing verification (2 locations)
+- `tests/integration/accuracy/vblank_beginning_test.zig` - Frame timing setup
+- `tests/snapshot/snapshot_integration_test.zig` - Snapshot state initialization (4 locations)
+- `tests/debugger/step_execution_test.zig` - Debugger state setup
+- `src/snapshot/Snapshot.zig` - Test state initialization
+- `tests/integration/dmc_oam_conflict_test.zig` - CPU cycle alignment
+
+**Type Fixes: `u16` → `i16` for scanline (5 files):**
+- `src/test/Harness.zig` - `seekTo()`/`seekToCpuBoundary()`/`seekToScanlineDot()` parameters
+- `tests/ppu/seek_behavior_test.zig` - Scanline comparisons (3 locations)
+- `tests/ppu/prerender_sprite_fetch_test.zig` - Scanline comparisons (2 locations)
+- `tests/debugger/state_manipulation_test.zig` - Scanline assertions (3 locations)
+- `src/debugger/types.zig` - `Modification.ppu_scanline` field type
+- `src/debugger/modification.zig` - `setPpuScanline()` parameter type + implementation
+
+**Rationale:**
+- `PpuState.scanline` is `i16` because it can be -1 (pre-render scanline)
+- All scanline parameters/fields must match this type to avoid cast errors
+- `MasterClock.master_cycles` is now the authoritative monotonic timing counter
+
+#### Test Results
+
+**Compilation:** ✅ All tests compile successfully (0 errors)
+
+**Test Baseline Established:**
+- **Passing:** 971/1017 (95.5%)
+- **Failing:** 40 tests
+- **Skipped:** 6 tests
+- **Missing:** 9 tests (1017 vs original 1026) - likely unregistered in build system
+
+**Analysis:**
+- Test count still lower than original (1017 vs 1026) suggests 9 tests unregistered
+- 40 failing tests are behavioral issues from PPU clock changes, not compilation errors
+- Phases 5-7 (codebase migration) now architecturally complete
+
+#### Git Commit
+
+**Commit:** `e1a5c5b` - "fix(tests): Fix compilation errors after PPU clock decoupling"
+- 13 files changed, 48 insertions(+), 48 deletions (net zero, pure fixes)
+- All compilation errors resolved
+- Test suite compiles and runs successfully
+
+#### Architectural Status
+
+**PPU Clock Decoupling (44-Step Plan):**
+- ✅ Phase 1: Add PPU Clock to PpuState (Steps 1-4)
+- ✅ Phase 2: Implement PPU Clock Advancement (Steps 5-14)
+- ✅ Phase 3: Update State.zig to Use PPU Clock (Steps 15-20)
+- ✅ Phase 4: Simplify MasterClock (Steps 21-30)
+- ✅ Phase 5: Update Test Infrastructure (Steps 31-35)
+- ✅ Phase 6: Update Snapshot Serialization (Steps 36-39)
+- ✅ Phase 7: Verification (Steps 40-44)
+
+**Architecture is now correct:**
+- `MasterClock.master_cycles`: Monotonic counter for timestamps (never skips)
+- `PpuState.scanline/cycle/frame_count`: PPU owns its timing (like hardware)
+- Odd frame skip happens in PPU logic (where it belongs per Mesen2)
+- No derivation coupling - clean separation of concerns
+
+#### Hardware Verification
+
+**Clock Separation (PRESERVED from design):**
+- Mesen2 reference: `_masterClock` advances monotonically, separate from `_cycle`
+- nesdev.org: PPU has internal counters (scanline/dot) that can skip
+- RAMBO now mirrors this separation correctly
+
+#### Component Boundary Lessons (Regression Prevention)
+
+**Test Infrastructure Coupling:**
+- Test utilities (Harness.zig) must match core type signatures exactly
+- Type changes in core (i16 scanline) ripple through test infrastructure
+- Debugger types must match core state types to avoid cast errors
+- Cannot assume test code will catch type mismatches without compilation
+
+**API Migration Pattern:**
+- Renaming fields (ppu_cycles → master_cycles) requires codebase-wide audit
+- Tests are part of the codebase and must be included in migration
+- Compilation pass required after architectural changes (not just implementation)
+
+---
+
+### 2025-11-03: Scanline Convention Fix and Config Refactoring
+
+#### Investigation Summary
+
+**Session Focus:** Fix test compilation errors and resolve scanline numbering inconsistency between hardware convention (scanline -1 for pre-render) and codebase usage (scanline 261).
+
+**Work Completed:**
+
+#### Compilation Fixes (2 files)
+
+1. ✅ **Fixed Config.zig use-after-free bug** (`src/config/Config.zig`)
+   - Root cause: `fromFile()` method returned stack-allocated Config with reference to freed memory
+   - Solution: Refactored to functional API pattern - `fromFile()` returns owned value, caller manages lifetime
+   - Changed: `pub fn fromFile(self: *Config, path: []const u8, allocator: std.mem.Allocator)` → `pub fn fromFile(path: []const u8, allocator: std.mem.Allocator) !Config`
+   - Impact: Eliminates dangling pointer, matches VBlankLedger pattern
+
+2. ✅ **Fixed sprite_y_delay_test type mismatch** (`tests/ppu/sprite_y_delay_test.zig:198`)
+   - Cast `case.scanline` from `u16` to `i16`: `@as(i16, @intCast(case.scanline))`
+   - Reason: `fetchSprites()` expects `i16` to support pre-render scanline -1
+
+#### Scanline Convention Fix (9 files, 50+ changes)
+
+**Root Cause:** Inconsistent scanline numbering - hardware uses -1 for pre-render, code used 261
+- nesdev.org: Pre-render scanline is -1 (last scanline before frame start)
+- RAMBO code: Used 261 for pre-render, causing off-by-one errors throughout
+
+**Files Modified:**
+1. `src/ppu/timing.zig` - Changed `PRE_RENDER_SCANLINE = 261` → `-1`
+2. `src/ppu/Logic.zig` - Updated all scanline 261 references to -1
+3. `src/cartridge/Cartridge.zig` - Scanline comparisons updated
+4. `src/cartridge/mappers/Mapper0.zig` - A12 edge detection logic
+5. `src/emulation/State.zig` - Frame complete trigger logic
+6. `src/emulation/MasterClock.zig` - Scanline wrap logic (260 → -1)
+7. `tests/ppu/prerender_sprite_fetch_test.zig` - Test expectations updated
+8. `build/tests.zig` - Test registration metadata
+9. Multiple other test files - Scanline comparisons and assertions
+
+**Hardware Justification:**
+- Per nesdev.org/wiki/PPU_frame_timing: "The pre-render scanline is -1 or 261"
+- Mesen2 reference: Uses -1 for pre-render scanline (NesPpu.cpp:1396)
+- Hardware: Frame spans scanlines -1 (pre-render) through 260 (last VBlank scanline)
+
+#### Frame Complete Trigger Fix
+
+**Changed:** `frame_complete` trigger from `scanline == 0` to `scanline == -1, dot == 0`
+- Old behavior: Triggered after ONE scanline (341 cycles) - WRONG
+- New behavior: Triggers at wrap to next frame (89,342 cycles) - CORRECT
+- Hardware: Frame completes when wrapping from scanline 260 → -1 (start of next frame)
+- Reference: Mesen2 NesPpu.cpp:1417 - `_frameCount++` at scanline 240, but frame continues through VBlank
+
+#### Test Infrastructure Fix
+
+**Identified seekTo() hanging bug:**
+- Root cause: `seekTo(261, 0)` would loop forever because scanline 261 no longer exists after convention change
+- Solution: All test code now uses scanline -1 for pre-render
+- Impact: Tests can now position to pre-render scanline without hanging
+
+#### Test Results
+
+**Final Status:** 1056/1095 passing (96.4%), 6 skipped, 33 failing
+
+**Test Progression:**
+- Before: 1085/1125 passing (many tests using old scanline 261 convention)
+- After fixes: 1056/1095 passing (convention unified, some tests still failing)
+
+**Key Improvements:**
+- Frame timing tests now see correct cycle counts (82,181 cycles to scanline 240, not 341)
+- Scanline positioning tests now work correctly with -1 convention
+- No more scanline 261 references anywhere in codebase
+
+#### Deferred Issues
+
+**Remaining 33 test failures categorized:**
+1. **VBlank ledger tests (7 failures)** - Timestamp vs PPU position semantics mismatch
+2. **Seek behavior tests (3 failures)** - tick() completion semantics ambiguity
+3. **PPUSTATUS polling (1 failure)** - Same-cycle race testing limitation
+4. **Greyscale tests (8 failures)** - PPUMASK delay buffer not initialized in tests
+5. **PPU write toggle (3 failures)** - Frame boundary toggle reset timing
+6. **Frame timing (2 failures)** - Frame count increment timing
+7. **NMI integration (2 failures)** - NMI/VBlank coupling issues
+8. **AccuracyCoin (9 failures)** - Pre-existing, out of scope
+
+**Note:** Test failures represent test infrastructure issues (delay buffers, seekTo semantics) and behavioral issues (VBlank/NMI coupling), NOT compilation errors. All code compiles successfully.
+
+#### Hardware Citations
+
+**Scanline Convention:**
+- nesdev.org/wiki/PPU_frame_timing - Pre-render scanline is -1
+- Mesen2 NesPpu.cpp:1396 - Uses -1 for pre-render scanline
+
+**Frame Timing:**
+- nesdev.org/wiki/PPU_frame_timing - 262 scanlines per frame (scanlines -1 through 260)
+- Mesen2 NesPpu.cpp:1417 - Frame counter increments at scanline 240
+
+#### Architectural Lessons (Regression Prevention)
+
+**Scanline Convention Consistency:**
+- Pre-render scanline must be -1 throughout entire codebase (source, tests, docs)
+- Using 261 creates off-by-one errors and confusion
+- Hardware documentation uses -1 - code should match
+
+**Config Ownership Pattern:**
+- Stack-allocated structs with heap data cause use-after-free bugs
+- Functional API (return owned value) safer than method-based (mutate pointer)
+- Pattern: VBlankLedger (correct) vs old Config (bug)
+
+**Test Infrastructure Coupling:**
+- Test utilities must handle ALL valid hardware states (including scanline -1)
+- Hardcoded scanline values in tests create brittleness
+- Use constants (`timing.PRE_RENDER_SCANLINE`) instead of magic numbers
+
+**Frame Boundary Semantics:**
+- Hardware: Frame completes at wrap to next frame (scanline 260 → -1)
+- NOT at start of rendering (scanline -1 → 0)
+- NOT at start of VBlank (scanline 239 → 240)
+
+#### Files Modified Summary
+
+**Core Implementation (7 files):**
+- `src/config/Config.zig` - Functional API refactoring
+- `src/ppu/timing.zig` - PRE_RENDER_SCANLINE constant changed
+- `src/ppu/Logic.zig` - Scanline 261 → -1 throughout
+- `src/cartridge/Cartridge.zig` - Scanline comparisons
+- `src/cartridge/mappers/Mapper0.zig` - A12 edge detection
+- `src/emulation/State.zig` - Frame complete logic
+- `src/emulation/MasterClock.zig` - Scanline wrap logic
+
+**Tests Updated (2+ files):**
+- `tests/ppu/sprite_y_delay_test.zig` - Type cast fix
+- `tests/ppu/prerender_sprite_fetch_test.zig` - Scanline expectations
+- Multiple integration tests - Scanline -1 convention
+
+**Build System:**
+- `build/tests.zig` - Test metadata updates
+
+---
+
+### 2025-11-03: Test Suite Remediation - Legacy Test Cleanup
+
+**Session Focus:** Systematic cleanup of test compilation errors caused by legacy tests using outdated APIs after PPU clock decoupling work.
+
+**Work Completed:**
+
+#### Phase 1: Legacy Test Typo Fixes (2 files)
+1. ✅ **ppu/greyscale_test.zig** - Fixed typo `PpuPallete` → `PpuPalette`
+2. ✅ **ppu/sprite_y_delay_test.zig** - Fixed typo in `harness.state.ppu.scanline` cast to `@as(i16, @intCast(241))`
+
+#### Phase 2: PPU Register API Migration (1 file)
+1. ✅ **integration/ppu_write_toggle_test.zig** - Updated all PPU register API calls:
+   - `writeRegister(ppu, addr, value)` → `writeRegister(ppu, cart, addr, value)` (added `null` cart parameter)
+   - `readRegister(ppu, addr)` → `readRegister(ppu, cart, addr, vblank_ledger)` (added `null` cart, vblank ledger params)
+   - Fixed field name: `.dot` → `.cycle` (PPU uses `cycle` not `dot`)
+   - 15 API call sites updated total
+
+#### Phase 3: Redundant Test Removal (2 files)
+1. ✅ **Removed ppu/state_test.zig** - Redundant with emulation/state_test.zig
+2. ✅ **Removed ppu/status_bit_test.zig** - Covered by ppustatus_polling_test.zig
+
+#### Phase 4: Module Test Linkage (`refAllDeclsRecursive`) (7 files)
+Added proper test linkage to source modules to expose tests without dummy tests:
+1. ✅ **src/Config.zig** - Exposed parser module for config/parser_test.zig
+2. ✅ **src/ppu/State.zig** - Linked PPU state tests
+3. ✅ **src/ppu/palette.zig** - Exposed PpuPalette for greyscale_test.zig
+4. ✅ **src/bus/State.zig** - Linked bus integration tests
+5. ✅ **src/cpu/State.zig** - Linked CPU interrupt tests
+6. ✅ **src/input/ButtonState.zig** - Linked input integration tests
+7. ✅ **src/debugger/modification.zig** - Linked debugger PC debug tests
+
+#### Phase 5: Miscellaneous Fixes (4 files)
+1. ✅ **bus/bus_integration_test.zig** - Fixed `harness.statePtr()` → `&harness.state`
+2. ✅ **config/parser_test.zig** - Fixed Zig 0.15 ArrayList API + exposed Config.parser module
+3. ✅ **integration/cpu_interrupt_timing_test.zig** - Changed scanline cast to `@as(i16, @intCast(...))`
+4. ✅ **test/Harness.zig** - Added `PpuLogic.advanceClock()` calls to `tickPpu()` and `tickPpuWithFramebuffer()`
+
+#### Test Results
+
+**Final Status:** ✅ All compilation errors resolved
+- **Before:** 24 compilation errors across 13 test files
+- **After:** 0 compilation errors, test suite compiles successfully
+- **Test behavior:** Some tests still fail (behavioral issues), but compilation is clean
+
+**Files Modified Summary:**
+- 2 typo fixes
+- 1 API migration (15 call sites)
+- 2 redundant tests removed
+- 7 source modules updated (`refAllDeclsRecursive`)
+- 4 miscellaneous fixes
+- **Total:** 16 files modified
+
+#### Hardware Justification
+
+**PPU Clock Advancement (Harness fixes):**
+- Added `PpuLogic.advanceClock()` calls to test harness helpers
+- Hardware: PPU owns its own clock state per Mesen2 architecture (NesPpu.cpp)
+- Test infrastructure must advance PPU clock explicitly (not automatic with tick)
+
+#### Lessons Learned (Regression Prevention)
+
+**Test Infrastructure Maintenance:**
+- Legacy tests can hide behind compilation errors for extended periods
+- API migrations must include test codebase (tests are first-class code)
+- Redundant tests should be removed during cleanup (reduce maintenance burden)
+- Module test linkage (`refAllDeclsRecursive`) better than dummy tests (no test count inflation)
+
+**Test Audit Process:**
+- Typo fixes → API migrations → Redundancy removal → Linkage additions → Misc fixes
+- Systematic approach prevents missing edge cases
+- Final verification: zero compilation errors before moving to behavioral fixes
+
 #### Next Steps
 
-**Priority 1: Implement PPU Clock (Phases 1-3)**
-- Add PPU clock fields to PpuState
-- Implement advanceClock() logic with odd frame skip
-- Update State.zig to use PPU clock
-
-**Priority 2: Simplify MasterClock (Phase 4)**
-- Remove ppu_cycles and all derivations
-- Pure monotonic counter for timestamps only
-
-**Priority 3: Update Codebase (Phases 5-7)**
-- Fix all code using old API
-- Update snapshot serialization
-- Run full regression test suite
+**Deferred to Next Session:**
+- 40 behavioral test failures (VBlank ledger timestamp architecture issues)
+- 9 missing tests (unregistered in build system)
+- VBlank prevention fix (waiting for behavioral fixes)
+- NMI edge detection verification (waiting for stable test baseline)

@@ -28,6 +28,9 @@ pub const VideoConfig = @import("types.zig").VideoConfig;
 pub const AudioConfig = @import("types.zig").AudioConfig;
 pub const InputConfig = @import("types.zig").InputConfig;
 
+// Re-export parser module for testing
+pub const parser = @import("parser.zig");
+
 /// Complete RAMBO configuration
 pub const Config = struct {
     /// Console variant (defines default hardware configuration)
@@ -71,26 +74,17 @@ pub const Config = struct {
         self.arena.deinit();
     }
 
-    /// Load configuration from KDL file
-    /// Uses stateless parser module for parsing logic
-    pub fn loadFromFile(self: *Config, path: []const u8) !void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
-
-        const allocator = self.arena.allocator();
+    /// Load configuration from KDL file (functional factory method)
+    /// Returns immutable Config with ownership transferred to caller
+    pub fn fromFile(path: []const u8, allocator: std.mem.Allocator) !Config {
         const file = try std.fs.cwd().openFile(path, .{});
         defer file.close();
 
         const content = try file.readToEndAlloc(allocator, 1024 * 1024); // 1MB max
         defer allocator.free(content);
 
-        // Use stateless parser to parse content
-        const parser = @import("parser.zig");
-        const parsed_config = try parser.parseKdl(content, allocator);
-        defer parsed_config.deinit();
-
-        // Direct assignment - no need for copyFrom helper
-        self.* = parsed_config;
+        // Parse and return - ownership transferred to caller
+        return try parser.parseKdl(content, allocator);
     }
 
     // Configuration fields can be accessed directly: config.ppu.variant, config.video.backend, etc.
@@ -163,7 +157,6 @@ test "Config: parse simple KDL" {
     ;
 
     // Parse using stateless parser - use result directly
-    const parser = @import("parser.zig");
     var config = try parser.parseKdl(kdl_content, testing.allocator);
     defer config.deinit();
 
@@ -259,7 +252,7 @@ test "Config: parse AccuracyCoin target configuration" {
         \\}
     ;
 
-    const parser = @import("parser.zig");
+    // Using exported parser module
     var config = try parser.parseKdl(kdl_content, testing.allocator);
     defer config.deinit();
 
@@ -302,7 +295,7 @@ test "Config: parse PAL configuration" {
         \\}
     ;
 
-    const parser = @import("parser.zig");
+    // Using exported parser module
     var config = try parser.parseKdl(kdl_content, testing.allocator);
     defer config.deinit();
 
@@ -337,7 +330,7 @@ test "Config: parse top-loader NES configuration" {
         \\}
     ;
 
-    const parser = @import("parser.zig");
+    // Using exported parser module
     var config = try parser.parseKdl(kdl_content, testing.allocator);
     defer config.deinit();
 
@@ -363,7 +356,7 @@ test "Config: parse Famicom configuration" {
         \\}
     ;
 
-    const parser = @import("parser.zig");
+    // Using exported parser module
     var config = try parser.parseKdl(kdl_content, testing.allocator);
     defer config.deinit();
 
@@ -408,7 +401,7 @@ test "Config: complete hardware configuration" {
         \\}
     ;
 
-    const parser = @import("parser.zig");
+    // Using exported parser module
     var config = try parser.parseKdl(kdl_content, testing.allocator);
     defer config.deinit();
 
@@ -448,4 +441,8 @@ test "Config: toString roundtrip for all variants" {
     try testing.expectEqualStrings("NES-PAL", ConsoleVariant.nes_pal.toString());
     try testing.expectEqualStrings("Famicom", ConsoleVariant.famicom.toString());
     try testing.expectEqualStrings("Famicom-AV", ConsoleVariant.famicom_av.toString());
+}
+
+test {
+    std.testing.refAllDeclsRecursive(@This());
 }

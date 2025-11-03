@@ -718,4 +718,64 @@ pub const specs = [_]TestSpec{
         .path = "tests/integration/accuracy/nmi_disabled_vblank_test.zig",
         .membership = .{ .integration = true },
     },
+    .{
+        .name = "bus-integration",
+        .area = .integration,
+        .path = "tests/bus/bus_integration_test.zig",
+        .membership = .{ .integration = true },
+    },
+    .{
+        .name = "accuracycoin-runner",
+        .area = .integration,
+        .path = "tests/cartridge/accuracycoin_test.zig",
+        .membership = .{ .integration = true },
+    },
+    .{
+        .name = "config-parser",
+        .area = .core,
+        .path = "tests/config/parser_test.zig",
+        .membership = .{ .unit = true },
+    },
+    .{
+        .name = "cpu-interrupt-timing",
+        .area = .cpu_interrupt,
+        .path = "tests/cpu/interrupt_timing_test.zig",
+    },
+    .{
+        .name = "input-integration",
+        .area = .input,
+        .path = "tests/integration/input_integration_test.zig",
+        .membership = .{ .integration = true },
+    },
+    .{
+        .name = "ppu-write-toggle",
+        .area = .ppu,
+        .path = "tests/integration/ppu_write_toggle_test.zig",
+    },
+    .{
+        .name = "ppu-greyscale",
+        .area = .ppu,
+        .path = "tests/ppu/greyscale_test.zig",
+    },
+    .{
+        .name = "ppu-prerender-sprite-fetch",
+        .area = .ppu_timing,
+        .path = "tests/ppu/prerender_sprite_fetch_test.zig",
+    },
+    .{
+        .name = "ppu-sprite-y-delay",
+        .area = .ppu_sprite,
+        .path = "tests/ppu/sprite_y_delay_test.zig",
+    },
+    .{
+        .name = "ppu-state",
+        .area = .ppu,
+        .path = "tests/ppu/state_test.zig",
+    },
+    .{
+        .name = "helper-pc-debug",
+        .area = .helper,
+        .path = "tests/unit/pc_debug_test.zig",
+        .membership = .{ .unit = true },
+    },
 };

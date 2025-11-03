@@ -115,3 +115,7 @@ test "NES palette: color index masking" {
         getNesColorRgba(0xFF)
     );
 }
+
+test {
+    std.testing.refAllDeclsRecursive(@This());
+}

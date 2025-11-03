@@ -452,3 +452,7 @@ test "opcodes: page crossing" {
     try std.testing.expect(OPCODE_TABLE[0xBD].page_cross_cycle); // LDA abs,X
     try std.testing.expect(!OPCODE_TABLE[0x9D].page_cross_cycle); // STA abs,X (writes don't save cycle)
 }
+
+test {
+    std.testing.refAllDeclsRecursive(@This());
+}

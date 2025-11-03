@@ -110,9 +110,9 @@ test "Bus Integration: Write to mirror affects base and all other mirrors" {
 // bytes through $3FFF, testing various mirror addresses and boundaries.
 
 test "Bus Integration: PPU registers mirrored every 8 bytes" {
-    var harness = try TestHarness.init();
+    var harness = try Harness.init();
     defer harness.deinit();
-    const state = harness.statePtr();
+    const state = &harness.state;
 
     // Write to $2000 (PPUCTRL)
     state.busWrite(0x2000, 0x80); // Enable NMI
@@ -127,9 +127,9 @@ test "Bus Integration: PPU registers mirrored every 8 bytes" {
 }
 
 test "Bus Integration: PPU mirroring boundary ($3FFF → $2007)" {
-    var harness = try TestHarness.init();
+    var harness = try Harness.init();
     defer harness.deinit();
-    const state = harness.statePtr();
+    const state = &harness.state;
 
     // Test that $3FFF correctly mirrors to $2007 (PPUDATA)
     // We test by checking that writes to different mirrors all affect the same register
@@ -154,9 +154,9 @@ test "Bus Integration: PPU mirroring boundary ($3FFF → $2007)" {
 }
 
 test "Bus Integration: All PPU register mirrors route to same underlying register" {
-    var harness = try TestHarness.init();
+    var harness = try Harness.init();
     defer harness.deinit();
-    const state = harness.statePtr();
+    const state = &harness.state;
 
     // Write to $2006 (PPUADDR) twice to set address
     state.busWrite(0x2006, 0x20); // High byte
@@ -177,9 +177,9 @@ test "Bus Integration: All PPU register mirrors route to same underlying registe
 // cartridge data, but do update the open bus value.
 
 test "Bus Integration: ROM write does not modify cartridge" {
-    var harness = try TestHarness.init();
+    var harness = try Harness.init();
     defer harness.deinit();
-    const state = harness.statePtr();
+    const state = &harness.state;
 
     // ROM writes should not cause errors or corruption
     // Just verify the bus handles ROM writes gracefully
@@ -197,9 +197,9 @@ test "Bus Integration: ROM write does not modify cartridge" {
     try testing.expectEqual(@as(u8, 0x33), read_val);
 }
 test "Bus Integration: ROM write updates open bus" {
-    var harness = try TestHarness.init();
+    var harness = try Harness.init();
     defer harness.deinit();
-    const state = harness.statePtr();
+    const state = &harness.state;
 
     state.busWrite(0x8000, 0x99);
 
@@ -218,9 +218,9 @@ test "Bus Integration: ROM write updates open bus" {
 // including decay behavior and specific PPU/controller open bus bits.
 
 test "Bus Integration: Read from unmapped address returns last bus value" {
-    var harness = try TestHarness.init();
+    var harness = try Harness.init();
     defer harness.deinit();
-    const state = harness.statePtr();
+    const state = &harness.state;
 
     // Write to RAM to set open bus
     state.busWrite(0x0000, 0x77);
@@ -233,9 +233,9 @@ test "Bus Integration: Read from unmapped address returns last bus value" {
 }
 
 test "Bus Integration: Open bus retains last written value" {
-    var harness = try TestHarness.init();
+    var harness = try Harness.init();
     defer harness.deinit();
-    const state = harness.statePtr();
+    const state = &harness.state;
 
     // Set open bus value
     state.busWrite(0x0000, 0xAB);
@@ -247,9 +247,9 @@ test "Bus Integration: Open bus retains last written value" {
 }
 
 test "Bus Integration: PPU status bits 0-4 are open bus" {
-    var harness = try TestHarness.init();
+    var harness = try Harness.init();
     defer harness.deinit();
-    const state = harness.statePtr();
+    const state = &harness.state;
 
     // Set PPU's open bus by writing to a PPU register
     // This sets the PPU's internal data bus latch
@@ -266,9 +266,9 @@ test "Bus Integration: PPU status bits 0-4 are open bus" {
 }
 
 test "Bus Integration: Sequential reads maintain open bus coherence" {
-    var harness = try TestHarness.init();
+    var harness = try Harness.init();
     defer harness.deinit();
-    const state = harness.statePtr();
+    const state = &harness.state;
 
     // Sequence of reads and writes
     state.busWrite(0x0010, 0x11);
@@ -293,9 +293,9 @@ test "Bus Integration: Sequential reads maintain open bus coherence" {
 // to the cartridge for both reads and writes.
 
 test "Bus Integration: $8000-$FFFF address range (without cartridge)" {
-    var harness = try TestHarness.init();
+    var harness = try Harness.init();
     defer harness.deinit();
-    const state = harness.statePtr();
+    const state = &harness.state;
 
     // Without a cartridge, reads from ROM space return open bus
     state.busWrite(0x0100, 0xAA); // Set open bus value
@@ -309,9 +309,9 @@ test "Bus Integration: $8000-$FFFF address range (without cartridge)" {
 }
 
 test "Bus Integration: ROM address range coverage" {
-    var harness = try TestHarness.init();
+    var harness = try Harness.init();
     defer harness.deinit();
-    const state = harness.statePtr();
+    const state = &harness.state;
 
     // Test that all ROM addresses are handled consistently
     // Without cartridge, should return open bus for all ROM addresses
@@ -326,9 +326,9 @@ test "Bus Integration: ROM address range coverage" {
 }
 
 test "Bus Integration: Multiple components share same bus" {
-    var harness = try TestHarness.init();
+    var harness = try Harness.init();
     defer harness.deinit();
-    const state = harness.statePtr();
+    const state = &harness.state;
 
     // Test that all components work together:
     // 1. Write to RAM
@@ -347,9 +347,9 @@ test "Bus Integration: Multiple components share same bus" {
 }
 
 test "Bus Integration: read16 works across bus boundaries" {
-    var harness = try TestHarness.init();
+    var harness = try Harness.init();
     defer harness.deinit();
-    const state = harness.statePtr();
+    const state = &harness.state;
 
     // Test read16 across RAM
     state.busWrite(0x0100, 0x34); // Low byte

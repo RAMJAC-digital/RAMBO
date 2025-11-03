@@ -12,6 +12,7 @@ const RAMBO = @import("RAMBO");
 const Config = RAMBO.Config;
 const EmulationState = RAMBO.EmulationState.EmulationState;
 const MasterClock = RAMBO.EmulationState.MasterClock;
+const timing = RAMBO.PpuTiming;
 
 // ============================================================================
 // MasterClock Tests
@@ -175,8 +176,8 @@ test "EmulationState: even frame does not skip dot" {
     // Emulate first frame (even frame)
     const even_frame_cycles = state.emulateFrame();
 
-    // Even frames should be standard length (89342 master cycles)
-    try testing.expectEqual(@as(u64, 89342), even_frame_cycles);
+    // Even frames should be standard length (NTSC frame = 89342 master cycles)
+    try testing.expectEqual(@as(u64, timing.NTSC.CYCLES_PER_FRAME), even_frame_cycles);
 
     try testing.expect(state.odd_frame); // Now odd
 }
@@ -200,8 +201,8 @@ test "EmulationState: odd frame without rendering does not skip" {
     // Emulate second frame (odd, no rendering - should NOT skip)
     const odd_frame_cycles = state.emulateFrame();
 
-    // Without rendering, odd frames should also be standard length
-    try testing.expectEqual(@as(u64, 89342), odd_frame_cycles);
+    // Without rendering, odd frames should also be standard length (NTSC frame = 89342 master cycles)
+    try testing.expectEqual(@as(u64, timing.NTSC.CYCLES_PER_FRAME), odd_frame_cycles);
 }
 
 test "EmulationState: frame toggle at scanline boundary" {

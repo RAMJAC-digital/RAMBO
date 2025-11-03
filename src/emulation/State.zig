@@ -531,6 +531,13 @@ pub const EmulationState = struct {
                 } else if (self.bus.test_ram) |test_ram| {
                     if (address >= 0x8000) {
                         test_ram[address - 0x8000] = value;
+                    } else if (address >= 0x6000) {
+                        // Provide PRG RAM window for harness cartridges (symmetric with busRead)
+                        const prg_ram_offset = @as(usize, @intCast(address - 0x6000));
+                        const base_offset = 16384;
+                        if (test_ram.len > base_offset + prg_ram_offset) {
+                            test_ram[base_offset + prg_ram_offset] = value;
+                        }
                     }
                 }
             },

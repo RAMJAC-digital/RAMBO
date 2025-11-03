@@ -55,12 +55,12 @@ pub const TimingHelpers = struct {
         scanline: u16,
         dot: u16,
     ) bool {
-        // Hardware: Odd frame skip jumps from (339,261) to (0,0)
+        // Hardware: Odd frame skip jumps from (339,-1) to (0,0) on pre-render scanline
         // Reference: https://www.nesdev.org/wiki/PPU_frame_timing
         // The skip occurs when we're AT dot 339, skipping dot 340
         return odd_frame and
             rendering_enabled and
-            scanline == 261 and
+            scanline == -1 and
             dot == 339;
     }
 };

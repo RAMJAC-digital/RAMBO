@@ -32,6 +32,9 @@ pub const Ppu = @import("ppu/Ppu.zig");
 /// PPU timing constants
 pub const PpuTiming = @import("ppu/timing.zig");
 
+/// PPU palette module
+pub const PpuPalette = @import("ppu/palette.zig");
+
 /// APU (Audio Processing Unit)
 pub const Apu = @import("apu/Apu.zig");
 

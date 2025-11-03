@@ -561,6 +561,42 @@ pub const Debugger = struct {
     }
 
     // ========================================================================
+    // Timing Inspection (dual timing modes)
+    // ========================================================================
+
+    /// Get total execution time in master clock cycles (monotonic counter)
+    /// This represents absolute execution time since power-on/reset.
+    /// 1 master cycle = 1 PPU cycle = 1/3 CPU cycle
+    pub inline fn getExecutionCycles(self: *const Debugger, state: *const EmulationState) u64 {
+        _ = self;
+        return state.clock.master_cycles;
+    }
+
+    /// Get current frame number (PPU frame counter)
+    /// This represents frame-based progress for frame-by-frame debugging.
+    /// Increments when PPU wraps from scanline 261 to -1.
+    pub inline fn getCurrentFrame(self: *const Debugger, state: *const EmulationState) u64 {
+        _ = self;
+        return state.ppu.frame_count;
+    }
+
+    /// Get current scanline (-1 to 261, where -1 is pre-render)
+    /// This represents scanline-based position for mid-frame debugging.
+    /// Scanline 241 is VBlank start, scanline 0-239 are visible scanlines.
+    pub inline fn getCurrentScanline(self: *const Debugger, state: *const EmulationState) i16 {
+        _ = self;
+        return state.ppu.scanline;
+    }
+
+    /// Get current dot/cycle within scanline (0-340)
+    /// This represents precise horizontal timing within a scanline.
+    /// Dot 0-340 represent the 341 PPU cycles in a scanline.
+    pub inline fn getCurrentDot(self: *const Debugger, state: *const EmulationState) u16 {
+        _ = self;
+        return state.ppu.cycle;
+    }
+
+    // ========================================================================
     // Internal Helper Functions
     // ========================================================================
 

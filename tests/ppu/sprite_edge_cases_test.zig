@@ -126,7 +126,7 @@ test "Sprite 0 Hit: Clearing mid-frame behavior" {
     // Manually set the flag
     ppu.status.sprite_0_hit = true;
 
-    // Flag should persist until scanline 261 (pre-render)
+    // Flag should persist until scanline -1 (pre-render)
     try testing.expect(ppu.status.sprite_0_hit);
 
     // Simulate pre-render scanline clear
@@ -281,7 +281,7 @@ test "Sprite Overflow: Correct detection vs buggy detection" {
 test "Sprite Overflow: Clear at pre-render scanline" {
     var ppu = PpuState.init();
 
-    // Overflow flag cleared at scanline 261 (pre-render)
+    // Overflow flag cleared at scanline -1 (pre-render)
     ppu.status.sprite_overflow = true;
 
     // Simulate pre-render scanline
@@ -572,30 +572,30 @@ test "Sprite Timing: Evaluation only on visible scanlines" {
     _ = ppu;
 
     // Sprite evaluation occurs only on scanlines 0-239 (visible)
-    const scanline_visible: u16 = 120;
-    const scanline_vblank: u16 = 241;
-    const scanline_prerender: u16 = 261;
+    const scanline_visible: i16 = 120;
+    const scanline_vblank: i16 = 241;
+    const scanline_prerender: i16 = -1;
 
     // Evaluation occurs
     try testing.expect(scanline_visible >= 0 and scanline_visible <= 239);
     // No evaluation in VBlank
     try testing.expect(scanline_vblank > 239);
-    // No evaluation on pre-render
-    try testing.expect(scanline_prerender > 239);
+    // No evaluation on pre-render (pre-render is -1, which is less than 0)
+    try testing.expect(scanline_prerender < 0);
 }
 
 test "Sprite Timing: Fetch on pre-render scanline for scanline 0" {
     const ppu = PpuState.init();
     _ = ppu;
 
-    // Pre-render scanline (261) fetches sprites for scanline 0
+    // Pre-render scanline (-1) fetches sprites for scanline 0
     // This is why sprites appear on scanline 0 without delay
 
-    const scanline: u16 = 261; // Pre-render
-    const target_scanline: u16 = 0; // Fetching for next scanline (0)
+    const scanline: i16 = -1; // Pre-render
+    const target_scanline: i16 = 0; // Fetching for next scanline (0)
 
     // Pre-render fetches sprites that will appear on scanline 0
-    try testing.expect(scanline == 261);
+    try testing.expect(scanline == -1);
     try testing.expect(target_scanline == 0);
 }
 

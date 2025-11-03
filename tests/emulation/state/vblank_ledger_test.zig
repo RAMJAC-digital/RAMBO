@@ -66,7 +66,7 @@ test "VBlankLedger: First read clears flag, subsequent read sees cleared" {
     try testing.expect(!isVBlankSet(&h));  // Still cleared
 }
 
-test "VBlankLedger: Flag is cleared at scanline 261, dot 1" {
+test "VBlankLedger: Flag is cleared at scanline -1, dot 1 (pre-render)" {
     var h = try Harness.init();
     defer h.deinit();
 
@@ -75,14 +75,14 @@ test "VBlankLedger: Flag is cleared at scanline 261, dot 1" {
 
     // Seek to just before VBlank clear without performing a $2002 read
     // (so we can test timing-based clearing, not read-based clearing)
-    h.seekTo(261, 0);
+    h.seekTo(-1, 0);
 
-    // At 261,0, VBlank should still be active (hasn't cleared by timing yet)
+    // At -1,0, VBlank should still be active (hasn't cleared by timing yet)
     try testing.expect(h.state.vblank_ledger.isActive());
 
     // Tick to the exact clear cycle
     h.tick(1);
-    try testing.expect(h.state.ppu.scanline == 261 and h.state.ppu.cycle == 1);
+    try testing.expect(h.state.ppu.scanline == -1 and h.state.ppu.cycle == 1);
 
     // The flag is now cleared by timing
     try testing.expect(!h.state.vblank_ledger.isActive());

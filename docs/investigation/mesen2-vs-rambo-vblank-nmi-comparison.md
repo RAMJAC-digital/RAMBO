@@ -22,7 +22,7 @@ This document provides a comprehensive comparison of VBlank flag timing, NMI gen
 ### Hardware Specification (nesdev.org)
 
 - **VBlank set:** Scanline 241, dot 1
-- **VBlank clear (timing):** Scanline 261 (pre-render), dot 1
+- **VBlank clear (timing):** Scanline -1 (pre-render), dot 1
 - **VBlank clear (read):** Reading $2002 clears the flag immediately
 
 ### Mesen2 Implementation

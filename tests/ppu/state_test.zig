@@ -58,10 +58,10 @@ test "PPU Clock: Scanline wrap" {
 test "PPU Clock: Frame wrap" {
     var ppu = PpuState.init();
     ppu.cycle = 340;
-    ppu.scanline = 261; // Last scanline of frame
+    ppu.scanline = 260; // Last scanline of frame before wrap
     ppu.frame_count = 5;
 
-    // Advance from (261, 340) should wrap to (-1, 0), frame 6
+    // Advance from (260, 340) should wrap to (-1, 0), frame 6
     PpuLogic.advanceClock(&ppu, false);
     try testing.expectEqual(@as(u16, 0), ppu.cycle);
     try testing.expectEqual(@as(i16, -1), ppu.scanline);

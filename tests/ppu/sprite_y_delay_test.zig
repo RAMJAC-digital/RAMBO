@@ -12,8 +12,9 @@
 
 const std = @import("std");
 const testing = std.testing;
-const PpuState = @import("../../src/ppu/State.zig").PpuState;
-const sprites = @import("../../src/ppu/logic/sprites.zig");
+const RAMBO = @import("RAMBO");
+const PpuState = RAMBO.PpuType;
+const sprites = RAMBO.Ppu.Logic;
 
 // ============================================================================
 // Hardware Behavior: Next-Scanline Evaluation
@@ -77,12 +78,12 @@ test "Sprite Y Delay: Pre-render scanline evaluates for scanline 0" {
     state.mask.show_sprites = true;
     state.mask.show_bg = true;
 
-    // During scanline 261 (pre-render), evaluate for scanline 0
+    // During scanline -1 (pre-render), evaluate for scanline 0
     sprites.initSpriteEvaluation(&state);
 
     // Note: Evaluation only happens on visible scanlines (0-239)
     // Pre-render scanline (261) does NOT perform evaluation
-    // This test documents that scanline 261 doesn't evaluate
+    // This test documents that scanline -1 doesn't evaluate
 
     // Instead, scanline 239 evaluates for scanline 240 (post-render)
     // and that secondary OAM is reused for scanline 0
@@ -154,10 +155,10 @@ test "Sprite Y Delay: Pre-render scanline fetches for scanline 0" {
     state.mask.show_bg = true;
     state.ctrl.sprite_pattern = false;
 
-    // During scanline 261 (pre-render), dots 257-320, fetch for scanline 0
+    // During scanline -1 (pre-render), dots 257-320, fetch for scanline 0
     // Expected row: scanline 0 - Y 0 = row 0
 
-    sprites.fetchSprites(&state, null, 261, 261);
+    sprites.fetchSprites(&state, null, -1, 261);
 
     // The calculation should be: next_scanline = (261 + 1) % 262 = 0
     // row = 0 - 0 = 0 (top row, correct for displaying on scanline 0)
@@ -194,7 +195,7 @@ test "Sprite Y Delay: Multiple scanlines fetch correct rows" {
         state.sprite_state.pattern_shift_hi[0] = 0;
 
         // Fetch during this scanline (for next scanline)
-        sprites.fetchSprites(&state, null, case.scanline, 261);
+        sprites.fetchSprites(&state, null, @as(i16, @intCast(case.scanline)), @as(i16, 261));
 
         // Verify the row calculation would be correct
         // (We can't check actual pattern data without CHR ROM,
@@ -283,7 +284,7 @@ test "Sprite Y Delay: Sprite at Y=255 wraps correctly" {
     // But evaluation should still check correctly
 }
 
-test "Sprite Y Delay: Frame wraparound at scanline 261" {
+test "Sprite Y Delay: Frame wraparound at scanline -1" {
     var state = PpuState.init();
 
     // Place sprite at Y=0
@@ -295,11 +296,11 @@ test "Sprite Y Delay: Frame wraparound at scanline 261" {
     state.mask.show_sprites = true;
     state.mask.show_bg = true;
 
-    // Note: Evaluation doesn't happen on scanline 261 (pre-render)
-    // But fetching DOES happen during 261 for scanline 0
+    // Note: Evaluation doesn't happen on scanline -1 (pre-render)
+    // But fetching DOES happen during pre-render (-1) for scanline 0
 
-    // Verify that (261 + 1) % 262 = 0
-    const next_scanline = (261 + 1) % 262;
+    // Verify that (-1 + 262 + 1) % 262 = 0 (wrapping arithmetic)
+    const next_scanline = @mod(@as(i16, -1) + 1, 262);
     try testing.expectEqual(@as(u16, 0), next_scanline);
 }
 
@@ -369,7 +370,7 @@ test "Sprite Y Delay: Full pipeline - evaluate, fetch, render sequence" {
     // This is the correct hardware behavior
 }
 
-test "Sprite Y Delay: Verify scanline 0 has sprites from scanline 261 fetch" {
+test "Sprite Y Delay: Verify scanline 0 has sprites from scanline -1 fetch" {
     var state = PpuState.init();
 
     // Place sprite at Y=0 in OAM
@@ -381,7 +382,7 @@ test "Sprite Y Delay: Verify scanline 0 has sprites from scanline 261 fetch" {
     state.mask.show_sprites = true;
     state.mask.show_bg = true;
 
-    // During scanline 261 (pre-render), secondary OAM contains stale data
+    // During scanline -1 (pre-render), secondary OAM contains stale data
     // from scanline 239's evaluation
     // But fetching still happens during 261, dots 257-320
 
@@ -391,8 +392,8 @@ test "Sprite Y Delay: Verify scanline 0 has sprites from scanline 261 fetch" {
     state.secondary_oam[2] = 0x00; // Attributes
     state.secondary_oam[3] = 100; // X position
 
-    // Fetch during scanline 261 for scanline 0
-    sprites.fetchSprites(&state, null, 261, 261);
+    // Fetch during scanline -1 for scanline 0
+    sprites.fetchSprites(&state, null, -1, 261);
 
     // Expected row: (261 + 1) % 262 - 0 = 0 - 0 = 0
     // This fetches the top row (row 0) for displaying on scanline 0

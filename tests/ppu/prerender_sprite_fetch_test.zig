@@ -1,12 +1,12 @@
 // Pre-render Scanline Sprite Fetch Test
 //
-// Tests that sprite fetching on the pre-render scanline (261) correctly handles
+// Tests that sprite fetching on the pre-render scanline (-1) correctly handles
 // stale secondary OAM data from the previous frame's scanline 239 evaluation.
 //
 // Hardware behavior (per nesdev.org/wiki/PPU_rendering):
-// - Pre-render scanline (261) performs sprite fetches using stale secondary OAM
+// - Pre-render scanline (-1) performs sprite fetches using stale secondary OAM
 // - Secondary OAM contains sprite Y positions from scanline 239
-// - When next_scanline = 0 (261 + 1) % 262, row calculation can wrap
+// - When next_scanline = 0 ((-1 + 1) % 262 = 0), row calculation can wrap
 // - Example: sprite_y=200, next_scanline=0 → row = 0 -% 200 = 56 (wraps)
 // - Hardware doesn't crash - it uses wrapped row value to fetch pattern data
 
@@ -24,7 +24,7 @@ test "Pre-render scanline: Sprite fetch with wrapped row calculation" {
     h.state.ppu.mask.show_sprites = true;
 
     // Set up sprite 0 in OAM with Y position that will cause wrapping
-    // When fetched on pre-render scanline (261), next_scanline will be 0
+    // When fetched on pre-render scanline (-1), next_scanline will be 0
     // row = 0 -% 200 = 56 for 8x8 sprite (out of valid range 0-7)
     h.state.ppu.oam[0] = 200; // Y position
     h.state.ppu.oam[1] = 0x42; // Tile index
@@ -43,15 +43,15 @@ test "Pre-render scanline: Sprite fetch with wrapped row calculation" {
         h.state.ppu.secondary_oam[i] = 0xFF;
     }
 
-    // Position at pre-render scanline (261), just before sprite fetch begins
-    h.seekTo(261, 256);
-    try testing.expectEqual(@as(i16, 261), h.state.ppu.scanline);
+    // Position at pre-render scanline (-1), just before sprite fetch begins
+    h.seekTo(-1, 256);
+    try testing.expectEqual(@as(i16, -1), h.state.ppu.scanline);
 
     // Advance through sprite fetch cycles (257-320)
     // This should NOT crash - hardware wraps row calculation naturally
     for (257..321) |_| {
         h.tick(1);
-        try testing.expectEqual(@as(i16, 261), h.state.ppu.scanline);
+        try testing.expectEqual(@as(i16, -1), h.state.ppu.scanline);
     }
 
     // Verify we completed sprite fetch without crashing
@@ -88,7 +88,7 @@ test "Pre-render scanline: 8x16 sprite with wrapped row calculation" {
     }
 
     // Position at pre-render scanline
-    h.seekTo(261, 256);
+    h.seekTo(-1, 256);
 
     // Advance through sprite fetch - should not crash with 8x16 sprites
     for (257..321) |_| {
@@ -118,7 +118,7 @@ test "Pre-render scanline: Multiple sprites with various Y positions" {
     }
 
     // Position at pre-render scanline
-    h.seekTo(261, 256);
+    h.seekTo(-1, 256);
 
     // Fetch all 8 sprites - none should crash regardless of Y position
     for (257..321) |_| {
