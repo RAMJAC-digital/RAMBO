@@ -56,9 +56,9 @@ pub const Harness = struct {
         return null;
     }
 
-    pub fn setPpuTiming(self: *Harness, scanline: u16, dot: u16) void {
+    pub fn setPpuTiming(self: *Harness, scanline: i16, dot: u16) void {
         // Directly set PPU's clock state (PPU owns its own timing now)
-        self.state.ppu.scanline = @intCast(scanline);
+        self.state.ppu.scanline = scanline;
         self.state.ppu.cycle = dot;
     }
 

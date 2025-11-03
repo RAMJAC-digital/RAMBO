@@ -46,7 +46,7 @@ test "Sprite Evaluation: Secondary OAM cleared every visible scanline" {
     const ppu = &harness.state.ppu;
 
     // Test on multiple scanlines
-    for ([_]u16{ 0, 50, 120, 200, 239 }) |scanline| {
+    for ([_]i16{ 0, 50, 120, 200, 239 }) |scanline| {
         // Fill with test pattern
         for (&ppu.secondary_oam) |*byte| {
             byte.* = 0x42;
@@ -124,7 +124,7 @@ test "Sprite Evaluation: Sprite Y=$FF never visible" {
     }
 
     // Test on various scanlines
-    for ([_]u16{ 0, 100, 200, 239 }) |scanline| {
+    for ([_]i16{ 0, 100, 200, 239 }) |scanline| {
         // Clear secondary OAM
         for (&ppu.secondary_oam) |*byte| {
             byte.* = 0xAA;
@@ -164,7 +164,7 @@ test "Sprite Evaluation: 8×8 sprite range check" {
     }
 
     // Test visible range: scanlines 99-106 evaluate for rendering on 100-107
-    for ([_]u16{ 99, 103, 106 }) |scanline| {
+    for ([_]i16{ 99, 103, 106 }) |scanline| {
         // Clear secondary OAM
         for (&ppu.secondary_oam) |*byte| {
             byte.* = 0xFF;
@@ -181,7 +181,7 @@ test "Sprite Evaluation: 8×8 sprite range check" {
     }
 
     // Test outside range: scanline 98 evaluates for 99 (before sprite), 107 evaluates for 108 (after sprite)
-    for ([_]u16{ 98, 107, 150 }) |scanline| {
+    for ([_]i16{ 98, 107, 150 }) |scanline| {
         // Clear secondary OAM
         for (&ppu.secondary_oam) |*byte| {
             byte.* = 0xAA;
@@ -219,7 +219,7 @@ test "Sprite Evaluation: 8×16 sprite range check" {
     }
 
     // Test visible range: scanlines 99-114 evaluate for rendering on 100-115
-    for ([_]u16{ 99, 107, 114 }) |scanline| {
+    for ([_]i16{ 99, 107, 114 }) |scanline| {
         // Clear secondary OAM
         for (&ppu.secondary_oam) |*byte| {
             byte.* = 0xFF;
@@ -236,7 +236,7 @@ test "Sprite Evaluation: 8×16 sprite range check" {
     }
 
     // Test outside range: scanline 98 evaluates for 99 (before sprite), 115 evaluates for 116 (after sprite)
-    for ([_]u16{ 98, 115, 150 }) |scanline| {
+    for ([_]i16{ 98, 115, 150 }) |scanline| {
         // Clear secondary OAM
         for (&ppu.secondary_oam) |*byte| {
             byte.* = 0xAA;
