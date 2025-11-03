@@ -97,11 +97,12 @@ pub fn stepCycle(state: anytype) CpuCycleResult {
     // 3. Not in race condition suppression
     //
     // Edge detection in checkInterrupts() handles latching pending_interrupt.
-    // NMI fires ONCE per VBlank because:
+    // Hardware behavior (verified against Mesen2 and AccuracyCoin):
+    // - Simple edge detector: falling edge on NMI line triggers interrupt
+    // - Multiple NMIs allowed per VBlank if PPUCTRL.7 toggled (AccuracyCoin test 7)
     // - After pending_interrupt = .nmi, checkInterrupts() stops checking
     // - pending_interrupt cleared when interrupt sequence completes
     // - VBlank flag cleared by $2002 read or scanline 261 dot 1
-    // - Double-trigger suppression via nmi_vblank_set_cycle tracking
     // - Race suppression: Reading $2002 within 0-2 cycles of VBlank set suppresses NMI
     const vblank_flag_visible = state.vblank_ledger.isFlagVisible();
     const race_suppression = state.vblank_ledger.hasRaceSuppression();
@@ -110,14 +111,6 @@ pub fn stepCycle(state: anytype) CpuCycleResult {
         !race_suppression;
 
     state.cpu.nmi_line = nmi_line_should_assert;
-
-    // Track current VBlank set cycle for double-trigger suppression
-    // Pass this to checkInterrupts() to prevent multiple NMIs during same VBlank
-    const vblank_active = state.vblank_ledger.isActive();
-    const current_vblank_set_cycle = if (vblank_active)
-        state.vblank_ledger.last_set_cycle
-    else
-        0;
 
     // If CPU is halted (JAM/KIL), do nothing until RESET
     if (state.cpu.halted) {
@@ -183,7 +176,7 @@ pub fn stepCycle(state: anytype) CpuCycleResult {
     }
 
     // Normal CPU execution
-    executeCycle(state, current_vblank_set_cycle);
+    executeCycle(state);
 
     // Mapper IRQ is now polled before CPU execution in State.zig
     // to ensure CPU sees IRQ line changes in the same cycle
@@ -200,9 +193,7 @@ pub fn stepCycle(state: anytype) CpuCycleResult {
 /// - .execute → .fetch_opcode (1 cycle: opcode execution)
 ///
 /// Caller is responsible for clock management.
-///
-/// @param vblank_set_cycle: Current VBlank set_cycle (0 if no VBlank active) for double-trigger suppression
-pub fn executeCycle(state: anytype, vblank_set_cycle: u64) void {
+pub fn executeCycle(state: anytype) void {
     // Clock advancement happens in tick() - not here
     // This keeps timing management centralized
 
@@ -212,7 +203,7 @@ pub fn executeCycle(state: anytype, vblank_set_cycle: u64) void {
     // (hijacked opcode fetch) immediately and transition to interrupt_sequence
     // at cycle 1 (since we just completed cycle 0).
     if (state.cpu.state == .fetch_opcode) {
-        CpuLogic.checkInterrupts(&state.cpu, vblank_set_cycle);
+        CpuLogic.checkInterrupts(&state.cpu);
         if (state.cpu.pending_interrupt != .none and state.cpu.pending_interrupt != .reset) {
             // Interrupt hijacks the opcode fetch - do dummy read at PC NOW
             _ = state.busRead(state.cpu.pc);
