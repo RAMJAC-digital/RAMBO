@@ -57,15 +57,16 @@ pub const Harness = struct {
     }
 
     pub fn setPpuTiming(self: *Harness, scanline: u16, dot: u16) void {
-        // Use MasterClock helper to set both master_cycles and ppu_cycles correctly
-        self.state.clock.setPpuPosition(scanline, dot);
+        // Directly set PPU's clock state (PPU owns its own timing now)
+        self.state.ppu.scanline = @intCast(scanline);
+        self.state.ppu.cycle = dot;
     }
 
     pub fn tickPpu(self: *Harness) void {
-        const scanline = self.state.clock.scanline();
-        const dot = self.state.clock.dot();
+        const scanline = self.state.ppu.scanline;
+        const dot = self.state.ppu.cycle;
         _ = PpuLogic.tick(&self.state.ppu, scanline, dot, self.cartPtr(), null);
-        self.state.clock.advance(1);
+        self.state.clock.advance();
     }
 
     pub fn tickPpuCycles(self: *Harness, cycles: usize) void {
@@ -96,7 +97,7 @@ pub const Harness = struct {
     /// IMPORTANT: This does NOT reset the VBlank ledger. If you need a clean ledger
     /// state, call `self.state.vblank_ledger.reset()` before calling this function.
     pub fn seekTo(self: *Harness, target_scanline: u16, target_dot: u16) void {
-        while (self.state.clock.scanline() != target_scanline or self.state.clock.dot() != target_dot) {
+        while (self.state.ppu.scanline != target_scanline or self.state.ppu.cycle != target_dot) {
             self.state.tick();
         }
     }
@@ -108,16 +109,16 @@ pub const Harness = struct {
         self.seekTo(target_scanline, target_dot);
 
         // Ensure we're at a CPU tick boundary (may overshoot by 1-2 cycles)
-        while (self.state.clock.ppu_cycles % 3 != 0) {
+        while (self.state.clock.master_cycles % 3 != 0) {
             self.state.tick();
         }
     }
 
     pub fn tickPpuWithFramebuffer(self: *Harness, framebuffer: []u32) void {
-        const scanline = self.state.clock.scanline();
-        const dot = self.state.clock.dot();
+        const scanline = self.state.ppu.scanline;
+        const dot = self.state.ppu.cycle;
         _ = PpuLogic.tick(&self.state.ppu, scanline, dot, self.cartPtr(), framebuffer);
-        self.state.clock.advance(1);
+        self.state.clock.advance();
     }
 
     pub fn ppuReadRegister(self: *Harness, address: u16) u8 {
@@ -165,8 +166,8 @@ pub const Harness = struct {
         var cycles: usize = 0;
 
         while (cycles < max_cycles) : (cycles += 1) {
-            const current_sl = self.state.clock.scanline();
-            const current_dot = self.state.clock.dot();
+            const current_sl = self.state.ppu.scanline;
+            const current_dot = self.state.ppu.cycle;
 
             if (current_sl == target_scanline and current_dot == target_dot) {
                 return; // Exact position reached
@@ -180,12 +181,12 @@ pub const Harness = struct {
 
     /// Helper: Get current scanline
     pub fn getScanline(self: *const Harness) u16 {
-        return self.state.clock.scanline();
+        return @intCast(self.state.ppu.scanline);
     }
 
     /// Helper: Get current dot
     pub fn getDot(self: *const Harness) u16 {
-        return self.state.clock.dot();
+        return self.state.ppu.cycle;
     }
 
     /// Helper: Setup CPU to execute from a specific address
@@ -194,8 +195,8 @@ pub const Harness = struct {
     /// Use this instead of manually setting cpu.pc/cpu.state/cpu.instruction_cycle
     pub fn setupCpuExecution(self: *Harness, start_pc: u16) void {
         // Verify we're at a CPU tick boundary
-        if (self.state.clock.ppu_cycles % 3 != 0) {
-            @panic("setupCpuExecution: Must be called at CPU tick boundary (ppu_cycles % 3 == 0)");
+        if (self.state.clock.master_cycles % 3 != 0) {
+            @panic("setupCpuExecution: Must be called at CPU tick boundary (master_cycles % 3 == 0)");
         }
 
         // Reset CPU to fetch_opcode state at the specified address

@@ -30,8 +30,8 @@ pub fn capture(
     const entry = HistoryEntry{
         .snapshot = snapshot,
         .pc = emu_state.cpu.pc,
-        .scanline = emu_state.clock.scanline(),
-        .frame = emu_state.clock.frame(),
+        .scanline = @intCast(emu_state.ppu.scanline),
+        .frame = emu_state.ppu.frame_count,
         .timestamp = std.time.timestamp(),
     };
 

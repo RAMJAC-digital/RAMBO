@@ -39,7 +39,7 @@ test "SMB: Title screen sprite data changes frame-to-frame" {
 
     // Run for 180 frames (SMB displays title screen around frame 180)
     const target_frames: u64 = 180;
-    while (state.clock.frame() < target_frames) {
+    while (state.ppu.frame_count < target_frames) {
         state.tick();
     }
 
@@ -51,7 +51,7 @@ test "SMB: Title screen sprite data changes frame-to-frame" {
 
     // Run for 60 more frames (1 second of animation)
     const end_frame = target_frames + 60;
-    while (state.clock.frame() < end_frame) {
+    while (state.ppu.frame_count < end_frame) {
         state.tick();
     }
 
@@ -129,7 +129,7 @@ test "SMB: Rendering enabled after initialization" {
 
     // Run for 180 frames
     const target_frames: u64 = 180;
-    while (state.clock.frame() < target_frames) {
+    while (state.ppu.frame_count < target_frames) {
         state.tick();
     }
 

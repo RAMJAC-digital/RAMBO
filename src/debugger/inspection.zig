@@ -85,7 +85,6 @@ pub const PpuSnapshot = struct {
 /// Capture complete PPU state for inspection
 pub fn inspectPpu(emu_state: *const EmulationState) PpuSnapshot {
     const ppu = &emu_state.ppu;
-    const clock = &emu_state.clock;
 
     return .{
         .ctrl = @bitCast(ppu.ctrl),
@@ -98,9 +97,9 @@ pub fn inspectPpu(emu_state: *const EmulationState) PpuSnapshot {
         .temp_addr = ppu.internal.t,
         .fine_x = ppu.internal.x,
         .write_toggle = ppu.internal.w,
-        .scanline = clock.scanline(),
-        .dot = clock.dot(),
-        .frame = clock.frame(),
+        .scanline = @intCast(ppu.scanline),
+        .dot = ppu.cycle,
+        .frame = ppu.frame_count,
         .rendering_enabled = emu_state.rendering_enabled,
         .warmup_complete = ppu.warmup_complete,
     };
@@ -209,7 +208,7 @@ pub const FrameSnapshot = struct {
 /// Capture complete frame state
 pub fn captureFrameSnapshot(emu_state: *const EmulationState) FrameSnapshot {
     return .{
-        .frame = emu_state.clock.frame(),
+        .frame = emu_state.ppu.frame_count,
         .cpu = inspectCpu(emu_state),
         .ppu = inspectPpu(emu_state),
     };

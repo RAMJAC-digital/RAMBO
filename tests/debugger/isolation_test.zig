@@ -445,7 +445,8 @@ test "Isolation: Runtime execution doesn't corrupt debugger state" {
     state.cpu.a = 0x99; // Direct write (NOT via debugger)
     state.cpu.pc = 0x8050;
     state.busWrite(0x0200, 0xFF);
-    state.clock.ppu_cycles = 200 * 341; // Scanline 200
+    state.ppu.scanline = 200; // Scanline 200
+    state.ppu.cycle = 0;
 
     // ✅ Verify debugger state UNCHANGED
     try testing.expectEqual(@as(usize, 1), debugger.state.breakpoint_count);
@@ -550,7 +551,7 @@ test "Isolation: Modification history isolation from runtime" {
     state.cpu.pc = 0x9000;
     state.cpu.sp = 0x00;
     state.busWrite(0x0300, 0xFF);
-    state.clock.ppu_cycles += 89342; // Advance one frame
+    state.ppu.frame_count += 1; // Advance one frame
 
     // ✅ Modification history UNCHANGED (runtime ops don't auto-log)
     try testing.expectEqual(mod_count, debugger.getModifications().len);

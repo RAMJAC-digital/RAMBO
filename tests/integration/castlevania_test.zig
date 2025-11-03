@@ -248,8 +248,8 @@ test "Castlevania: PPU rendering initialization" {
                     if (addr16 == 0x2002) {
                         read_2002_count += 1;
                         const ppu_cycle = state.clock.ppu_cycles;
-                        const scanline = state.clock.scanline();
-                        const dot = state.clock.dot();
+                        const scanline = state.ppu.scanline;
+                        const dot = state.ppu.cycle;
                         std.debug.print(" <- PPUSTATUS read! scanline={d} dot={d} ppu_cycle={d}", .{ scanline, dot, ppu_cycle });
                     }
                 }
@@ -336,7 +336,7 @@ test "Castlevania: PPU rendering initialization" {
         }
 
         if (rendering_enabled_frame == null and state.rendering_enabled) {
-            rendering_enabled_frame = state.clock.frame();
+            rendering_enabled_frame = state.ppu.frame_count;
             std.debug.print("Castlevania: Rendering enabled at frame {d}\n", .{rendering_enabled_frame.?});
         }
     }

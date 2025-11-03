@@ -66,7 +66,7 @@ test "SMB3: MMC3 IRQ fires during gameplay" {
         var zero_counter_events: usize = 0;
         var prev_irq_event_count: u32 = 0;
         var prev_irq_reload = false;
-        var prev_scanline = h.state.clock.scanline();
+        var prev_scanline = h.state.ppu.scanline;
 
         var a12_per_scanline: [262]u32 = [_]u32{0} ** 262;
 
@@ -112,7 +112,7 @@ test "SMB3: MMC3 IRQ fires during gameplay" {
                     .mmc3 => |*mmc3_cart| {
                         const mapper = &mmc3_cart.mapper;
 
-                        const current_scanline = h.state.clock.scanline();
+                        const current_scanline = h.state.ppu.scanline;
                         if (current_scanline != prev_scanline) {
                             if (prev_scanline < a12_per_scanline.len) {
                                 a12_per_scanline[prev_scanline] += accum_a12;
@@ -133,8 +133,8 @@ test "SMB3: MMC3 IRQ fires during gameplay" {
                         if (mapper.irq_counter != prev_irq_counter and irq_counter_change_count < irq_counter_changes.len) {
                             irq_counter_changes[irq_counter_change_count] = .{
                                 .frame = frame,
-                                .scanline = h.state.clock.scanline(),
-                                .dot = h.state.clock.dot(),
+                                .scanline = h.state.ppu.scanline,
+                                .dot = h.state.ppu.cycle,
                                 .old = prev_irq_counter,
                                 .new = mapper.irq_counter,
                             };
@@ -155,8 +155,8 @@ test "SMB3: MMC3 IRQ fires during gameplay" {
                                     "  >>> Counter decremented to zero at frame {} SL {} Dot {} (events={})\n",
                                     .{
                                         frame,
-                                        h.state.clock.scanline(),
-                                        h.state.clock.dot(),
+                                        h.state.ppu.scanline,
+                                        h.state.ppu.cycle,
                                         mapper.debug_irq_events,
                                     },
                                 );
@@ -165,16 +165,16 @@ test "SMB3: MMC3 IRQ fires during gameplay" {
 
                         if (mapper.irq_enabled and !prev_irq_enabled) {
                             if (irq_enabled_frame == null) irq_enabled_frame = frame;
-                            std.debug.print("IRQ ENABLED at frame {} (scanline {})\n", .{ frame, h.state.clock.scanline() });
+                            std.debug.print("IRQ ENABLED at frame {} (scanline {})\n", .{ frame, h.state.ppu.scanline });
                             prev_irq_enabled = true;
                         } else if (!mapper.irq_enabled and prev_irq_enabled) {
-                            std.debug.print("IRQ DISABLED at frame {} (scanline {})\n", .{ frame, h.state.clock.scanline() });
+                            std.debug.print("IRQ DISABLED at frame {} (scanline {})\n", .{ frame, h.state.ppu.scanline });
                             prev_irq_enabled = false;
                         }
 
                         if (prev_irq_latch == null or mapper.irq_latch != prev_irq_latch.?) {
                             prev_irq_latch = mapper.irq_latch;
-                            std.debug.print("IRQ LATCH set to ${X:0>2} at frame {} (scanline {})\n", .{ mapper.irq_latch, frame, h.state.clock.scanline() });
+                            std.debug.print("IRQ LATCH set to ${X:0>2} at frame {} (scanline {})\n", .{ mapper.irq_latch, frame, h.state.ppu.scanline });
                         }
 
                         const curr_irq_pending = mapper.irq_pending;
@@ -183,7 +183,7 @@ test "SMB3: MMC3 IRQ fires during gameplay" {
 
                             if (irq_fired_frame == null) {
                                 irq_fired_frame = frame;
-                                irq_fired_scanline = h.state.clock.scanline();
+                                irq_fired_scanline = h.state.ppu.scanline;
                                 irq_latch_value = mapper.irq_latch;
 
                                 std.debug.print("FIRST IRQ: Frame={}, SL={}, Latch=${X:0>2}, Counter={}\n", .{
@@ -197,8 +197,8 @@ test "SMB3: MMC3 IRQ fires during gameplay" {
                             if (irq_edge_count < irq_edge_log.len) {
                                 irq_edge_log[irq_edge_count] = .{
                                     .frame = frame,
-                                    .scanline = h.state.clock.scanline(),
-                                    .dot = h.state.clock.dot(),
+                                    .scanline = h.state.ppu.scanline,
+                                    .dot = h.state.ppu.cycle,
                                     .counter = mapper.irq_counter,
                                     .latch = mapper.irq_latch,
                                 };
@@ -213,8 +213,8 @@ test "SMB3: MMC3 IRQ fires during gameplay" {
                                 "[Frame {} SL {} Dot {}] IRQ pending events += {} (counter={}, enabled={})\n",
                                 .{
                                     frame,
-                                    h.state.clock.scanline(),
-                                    h.state.clock.dot(),
+                                    h.state.ppu.scanline,
+                                    h.state.ppu.cycle,
                                     delta_events,
                                     mapper.irq_counter,
                                     mapper.irq_enabled,
@@ -227,8 +227,8 @@ test "SMB3: MMC3 IRQ fires during gameplay" {
                                 "  >>> IRQ reload set at frame {} SL {} Dot {} (counter={}, latch=${X:0>2}, bg_pattern={}, sprite_pattern={})\n",
                                 .{
                                     frame,
-                                    h.state.clock.scanline(),
-                                    h.state.clock.dot(),
+                                    h.state.ppu.scanline,
+                                    h.state.ppu.cycle,
                                     mapper.irq_counter,
                                     mapper.irq_latch,
                                     @intFromBool(h.state.ppu.ctrl.bg_pattern),

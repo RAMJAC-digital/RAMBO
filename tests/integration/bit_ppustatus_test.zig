@@ -39,8 +39,8 @@ test "BIT $2002: N flag reflects VBlank state" {
 
     // --- Test 3: Mid-VBlank clear-on-read behavior ---
     // Advance past current frame, then seek to mid-VBlank in next frame
-    const current_frame = h.state.clock.frame();
-    while (h.state.clock.frame() <= current_frame) {
+    const current_frame = h.state.ppu.frame_count;
+    while (h.state.ppu.frame_count <= current_frame) {
         h.tick(1);
     }
     // Now in next frame - seek to mid-VBlank (well after 241.1)

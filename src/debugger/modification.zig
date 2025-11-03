@@ -204,18 +204,15 @@ pub fn writeMemoryRange(
 
 /// Set PPU scanline (for testing)
 pub fn setPpuScanline(state: anytype, emu_state: *EmulationState, scanline: u16) void {
-    const current_dot = emu_state.clock.dot();
-    // Use MasterClock helper to set both master_cycles and ppu_cycles correctly
-    emu_state.clock.setPpuPosition(scanline, current_dot);
+    // Directly set PPU's clock state (PPU owns its own timing now)
+    emu_state.ppu.scanline = @intCast(scanline);
     logModification(state, .{ .ppu_scanline = scanline });
 }
 
 /// Set PPU frame counter
 pub fn setPpuFrame(state: anytype, emu_state: *EmulationState, frame: u64) void {
-    const current_scanline = emu_state.clock.scanline();
-    const current_dot = emu_state.clock.dot();
-    // Use MasterClock helper to account for odd frame skips in master_cycles
-    emu_state.clock.setPosition(frame, current_scanline, current_dot);
+    // Directly set PPU's frame counter (PPU owns its own timing now)
+    emu_state.ppu.frame_count = frame;
     logModification(state, .{ .ppu_frame = frame });
 }
 

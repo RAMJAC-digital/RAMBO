@@ -263,7 +263,7 @@ fn mainExec(ctx: zli.CommandContext) !void {
 
         // Frame dump check (dump specific frame and exit)
         if (debug_flags.dump_frame) |target_frame| {
-            const current_frame = emu_state.clock.frame();
+            const current_frame = emu_state.ppu.frame_count;
             if (current_frame >= target_frame) {
                 // Wait for frame to be available in mailbox
                 if (mailboxes.frame.hasNewFrame()) {

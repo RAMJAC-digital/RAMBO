@@ -305,7 +305,7 @@ fn captureSnapshot(ctx: *EmulationContext) CpuSnapshot {
         .pc = ctx.state.cpu.pc,
         .p = ctx.state.cpu.p.toByte(),
         .cycle = ctx.state.clock.cpuCycles(),
-        .frame = ctx.state.clock.frame(),
+        .frame = ctx.state.ppu.frame_count,
     };
 }
 

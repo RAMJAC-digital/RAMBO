@@ -43,7 +43,7 @@ pub fn stepOut(state: anytype, emu_state: *const EmulationState) void {
 pub fn stepScanline(state: anytype, emu_state: *const EmulationState) void {
     state.mode = .step_scanline;
     state.step_state = .{
-        .target_scanline = (emu_state.clock.scanline() + 1) % 262,
+        .target_scanline = (@as(u16, @intCast(emu_state.ppu.scanline)) + 1) % 262,
     };
 }
 
@@ -51,6 +51,6 @@ pub fn stepScanline(state: anytype, emu_state: *const EmulationState) void {
 pub fn stepFrame(state: anytype, emu_state: *const EmulationState) void {
     state.mode = .step_frame;
     state.step_state = .{
-        .target_frame = emu_state.clock.frame() + 1,
+        .target_frame = emu_state.ppu.frame_count + 1,
     };
 }

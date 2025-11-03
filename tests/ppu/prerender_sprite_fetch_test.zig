@@ -45,13 +45,13 @@ test "Pre-render scanline: Sprite fetch with wrapped row calculation" {
 
     // Position at pre-render scanline (261), just before sprite fetch begins
     h.seekTo(261, 256);
-    try testing.expectEqual(@as(u16, 261), h.state.clock.scanline());
+    try testing.expectEqual(@as(u16, 261), h.state.ppu.scanline);
 
     // Advance through sprite fetch cycles (257-320)
     // This should NOT crash - hardware wraps row calculation naturally
     for (257..321) |_| {
         h.tick(1);
-        try testing.expectEqual(@as(u16, 261), h.state.clock.scanline());
+        try testing.expectEqual(@as(u16, 261), h.state.ppu.scanline);
     }
 
     // Verify we completed sprite fetch without crashing

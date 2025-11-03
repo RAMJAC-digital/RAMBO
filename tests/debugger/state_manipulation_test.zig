@@ -259,7 +259,7 @@ test "State Manipulation: set PPU scanline" {
 
     // Set scanline
     debugger.setPpuScanline(&state, 200);
-    try testing.expectEqual(@as(u16, 200), state.clock.scanline());
+    try testing.expectEqual(@as(u16, 200), state.ppu.scanline);
 
     // Verify modification logged
     const mods = debugger.getModifications();
@@ -278,7 +278,7 @@ test "State Manipulation: set PPU frame counter" {
 
     // Set frame counter
     debugger.setPpuFrame(&state, 1000);
-    try testing.expectEqual(@as(u64, 1000), state.clock.frame());
+    try testing.expectEqual(@as(u64, 1000), state.ppu.frame_count);
 
     // Verify modification logged
     const mods = debugger.getModifications();

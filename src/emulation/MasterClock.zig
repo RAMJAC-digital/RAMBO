@@ -25,20 +25,16 @@
 const std = @import("std");
 
 /// Master clock for NES emulation
-/// Tracks PPU cycles as the single source of truth
-/// All other timing derived from this counter
+/// Now simplified to ONLY track master_cycles for timestamps
+/// PPU timing is now owned by PpuState (cycle, scanline, frame_count)
+/// Mesen2 architecture: _masterClock for timestamps, PPU owns _cycle/_scanline/_frameCount
 pub const MasterClock = struct {
     /// Monotonic master clock - ALWAYS advances by 1
     /// This is the authoritative timing source for all timestamps
     /// Hardware correspondence: Counts every tick of the emulator
     /// CRITICAL: This counter NEVER skips values (0, 1, 2, 3, 4...)
+    /// Used by VBlankLedger and other systems for timestamp comparisons
     master_cycles: u64 = 0,
-
-    /// Total PPU cycles elapsed since power-on
-    /// Can skip values on odd frames (NTSC hardware behavior)
-    /// Hardware correspondence: Counts cycles from 21.477272 MHz ÷ 4 oscillator
-    /// Derived from master_cycles but can diverge due to odd frame skip
-    ppu_cycles: u64 = 0,
 
     /// Speed control multiplier for emulation
     /// 1.0 = normal speed (60 FPS)
@@ -52,86 +48,39 @@ pub const MasterClock = struct {
         return .{};
     }
 
-    /// Advance clock by 1 master cycle and N PPU cycles
+    /// Advance clock by 1 master cycle
     /// This is the ONLY function that mutates timing state
     /// Called by EmulationState.tick() to advance emulation
     ///
-    /// Parameters:
-    /// - ppu_increment: Number of PPU cycles to advance (usually 1, but 2 on odd frame skip)
-    ///
     /// Hardware: Master clock ALWAYS advances by 1 (monotonic)
-    ///           PPU cycles usually advance by 1, but skip dot 340 on odd frames (advance by 2)
+    /// PPU clock advances separately via PpuLogic.advanceClock()
     ///
-    /// CRITICAL: master_cycles is ALWAYS incremented by 1 (monotonic guarantee)
-    ///           ppu_cycles increments by ppu_increment (can skip values)
-    pub fn advance(self: *MasterClock, ppu_increment: u64) void {
+    /// Note: PPU timing (cycle, scanline, frame_count) is now owned by PpuState
+    /// Odd frame skip is handled in PPU clock, not here
+    pub fn advance(self: *MasterClock) void {
         self.master_cycles +%= 1; // ALWAYS +1 (monotonic)
-        self.ppu_cycles +%= ppu_increment; // Usually 1, but 2 on odd frame skip
-    }
-
-    /// Get current scanline (0-261)
-    /// Hardware: NES has 262 scanlines per frame
-    /// - Scanlines 0-239: Visible scanlines (240 total)
-    /// - Scanline 240: Post-render (idle)
-    /// - Scanlines 241-260: VBlank (20 scanlines)
-    /// - Scanline 261: Pre-render (prepares for next frame)
-    ///
-    /// Derivation: (total_cycles / 341) mod 262
-    /// Each scanline is 341 PPU cycles (dots 0-340)
-    pub fn scanline(self: MasterClock) u16 {
-        const cycles_per_scanline = 341;
-        const scanlines_per_frame = 262;
-        return @intCast((self.ppu_cycles / cycles_per_scanline) % scanlines_per_frame);
-    }
-
-    /// Get current dot within scanline (0-340)
-    /// Hardware: NES PPU renders 341 dots per scanline
-    /// - Dots 0-255: Visible pixels (256 total)
-    /// - Dots 256-340: HBlank and tile prefetch (85 dots)
-    ///
-    /// Derivation: total_cycles mod 341
-    pub fn dot(self: MasterClock) u16 {
-        const cycles_per_scanline = 341;
-        return @intCast(self.ppu_cycles % cycles_per_scanline);
-    }
-
-    /// Get current frame number
-    /// Hardware: NTSC runs at 60.0988 Hz (slightly faster than 60 Hz)
-    /// - Even frames: 89,342 PPU cycles
-    /// - Odd frames with rendering: 89,341 PPU cycles (1 cycle shorter)
-    ///
-    /// Note: This calculation assumes all frames are 89,342 cycles (even frames)
-    /// The actual frame count may be slightly off due to odd frame skipping,
-    /// but this is sufficient for frame counting purposes.
-    ///
-    /// Derivation: total_cycles / 89342 (approximate)
-    pub fn frame(self: MasterClock) u64 {
-        const cycles_per_frame = 89342; // Even frame length
-        return self.ppu_cycles / cycles_per_frame;
     }
 
     /// Get total CPU cycles elapsed
     /// Hardware: CPU runs at 1/3 the speed of PPU (1.789773 MHz vs 5.369318 MHz)
-    /// - 1 CPU cycle = 3 PPU cycles (exact ratio)
+    /// - 1 CPU cycle = 3 master clock ticks
     ///
-    /// Derivation: total_ppu_cycles / 3
-    ///
-    /// Note: Returns integer division. The NES doesn't have fractional CPU cycles,
-    /// but the relationship isn't always exact due to timing quirks. For example,
-    /// a frame has 89,342 PPU cycles, which is 29,780.67 CPU cycles. The 0.67
-    /// accumulates over multiple frames.
+    /// Now derives from master_cycles instead of ppu_cycles
+    /// Since master_cycles advances 1:1 with PPU cycles (before PPU handles odd frame skip),
+    /// the 1:3 ratio is maintained.
     pub fn cpuCycles(self: MasterClock) u64 {
-        return self.ppu_cycles / 3;
+        return self.master_cycles / 3;
     }
 
     /// Check if current cycle is a CPU tick
-    /// Hardware: CPU ticks every 3rd PPU cycle
-    /// - PPU cycle 0, 3, 6, 9... → CPU ticks
-    /// - PPU cycle 1, 2, 4, 5... → CPU idle
+    /// Hardware: CPU ticks every 3rd master cycle
+    /// - Master cycle 0, 3, 6, 9... → CPU ticks
+    /// - Master cycle 1, 2, 4, 5... → CPU idle
     ///
+    /// Now checks master_cycles instead of ppu_cycles
     /// Used by EmulationState.tick() to determine when to tick CPU
     pub fn isCpuTick(self: MasterClock) bool {
-        return (self.ppu_cycles % 3) == 0;
+        return (self.master_cycles % 3) == 0;
     }
 
     /// Check if current cycle is an APU tick
@@ -143,101 +92,24 @@ pub const MasterClock = struct {
         return self.isCpuTick();
     }
 
-    /// Check if current frame is odd
-    /// Hardware: Odd frames have special behavior (skip dot 0 when rendering enabled)
-    ///
-    /// Used for odd frame skip detection
-    pub fn isOddFrame(self: MasterClock) bool {
-        return (self.frame() & 1) == 1;
-    }
-
-    /// Get position within current frame (0-89341)
-    /// Useful for frame-relative timing
-    ///
-    /// Note: Returns position assuming even frame (89,342 cycles)
-    /// On odd frames with rendering, max value is 89,340 (1 cycle shorter)
-    pub fn framePosition(self: MasterClock) u32 {
-        const cycles_per_frame = 89342;
-        return @intCast(self.ppu_cycles % cycles_per_frame);
-    }
-
-    /// Calculate exact scanline and dot from current cycle count
-    /// Returns both values efficiently without double computation
-    ///
-    /// Useful when both values are needed simultaneously
-    pub fn scanlineAndDot(self: MasterClock) struct { scanline: u16, dot: u16 } {
-        const cycles_per_scanline = 341;
-        const scanlines_per_frame = 262;
-
-        const total_scanlines = self.ppu_cycles / cycles_per_scanline;
-        const current_scanline = @as(u16, @intCast(total_scanlines % scanlines_per_frame));
-        const current_dot = @as(u16, @intCast(self.ppu_cycles % cycles_per_scanline));
-
-        return .{
-            .scanline = current_scanline,
-            .dot = current_dot,
-        };
-    }
-
-    /// Set clock to specific scanline/dot position
-    /// Used by test harness and debugger
-    ///
-    /// Parameters:
-    /// - target_scanline: Target scanline (0-261)
-    /// - target_dot: Target dot within scanline (0-340)
-    ///
-    /// Note: For test initialization, assumes 1:1 relationship between master_cycles
-    /// and ppu_cycles until first odd frame skip occurs. This is safe for most tests
-    /// that start from a clean state.
-    pub fn setPpuPosition(self: *MasterClock, target_scanline: u16, target_dot: u16) void {
-        const target_ppu = (@as(u64, target_scanline) * 341) + target_dot;
-        self.master_cycles = target_ppu; // Assume 1:1 until first skip
-        self.ppu_cycles = target_ppu;
-    }
-
-    /// Set clock to specific frame/scanline/dot position
-    /// Accounts for odd frame skips in master_cycles calculation
-    ///
-    /// Parameters:
-    /// - target_frame: Target frame number
-    /// - target_scanline: Target scanline (0-261)
-    /// - target_dot: Target dot within scanline (0-340)
-    ///
-    /// This method correctly calculates master_cycles by accounting for all
-    /// odd frame skips that have occurred up to the target frame.
-    pub fn setPosition(self: *MasterClock, target_frame: u64, target_scanline: u16, target_dot: u16) void {
-        const cycles_per_frame = 89342;
-        const target_ppu = (target_frame * cycles_per_frame) + (@as(u64, target_scanline) * 341) + target_dot;
-
-        // Each odd frame skip: advance(2) called instead of advance(1)
-        // - master_cycles increments by 1 (always)
-        // - ppu_cycles increments by 2 (skip)
-        // Result: ppu_cycles gets N cycles ahead after N skips
-        // Number of odd frames = target_frame / 2 (frames 1, 3, 5, 7... are odd)
-        const odd_frame_count = target_frame / 2;
-
-        self.ppu_cycles = target_ppu;
-        self.master_cycles = target_ppu - odd_frame_count; // Subtract skips (ppu runs ahead)
-    }
-
     /// Reset clock to power-on state
     /// Used when emulator is reset or ROM is loaded
     ///
     /// CRITICAL: CPU/PPU phase offset
     /// Hardware has an arbitrary phase relationship between CPU and PPU clocks.
-    /// CPU ticks every 3 PPU cycles, but the initial offset varies by console.
-    /// Starting at ppu_cycles = 0 means CPU ticks when (ppu % 3 == 0).
-    /// Real hardware might have CPU tick when (ppu % 3 == 1) or (ppu % 3 == 2).
+    /// CPU ticks every 3 master cycles, but the initial offset varies by console.
+    /// Starting at master_cycles = 0 means CPU ticks when (master % 3 == 0).
+    /// Real hardware might have CPU tick when (master % 3 == 1) or (master % 3 == 2).
     ///
     /// AccuracyCoin tests are sensitive to this phase! Testing different offsets:
-    /// - Phase 0 (ppu_cycles = 0): CPU at ppu % 3 == 0
-    /// - Phase 1 (ppu_cycles = 1): CPU at ppu % 3 == 1
-    /// - Phase 2 (ppu_cycles = 2): CPU at ppu % 3 == 2
+    /// - Phase 0 (master_cycles = 0): CPU at master % 3 == 0
+    /// - Phase 1 (master_cycles = 1): CPU at master % 3 == 1
+    /// - Phase 2 (master_cycles = 2): CPU at master % 3 == 2
     pub fn reset(self: *MasterClock) void {
         // TODO: Make this configurable or determine correct hardware phase
-        self.master_cycles = 2; // Same phase for both counters
-        self.ppu_cycles = 2; // TESTING: Phase 2 to see if it fixes AccuracyCoin
+        self.master_cycles = 2; // TESTING: Phase 2 to see if it fixes AccuracyCoin
         // Note: speed_multiplier is NOT reset (user preference persists)
+        // Note: PPU clock is reset separately via PpuState.init()
     }
 
     /// Set speed multiplier for emulation
@@ -260,25 +132,6 @@ pub const MasterClock = struct {
     pub fn getSpeed(self: MasterClock) f64 {
         return self.speed_multiplier;
     }
-
-    /// Calculate expected master_cycles for a given scanline/dot from reset
-    /// Useful for test assertions
-    ///
-    /// This accounts for:
-    /// - Initial reset offset (both counters start at 2)
-    /// - The target PPU position
-    ///
-    /// NOTE: Does NOT account for odd frame skips - assumes fresh reset state
-    /// For multi-frame scenarios, compare relative timing, not absolute cycles
-    pub fn expectedMasterCyclesFromReset(target_scanline: u16, target_dot: u16) u64 {
-        const reset_offset: u64 = 2; // Both counters start at 2
-        const target_ppu_cycles = (@as(u64, target_scanline) * 341) + target_dot;
-
-        // From reset at cycle 2 to target: distance = target - 2
-        // Each advance(1) increments master by 1
-        // So master_cycles = 2 + (target - 2) = target
-        return reset_offset + (target_ppu_cycles - reset_offset);
-    }
 };
 
 // ============================================================================
@@ -291,99 +144,24 @@ test "MasterClock: initialization" {
     const clock = MasterClock.init();
 
     try testing.expectEqual(@as(u64, 0), clock.master_cycles);
-    try testing.expectEqual(@as(u64, 0), clock.ppu_cycles);
     try testing.expectEqual(@as(f64, 1.0), clock.speed_multiplier);
 }
 
 test "MasterClock: advance cycles" {
     var clock = MasterClock.init();
 
-    // Normal advance: master +1, ppu +1
-    clock.advance(1);
+    // Advance always increments by 1 (monotonic)
+    clock.advance();
     try testing.expectEqual(@as(u64, 1), clock.master_cycles);
-    try testing.expectEqual(@as(u64, 1), clock.ppu_cycles);
 
-    // Normal advance again
-    clock.advance(1);
+    // Advance again
+    clock.advance();
     try testing.expectEqual(@as(u64, 2), clock.master_cycles);
-    try testing.expectEqual(@as(u64, 2), clock.ppu_cycles);
-
-    // Odd frame skip: master +1, ppu +2
-    clock.advance(2);
-    try testing.expectEqual(@as(u64, 3), clock.master_cycles); // Still +1
-    try testing.expectEqual(@as(u64, 4), clock.ppu_cycles); // Skipped a value (2 -> 4)
 
     // Verify monotonicity: master_cycles should never skip values
     const prev_master = clock.master_cycles;
-    clock.advance(1);
+    clock.advance();
     try testing.expectEqual(prev_master + 1, clock.master_cycles);
-}
-
-test "MasterClock: scanline derivation" {
-    var clock = MasterClock.init();
-
-    // Scanline 0, dot 0
-    try testing.expectEqual(@as(u16, 0), clock.scanline());
-
-    // Advance to end of scanline 0 (dot 340)
-    // Use setPpuPosition for test setup instead of advance loop
-    clock.setPpuPosition(0, 340);
-    try testing.expectEqual(@as(u16, 0), clock.scanline());
-
-    // Advance to scanline 1, dot 0
-    clock.advance(1);
-    try testing.expectEqual(@as(u16, 1), clock.scanline());
-
-    // Advance to scanline 261 (pre-render)
-    clock.setPpuPosition(261, 0);
-    try testing.expectEqual(@as(u16, 261), clock.scanline());
-
-    // Wrap to scanline 0 (next frame)
-    clock.setPpuPosition(0, 0);
-    try testing.expectEqual(@as(u16, 0), clock.scanline());
-}
-
-test "MasterClock: dot derivation" {
-    var clock = MasterClock.init();
-
-    // Dot 0
-    try testing.expectEqual(@as(u16, 0), clock.dot());
-
-    // Advance to dot 100 using setPpuPosition (test setup)
-    clock.setPpuPosition(0, 100);
-    try testing.expectEqual(@as(u16, 100), clock.dot());
-
-    // Advance to dot 340 (last dot) - direct assignment for simplicity
-    clock.ppu_cycles = 340;
-    clock.master_cycles = 340;
-    try testing.expectEqual(@as(u16, 340), clock.dot());
-
-    // Wrap to dot 0 (next scanline)
-    clock.ppu_cycles = 341;
-    clock.master_cycles = 341;
-    try testing.expectEqual(@as(u16, 0), clock.dot());
-}
-
-test "MasterClock: frame derivation" {
-    var clock = MasterClock.init();
-
-    // Frame 0
-    try testing.expectEqual(@as(u64, 0), clock.frame());
-
-    // Advance to end of frame 0 - direct assignment for simplicity
-    clock.ppu_cycles = 89341;
-    clock.master_cycles = 89341;
-    try testing.expectEqual(@as(u64, 0), clock.frame());
-
-    // Advance to frame 1
-    clock.ppu_cycles = 89342;
-    clock.master_cycles = 89342;
-    try testing.expectEqual(@as(u64, 1), clock.frame());
-
-    // Frame 10
-    clock.ppu_cycles = 89342 * 10;
-    clock.master_cycles = 89342 * 10;
-    try testing.expectEqual(@as(u64, 10), clock.frame());
 }
 
 test "MasterClock: CPU cycle derivation" {
@@ -392,27 +170,24 @@ test "MasterClock: CPU cycle derivation" {
     // 0 CPU cycles
     try testing.expectEqual(@as(u64, 0), clock.cpuCycles());
 
-    // 1 CPU cycle = 3 PPU cycles (must call advance(1) three times for monotonicity)
-    clock.advance(1);
-    clock.advance(1);
-    clock.advance(1);
+    // 1 CPU cycle = 3 master cycles
+    clock.advance();
+    clock.advance();
+    clock.advance();
     try testing.expectEqual(@as(u64, 1), clock.cpuCycles());
 
-    // 10 CPU cycles = 30 PPU cycles - use setPpuPosition for test setup
-    clock.setPpuPosition(0, 30);
+    // 10 CPU cycles = 30 master cycles
+    clock.master_cycles = 30;
     try testing.expectEqual(@as(u64, 10), clock.cpuCycles());
 
-    // Fractional CPU cycles (integer division) - direct assignment for simplicity
-    clock.ppu_cycles = 31; // 10.33 CPU cycles → 10
-    clock.master_cycles = 31;
+    // Fractional CPU cycles (integer division)
+    clock.master_cycles = 31; // 10.33 CPU cycles → 10
     try testing.expectEqual(@as(u64, 10), clock.cpuCycles());
 
-    clock.ppu_cycles = 32; // 10.67 CPU cycles → 10
-    clock.master_cycles = 32;
+    clock.master_cycles = 32; // 10.67 CPU cycles → 10
     try testing.expectEqual(@as(u64, 10), clock.cpuCycles());
 
-    clock.ppu_cycles = 33; // 11.0 CPU cycles → 11
-    clock.master_cycles = 33;
+    clock.master_cycles = 33; // 11.0 CPU cycles → 11
     try testing.expectEqual(@as(u64, 11), clock.cpuCycles());
 }
 
@@ -423,110 +198,47 @@ test "MasterClock: CPU tick detection" {
     try testing.expect(clock.isCpuTick());
 
     // Cycle 1: No CPU tick
-    clock.advance(1);
+    clock.advance();
     try testing.expect(!clock.isCpuTick());
 
     // Cycle 2: No CPU tick
-    clock.advance(1);
+    clock.advance();
     try testing.expect(!clock.isCpuTick());
 
     // Cycle 3: CPU tick
-    clock.advance(1);
+    clock.advance();
     try testing.expect(clock.isCpuTick());
 
-    // Cycle 6: CPU tick - direct assignment for simplicity
-    clock.ppu_cycles = 6;
+    // Cycle 6: CPU tick
     clock.master_cycles = 6;
     try testing.expect(clock.isCpuTick());
 }
 
-test "MasterClock: odd frame detection" {
+test "MasterClock: APU tick detection" {
     var clock = MasterClock.init();
 
-    // Frame 0: Even
-    try testing.expect(!clock.isOddFrame());
+    // APU ticks are same as CPU ticks
+    try testing.expect(clock.isApuTick() == clock.isCpuTick());
 
-    // Frame 1: Odd - direct assignment for simplicity
-    clock.ppu_cycles = 89342;
-    clock.master_cycles = 89342;
-    try testing.expect(clock.isOddFrame());
-
-    // Frame 2: Even
-    clock.ppu_cycles = 89342 * 2;
-    clock.master_cycles = 89342 * 2;
-    try testing.expect(!clock.isOddFrame());
-
-    // Frame 3: Odd
-    clock.ppu_cycles = 89342 * 3;
-    clock.master_cycles = 89342 * 3;
-    try testing.expect(clock.isOddFrame());
-}
-
-test "MasterClock: frame position" {
-    var clock = MasterClock.init();
-
-    // Start of frame
-    try testing.expectEqual(@as(u32, 0), clock.framePosition());
-
-    // Middle of frame - direct assignment for simplicity
-    clock.ppu_cycles = 50000;
-    clock.master_cycles = 50000;
-    try testing.expectEqual(@as(u32, 50000), clock.framePosition());
-
-    // End of frame
-    clock.ppu_cycles = 89341;
-    clock.master_cycles = 89341;
-    try testing.expectEqual(@as(u32, 89341), clock.framePosition());
-
-    // Next frame (wraps)
-    clock.ppu_cycles = 89342;
-    clock.master_cycles = 89342;
-    try testing.expectEqual(@as(u32, 0), clock.framePosition());
-}
-
-test "MasterClock: scanline and dot together" {
-    var clock = MasterClock.init();
-
-    // Scanline 0, dot 0
-    var pos = clock.scanlineAndDot();
-    try testing.expectEqual(@as(u16, 0), pos.scanline);
-    try testing.expectEqual(@as(u16, 0), pos.dot);
-
-    // Scanline 10, dot 50 - direct assignment for simplicity
-    const cycles_10_50 = 10 * 341 + 50;
-    clock.ppu_cycles = cycles_10_50;
-    clock.master_cycles = cycles_10_50;
-    pos = clock.scanlineAndDot();
-    try testing.expectEqual(@as(u16, 10), pos.scanline);
-    try testing.expectEqual(@as(u16, 50), pos.dot);
-
-    // Scanline 261, dot 340 (end of frame)
-    const cycles_261_340 = 261 * 341 + 340;
-    clock.ppu_cycles = cycles_261_340;
-    clock.master_cycles = cycles_261_340;
-    pos = clock.scanlineAndDot();
-    try testing.expectEqual(@as(u16, 261), pos.scanline);
-    try testing.expectEqual(@as(u16, 340), pos.dot);
+    clock.advance();
+    try testing.expect(clock.isApuTick() == clock.isCpuTick());
 }
 
 test "MasterClock: reset" {
     var clock = MasterClock.init();
 
-    // Advance both counters
-    clock.advance(1);
-    clock.advance(1);
-    clock.advance(2); // Simulate odd frame skip
+    // Advance counter
+    clock.advance();
+    clock.advance();
+    clock.advance();
     clock.setSpeed(2.0);
 
-    // master_cycles should be at 3, ppu_cycles at 4
     try testing.expectEqual(@as(u64, 3), clock.master_cycles);
-    try testing.expectEqual(@as(u64, 4), clock.ppu_cycles);
 
     clock.reset();
 
-    // Both reset to phase 2
+    // Reset to phase 2
     try testing.expectEqual(@as(u64, 2), clock.master_cycles);
-    try testing.expectEqual(@as(u64, 2), clock.ppu_cycles);
     try testing.expectEqual(@as(f64, 2.0), clock.speed_multiplier); // Speed persists
 }
 
@@ -549,64 +261,16 @@ test "MasterClock: speed control" {
     try testing.expectEqual(@as(f64, 0.0), clock.getSpeed());
 }
 
-test "MasterClock: frame timing accuracy" {
+test "MasterClock: CPU/master ratio verification" {
     var clock = MasterClock.init();
 
-    // Even frame: 89,342 cycles
-    const even_frame_cycles = 89342;
-
-    // Run one even frame - use setPpuPosition for test setup
-    clock.setPpuPosition(0, 0); // Start of frame 1
-    clock.ppu_cycles = even_frame_cycles;
-    clock.master_cycles = even_frame_cycles;
-
-    // Should advance to frame 1
-    try testing.expectEqual(@as(u64, 1), clock.frame());
-
-    // Should be at scanline 0, dot 0
-    try testing.expectEqual(@as(u16, 0), clock.scanline());
-    try testing.expectEqual(@as(u16, 0), clock.dot());
-
-    // CPU cycles in one frame
-    const cpu_cycles_per_frame = even_frame_cycles / 3;
-    try testing.expectEqual(@as(u64, 29780), cpu_cycles_per_frame);
-    try testing.expectEqual(cpu_cycles_per_frame, clock.cpuCycles());
-}
-
-test "MasterClock: CPU/PPU ratio verification" {
-    var clock = MasterClock.init();
-
-    // Advance by 10,000 CPU cycles worth of PPU cycles
+    // Advance by 10,000 CPU cycles worth of master cycles
     const cpu_cycles_target: u64 = 10000;
-    const ppu_cycles_needed = cpu_cycles_target * 3;
+    const master_cycles_needed = cpu_cycles_target * 3;
 
-    // Use direct assignment for test setup (simulates advancing to this position)
-    clock.ppu_cycles = ppu_cycles_needed;
-    clock.master_cycles = ppu_cycles_needed;
+    clock.master_cycles = master_cycles_needed;
 
     // Verify exact 1:3 ratio
     try testing.expectEqual(cpu_cycles_target, clock.cpuCycles());
-    try testing.expectEqual(ppu_cycles_needed, clock.ppu_cycles);
-}
-
-test "MasterClock: VBlank timing" {
-    var clock = MasterClock.init();
-
-    // VBlank starts at scanline 241, dot 1
-    const vblank_start_cycle = 241 * 341 + 1;
-
-    clock.ppu_cycles = vblank_start_cycle;
-    clock.master_cycles = vblank_start_cycle;
-
-    try testing.expectEqual(@as(u16, 241), clock.scanline());
-    try testing.expectEqual(@as(u16, 1), clock.dot());
-
-    // VBlank ends at scanline 261, dot 1 (pre-render clears VBlank)
-    const vblank_end_cycle = 261 * 341 + 1;
-
-    clock.ppu_cycles = vblank_end_cycle;
-    clock.master_cycles = vblank_end_cycle;
-
-    try testing.expectEqual(@as(u16, 261), clock.scanline());
-    try testing.expectEqual(@as(u16, 1), clock.dot());
+    try testing.expectEqual(master_cycles_needed, clock.master_cycles);
 }

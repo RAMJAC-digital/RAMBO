@@ -134,9 +134,9 @@ test "Snapshot Integration: Full round-trip without cartridge" {
     try testing.expectEqual(state.ppu.ctrl.sprite_size, restored.ppu.ctrl.sprite_size);
     try testing.expectEqual(state.ppu.mask.show_bg, restored.ppu.mask.show_bg);
     try testing.expectEqual(state.ppu.mask.show_sprites, restored.ppu.mask.show_sprites);
-    try testing.expectEqual(state.clock.scanline(), restored.clock.scanline());
-    try testing.expectEqual(state.clock.dot(), restored.clock.dot());
-    try testing.expectEqual(state.clock.frame(), restored.clock.frame());
+    try testing.expectEqual(state.ppu.scanline, restored.ppu.scanline);
+    try testing.expectEqual(state.ppu.cycle, restored.ppu.cycle);
+    try testing.expectEqual(state.ppu.frame_count, restored.ppu.frame_count);
 
     // Verify Bus state
     try testing.expectEqual(state.bus.ram[0x00], restored.bus.ram[0x00]);
@@ -195,7 +195,7 @@ test "Snapshot Integration: Full round-trip with cartridge (reference mode)" {
     // Verify restoration
     try testing.expectEqual(state.cpu.a, restored.cpu.a);
     try testing.expectEqual(state.cpu.pc, restored.cpu.pc);
-    try testing.expectEqual(state.clock.frame(), restored.clock.frame());
+    try testing.expectEqual(state.ppu.frame_count, restored.ppu.frame_count);
 }
 
 test "Snapshot Integration: Snapshot with framebuffer" {
@@ -325,7 +325,7 @@ test "Snapshot Integration: Multiple save/load cycles" {
 
     // Verify modifications persisted
     try testing.expectEqual(@as(u8, 0x99), restored2.cpu.a);
-    try testing.expectEqual(@as(u64, 100), restored2.clock.frame());
+    try testing.expectEqual(@as(u64, 100), restored2.ppu.frame_count);
 
     // Original state should be unchanged
     try testing.expectEqual(@as(u8, 0x42), state.cpu.a);

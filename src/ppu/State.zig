@@ -316,6 +316,32 @@ pub const BackgroundState = struct {
 /// Pure data structure with no hidden state
 /// Suitable for stateless rendering with libxev threading
 pub const PpuState = struct {
+    // ========================================================================
+    // PPU Clock State (Mesen2: _cycle, _scanline, _frameCount)
+    // ========================================================================
+    // The PPU has its own clock that advances independently.
+    // These are NOT derived from MasterClock - they ARE the PPU's timing state.
+    // Mesen2 reference: NesPpu.cpp _cycle (0-340), _scanline (-1 to 261), _frameCount
+
+    /// Current dot/cycle within scanline (0-340)
+    /// Hardware: PPU renders 341 dots per scanline
+    /// Mesen2: _cycle variable
+    cycle: u16 = 0,
+
+    /// Current scanline (-1 = pre-render, 0-239 = visible, 240-260 = vblank)
+    /// Hardware: NES has 262 scanlines per frame (-1 through 260)
+    /// Mesen2: _scanline variable (uses -1 for pre-render line)
+    scanline: i16 = -1,
+
+    /// Frame counter (increments at end of pre-render scanline)
+    /// Hardware: Used for odd frame detection (odd frames skip 1 cycle when rendering)
+    /// Mesen2: _frameCount variable
+    frame_count: u64 = 0,
+
+    // ========================================================================
+    // PPU Registers
+    // ========================================================================
+
     /// PPU Control Register ($2000)
     ctrl: PpuCtrl = .{},
 

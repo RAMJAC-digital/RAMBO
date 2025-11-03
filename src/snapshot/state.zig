@@ -81,23 +81,17 @@ pub fn readConfig(reader: anytype) !ConfigValues {
 
 /// Write MasterClock to binary format
 pub fn writeClock(writer: anytype, clock: *const MasterClock) !void {
-    // Write both master_cycles (monotonic, primary) and ppu_cycles (can skip)
-    // master_cycles written first as it's the authoritative timing source
+    // Write master_cycles (monotonic counter, authoritative timing source)
+    // PPU timing (cycle, scanline, frame_count) now stored in PpuState
     try writer.writeInt(u64, clock.master_cycles, .little);
-    try writer.writeInt(u64, clock.ppu_cycles, .little);
 }
 
 /// Read MasterClock from binary format
 pub fn readClock(reader: anytype) !MasterClock {
     const master = try reader.readInt(u64, .little);
-    const ppu = try reader.readInt(u64, .little);
-
-    // TODO: Could add verification that ppu <= master (accounting for odd frame skips)
-    // For now, trust the saved values
 
     return .{
         .master_cycles = master,
-        .ppu_cycles = ppu,
     };
 }
 
@@ -216,8 +210,13 @@ pub fn writePpuState(writer: anytype, ppu: *const PpuState) !void {
     try writer.writeAll(&ppu.vram);
     try writer.writeAll(&ppu.palette_ram);
 
-    // Metadata (2 bytes) - timing now stored in MasterClock
+    // Metadata (1 byte)
     try writer.writeByte(@intFromEnum(ppu.mirroring));
+
+    // PPU Clock (18 bytes) - PPU now owns its own timing state
+    try writer.writeInt(u16, ppu.cycle, .little);
+    try writer.writeInt(i16, ppu.scanline, .little);
+    try writer.writeInt(u64, ppu.frame_count, .little);
 }
 
 /// Read PpuState from binary format
@@ -259,8 +258,13 @@ pub fn readPpuState(reader: anytype) !PpuState {
     try reader.readNoEof(&ppu.vram);
     try reader.readNoEof(&ppu.palette_ram);
 
-    // Metadata - timing now stored in MasterClock
+    // Metadata
     ppu.mirroring = @enumFromInt(try reader.readByte());
+
+    // PPU Clock - PPU owns its own timing state
+    ppu.cycle = try reader.readInt(u16, .little);
+    ppu.scanline = try reader.readInt(i16, .little);
+    ppu.frame_count = try reader.readInt(u64, .little);
 
     return ppu;
 }

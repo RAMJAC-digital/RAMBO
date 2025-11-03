@@ -40,6 +40,40 @@ pub fn reset(state: *PpuState) void {
     state.a12_state = false;
 }
 
+/// Advance PPU clock by one cycle
+/// Hardware behavior: PPU has its own clock (341 dots × 262 scanlines)
+/// Mesen2 reference: NesPpu.cpp Exec() function
+///
+/// Implements:
+/// - Cycle increment (0-340)
+/// - Scanline wrap (340→0, scanline++)
+/// - Frame wrap (scanline 261→-1, frame++)
+/// - Odd frame skip (cycle 339→340 when rendering enabled on odd frames)
+///
+/// Reference: nesdev.org/wiki/PPU_frame_timing
+pub fn advanceClock(ppu: *PpuState, rendering_enabled: bool) void {
+    ppu.cycle += 1;
+
+    // Odd frame skip: cycle 339 → 340 (skips cycle 340) when rendering enabled
+    // Hardware: On odd frames with rendering enabled, pre-render scanline is 1 cycle shorter
+    // Mesen2: if(_scanline == -1 && _cycle == 339 && (_frameCount & 0x01) && rendering)
+    if (ppu.scanline == -1 and ppu.cycle == 339 and (ppu.frame_count & 1) == 1 and rendering_enabled) {
+        ppu.cycle = 340; // Will wrap to 0 on next check
+    }
+
+    // Scanline wrap: cycle 340 → 0 (advance scanline)
+    if (ppu.cycle > 340) {
+        ppu.cycle = 0;
+        ppu.scanline += 1;
+
+        // Frame wrap: scanline 261 → -1 (pre-render, advance frame)
+        if (ppu.scanline > 261) {
+            ppu.scanline = -1; // Back to pre-render line
+            ppu.frame_count += 1;
+        }
+    }
+}
+
 /// Decay open bus value (called once per frame)
 pub fn tickFrame(state: *PpuState) void {
     state.open_bus.decay();
@@ -71,7 +105,7 @@ pub inline fn readRegister(
     cart: ?*AnyCartridge,
     address: u16,
     vblank_ledger: @import("../emulation/VBlankLedger.zig").VBlankLedger,
-    scanline: u16,
+    scanline: i16,
     dot: u16,
 ) registers.PpuReadResult {
     return registers.readRegister(state, cart, address, vblank_ledger, scanline, dot);
@@ -140,7 +174,7 @@ pub inline fn getSprite16PatternAddress(tile_index: u8, row: u8, bitplane: u1, v
 }
 
 /// Fetch sprite pattern data for visible scanline
-pub inline fn fetchSprites(state: *PpuState, cart: ?*AnyCartridge, scanline: u16, dot: u16) void {
+pub inline fn fetchSprites(state: *PpuState, cart: ?*AnyCartridge, scanline: i16, dot: u16) void {
     sprites.fetchSprites(state, cart, scanline, dot);
 }
 
@@ -155,7 +189,7 @@ pub inline fn getSpritePixel(state: *PpuState, pixel_x: u16) SpritePixel {
 }
 
 /// Evaluate sprites for the current scanline (instant evaluation - legacy)
-pub inline fn evaluateSprites(state: *PpuState, scanline: u16) void {
+pub inline fn evaluateSprites(state: *PpuState, scanline: i16) void {
     sprites.evaluateSprites(state, scanline);
 }
 
@@ -165,7 +199,7 @@ pub inline fn initSpriteEvaluation(state: *PpuState) void {
 }
 
 /// Tick progressive sprite evaluation (called each cycle during dots 65-256)
-pub inline fn tickSpriteEvaluation(state: *PpuState, scanline: u16, cycle: u16) void {
+pub inline fn tickSpriteEvaluation(state: *PpuState, scanline: i16, cycle: u16) void {
     sprites.tickSpriteEvaluation(state, scanline, cycle);
 }
 
@@ -199,7 +233,7 @@ pub const TickFlags = struct {
 /// Returns tick flags indicating frame boundary and rendering state.
 pub fn tick(
     state: *PpuState,
-    scanline: u16,
+    scanline: i16,
     dot: u16,
     cart: ?*AnyCartridge,
     framebuffer: ?[]u32,
@@ -380,8 +414,8 @@ pub fn tick(
         if (framebuffer) |fb| {
             // Defensive: validate framebuffer dimensions and pixel coordinates
             // Expected: 256×240 = 61,440 pixels
-            if (fb.len >= 61_440 and pixel_x < 256 and pixel_y < 240) {
-                const fb_index = pixel_y * 256 + pixel_x;
+            if (fb.len >= 61_440 and pixel_x < 256 and pixel_y >= 0 and pixel_y < 240) {
+                const fb_index = @as(u16, @intCast(pixel_y)) * 256 + pixel_x;
                 fb[fb_index] = color;
             }
         }

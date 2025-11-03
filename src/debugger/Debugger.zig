@@ -225,7 +225,7 @@ pub const Debugger = struct {
             },
             .step_scanline => {
                 if (self.state.step_state.target_scanline) |target| {
-                    if (state.clock.scanline() == target) {
+                    if (state.ppu.scanline == target) {
                         self.state.mode = .paused;
                         try self.setBreakReason("Scanline step complete");
                         return true;
@@ -234,7 +234,7 @@ pub const Debugger = struct {
             },
             .step_frame => {
                 if (self.state.step_state.target_frame) |target| {
-                    if (state.clock.frame() >= target) {
+                    if (state.ppu.frame_count >= target) {
                         self.state.mode = .paused;
                         try self.setBreakReason("Frame step complete");
                         return true;

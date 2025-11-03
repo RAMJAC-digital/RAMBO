@@ -227,8 +227,8 @@ test "OAM DMA: PPU continues running during transfer" {
     fillRamPage(state, 0x06, 0x00);
 
     // Record PPU state before DMA
-    const scanline_before = state.clock.scanline();
-    const dot_before = state.clock.dot();
+    const scanline_before = state.ppu.scanline;
+    const dot_before = state.ppu.cycle;
 
     // Trigger DMA
     state.busWrite(0x4014, 0x06);
@@ -239,8 +239,8 @@ test "OAM DMA: PPU continues running during transfer" {
     }
 
     // PPU timing should have advanced
-    const timing_changed = (state.clock.scanline() != scanline_before) or
-        (state.clock.dot() != dot_before);
+    const timing_changed = (state.ppu.scanline != scanline_before) or
+        (state.ppu.cycle != dot_before);
     try testing.expect(timing_changed);
 }
 

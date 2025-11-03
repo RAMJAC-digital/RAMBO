@@ -16,12 +16,13 @@ const std = @import("std");
 /// Parameters:
 ///   - state: Mutable pointer to emulation state
 pub fn tickCpuWithClock(state: anytype) void {
-    // 1 CPU cycle = 3 PPU cycles
-    // With new advance() semantics, must call 3 times for monotonic master_cycles
-    state.clock.advance(1); // master +1, ppu +1
-    state.clock.advance(1); // master +1, ppu +1
-    state.clock.advance(1); // master +1, ppu +1
-    // Total: master +3, ppu +3
+    // 1 CPU cycle = 3 PPU cycles = 3 master cycles
+    // Master clock advances monotonically (1 per tick)
+    // PPU clock advances via PpuLogic.advanceClock() (handles odd frame skip)
+    state.clock.advance(); // master +1
+    state.clock.advance(); // master +1
+    state.clock.advance(); // master +1
+    // Total: master +3 (1 CPU cycle)
     state.tickCpu();
 }
 
@@ -41,7 +42,8 @@ pub fn tickCpuWithClock(state: anytype) void {
 ///
 /// Returns: Number of PPU cycles elapsed during frame
 pub fn emulateFrame(state: anytype) u64 {
-    const start_cycle = state.clock.ppu_cycles;
+    // Track elapsed master cycles (monotonic counter)
+    const start_cycle = state.clock.master_cycles;
     state.frame_complete = false;
 
     if (state.debuggerShouldHalt()) {
@@ -61,7 +63,7 @@ pub fn emulateFrame(state: anytype) u64 {
         // Maximum frame cycles + 1000 cycle buffer
         // This check is RT-safe: unreachable is optimized out in ReleaseFast
         const max_cycles: u64 = 110_000;
-        const current_cycles = state.clock.ppu_cycles;
+        const current_cycles = state.clock.master_cycles;
         const elapsed = if (current_cycles >= start_cycle)
             current_cycles - start_cycle
         else
@@ -76,8 +78,8 @@ pub fn emulateFrame(state: anytype) u64 {
 
     // Return elapsed cycles with underflow protection
     // This can underflow in rare cases with threading tests or state manipulation
-    return if (state.clock.ppu_cycles >= start_cycle)
-        state.clock.ppu_cycles - start_cycle
+    return if (state.clock.master_cycles >= start_cycle)
+        state.clock.master_cycles - start_cycle
     else
         0;
 }
@@ -90,7 +92,7 @@ pub fn emulateFrame(state: anytype) u64 {
 ///
 /// Returns: Actual PPU cycles elapsed (approximately cpu_cycles × 3)
 pub fn emulateCpuCycles(state: anytype, cpu_cycles: u64) u64 {
-    const start_cycle = state.clock.ppu_cycles;
+    const start_cycle = state.clock.master_cycles;
     const target_cpu_cycle = state.clock.cpuCycles() + cpu_cycles;
 
     while (state.clock.cpuCycles() < target_cpu_cycle) {
@@ -98,8 +100,8 @@ pub fn emulateCpuCycles(state: anytype, cpu_cycles: u64) u64 {
     }
 
     // Return elapsed cycles with underflow protection
-    return if (state.clock.ppu_cycles >= start_cycle)
-        state.clock.ppu_cycles - start_cycle
+    return if (state.clock.master_cycles >= start_cycle)
+        state.clock.master_cycles - start_cycle
     else
         0;
 }

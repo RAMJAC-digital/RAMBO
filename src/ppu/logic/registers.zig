@@ -66,7 +66,7 @@ pub fn readRegister(
     cart: ?*AnyCartridge,
     address: u16,
     vblank_ledger: VBlankLedger,
-    scanline: u16,
+    scanline: i16,
     dot: u16,
 ) PpuReadResult {
     // Registers are mirrored every 8 bytes through $3FFF

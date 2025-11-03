@@ -123,7 +123,7 @@ test "NMI Control 3: Enable NMI during VBlank with flag set - immediate trigger"
     h.state.cpu.x = 0;
 
     // Run to VBlank (scanline 241)
-    while (h.state.clock.scanline() < 241) {
+    while (h.state.ppu.scanline < 241) {
         h.state.tick();
     }
     // Advance a few cycles into VBlank

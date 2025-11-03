@@ -65,8 +65,8 @@ test "PPUCTRL: Background pattern table change mid-scanline takes effect immedia
 
     // Debug: Check current timing
     std.debug.print("After 10 ticks - Scanline: {}, Dot: {}\n", .{
-        h.state.clock.scanline(),
-        h.state.clock.dot(),
+        h.state.ppu.scanline,
+        h.state.ppu.cycle,
     });
 
     // Verify background state has loaded pattern from $0000
@@ -93,8 +93,8 @@ test "PPUCTRL: Background pattern table change mid-scanline takes effect immedia
 
     // Debug: Check timing
     std.debug.print("After dot 17 logic - Scanline: {}, Dot: {}\n", .{
-        h.state.clock.scanline(),
-        h.state.clock.dot(),
+        h.state.ppu.scanline,
+        h.state.ppu.cycle,
     });
 
     // Verify tile 1 loaded from $1000 after reload at dot 17

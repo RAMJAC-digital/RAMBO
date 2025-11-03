@@ -52,7 +52,7 @@ pub fn getSprite16PatternAddress(tile_index: u8, row: u8, bitplane: u1, vertical
 
 /// Fetch sprite pattern data for visible scanline
 /// Called during cycles 257-320 (8 sprites × 8 cycles each)
-pub fn fetchSprites(state: *PpuState, cart: ?*AnyCartridge, scanline: u16, dot: u16) void {
+pub fn fetchSprites(state: *PpuState, cart: ?*AnyCartridge, scanline: i16, dot: u16) void {
     // Reset sprite state at start of fetch
     if (dot == 257) {
         state.sprite_state.sprite_count = 0;
@@ -93,8 +93,8 @@ pub fn fetchSprites(state: *PpuState, cart: ?*AnyCartridge, scanline: u16, dot: 
                 // Secondary OAM contains stale sprites from scanline 239. Hardware naturally
                 // truncates the subtraction to 8 bits.
                 // Example: scanline=261, next=0, sprite_y=0 -> hardware uses low byte = 0 (not 261)
-                const next_scanline = (scanline + 1) % 262;
-                const row_in_sprite: u8 = @truncate(next_scanline -% sprite_y);
+                const next_scanline = @rem(scanline + 1, 262);
+                const row_in_sprite: u8 = @truncate(@as(u16, @intCast(next_scanline)) -% sprite_y);
 
                 // Fetch pattern data (cycles 5-6 and 7-8)
                 if (fetch_cycle == 5 or fetch_cycle == 6) {
@@ -248,7 +248,7 @@ pub fn initSpriteEvaluation(state: *PpuState) void {
 /// - Reads from OAM on odd cycles, writes to secondary OAM on even cycles
 /// - Evaluates up to 8 sprites per scanline
 /// - After 8 sprites found, continues scanning for overflow (with hardware bug)
-pub fn tickSpriteEvaluation(state: *PpuState, scanline: u16, cycle: u16) void {
+pub fn tickSpriteEvaluation(state: *PpuState, scanline: i16, cycle: u16) void {
     // Evaluation done or cycle out of range
     if (state.sprite_state.eval_done or cycle < 65 or cycle > 256) {
         return;
@@ -280,7 +280,7 @@ pub fn tickSpriteEvaluation(state: *PpuState, scanline: u16, cycle: u16) void {
             // Hardware behavior: Sprite evaluation on scanline N determines which sprites
             // will be rendered on NEXT scanline (N+1). This creates a 1-scanline pipeline delay.
             // Reference: nesdev.org/wiki/PPU_sprite_evaluation
-            const next_scanline = (scanline + 1) % 262;
+            const next_scanline = @rem(scanline + 1, 262);
 
             // Check if sprite intersects next scanline (not current scanline)
             state.sprite_state.eval_sprite_in_range =
@@ -337,7 +337,7 @@ pub fn tickSpriteEvaluation(state: *PpuState, scanline: u16, cycle: u16) void {
 
 /// Legacy instant sprite evaluation (for backwards compatibility / testing)
 /// This is the old implementation that evaluates all sprites at once
-pub fn evaluateSprites(state: *PpuState, scanline: u16) void {
+pub fn evaluateSprites(state: *PpuState, scanline: i16) void {
     const sprite_height: u16 = if (state.ctrl.sprite_size) 16 else 8;
     var secondary_oam_index: usize = 0;
     var sprites_found: u8 = 0;
@@ -362,7 +362,7 @@ pub fn evaluateSprites(state: *PpuState, scanline: u16) void {
         // Sprite Y position defines top of sprite
         // Sprite is visible if: next_scanline >= sprite_y AND next_scanline < sprite_y + height
         // Special case: Y=$FF means sprite at -1 (never visible due to overflow)
-        const next_scanline = (scanline + 1) % 262;
+        const next_scanline = @rem(scanline + 1, 262);
         const sprite_bottom = @as(u16, sprite_y) + sprite_height;
         if (next_scanline >= sprite_y and next_scanline < sprite_bottom) {
             // Sprite is in range

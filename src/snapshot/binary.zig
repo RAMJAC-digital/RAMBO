@@ -3,9 +3,10 @@ const std = @import("std");
 const checksum = @import("checksum.zig");
 
 /// Snapshot format version
+/// Version 3: PPU clock decoupling - removed ppu_cycles from MasterClock, added cycle/scanline/frame_count to PpuState
 /// Version 2: Added master_cycles field to MasterClock (master_cycles + ppu_cycles, 16 bytes)
 /// Version 1: Original format (ppu_cycles only, 8 bytes)
-pub const SNAPSHOT_VERSION: u32 = 2;
+pub const SNAPSHOT_VERSION: u32 = 3;
 
 /// Snapshot header (72 bytes total when serialized)
 /// Uses regular struct with manual serialization to ensure cross-platform compatibility

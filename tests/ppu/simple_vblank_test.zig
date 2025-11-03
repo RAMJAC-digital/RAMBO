@@ -37,8 +37,8 @@ test "Simple VBlank test: $2002 read clears flag" {
     const max_iterations = 100_000; // Safety limit
 
     while (!found_vblank_set and iterations < max_iterations) : (iterations += 1) {
-        const scanline = state.clock.scanline();
-        const dot = state.clock.dot();
+        const scanline = state.ppu.scanline;
+        const dot = state.ppu.cycle;
 
         if (scanline == 241 and dot == 0) {
             // We're just before VBlank sets

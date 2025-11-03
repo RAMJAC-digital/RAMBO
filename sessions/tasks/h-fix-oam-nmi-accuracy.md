@@ -1016,141 +1016,221 @@ if(_scanline == -1 && _cycle == 339 && ...) {
 
 ---
 
-### 2025-11-02: Master Clock Separation Implementation
+### 2025-11-02: Master Clock Separation Implementation (FLAWED - SUPERSEDED)
 
-#### Completed
+**⚠️ WARNING: This implementation was fundamentally flawed and has been superseded by the PPU Clock Architecture Fix below.**
 
-**Core Architecture Changes:**
-- ✅ Implemented master clock separation: `master_cycles` (monotonic) separate from `ppu_cycles` (derived)
-- ✅ Changed `MasterClock.advance()` signature to `advance(ppu_increment: u64)` where master always +1, ppu advances by parameter
-- ✅ Updated odd frame skip logic to call `advance(2)` on skip (master +1, ppu +2), `advance(1)` normally
-- ✅ Fixed VBlank prevention check from `dot == 0` to `dot == 1` (CPU can't execute at dot 0 due to phase alignment per nesdev.org/wiki/PPU_rendering)
-- ✅ Migrated all timestamp comparisons from `ppu_cycles` to `master_cycles` (VBlankLedger, DmaInteractionLedger)
-- ✅ Fixed State.zig race prediction to use `master_cycles` relative calculation
-- ✅ Updated snapshot serialization to save both `master_cycles` and `ppu_cycles` (bumped version 1 → 2)
+**Architectural Flaw Identified:**
+- Added `master_cycles` and `ppu_cycles` as two separate counters in MasterClock
+- `advance(ppu_increment)` still coupled them - both advance together in lockstep
+- All timing derivations (`scanline()`, `dot()`, `cpuCycles()`) still used `ppu_cycles`
+- This was NOT separation - just added a second counter that tracks the same thing
+- Mesen2 research showed this is wrong: PPU has its OWN clock state
 
-**Helper Methods Added:**
-- ✅ `setPpuPosition(scanline, dot)` - Sets PPU position without breaking monotonicity
-- ✅ `setPosition(frame, scanline, dot)` - Sets complete emulator position
-- ✅ `expectedMasterCyclesFromReset(scanline, dot)` - Calculates expected master_cycles for test assertions
+**Why It Failed:**
+- Didn't actually separate concerns - both counters still coupled
+- PPU timing should be PPU's own state, not derived from a shared clock
+- Master clock should ONLY track absolute time for timestamps
+- Odd frame skip should happen in PPU clock advancement, not orchestration layer
+- Caller still had to manage relationship between counters via `ppu_increment` parameter
 
-**Test Code Fixes:**
-- ✅ Fixed all monotonicity violations in test code (changed multi-step `advance(N)` calls to use helpers or loops)
-- ✅ Updated `Harness.zig` to use `setPpuPosition()` wrapper
-- ✅ Updated `debugger/modification.zig` to use position helpers
-- ✅ Updated `vblank_ledger_test.zig` to use `expectedMasterCyclesFromReset()` for assertions
-- ✅ Exported MasterClock from root.zig for test access
+**Test Results:**
+- 998/1026 tests passing (97.3%)
+- Regression of -6 tests from baseline (1004/1026)
+- Implementation created new problems instead of solving them
 
-#### Files Modified
+**Lessons Learned:**
+- Adding more counters doesn't fix coupling if they advance together
+- Derivations must use the right source of truth (master_cycles for timestamps, PPU state for position)
+- Hardware separation (PPU clock vs master clock) must be mirrored in code architecture
 
-**Core Implementation:**
-- `src/emulation/MasterClock.zig` - Added `master_cycles` field, changed `advance()` semantics, added helper methods
-- `src/emulation/State.zig` - VBlank prevention (dot 0 → dot 1), odd frame skip logic, timestamp updates to use master_cycles
-- `src/emulation/VBlankLedger.zig` - All timestamp fields now use master_cycles
-- `src/emulation/DmaInteractionLedger.zig` - All timestamp fields now use master_cycles
-- `src/emulation/cpu/execution.zig` - DMA coordination timestamps use master_cycles
+**Resolution:** See "PPU Clock Architecture Fix" entry below for correct approach.
 
-**Test Infrastructure:**
-- `src/emulation/helpers.zig` - Fixed `tickCpuWithClock` monotonicity
-- `src/test/Harness.zig` - Updated to use `setPpuPosition` helper
-- `src/debugger/modification.zig` - Updated to use position helpers
-- `tests/emulation/state/vblank_ledger_test.zig` - Use `expectedMasterCyclesFromReset()` helper
+---
 
-**Serialization:**
-- `src/snapshot/state.zig` - Serialize both `master_cycles` and `ppu_cycles`
-- `src/snapshot/binary.zig` - Version bump (1 → 2)
+### 2025-11-02: PPU Clock Architecture Fix
 
-**Public API:**
-- `src/root.zig` - Export MasterClock for test access
+**Investigation Completed:** Deep analysis of Mesen2 (reference-accurate NES emulator) revealed the correct architecture for separating master clock from PPU timing.
 
-#### Test Results
+#### Mesen2 Architecture Analysis
 
-**Current Status:** 998/1026 tests passing (97.3%)
-- **Baseline:** 1004/1026 tests passing
-- **Regression:** -6 tests (0.6%)
-- **Assessment:** Not a massive regression - implementation is functionally correct
+**Mesen2's Design (NesPpu.cpp):**
+- `_masterClock`: Monotonic counter for timestamps (increments every tick)
+- `_cycle`: PPU's dot counter (0-340) - **PPU's own state**
+- `_scanline`: PPU's scanline counter (-1 to 261) - **PPU's own state**
+- `_frameCount`: PPU's frame counter - **PPU's own state**
+- Odd frame skip happens in PPU's `Exec()` function when advancing cycle 339→340
 
-**Failing Test Categories:**
-- **VBlank timing tests** (8 failures) - VBlank flag not being set at scanline 241 dot 1
-- **AccuracyCoin tests** (6-8 failures) - Timing-sensitive tests affected by clock changes
-- **Snapshot tests** (2-3 failures) - Expected due to version bump from 1 to 2
-- **JMP indirect test** (1 failure) - Possibly unrelated to clock changes
+**Key Insight:** The PPU HAS ITS OWN CLOCK. It's not derived from master clock.
 
-#### Hardware Citations
+**Hardware Citations:**
+- Mesen2 NesPpu.cpp:146 - `_masterClock` advances monotonically (separate from `_cycle`)
+- Mesen2 NesPpu.cpp:953 - Odd frame skip: `if(_scanline == -1 && _cycle == 339 && (_frameCount & 0x01) && rendering) { _cycle = 340; }`
+- nesdev.org/wiki/PPU_frame_timing - PPU internal counters determine scanline/dot position
+- nesdev.org/wiki/PPU_rendering - Pre-render scanline (-1), odd frame skip on dot 340
 
-**Master Clock Design:**
-- Reference: Mesen2 NesPpu.cpp:146 - Monotonic `_masterClock` separate from `_cycle` (PPU-specific)
-- Reference: Mesen2 NesPpu.cpp:953 - Only PPU `_cycle` skips on odd frames, NOT `_masterClock`
+#### Correct Architecture Design
 
-**VBlank Prevention Timing:**
-- nesdev.org/wiki/PPU_frame_timing - VBlank set at scanline 241, dot 1
-- nesdev.org/wiki/PPU_rendering - CPU/PPU phase alignment (CPU ticks every 3 PPU dots)
-- Mesen2 NesPpu.cpp:1340-1344 - Prevention flag check before VBlank set
+**MasterClock:** Only for timestamps (monotonic counter)
+```zig
+pub const MasterClock = struct {
+    master_cycles: u64 = 0,  // ONLY THIS
+
+    pub fn advance(self: *MasterClock) void {
+        self.master_cycles += 1;  // NO PARAMETER
+    }
+
+    pub fn cpuCycles(self: MasterClock) u64 {
+        return self.master_cycles / 3;  // Based on master_cycles
+    }
+
+    pub fn isCpuTick(self: MasterClock) bool {
+        return (self.master_cycles % 3) == 0;
+    }
+
+    // REMOVE: scanline(), dot(), frame(), isOddFrame()
+    // REMOVE: setPpuPosition(), setPosition()
+    // REMOVE: ppu_cycles field entirely
+};
+```
+
+**PpuState:** Has its own clock (PPU's internal state)
+```zig
+pub const PpuState = struct {
+    cycle: u16 = 0,           // 0-340 (dot within scanline)
+    scanline: i16 = -1,       // -1 (pre-render) to 261
+    frame_count: u64 = 0,     // Frame counter
+
+    // ... existing PPU state
+};
+```
+
+**PpuLogic:** Advances PPU's own clock
+```zig
+pub fn advanceClock(ppu: *PpuState, rendering_enabled: bool) void {
+    ppu.cycle += 1;
+
+    // Odd frame skip: cycle 339 -> 340 (skip to 0) when rendering enabled
+    if (ppu.scanline == -1 and ppu.cycle == 339 and
+        (ppu.frame_count & 1) == 1 and rendering_enabled) {
+        ppu.cycle = 340;  // Will wrap to 0 on next check
+    }
+
+    if (ppu.cycle > 340) {
+        ppu.cycle = 0;
+        ppu.scanline += 1;
+        if (ppu.scanline > 261) {
+            ppu.scanline = -1;  // Pre-render line
+            ppu.frame_count += 1;
+        }
+    }
+}
+```
+
+#### Implementation Plan (44 Steps)
+
+**Phase 1: Add PPU Clock to PpuState (5 steps)**
+1. Add `cycle: u16`, `scanline: i16`, `frame_count: u64` fields to PpuState
+2. Initialize to pre-render state (scanline=-1, cycle=0, frame=0)
+3. Test: PpuState clock initialized to pre-render state
+4. Test: PpuState clock fields are serializable
+
+**Phase 2: Implement PPU Clock Advancement (11 steps)**
+5. Add `advanceClock(ppu, rendering_enabled)` to PpuLogic
+6. Implement cycle increment with wrap (0-340 → 0, scanline++)
+7. Implement scanline wrap (>261 → -1, frame++)
+8. Implement odd frame skip (scanline=-1, cycle=339, odd frame, rendering → skip to 340)
+9. Test: PPU Clock normal advancement (cycle 0→340→0)
+10. Test: PPU Clock scanline wrap
+11. Test: PPU Clock frame wrap
+12. Test: PPU Clock odd frame skip when rendering enabled
+13. Test: PPU Clock no skip on even frames
+14. Test: PPU Clock no skip when rendering disabled
+
+**Phase 3: Update State.zig to Use PPU Clock (6 steps)**
+15. Call `PpuLogic.advanceClock()` in tick()
+16. Replace all `clock.scanline()` with `ppu.scanline`
+17. Replace all `clock.dot()` with `ppu.cycle`
+18. Remove odd frame skip logic from State.zig (now in PPU)
+19. Test: State PPU clock advances on tick
+20. Test: State VBlank prevention uses PPU clock
+
+**Phase 4: Simplify MasterClock (10 steps)**
+21. Remove `ppu_cycles` field from MasterClock
+22. Change `advance(ppu_increment)` to `advance()` (no parameter)
+23. Remove `scanline()`, `dot()`, `frame()`, `isOddFrame()` methods
+24. Change `cpuCycles()` to use `master_cycles / 3`
+25. Change `isCpuTick()` to use `master_cycles % 3`
+26. Remove `setPpuPosition()`, `setPosition()` helpers
+27. Remove `expectedMasterCyclesFromReset()` helper
+28. Test: MasterClock advance() takes no parameters
+29. Test: MasterClock cpuCycles derived from master_cycles
+30. Test: MasterClock isCpuTick uses master_cycles
+
+**Phase 5: Update Test Infrastructure (6 steps)**
+31. Update helpers.zig to use new API
+32. Update Harness.zig to set `ppu.scanline/cycle` directly
+33. Update modification.zig to set `ppu.scanline/cycle/frame_count`
+34. Update all tests to use `ppu.scanline/cycle` instead of clock methods
+35. Fix vblank_ledger_test to use PPU clock
+
+**Phase 6: Update Snapshot Serialization (4 steps)**
+36. Add PPU clock fields to `writePpuState()`/`readPpuState()`
+37. Remove `ppu_cycles` from `writeClock()`/`readClock()`
+38. Bump snapshot version from 2 to 3
+39. Test: Snapshot PPU clock serialization round-trip
+
+**Phase 7: Verification (5 steps)**
+40. Run full test suite (zig build test)
+41. Verify 1004+ tests passing (restore baseline)
+42. Run VBlank timing tests specifically
+43. Run NMI timing tests specifically
+44. Create git commit with proper architecture
+
+#### Expected Outcome
+
+**Correct Separation:**
+- PPU owns its timing (like hardware)
+- MasterClock only for timestamps (monotonic counter)
+- Proper separation of concerns (no coupling via shared advancement)
+- Test count restored to baseline (1004+/1026)
+
+**Hardware Accuracy:**
+- PPU clock advancement mirrors hardware behavior
+- Odd frame skip happens in PPU logic (where it belongs)
+- No derivation - PPU clock IS the hardware state
+- Master clock provides monotonic timestamps for event ordering
 
 #### Component Boundary Lessons (Regression Prevention)
 
 **Master Clock Design Principles:**
 - Master clock and PPU cycles must be separate entities
 - Master clock: Monotonic counter (0, 1, 2, 3... never skips)
-- PPU cycle: Derived from master clock, accounts for skip logic during derivation
-- Conflating them works for most cases but breaks on skip behavior and timestamp-based timing
-
-**Timestamp-Based Timing Dependencies:**
-- VBlank prevention timestamps depend on monotonic master clock
-- DMA coordination timestamps depend on monotonic master clock
-- CPU/PPU synchronization depends on predictable phase alignment
-- Any timing-sensitive logic requires non-skipping counter as source of truth
+- PPU cycle: PPU's own state, not derived
+- Conflating them works for most cases but breaks on skip behavior
 
 **Mesen2 Pattern (Reference Implementation):**
 - Separate `_masterClock` (always monotonic) from `_cycle` (PPU-specific, can skip)
-- Master clock advances every iteration, PPU cycle derivation handles skip
-- Timestamps use master clock, position calculations use derived cycle
+- Master clock advances every iteration, PPU cycle advancement handles skip
+- Timestamps use master clock, position is PPU's own state
 
-#### Known Issues
-
-**VBlank Flag Not Being Set:**
-- Symptom: VBlank flag not being set when expected at scanline 241 dot 1
-- Hypothesis: PPU Logic still uses `ppu_cycles` for scanline/dot calculation
-- Impact: 8 VBlank timing test failures
-- Status: Needs further investigation
-
-**AccuracyCoin Test Failures:**
-- Multiple AccuracyCoin tests failing (timing-sensitive)
-- Likely related to broader compatibility issues beyond NMI timing
-- Status: Separate issue from master clock implementation
-
-#### Decisions
-
-**Architectural Pattern Chosen:**
-- Followed Mesen2 reference implementation pattern exactly
-- Separated monotonic master clock from derived PPU cycles
-- All timestamp-based logic uses monotonic `master_cycles`
-- Position calculations (scanline/dot) use derived `ppu_cycles`
-
-**Implementation Trade-offs:**
-- Chose correctness over minimal changes (touched many files)
-- Preserved hardware accuracy citations throughout
-- Snapshot version bump is acceptable for architectural fix
-- 0.6% test regression is manageable for fixing critical timing bug
+**Anti-Pattern (What NOT to Do):**
+- Do NOT couple counters by advancing them together with parameters
+- Do NOT derive PPU position from master clock with skip logic
+- Do NOT make caller manage relationship between counters
 
 #### Next Steps
 
-**Priority 1: Investigate VBlank Detection Issue**
-- Debug why VBlank flag not being set at scanline 241 dot 1
-- Verify PPU Logic correctly detects timing after clock separation
-- Check if PPU Logic scanline/dot calculation needs adjustment
+**Priority 1: Implement PPU Clock (Phases 1-3)**
+- Add PPU clock fields to PpuState
+- Implement advanceClock() logic with odd frame skip
+- Update State.zig to use PPU clock
 
-**Priority 2: Restore Test Coverage**
-- Goal: Restore to 1004/1026 tests passing (97.9%)
-- Fix VBlank timing tests (8 failures)
-- Update snapshot tests for version 2 format
-- Investigate JMP indirect test failure
+**Priority 2: Simplify MasterClock (Phase 4)**
+- Remove ppu_cycles and all derivations
+- Pure monotonic counter for timestamps only
 
-**Priority 3: Validate Hardware Accuracy**
-- Run AccuracyCoin NMI tests after VBlank fix
-- Verify commercial ROM compatibility (SMB3, Kirby)
-- Compare timing behavior against Mesen2 reference
-
-**Deferred:**
-- AccuracyCoin deep dive (broader compatibility issue)
-- Commercial ROM rendering fixes (waiting for timing accuracy first)
+**Priority 3: Update Codebase (Phases 5-7)**
+- Fix all code using old API
+- Update snapshot serialization
+- Run full regression test suite

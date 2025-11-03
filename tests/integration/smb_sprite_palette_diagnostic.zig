@@ -52,7 +52,7 @@ test "SMB: Sprite palette diagnostic (? boxes)" {
     }
 
     std.debug.print("\n=== SMB Sprite Palette Diagnostic ===\n", .{});
-    std.debug.print("Frame: {}\n\n", .{state.clock.frame()});
+    std.debug.print("Frame: {}\n\n", .{state.ppu.frame_count});
 
     // Dump OAM sprite data for first 16 sprites
     std.debug.print("OAM Sprites (first 16):\n", .{});
