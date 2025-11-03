@@ -127,11 +127,11 @@ test "OAM DMA: even cycle start takes exactly 513 CPU cycles" {
     // Prepare source data
     fillRamPage(state, 0x03, 0x00);
 
-    // Ensure we're on an even CPU cycle (PPU cycle divisible by 6)
-    while ((state.clock.ppu_cycles % 6) != 0) {
+    // Ensure we're on an even CPU cycle (master cycle divisible by 6)
+    while ((state.clock.master_cycles % 6) != 0) {
         state.tick();
     }
-    const start_ppu_cycles = state.clock.ppu_cycles;
+    const start_master_cycles = state.clock.master_cycles;
 
     // Trigger DMA
     state.busWrite(0x4014, 0x03);
@@ -145,9 +145,9 @@ test "OAM DMA: even cycle start takes exactly 513 CPU cycles" {
     }
     try testing.expect(!state.dma.active); // Ensure DMA completed
 
-    // Calculate elapsed CPU cycles (3 PPU cycles = 1 CPU cycle)
-    const elapsed_ppu = state.clock.ppu_cycles - start_ppu_cycles;
-    const elapsed_cpu = elapsed_ppu / 3;
+    // Calculate elapsed CPU cycles (3 master cycles = 1 CPU cycle)
+    const elapsed_master = state.clock.master_cycles - start_master_cycles;
+    const elapsed_cpu = elapsed_master / 3;
 
     // Should be exactly 513 CPU cycles
     try testing.expectEqual(@as(u64, 513), elapsed_cpu);
@@ -161,11 +161,11 @@ test "OAM DMA: odd cycle start takes exactly 514 CPU cycles" {
     // Prepare source data
     fillRamPage(state, 0x04, 0x00);
 
-    // Ensure we're on an odd CPU cycle (PPU cycle = 3 mod 6)
-    while ((state.clock.ppu_cycles % 6) != 3) {
+    // Ensure we're on an odd CPU cycle (master cycle = 3 mod 6)
+    while ((state.clock.master_cycles % 6) != 3) {
         state.tick();
     }
-    const start_ppu_cycles = state.clock.ppu_cycles;
+    const start_master_cycles = state.clock.master_cycles;
 
     // Trigger DMA
     state.busWrite(0x4014, 0x04);
@@ -180,8 +180,8 @@ test "OAM DMA: odd cycle start takes exactly 514 CPU cycles" {
     try testing.expect(!state.dma.active); // Ensure DMA completed
 
     // Calculate elapsed CPU cycles
-    const elapsed_ppu = state.clock.ppu_cycles - start_ppu_cycles;
-    const elapsed_cpu = elapsed_ppu / 3;
+    const elapsed_master = state.clock.master_cycles - start_master_cycles;
+    const elapsed_cpu = elapsed_master / 3;
 
     // Should be exactly 514 CPU cycles (513 + 1 alignment)
     try testing.expectEqual(@as(u64, 514), elapsed_cpu);

@@ -371,10 +371,10 @@ test "Cycle count: OAM with DMC interrupt (time-sharing)" {
     fillRamPage(state, 0x09, 0x00);
 
     // Align to CPU cycle boundary for consistent timing
-    while ((state.clock.ppu_cycles % 3) != 0) {
+    while ((state.clock.master_cycles % 3) != 0) {
         harness.tick(1);  // Single PPU cycle to align
     }
-    const start_ppu = state.clock.ppu_cycles;
+    const start_ppu = state.clock.master_cycles;
 
     // Start OAM DMA
     state.busWrite(0x4014, 0x09);
@@ -388,7 +388,7 @@ test "Cycle count: OAM with DMC interrupt (time-sharing)" {
     runUntilOamDmaComplete(&harness);
 
     // Calculate elapsed CPU cycles
-    const elapsed_ppu = state.clock.ppu_cycles - start_ppu;
+    const elapsed_ppu = state.clock.master_cycles - start_ppu;
     const elapsed_cpu = elapsed_ppu / 3;
 
     // Hardware time-sharing behavior (per nesdev.org):
@@ -565,7 +565,7 @@ test "HARDWARE VALIDATION: Exact cycle count overhead from DMC interrupt" {
 
     // Start OAM DMA
     state.busWrite(0x4014, 0x02);
-    const start_cycles = state.clock.ppu_cycles;
+    const start_cycles = state.clock.master_cycles;
 
     // Run to byte 100
     harness.tickCpu(200);
@@ -577,7 +577,7 @@ test "HARDWARE VALIDATION: Exact cycle count overhead from DMC interrupt" {
     runUntilDmcDmaComplete(&harness);
     runUntilOamDmaComplete(&harness);
 
-    const end_cycles = state.clock.ppu_cycles;
+    const end_cycles = state.clock.master_cycles;
     const total_cpu_cycles = (end_cycles - start_cycles) / 3;
 
     // According to wiki: "taking 2 cycles" overhead (typical case)

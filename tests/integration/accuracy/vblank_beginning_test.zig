@@ -35,18 +35,18 @@ test "Accuracy: VBLANK BEGINNING (AccuracyCoin)" {
     h.state.ppu.mask.show_bg = false;
     h.state.ppu.mask.show_sprites = false;
     h.state.rendering_enabled = false;
-    h.state.clock.ppu_cycles = 0;
+    h.state.clock.master_cycles = 0;
     h.state.frame_complete = false;
     h.state.odd_frame = false;
 
-    const start0 = h.state.clock.ppu_cycles;
+    const start0 = h.state.clock.master_cycles;
     while (!h.state.frame_complete) h.state.tick();
-    const frame0_len = h.state.clock.ppu_cycles - start0;
+    const frame0_len = h.state.clock.master_cycles - start0;
     h.state.frame_complete = false;
 
-    const start1 = h.state.clock.ppu_cycles;
+    const start1 = h.state.clock.master_cycles;
     while (!h.state.frame_complete) h.state.tick();
-    const frame1_len = h.state.clock.ppu_cycles - start1;
+    const frame1_len = h.state.clock.master_cycles - start1;
 
     std.debug.print("\nFrame lengths (rendering DISABLED):\n", .{});
     std.debug.print("  Frame 0: {} PPU cycles (expected 89342)\n", .{frame0_len});

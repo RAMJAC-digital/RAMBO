@@ -96,7 +96,7 @@ pub const Harness = struct {
     /// Simple implementation: just tick until we reach the target position.
     /// IMPORTANT: This does NOT reset the VBlank ledger. If you need a clean ledger
     /// state, call `self.state.vblank_ledger.reset()` before calling this function.
-    pub fn seekTo(self: *Harness, target_scanline: u16, target_dot: u16) void {
+    pub fn seekTo(self: *Harness, target_scanline: i16, target_dot: u16) void {
         while (self.state.ppu.scanline != target_scanline or self.state.ppu.cycle != target_dot) {
             self.state.tick();
         }
@@ -105,7 +105,7 @@ pub const Harness = struct {
     /// Seek to a specific scanline/dot AND ensure we're at a CPU tick boundary.
     /// This is useful for CPU execution tests that need precise PPU timing.
     /// May overshoot the target by up to 2 PPU cycles to land on a CPU boundary.
-    pub fn seekToCpuBoundary(self: *Harness, target_scanline: u16, target_dot: u16) void {
+    pub fn seekToCpuBoundary(self: *Harness, target_scanline: i16, target_dot: u16) void {
         self.seekTo(target_scanline, target_dot);
 
         // Ensure we're at a CPU tick boundary (may overshoot by 1-2 cycles)
@@ -161,7 +161,7 @@ pub const Harness = struct {
 
     /// Helper: Seek emulation to exact scanline.dot position
     /// Used for precise PPU timing tests (e.g., VBlank NMI timing)
-    pub fn seekToScanlineDot(self: *Harness, target_scanline: u16, target_dot: u16) void {
+    pub fn seekToScanlineDot(self: *Harness, target_scanline: i16, target_dot: u16) void {
         const max_cycles: usize = 100_000; // Safety limit
         var cycles: usize = 0;
 

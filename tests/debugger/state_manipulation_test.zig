@@ -259,12 +259,12 @@ test "State Manipulation: set PPU scanline" {
 
     // Set scanline
     debugger.setPpuScanline(&state, 200);
-    try testing.expectEqual(@as(u16, 200), state.ppu.scanline);
+    try testing.expectEqual(@as(i16, 200), state.ppu.scanline);
 
     // Verify modification logged
     const mods = debugger.getModifications();
     try testing.expectEqual(@as(usize, 1), mods.len);
-    try testing.expectEqual(@as(u16, 200), mods[0].ppu_scanline);
+    try testing.expectEqual(@as(i16, 200), mods[0].ppu_scanline);
 }
 
 test "State Manipulation: set PPU frame counter" {
@@ -315,7 +315,7 @@ test "State Manipulation: track multiple modifications" {
     try testing.expectEqual(@as(u8, 0x22), mods[1].register_x);
     try testing.expectEqual(@as(u16, 0x9000), mods[2].program_counter);
     try testing.expectEqual(@as(u16, 0x0100), mods[3].memory_write.address);
-    try testing.expectEqual(@as(u16, 150), mods[4].ppu_scanline);
+    try testing.expectEqual(@as(i16, 150), mods[4].ppu_scanline);
 }
 
 test "State Manipulation: clear modification history" {

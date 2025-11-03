@@ -247,10 +247,10 @@ test "Castlevania: PPU rendering initialization" {
                     // Track $2002 reads
                     if (addr16 == 0x2002) {
                         read_2002_count += 1;
-                        const ppu_cycle = state.clock.ppu_cycles;
+                        const master_cycle = state.clock.master_cycles;
                         const scanline = state.ppu.scanline;
                         const dot = state.ppu.cycle;
-                        std.debug.print(" <- PPUSTATUS read! scanline={d} dot={d} ppu_cycle={d}", .{ scanline, dot, ppu_cycle });
+                        std.debug.print(" <- PPUSTATUS read! scanline={d} dot={d} master_cycle={d}", .{ scanline, dot, master_cycle });
                     }
                 }
                 std.debug.print("\n", .{});

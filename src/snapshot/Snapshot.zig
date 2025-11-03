@@ -404,7 +404,7 @@ test "Snapshot: round-trip without cartridge" {
     // No need to call connectComponents() - init() sets everything up
 
     // Modify state to have non-default values
-    state.clock.ppu_cycles = 12345;
+    state.clock.master_cycles = 12345;
     state.cpu.a = 0x42;
     state.cpu.pc = 0x8000;
     state.ppu.ctrl = .{ .nmi_enable = true };
@@ -429,7 +429,7 @@ test "Snapshot: round-trip without cartridge" {
     );
 
     // Verify state matches
-    try testing.expectEqual(state.clock.ppu_cycles, restored.clock.ppu_cycles);
+    try testing.expectEqual(state.clock.master_cycles, restored.clock.master_cycles);
     try testing.expectEqual(state.cpu.a, restored.cpu.a);
     try testing.expectEqual(state.cpu.pc, restored.cpu.pc);
     try testing.expectEqual(state.ppu.ctrl.nmi_enable, restored.ppu.ctrl.nmi_enable);

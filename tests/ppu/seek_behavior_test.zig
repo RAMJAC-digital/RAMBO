@@ -17,13 +17,13 @@ test "Seek Behavior: seekTo correctly positions emulator" {
 
     // --- Test 1: Seek to before VBlank ---
     h.seekTo(241, 0);
-    try testing.expectEqual(@as(u16, 241), h.state.ppu.scanline);
+    try testing.expectEqual(@as(i16, 241), h.state.ppu.scanline);
     try testing.expectEqual(@as(u16, 0), h.state.ppu.cycle);
     try testing.expect(!isVBlankSet(&h));
 
     // --- Test 2: Seek to exact VBlank set cycle ---
     h.seekTo(241, 1);
-    try testing.expectEqual(@as(u16, 241), h.state.ppu.scanline);
+    try testing.expectEqual(@as(i16, 241), h.state.ppu.scanline);
     try testing.expectEqual(@as(u16, 1), h.state.ppu.cycle);
     // CORRECTED: Same-cycle read sees CLEAR (hardware sub-cycle timing)
     try testing.expect(!isVBlankSet(&h));  // CORRECTED
@@ -34,7 +34,7 @@ test "Seek Behavior: seekTo correctly positions emulator" {
 
     // --- Test 3: Seek to after VBlank clear ---
     h.seekTo(261, 2);
-    try testing.expectEqual(@as(u16, 261), h.state.ppu.scanline);
+    try testing.expectEqual(@as(i16, 261), h.state.ppu.scanline);
     try testing.expectEqual(@as(u16, 2), h.state.ppu.cycle);
     try testing.expect(!isVBlankSet(&h));
 }

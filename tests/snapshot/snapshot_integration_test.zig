@@ -55,7 +55,7 @@ fn createTestState(config: *const Config) EmulationState {
     var state = EmulationState.init(config);
 
     // Set distinctive values for verification
-    state.clock.ppu_cycles = 123456;
+    state.clock.master_cycles = 123456;
     state.cpu.a = 0x42;
     state.cpu.x = 0x13;
     state.cpu.y = 0x37;
@@ -63,11 +63,11 @@ fn createTestState(config: *const Config) EmulationState {
     state.cpu.pc = 0x8000;
     state.cpu.p.zero = true;
     state.cpu.p.negative = true;
-    // CPU cycle count removed - derived from ppu_cycles (set below)
+    // CPU cycle count removed - derived from master_cycles (set below)
 
     state.ppu.ctrl = .{ .nmi_enable = true, .sprite_size = true };
     state.ppu.mask = .{ .show_bg = true, .show_sprites = true };
-    state.clock.ppu_cycles = (42 * 89342) + (100 * 341) + 200; // Frame 42, scanline 100, dot 200
+    state.clock.master_cycles = (42 * 89342) + (100 * 341) + 200; // Frame 42, scanline 100, dot 200
 
     state.bus.ram[0x00] = 0xAA;
     state.bus.ram[0x01] = 0xBB;
@@ -117,7 +117,7 @@ test "Snapshot Integration: Full round-trip without cartridge" {
     );
 
     // Verify clock state
-    try testing.expectEqual(state.clock.ppu_cycles, restored.clock.ppu_cycles);
+    try testing.expectEqual(state.clock.master_cycles, restored.clock.master_cycles);
 
     // Verify CPU state
     try testing.expectEqual(state.cpu.a, restored.cpu.a);
@@ -303,7 +303,7 @@ test "Snapshot Integration: Multiple save/load cycles" {
     // Modify restored state
     var modified = restored1;
     modified.cpu.a = 0x99;
-    modified.clock.ppu_cycles = 100 * 89342; // Frame 100
+    modified.clock.master_cycles = 100 * 89342; // Frame 100
 
     // Cycle 2: Save modified state
     const snapshot2 = try Snapshot.saveBinary(

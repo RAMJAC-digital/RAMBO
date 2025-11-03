@@ -146,6 +146,6 @@ pub const StateModification = union(enum) {
     ppu_scroll: struct { x: u8, y: u8 },
     ppu_addr: u16,
     ppu_vram: struct { address: u16, value: u8 },
-    ppu_scanline: u16,
+    ppu_scanline: i16,
     ppu_frame: u64,
 };

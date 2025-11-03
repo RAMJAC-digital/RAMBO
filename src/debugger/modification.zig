@@ -203,9 +203,9 @@ pub fn writeMemoryRange(
 // ============================================================================
 
 /// Set PPU scanline (for testing)
-pub fn setPpuScanline(state: anytype, emu_state: *EmulationState, scanline: u16) void {
+pub fn setPpuScanline(state: anytype, emu_state: *EmulationState, scanline: i16) void {
     // Directly set PPU's clock state (PPU owns its own timing now)
-    emu_state.ppu.scanline = @intCast(scanline);
+    emu_state.ppu.scanline = scanline;
     logModification(state, .{ .ppu_scanline = scanline });
 }
 
