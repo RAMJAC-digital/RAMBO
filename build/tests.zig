@@ -446,6 +446,18 @@ pub const specs = [_]TestSpec{
         .membership = .{ .integration = true },
     },
     .{
+        .name = "smb1-nmi-controller",
+        .area = .integration,
+        .path = "tests/integration/smb1_nmi_controller_test.zig",
+        .membership = .{ .integration = true },
+    },
+    .{
+        .name = "nmi-vblank-span",
+        .area = .ppu_vblank,
+        .path = "tests/integration/nmi_vblank_span_test.zig",
+        .membership = .{ .integration = true },
+    },
+    .{
         .name = "ppu-sprite-rendering",
         .area = .ppu_sprite,
         .path = "tests/ppu/sprite_rendering_test.zig",

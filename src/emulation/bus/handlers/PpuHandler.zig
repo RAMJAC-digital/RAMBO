@@ -120,13 +120,15 @@ pub const PpuHandler = struct {
         // CRITICAL: Update NMI line IMMEDIATELY on PPUCTRL write
         // Reference: Mesen2 NesPpu.cpp:552-560
         // Hardware: Writing PPUCTRL bit 7 updates NMI line immediately
+        // CRITICAL: Check VBlank SPAN (hardware timing), not flag visibility
+        // Reading $2002 clears the flag but doesn't end the VBlank span
         if (reg == 0x00) {
             const old_nmi_enable = state.ppu.ctrl.nmi_enable;
             const new_nmi_enable = (value & 0x80) != 0;
-            const vblank_active = state.vblank_ledger.isFlagVisible();
+            const vblank_span_active = state.vblank_ledger.isActive();
 
-            // Edge trigger: 0→1 transition while VBlank active
-            if (!old_nmi_enable and new_nmi_enable and vblank_active) {
+            // Edge trigger: 0→1 transition while VBlank span active
+            if (!old_nmi_enable and new_nmi_enable and vblank_span_active) {
                 state.cpu.nmi_line = true;
             }
 
