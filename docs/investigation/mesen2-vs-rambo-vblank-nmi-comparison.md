@@ -1,19 +1,35 @@
 # Mesen2 vs RAMBO: VBlank/NMI Implementation Comparison
 
-**Date:** 2025-11-02
+**Date:** 2025-11-02 (Investigation), 2025-11-03 (Resolution)
 **Task:** h-fix-oam-nmi-accuracy
 **Purpose:** Detailed comparison of VBlank/NMI timing between Mesen2 (reference emulator) and RAMBO
 
 ---
 
-## Executive Summary
+## Resolution (2025-11-03)
+
+**Status:** FIXED - VBlank/NMI execution order restructured to match Mesen2
+
+**Changes Implemented:**
+1. ✅ CPU execution moved BEFORE VBlank timestamp application (`src/emulation/State.zig:tick()` lines 651-774)
+2. ✅ Prevention mechanism now works: CPU sets `prevent_vbl_set_cycle`, then VBlank checks it before setting flag
+3. ✅ Interrupt sampling moved AFTER VBlank timestamps are finalized (ensures correct NMI line state)
+4. ✅ IRQ masking during NMI fixed: `if (irq_pending_prev and pending_interrupt != .nmi)`
+
+**Result:** Execution order now matches Mesen2's pattern where prevention flag is set BEFORE VBlank set decision
+
+**Reference:** See task file section "2025-11-03: VBlank/NMI Timing Restructuring and IRQ Masking Fix" for complete details
+
+---
+
+## Executive Summary (Original Investigation - 2025-11-02)
 
 This document provides a comprehensive comparison of VBlank flag timing, NMI generation, and race condition handling between Mesen2 and RAMBO. The investigation identified **two critical timing bugs** in RAMBO that cause AccuracyCoin NMI test failures.
 
 **Key Findings:**
 1. ✅ DMA time-sharing implementation is correct (matches Mesen2 exactly)
-2. 🔴 VBlank race detection window is off by one cycle
-3. 🔴 Missing read-time VBlank masking for $2002 reads
+2. 🔴 VBlank race detection window is off by one cycle (FIXED 2025-11-03)
+3. 🔴 Missing read-time VBlank masking for $2002 reads (FIXED 2025-11-03)
 
 ---
 

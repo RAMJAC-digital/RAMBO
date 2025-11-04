@@ -112,6 +112,39 @@ pub fn processOamCorruption(state: *PpuState) void {
     }
 }
 
+/// Update PPU state at cycle end (deferred state transitions)
+/// Reference: Mesen2 NesPpu.cpp UpdateState() lines 1421-1456
+///
+/// Hardware behavior: Rendering enable/disable has 1-cycle delay. Register writes
+/// set pending flag, actual state transition happens at cycle end. This creates
+/// the 2-3 cycle delay for OAM corruption to occur after $2001 write.
+///
+/// Called at end of every PPU cycle if pending_state_update flag is set.
+pub fn updatePpuState(state: *PpuState, scanline: i16, dot: u16) void {
+    if (!state.pending_state_update) {
+        return;
+    }
+
+    state.pending_state_update = false;
+
+    // Rendering enabled flag is set with 1-cycle delay (Mesen2 NesPpu.cpp:1425-1426)
+    const current_rendering = state.mask.renderingEnabled();
+    if (state.prev_rendering_enabled != current_rendering) {
+        state.prev_rendering_enabled = current_rendering;
+
+        // Only process during visible/pre-render scanlines
+        if (scanline < 240) {
+            if (state.prev_rendering_enabled) {
+                // Rendering was just enabled - execute pending corruption NOW
+                processOamCorruption(state);
+            } else {
+                // Rendering was just disabled - set corruption flags for LATER
+                setOamCorruptionFlags(state, dot);
+            }
+        }
+    }
+}
+
 /// Read from PPU register (via CPU memory bus)
 /// Handles register mirroring and open bus behavior
 ///
@@ -264,7 +297,7 @@ pub fn readRegister(
 
 /// Write to PPU register (via CPU memory bus)
 /// Handles register mirroring and open bus updates
-pub fn writeRegister(state: *PpuState, cart: ?*AnyCartridge, address: u16, value: u8, scanline: i16, dot: u16) void {
+pub fn writeRegister(state: *PpuState, cart: ?*AnyCartridge, address: u16, value: u8) void {
     // Registers are mirrored every 8 bytes through $3FFF
     const reg = address & 0x0007;
 
@@ -293,25 +326,12 @@ pub fn writeRegister(state: *PpuState, cart: ?*AnyCartridge, address: u16, value
                 return;
             }
 
-            // OAM Corruption: Detect rendering enable/disable during visible/pre-render scanlines
-            // Reference: Mesen2 NesPpu.cpp, AccuracyCoin test suite
-            const was_rendering = state.mask.renderingEnabled();
-            const new_mask = PpuMask.fromByte(value);
-            const is_rendering = new_mask.renderingEnabled();
+            // OAM Corruption: Defer state update until cycle end (Mesen2 pattern)
+            // Reference: Mesen2 NesPpu.cpp UpdateState() lines 1421-1456
+            // Set pending flag - actual corruption logic runs at cycle end
+            state.pending_state_update = true;
 
-            // Rendering disabled mid-scanline - set corruption flags
-            if (was_rendering and !is_rendering) {
-                if (scanline >= -1 and scanline <= 239) {
-                    setOamCorruptionFlags(state, dot);
-                }
-            }
-
-            // Rendering enabled - process any pending corruption immediately
-            if (!was_rendering and is_rendering) {
-                processOamCorruption(state);
-            }
-
-            state.mask = new_mask;
+            state.mask = PpuMask.fromByte(value);
         },
         0x0002 => {
             // $2002 PPUSTATUS - Read-only, write has no effect

@@ -39,21 +39,31 @@ test "CPU-PPU Integration: VBlank flag race condition (read during setting)" {
     var h = try Harness.init();
     defer h.deinit();
 
-    // Go to the exact cycle VBlank is set
-    h.seekTo(241, 1);
+    // PHASE-INDEPENDENT TEST:
+    // Position emulator just BEFORE VBlank set point (scanline 241, dot 1).
+    // We seek to (241, 0), then advance to next CPU tick, which will be during
+    // the race window (dots 0-2 depending on phase).
+    //
+    // Phase 0: CPU ticks at dots 0, 3, 6... → Tick at dot 0 (before VBlank set)
+    // Phase 1: CPU ticks at dots 1, 4, 7... → Tick at dot 1 (AT VBlank set - prevention!)
+    // Phase 2: CPU ticks at dots 2, 5, 8... → Tick at dot 2 (after VBlank set)
+    h.seekTo(240, 340); // Position at end of scanline 240
+    h.seekToCpuBoundary(241, 0); // Advance to first CPU tick of scanline 241
 
-    // CORRECTED: Reading at the EXACT SAME CYCLE as VBlank set should see flag CLEAR
-    // Hardware sub-cycle timing: CPU read executes BEFORE PPU flag set within the same cycle
-    // Reference: AccuracyCoin VBlank Beginning test (hardware-validated)
-    // The nesdev.org quote "Same clock or one later: Reads as set" refers to reads
-    // ONE CYCLE LATER, not the same cycle. This test was misinterpreting the documentation.
+    // Read $2002 during the race window
+    // Our phase-independent prevention logic should detect this and prevent VBlank set
     const status = h.state.busRead(0x2002);
-    try testing.expectEqual(0x00, status & 0x80);  // CORRECTED: Should see CLEAR (flag not set yet)
 
-    // One cycle later, VBlank flag should be visible and readable
-    h.tick(1);
+    // VBlank should be prevented (flag = 0)
+    // This works for ALL phases because isCpuTick() detects execution at dots 0-2
+    try testing.expectEqual(@as(u8, 0x00), status & 0x80);
+
+    // Advance to next CPU tick (outside race window)
+    h.advanceCycles(3);
+
+    // Now VBlank flag should be visible
     const status2 = h.state.busRead(0x2002);
-    try testing.expectEqual(0x80, status2 & 0x80);  // CORRECTED: NOW sees SET (one cycle after)
+    try testing.expectEqual(@as(u8, 0x80), status2 & 0x80);
 }
 
 // ============================================================================

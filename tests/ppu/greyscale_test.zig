@@ -37,6 +37,11 @@ test "Greyscale mode: enabled - colors masked with $30" {
     var state = PpuState.init();
     state.mask.greyscale = true;
 
+    // Populate delay buffer so getEffectiveMask() sees greyscale=true
+    for (0..4) |i| {
+        state.mask_delay_buffer[i] = state.mask;
+    }
+
     // Test colors and their greyscale equivalents
     const test_cases = [_]struct { input: u8, expected: u8 }{
         // Colors in row 0 (value 0) → $00
@@ -73,6 +78,11 @@ test "Greyscale mode: enabled - colors masked with $30" {
 test "Greyscale mode: hue bits removed, value bits preserved" {
     var state = PpuState.init();
     state.mask.greyscale = true;
+
+    // Populate delay buffer so getEffectiveMask() sees greyscale=true
+    for (0..4) |i| {
+        state.mask_delay_buffer[i] = state.mask;
+    }
 
     // All colors with same value (bits 4-5) should map to same greyscale
     // Value 0 (row 0): bits 4-5 = 00 → masked result = $00
@@ -120,6 +130,11 @@ test "Greyscale mode: palette index masking with $1F" {
     var state = PpuState.init();
     state.mask.greyscale = true;
 
+    // Populate delay buffer so getEffectiveMask() sees greyscale=true
+    for (0..4) |i| {
+        state.mask_delay_buffer[i] = state.mask;
+    }
+
     // Palette indices are masked with $1F before accessing palette RAM
     // This test verifies greyscale works correctly with masked indices
 
@@ -147,6 +162,11 @@ test "Greyscale mode: palette index masking with $1F" {
 test "Greyscale mode: all 64 NES colors map to 4 greyscale values" {
     var state = PpuState.init();
     state.mask.greyscale = true;
+
+    // Populate delay buffer so getEffectiveMask() sees greyscale=true
+    for (0..4) |i| {
+        state.mask_delay_buffer[i] = state.mask;
+    }
 
     // NES has 64 colors (6 bits: bits 0-5)
     // Greyscale mode maps them to 4 values based on bits 4-5 only
@@ -234,6 +254,11 @@ test "Greyscale mode: works with both background and sprite palettes" {
     var state = PpuState.init();
     state.mask.greyscale = true;
 
+    // Populate delay buffer so getEffectiveMask() sees greyscale=true
+    for (0..4) |i| {
+        state.mask_delay_buffer[i] = state.mask;
+    }
+
     // Background palette: $3F00-$3F0F
     state.palette_ram[0x00] = 0x0F; // Black
     state.palette_ram[0x05] = 0x1C; // Blue
@@ -265,12 +290,20 @@ test "Greyscale mode: runtime toggle affects rendering" {
 
     // Render without greyscale
     state.mask.greyscale = false;
+    // Populate delay buffer for greyscale=false
+    for (0..4) |i| {
+        state.mask_delay_buffer[i] = state.mask;
+    }
     const color_result = PpuLogic.getPaletteColor(&state, 0);
     const expected_color = palette.getNesColorRgba(0x1C);
     try testing.expectEqual(expected_color, color_result);
 
     // Enable greyscale and render again
     state.mask.greyscale = true;
+    // Populate delay buffer for greyscale=true
+    for (0..4) |i| {
+        state.mask_delay_buffer[i] = state.mask;
+    }
     const grey_result = PpuLogic.getPaletteColor(&state, 0);
     const expected_grey = palette.getNesColorRgba(0x10); // 0x1C & 0x30 = 0x10
     try testing.expectEqual(expected_grey, grey_result);
@@ -287,6 +320,11 @@ test "Greyscale mode: already greyscale colors unchanged" {
     var state = PpuState.init();
     state.mask.greyscale = true;
 
+    // Populate delay buffer for greyscale=true
+    for (0..4) |i| {
+        state.mask_delay_buffer[i] = state.mask;
+    }
+
     // Colors that are already greyscale (hue = 0, bits 0-3 = 0)
     const greyscale_colors = [_]u8{ 0x00, 0x10, 0x20, 0x30 };
 
@@ -294,19 +332,33 @@ test "Greyscale mode: already greyscale colors unchanged" {
         state.palette_ram[0] = color;
 
         const result_enabled = PpuLogic.getPaletteColor(&state, 0);
+
         state.mask.greyscale = false;
+        // Populate delay buffer for greyscale=false
+        for (0..4) |i| {
+            state.mask_delay_buffer[i] = state.mask;
+        }
         const result_disabled = PpuLogic.getPaletteColor(&state, 0);
 
         // Greyscale colors should be identical with or without greyscale mode
         try testing.expectEqual(result_enabled, result_disabled);
 
         state.mask.greyscale = true; // Reset for next iteration
+        // Populate delay buffer for greyscale=true
+        for (0..4) |i| {
+            state.mask_delay_buffer[i] = state.mask;
+        }
     }
 }
 
 test "Greyscale mode: maximum color value" {
     var state = PpuState.init();
     state.mask.greyscale = true;
+
+    // Populate delay buffer so getEffectiveMask() sees greyscale=true
+    for (0..4) |i| {
+        state.mask_delay_buffer[i] = state.mask;
+    }
 
     // Color $3F is the maximum 6-bit value
     state.palette_ram[0] = 0x3F;
@@ -320,6 +372,11 @@ test "Greyscale mode: maximum color value" {
 test "Greyscale mode: zero palette index special case" {
     var state = PpuState.init();
     state.mask.greyscale = true;
+
+    // Populate delay buffer so getEffectiveMask() sees greyscale=true
+    for (0..4) |i| {
+        state.mask_delay_buffer[i] = state.mask;
+    }
 
     // Palette index 0 is the universal backdrop color
     state.palette_ram[0] = 0x0D; // Black

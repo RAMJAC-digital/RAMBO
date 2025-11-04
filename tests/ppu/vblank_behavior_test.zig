@@ -25,13 +25,17 @@ test "VBlank: Flag sets at scanline 241 dot 1" {
     // Tick to the exact cycle where VBlank sets
     h.tick(1);
 
-    // CORRECTED: Same-cycle read sees flag CLEAR (hardware sub-cycle timing)
-    // Reference: AccuracyCoin VBlank Beginning test (hardware-validated)
-    try testing.expect(!isVBlankSet(&h));  // CORRECTED: Same-cycle read
+    // CORRECTED: Reading AFTER tick() completes sees flag SET
+    // Per nesdev.org: "Reading on the same PPU clock...reads it as set"
+    // Note: This test calls tick() then reads, so the VBlank timestamp
+    // has already been applied. True same-cycle reads (CPU reading during
+    // the cycle via actual instruction execution) require integration tests.
+    try testing.expect(isVBlankSet(&h));  // Sees SET after tick completes
+    // NOTE: This read clears the flag!
 
-    // One cycle later, flag is visible
+    // One cycle later, flag has been cleared by the previous read
     h.tick(1);
-    try testing.expect(isVBlankSet(&h));  // NOW sees SET
+    try testing.expect(!isVBlankSet(&h));  // CLEAR (was cleared by previous read)
 }
 
 test "VBlank: Flag clears at scanline -1 dot 1 (pre-render)" {
@@ -39,7 +43,11 @@ test "VBlank: Flag clears at scanline -1 dot 1 (pre-render)" {
     defer h.deinit();
     h.state.ppu.warmup_complete = true; // Skip PPU warmup for VBlank timing tests
 
-    // Seek to just before VBlank clears
+    // FIXED: Must advance through a full frame first to set VBlank
+    // Starting from -1:0, seek to 0:0 (goes through 241:1 where VBlank sets)
+    h.seekTo(0, 0);
+
+    // Now seek to just before VBlank clears (scanline -1, dot 0)
     // Ensure we have not performed a prior $2002 read that clears the flag
     h.seekTo(-1, 0);
     try testing.expect(isVBlankSet(&h)); // Still set at -1,0
@@ -70,14 +78,18 @@ test "VBlank: Multiple frame transitions" {
     h.state.ppu.warmup_complete = true; // Skip PPU warmup for VBlank timing tests
 
     var vblank_set_count: usize = 0;
-    var last_vblank = isVBlankSet(&h);
+    // FIXED: Check ledger state directly instead of reading $2002
+    // Reading $2002 has side effect of clearing the flag, which prevents
+    // detecting 0→1 transitions when reading every cycle
+    var last_vblank = h.state.vblank_ledger.isFlagVisible();
 
     // Run for 3 frames
     const cycles_per_frame: usize = 89342;
     var cycles: usize = 0;
     while (cycles < cycles_per_frame * 3) : (cycles += 1) {
         h.tick(1);
-        const current_vblank = isVBlankSet(&h);
+        // FIXED: Check ledger directly (no side effects)
+        const current_vblank = h.state.vblank_ledger.isFlagVisible();
         if (!last_vblank and current_vblank) {
             vblank_set_count += 1;
         }

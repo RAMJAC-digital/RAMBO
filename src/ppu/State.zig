@@ -378,6 +378,16 @@ pub const PpuState = struct {
     /// Corruption is executed when rendering is re-enabled or at scanline start
     oam_corruption_flags: [32]bool = [_]bool{false} ** 32,
 
+    /// Previous cycle's rendering enabled state (for edge detection)
+    /// Reference: Mesen2 NesPpu.cpp _prevRenderingEnabled
+    /// Used to detect rendering enable/disable transitions with 1-cycle delay
+    prev_rendering_enabled: bool = false,
+
+    /// Pending PPU state update flag (deferred until cycle end)
+    /// Reference: Mesen2 NesPpu.cpp _needStateUpdate
+    /// Set when $2001 written, triggers updatePpuState() at cycle end
+    pending_state_update: bool = false,
+
     /// PPU Open Bus (data bus latch)
     open_bus: OpenBus = .{},
 

@@ -91,6 +91,16 @@ Tests now correctly identify VBlank/NMI timing bugs in the emulator.
 
 ## Recent Fixes
 
+**2025-11-03:** VBlank/NMI Timing Restructuring and IRQ Masking
+- Fixed execution order: CPU execution BEFORE VBlank timestamp application (allows prevention mechanism to work)
+- Fixed IRQ masking during NMI: IRQ restoration preserves NMI priority (`if (irq_pending_prev and pending_interrupt != .nmi)`)
+- Moved interrupt sampling to AFTER VBlank timestamps are final (ensures correct NMI line state)
+- VBlank prevention now works correctly: CPU sets flag, timestamps check flag
+- Test improvement: Fixed infinite interrupt loop, enabled AccuracyCoin menu access (stability milestone)
+- Hardware citations: nesdev.org/wiki/PPU_frame_timing, nesdev.org/wiki/NMI
+- Reference: Mesen2 NesPpu.cpp:1340-1344 (prevention flag check)
+- Implementation: `src/emulation/State.zig:tick()` lines 651-774
+
 **2025-11-02:** DMC/OAM DMA Time-Sharing
 - Fixed OAM stall detection to only pause during DMC read cycle (stall==1)
 - OAM now continues during DMC halt/dummy/alignment cycles (hardware-accurate time-sharing)

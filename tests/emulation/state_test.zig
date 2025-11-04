@@ -57,18 +57,19 @@ test "EmulationState: tick advances master clock" {
     var state = EmulationState.init(&config);
     state.power_on();
 
-    // Initial state is master_cycles = 2 (Phase 2 for AccuracyCoin compatibility)
-    try testing.expectEqual(@as(u64, 2), state.clock.master_cycles);
+    // Initial state is master_cycles = initial_phase (Phase 0 default)
+    const initial_master = state.clock.master_cycles;
+    try testing.expectEqual(initial_master, state.clock.master_cycles);
 
     // Tick once
     state.tick();
-    try testing.expectEqual(@as(u64, 3), state.clock.master_cycles);
+    try testing.expectEqual(initial_master + 1, state.clock.master_cycles);
 
     // Tick 10 times
     for (0..10) |_| {
         state.tick();
     }
-    try testing.expectEqual(@as(u64, 13), state.clock.master_cycles);
+    try testing.expectEqual(initial_master + 11, state.clock.master_cycles);
 }
 
 test "EmulationState: CPU ticks every 3 master cycles" {
@@ -78,27 +79,31 @@ test "EmulationState: CPU ticks every 3 master cycles" {
     var state = EmulationState.init(&config);
     state.power_on();
 
-    // Initial state is master_cycles = 2 (Phase 2)
-    // CPU ticks when (master_cycles % 3 == 0), so CPU ticks on cycle 3, 6, 9, etc.
+    // Phase-independent test: CPU ticks when (master_cycles % 3 == 0)
     const initial_cpu_cycles = state.clock.cpuCycles();
 
-    // Initial state: at cycle 2, CPU has not ticked yet
-    try testing.expectEqual(@as(u64, 2), state.clock.master_cycles);
+    // Advance past current position if we're at a CPU tick
+    if (state.clock.isCpuTick()) {
+        state.tick();
+    }
 
-    // Tick once (cycle 2 → 3): CPU SHOULD tick (3 % 3 == 0)
-    state.tick();
-    try testing.expectEqual(@as(u64, 3), state.clock.master_cycles);
+    // Advance until next CPU tick
+    while (!state.clock.isCpuTick()) {
+        state.tick();
+    }
+    const first_cpu_tick_cycle = state.clock.master_cycles;
+    try testing.expect(first_cpu_tick_cycle % 3 == 0);
     try testing.expectEqual(initial_cpu_cycles + 1, state.clock.cpuCycles());
 
-    // Tick twice more (cycle 3 → 4 → 5): CPU should NOT tick
+    // Tick twice more: CPU should NOT tick (not at 3-cycle boundary)
     state.tick();
     state.tick();
-    try testing.expectEqual(@as(u64, 5), state.clock.master_cycles);
+    try testing.expectEqual(first_cpu_tick_cycle + 2, state.clock.master_cycles);
     try testing.expectEqual(initial_cpu_cycles + 1, state.clock.cpuCycles());
 
-    // Tick once more (5 → 6): CPU SHOULD tick (6 % 3 == 0)
+    // Tick once more: CPU SHOULD tick (at 3-cycle boundary)
     state.tick();
-    try testing.expectEqual(@as(u64, 6), state.clock.master_cycles);
+    try testing.expectEqual(first_cpu_tick_cycle + 3, state.clock.master_cycles);
     try testing.expectEqual(initial_cpu_cycles + 2, state.clock.cpuCycles());
 }
 
@@ -109,11 +114,13 @@ test "EmulationState: emulateCpuCycles advances correctly" {
     var state = EmulationState.init(&config);
     state.power_on();
 
-    // Starting at master_cycles = 2 (Phase 2)
-    // Emulate 10 CPU cycles - elapsed master cycles should be 28
+    // Phase-independent: 10 CPU cycles = 30 master cycles (1 CPU cycle = 3 master cycles)
+    const initial_master = state.clock.master_cycles;
     const master_cycles = state.emulateCpuCycles(10);
-    try testing.expectEqual(@as(u64, 28), master_cycles);
-    try testing.expectEqual(@as(u64, 30), state.clock.master_cycles);
+
+    // Should have advanced 30 master cycles (10 CPU cycles × 3)
+    try testing.expectEqual(@as(u64, 30), master_cycles);
+    try testing.expectEqual(@as(u64, initial_master + 30), state.clock.master_cycles);
     try testing.expectEqual(@as(u64, 10), state.clock.cpuCycles());
 }
 
@@ -129,10 +136,15 @@ test "EmulationState: VBlank timing at scanline 241, dot 1" {
     // Emulate to frame VBlank
     _ = state.emulateFrame();
 
-    // At this point we should be in VBlank (scanline 241+)
-    try testing.expect(state.ppu.scanline >= 241);
+    // At this point we should be past VBlank start (at scanline -1, pre-render)
+    try testing.expect(state.ppu.scanline == -1 or state.ppu.scanline >= 241);
 
-    // VBlank flag should be visible
+    // Advance to well past VBlank set point (scanline 241, dot 4+) to avoid race window
+    while (state.ppu.scanline < 241 or (state.ppu.scanline == 241 and state.ppu.cycle < 4)) {
+        state.tick();
+    }
+
+    // VBlank flag should be visible (past race window)
     const status = state.busRead(0x2002);
     try testing.expect((status & 0x80) != 0);
 

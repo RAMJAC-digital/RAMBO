@@ -17,11 +17,6 @@ pub const VBlankLedger = struct {
     /// Master clock cycle of the last read from PPUSTATUS ($2002).
     last_read_cycle: u64 = 0,
 
-    /// Master clock cycle of a $2002 read that raced with VBlank set (same cycle).
-    /// When this equals last_set_cycle, NMI is suppressed for this VBlank span.
-    /// The flag still clears normally - race only affects NMI generation.
-    last_race_cycle: u64 = 0,
-
     /// Master clock cycle when VBlank flag set should be PREVENTED.
     /// Set when $2002 is read at scanline 241, dot 0 (one cycle before VBlank set).
     /// When current cycle equals this value, the flag set at 241:1 is skipped.
@@ -37,26 +32,18 @@ pub const VBlankLedger = struct {
     /// Returns true if the VBlank flag would read as 1 on the PPU bus
     /// (i.e., active AND not cleared by a $2002 read)
     ///
-    /// CRITICAL: Race reads (same cycle as set) DO return 1 and DO clear the flag.
-    /// The race condition only affects NMI generation, NOT flag visibility.
+    /// Hardware behavior per Mesen2 NesPpu.cpp:344 - UpdateStatusFlag() clears
+    /// VBlank flag unconditionally on every $2002 read. NMI line is also cleared.
     pub inline fn isFlagVisible(self: VBlankLedger) bool {
         // 1. VBlank span not active?
         if (!self.isActive()) return false;
 
         // 2. Has any $2002 read occurred since VBlank set?
-        // This includes race reads - they clear the flag just like normal reads
+        // Per BUG #1 fix: last_read_cycle always updated on $2002 read
         if (self.last_read_cycle >= self.last_set_cycle) return false;
 
         // 3. Flag is set and hasn't been read yet
         return true;
-    }
-
-    /// Returns true when a race read (same-cycle $2002 read) has occurred that
-    /// should suppress NMI for this VBlank span.
-    ///
-    /// HARDWARE BEHAVIOR: Race read clears flag normally but suppresses NMI.
-    pub inline fn hasRaceSuppression(self: VBlankLedger) bool {
-        return self.last_race_cycle == self.last_set_cycle;
     }
 
     /// Resets all timestamps to their initial state.
@@ -64,7 +51,6 @@ pub const VBlankLedger = struct {
         self.last_set_cycle = 0;
         self.last_clear_cycle = 0;
         self.last_read_cycle = 0;
-        self.last_race_cycle = 0;
         self.prevent_vbl_set_cycle = 0;
     }
 };

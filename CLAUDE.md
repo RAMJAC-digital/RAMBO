@@ -186,6 +186,131 @@ pub fn Cartridge(comptime MapperType: type) type {
 const NromCart = Cartridge(Mapper0);  // Zero runtime overhead
 ```
 
+### Bus Handler Architecture
+
+The CPU memory bus ($0000-$FFFF) uses a **handler delegation pattern** that mirrors the cartridge mapper pattern - stateless handlers with read/write/peek interface.
+
+**Handler Interface Pattern:**
+
+All bus handlers implement the same interface:
+```zig
+pub const HandlerName = struct {
+    // NO fields - completely stateless!
+
+    pub fn read(_: *const HandlerName, state: anytype, address: u16) u8 { }
+    pub fn write(_: *HandlerName, state: anytype, address: u16, value: u8) void { }
+    pub fn peek(_: *const HandlerName, state: anytype, address: u16) u8 { }
+};
+```
+
+**Key Characteristics:**
+- **Zero-size handlers** - No internal state, all data accessed via `state` parameter
+- **Stateless delegation** - Handlers delegate to Logic modules (PpuLogic, ApuLogic, etc.)
+- **Debugger support** - `peek()` provides side-effect-free reads for debugging
+- **Mirrors mapper pattern** - Same delegation approach as cartridge mappers
+
+**Address Space Handlers:**
+
+| Handler | Address Range | Complexity | Responsibilities |
+|---------|--------------|------------|------------------|
+| `RamHandler` | $0000-$1FFF | ⭐ (1/5) | 2KB RAM with 4x mirroring |
+| `PpuHandler` | $2000-$3FFF | ⭐⭐⭐⭐⭐ (5/5) | PPU registers, VBlank/NMI coordination |
+| `ApuHandler` | $4000-$4015 | ⭐⭐⭐ (3/5) | APU channels, frame IRQ |
+| `OamDmaHandler` | $4014 | ⭐⭐ (2/5) | OAM DMA trigger |
+| `ControllerHandler` | $4016-$4017 | ⭐⭐ (2/5) | Controller ports + frame counter |
+| `CartridgeHandler` | $4020-$FFFF | ⭐⭐ (2/5) | Delegates to mapper or test RAM |
+| `OpenBusHandler` | unmapped | ⭐ (1/5) | Returns last bus value |
+
+**Integration in EmulationState:**
+
+```zig
+pub const EmulationState = struct {
+    handlers: struct {
+        open_bus: OpenBusHandler = .{},
+        ram: RamHandler = .{},
+        ppu: PpuHandler = .{},
+        apu: ApuHandler = .{},
+        controller: ControllerHandler = .{},
+        oam_dma: OamDmaHandler = .{},
+        cartridge: CartridgeHandler = .{},
+    } = .{},
+
+    // Bus routing dispatches to handlers
+    pub fn busRead(self: *EmulationState, address: u16) u8 {
+        const value = switch (address) {
+            0x0000...0x1FFF => self.handlers.ram.read(self, address),
+            0x2000...0x3FFF => self.handlers.ppu.read(self, address),
+            0x4000...0x4013 => self.handlers.apu.read(self, address),
+            0x4014 => self.handlers.oam_dma.read(self, address),
+            0x4015 => self.handlers.apu.read(self, address),
+            0x4016, 0x4017 => self.handlers.controller.read(self, address),
+            0x4020...0xFFFF => self.handlers.cartridge.read(self, address),
+            else => self.handlers.open_bus.read(self, address),
+        };
+
+        // Open bus capture (hardware behavior)
+        if (address != 0x4015) {  // $4015 doesn't update open bus
+            self.bus.open_bus = value;
+        }
+
+        return value;
+    }
+};
+```
+
+**Example: PpuHandler (Most Complex)**
+
+```zig
+// src/emulation/bus/handlers/PpuHandler.zig
+pub const PpuHandler = struct {
+    // NO fields - completely stateless!
+
+    pub fn read(_: *const PpuHandler, state: anytype, address: u16) u8 {
+        const reg = address & 0x07;  // Mirror to 8 registers
+
+        // VBlank race detection (CRITICAL TIMING)
+        if (reg == 0x02) {  // $2002 PPUSTATUS
+            const scanline = state.ppu.scanline;
+            const dot = state.ppu.cycle;
+
+            // Race window: scanline 241, dot 0-2
+            if (scanline == 241 and dot <= 2 and state.clock.isCpuTick()) {
+                state.vblank_ledger.prevent_vbl_set_cycle = state.clock.master_cycles;
+            }
+        }
+
+        // Delegate to PPU logic
+        const result = PpuLogic.readRegister(&state.ppu, ...);
+
+        // $2002 read side effects
+        if (result.read_2002) {
+            state.vblank_ledger.last_read_cycle = state.clock.master_cycles;
+            state.cpu.nmi_line = false;  // Always clear NMI
+        }
+
+        return result.value;
+    }
+
+    pub fn peek(_: *const PpuHandler, state: anytype, address: u16) u8 {
+        // No side effects - safe for debugger
+        const reg = address & 0x07;
+        return state.ppu.registers[reg];
+    }
+};
+```
+
+**Benefits:**
+- **Clear separation** - Each handler owns its address space (mirrors hardware chips)
+- **Testable** - Handlers are unit-tested independently
+- **Debugger-safe** - `peek()` allows inspection without side effects
+- **Mirrors hardware** - Handler boundaries match NES chip architecture (6502, 2C02, APU)
+- **Zero overhead** - Handlers are zero-size, all inlined by compiler
+
+**See Also:**
+- `src/emulation/bus/handlers/` - All handler implementations
+- `src/emulation/bus/inspection.zig` - Debugger-safe bus inspection
+- Cartridge mapper pattern (`src/cartridge/`) - Same delegation approach
+
 ### Thread Architecture
 
 3-thread mailbox pattern with RT-safe emulation:
@@ -221,10 +346,18 @@ Within a single PPU cycle, the NES hardware executes operations in this order:
 - PPU sets VBlank flag → flag becomes 1
 - Result: CPU missed seeing the VBlank flag (same-cycle race)
 
-**Implementation:** `src/emulation/State.zig:tick()` lines 617-699
-- CPU executes via `stepCpuCycle()` BEFORE `applyPpuCycleResult()`
-- PPU flag updates happen AFTER CPU memory operations
-- VBlankLedger timestamps set after CPU has executed
+**Implementation:** `src/emulation/State.zig:tick()` lines 651-774
+- CPU executes BEFORE VBlank timestamp application via `stepCpuCycle()` (can read $2002 and set prevention flag)
+- VBlank timestamps applied AFTER CPU execution via `applyVBlankTimestamps()` (respects prevention flag set by CPU)
+- Other PPU state applied AFTER CPU execution via `applyPpuRenderingState()` (reflects CPU register writes from this cycle)
+- Interrupt sampling happens AFTER VBlank timestamps are final (ensures NMI line reflects correct VBlank state)
+
+**Critical Implementation Detail (2025-11-03):**
+- CPU execution BEFORE VBlank timestamps allows prevention mechanism to work correctly
+- CPU reads $2002 at dot 1 → sets `prevent_vbl_set_cycle = master_cycles`
+- VBlank timestamp application checks if `master_cycles == prevent_vbl_set_cycle` → skips setting flag if true
+- Interrupt sampling happens AFTER VBlank state is finalized to ensure correct NMI line state
+- Reference: Mesen2 NesPpu.cpp:1340-1344 (prevention flag check before VBlank set)
 
 **Hardware Citation:** https://www.nesdev.org/wiki/PPU_frame_timing
 
@@ -269,6 +402,52 @@ address = @as(u16, (base +% index))  // Wraps at byte boundary
 ### 6. NMI Edge Detection
 
 NMI triggers on **falling edge** (high → low transition). IRQ is **level-triggered**.
+
+### 6a. CPU Interrupt Polling Timing (Second-to-Last Cycle Rule) 🔒
+
+**LOCKED BEHAVIOR** - Verified correct per nesdev.org CPU interrupt timing specification.
+
+The NES CPU samples interrupt lines at the **end of each cycle** and checks the sampled values at the **start of the next cycle**. This implements the hardware "second-to-last cycle rule":
+
+**Hardware Behavior:**
+- Interrupt lines (NMI/IRQ) sampled during φ2 (end of cycle N)
+- Sampled values checked at start of cycle N+1
+- Interrupt sequences cannot be interrupted once started (pending state preserved)
+- **NMI has priority over IRQ** - NMI cannot be masked by IRQ during interrupt sequence
+
+**Example Timing (AccuracyCoin test case):**
+```
+Cycle N:   STA $2000 sets PPUCTRL.7 → nmi_line=true
+           [END: sample nmi_line=true, store to nmi_pending_prev]
+
+Cycle N+1: LDX #$10 executes normally
+           [START: check nmi_pending_prev=false from cycle N-1]
+           [END: sample nmi_line=true, store to nmi_pending_prev]
+
+Cycle N+2: Next instruction
+           [START: check nmi_pending_prev=true from cycle N] → NMI fires!
+```
+
+**Implementation:** `src/emulation/State.zig:tick()` lines 738-768
+- End-of-cycle sampling: Calls `CpuLogic.checkInterrupts()` after VBlank timestamps are final
+- Stores result to `nmi_pending_prev`/`irq_pending_prev` for next cycle
+- Clears `pending_interrupt` (will be restored from _prev next cycle via `CpuLogic.restorePendingInterrupts()`)
+- **IRQ masking during NMI:** IRQ restoration only if NOT currently handling NMI (preserves NMI priority)
+
+**Critical Details:**
+- Sampling happens **every cycle**, not just at instruction boundaries
+- Sampling happens AFTER VBlank timestamps are applied (ensures correct NMI line state)
+- Gives instructions one cycle to complete after register writes (e.g., STA $2000 enabling NMI)
+- Interrupt sequences must NOT re-sample (would corrupt vector fetch)
+- Prevents same-cycle interrupt triggering from register writes
+- **NMI priority preserved:** `if (irq_pending_prev and pending_interrupt != .nmi)` prevents IRQ from masking NMI
+
+**Hardware Citations:**
+- Primary: https://www.nesdev.org/wiki/CPU_interrupts ("second-to-last cycle" rule)
+- NMI Priority: https://www.nesdev.org/wiki/NMI (NMI cannot be masked)
+- Reference Implementation: Mesen2 NesCpu.cpp:294-315 (EndCpuCycle), lines 311-314 (_prevRunIrq/_prevNeedNmi)
+
+**Do not modify this polling timing - it matches hardware interrupt latency exactly.**
 
 ### 7. PPU Warm-Up Period
 
@@ -362,7 +541,17 @@ src/
 ├── emulation/        # Emulation coordination
 │   ├── State.zig         # EmulationState (CPU/PPU/APU/Bus integration)
 │   ├── Ppu.zig           # PPU orchestration helpers
-│   └── MasterClock.zig   # Cycle counting and synchronization
+│   ├── MasterClock.zig   # Cycle counting and synchronization
+│   └── bus/              # Bus handler architecture
+│       ├── handlers/     # Address space handlers (stateless delegation)
+│       │   ├── RamHandler.zig       # Internal RAM ($0000-$1FFF, mirrored)
+│       │   ├── PpuHandler.zig       # PPU registers ($2000-$3FFF, mirrored)
+│       │   ├── ApuHandler.zig       # APU/IO registers ($4000-$4015)
+│       │   ├── OamDmaHandler.zig    # OAM DMA trigger ($4014)
+│       │   ├── ControllerHandler.zig# Controller ports ($4016-$4017)
+│       │   ├── CartridgeHandler.zig # PRG ROM/RAM ($4020-$FFFF)
+│       │   └── OpenBusHandler.zig   # Unmapped regions (fallback)
+│       └── inspection.zig# Debugger-safe memory reads (no side effects)
 ├── video/            # Rendering system (100% complete)
 │   ├── Backend.zig       # Backend interface definition
 │   ├── backends/         # Backend implementations

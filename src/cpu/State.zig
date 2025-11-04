@@ -164,6 +164,13 @@ pub const CpuState = struct {
     nmi_enable_prev: bool = false,  // Previous PPUCTRL.NMI_ENABLE for edge detection
     irq_line: bool = false,         // IRQ input (level-triggered)
 
+    // Hardware "second-to-last cycle" rule: Interrupt lines sampled at END of cycle N,
+    // checked at START of cycle N+1. This gives instructions one cycle to complete
+    // after register writes (e.g., STA $2000 to enable NMI).
+    // Reference: nesdev.org/wiki/CPU_interrupts, Mesen2 NesCpu.cpp:311-314
+    nmi_pending_prev: bool = false,  // NMI pending from previous cycle
+    irq_pending_prev: bool = false,  // IRQ pending from previous cycle
+
     // ===== CPU Halt State (for JAM/KIL unofficial opcodes) =====
     halted: bool = false,           // CPU halted by JAM/KIL, only RESET recovers
 

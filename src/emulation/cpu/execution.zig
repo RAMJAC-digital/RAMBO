@@ -90,27 +90,9 @@ pub fn stepCycle(state: anytype) CpuCycleResult {
         }
     }
 
-    // NMI line reflects VBlank flag state (when NMI enabled in PPUCTRL)
-    // Hardware: NMI line stays asserted as long as:
-    // 1. VBlank is active (last_set > last_clear)
-    // 2. NMI is enabled in PPUCTRL
-    // 3. Not in race condition suppression
-    //
-    // Edge detection in checkInterrupts() handles latching pending_interrupt.
-    // Hardware behavior (verified against Mesen2 and AccuracyCoin):
-    // - Simple edge detector: falling edge on NMI line triggers interrupt
-    // - Multiple NMIs allowed per VBlank if PPUCTRL.7 toggled (AccuracyCoin test 7)
-    // - After pending_interrupt = .nmi, checkInterrupts() stops checking
-    // - pending_interrupt cleared when interrupt sequence completes
-    // - VBlank flag cleared by $2002 read or scanline 261 dot 1
-    // - Race suppression: Reading $2002 within 0-2 cycles of VBlank set suppresses NMI
-    const vblank_flag_visible = state.vblank_ledger.isFlagVisible();
-    const race_suppression = state.vblank_ledger.hasRaceSuppression();
-    const nmi_line_should_assert = vblank_flag_visible and
-        state.ppu.ctrl.nmi_enable and
-        !race_suppression;
-
-    state.cpu.nmi_line = nmi_line_should_assert;
+    // NMI line is now updated in State.zig tick() AFTER VBlank timestamps are applied
+    // This ensures prevention flag (set by $2002 reads) is respected.
+    // The nmi_edge_detected flag is also updated in tick() after VBlank is final.
 
     // If CPU is halted (JAM/KIL), do nothing until RESET
     if (state.cpu.halted) {
@@ -197,17 +179,45 @@ pub fn executeCycle(state: anytype) void {
     // Clock advancement happens in tick() - not here
     // This keeps timing management centralized
 
-    // Check for interrupts at the start of instruction fetch
-    // CRITICAL: Interrupt must hijack the opcode fetch in the CURRENT cycle,
-    // not the next cycle. If we detect an interrupt, we do the dummy read
-    // (hijacked opcode fetch) immediately and transition to interrupt_sequence
-    // at cycle 1 (since we just completed cycle 0).
+    // =========================================================================
+    // RESTORE INTERRUPT STATE FROM PREVIOUS CYCLE (Hardware "second-to-last cycle" rule)
+    // =========================================================================
+    // Hardware behavior: Interrupt lines sampled at END of cycle N are checked
+    // at START of cycle N+1. This happens EVERY cycle, not just at fetch_opcode.
+    //
+    // Example (AccuracyCoin test 8):
+    //   Cycle N:   STA $2000 sets PPUCTRL.7 → nmi_line=true [END: sampled]
+    //   Cycle N+1: LDX #$10 [START: restore pending from N-1 (false), execute normally]
+    //   Cycle N+2: Next instruction [START: restore pending from N (true)] → NMI fires
+    //
+    // CRITICAL: Do NOT restore during interrupt sequence!
+    // Once an interrupt sequence starts, pending_interrupt must be preserved
+    // so that cycles 4-5 fetch the correct vector (lines 253, 264).
+    // Restoring here would corrupt the interrupt type mid-sequence.
+    //
+    // Reference: Mesen2 NesCpu.cpp Exec() checks _prevRunIrq/_prevNeedNmi ONCE before instruction
+    if (state.cpu.state != .interrupt_sequence) {
+        if (state.cpu.nmi_pending_prev) {
+            state.cpu.pending_interrupt = .nmi;
+        } else if (state.cpu.irq_pending_prev and !state.cpu.p.interrupt) {
+            // Apply I flag masking when restoring from previous cycle
+            // Matches Mesen2 pattern: _runIrq calculated WITH masking before storing to _prevRunIrq
+            state.cpu.pending_interrupt = .irq;
+        }
+    }
+
+    // Check if interrupt should hijack opcode fetch
+    // Interrupts only fire at instruction boundaries (fetch_opcode state)
     if (state.cpu.state == .fetch_opcode) {
-        CpuLogic.checkInterrupts(&state.cpu);
         if (state.cpu.pending_interrupt != .none and state.cpu.pending_interrupt != .reset) {
             // Interrupt hijacks the opcode fetch - do dummy read at PC NOW
             _ = state.busRead(state.cpu.pc);
             // DO NOT increment PC - interrupt will set new PC from vector
+
+            // Clear _prev flags to prevent re-triggering after RTI
+            // The interrupt is now being serviced, so the edge/level has been consumed
+            state.cpu.nmi_pending_prev = false;
+            state.cpu.irq_pending_prev = false;
 
             // Transition to interrupt sequence at cycle 1 (we just did cycle 0)
             state.cpu.state = .interrupt_sequence;
@@ -752,4 +762,22 @@ pub fn executeCycle(state: anytype) void {
         state.cpu.state = .fetch_opcode;
         state.cpu.instruction_cycle = 0;
     }
+
+    // =========================================================================
+    // END-OF-CYCLE INTERRUPT SAMPLING (Hardware "second-to-last cycle" rule)
+    // =========================================================================
+    // Interrupt sampling now happens in State.zig tick() AFTER VBlank timestamps
+    // are applied. This ensures the NMI line reflects the final VBlank state
+    // (including prevention flag from $2002 reads).
+    //
+    // Mesen2 reference: NesCpu.cpp EndCpuCycle() (line 294-315)
+    // - Runs PPU to current cycle
+    // - Samples NMI line from PPU state
+    // - Stores to _prevNeedNmi for next cycle
+    //
+    // Our implementation matches this by sampling in tick() after:
+    // 1. CPU execution (may read $2002, set prevention flag)
+    // 2. VBlank timestamps applied (respects prevention flag)
+    // 3. NMI line updated (reflects final VBlank state)
+    // 4. Sample to nmi_pending_prev (for next cycle's restore)
 }

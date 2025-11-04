@@ -43,9 +43,32 @@ pub const MasterClock = struct {
     /// Note: This doesn't affect timing accuracy, only controls external tick rate
     speed_multiplier: f64 = 1.0,
 
-    /// Initialize clock to power-on state
+    /// CPU/PPU phase offset (0, 1, or 2)
+    /// Determines when CPU ticks relative to PPU cycles.
+    /// - Phase 0: CPU ticks when (master_cycles % 3) == 0
+    /// - Phase 1: CPU ticks when (master_cycles % 3) == 0 (starts at master_cycles = 1)
+    /// - Phase 2: CPU ticks when (master_cycles % 3) == 0 (starts at master_cycles = 2)
+    ///
+    /// Hardware: Real NES has random phase at power-on (0, 1, or 2).
+    /// This affects which PPU dots the CPU can execute at scanline 241 (VBlank timing).
+    ///
+    /// Phase-Independent Implementation:
+    /// The master clock refactor enables phase independence by:
+    /// 1. Using isCpuTick() instead of hardcoded dot checks
+    /// 2. Separating master_cycles (monotonic) from PPU clock (can skip)
+    /// 3. All timing logic checks isCpuTick(), not specific dot positions
+    ///
+    /// Default: Phase 0 (canonical starting point)
+    initial_phase: u2 = 0,
+
+    /// Initialize clock to power-on state (phase = 0, canonical starting point)
     pub fn init() MasterClock {
         return .{};
+    }
+
+    /// Initialize clock with specific phase (for testing/configuration)
+    pub fn initWithPhase(phase: u2) MasterClock {
+        return .{ .initial_phase = phase, .master_cycles = phase };
     }
 
     /// Advance clock by 1 master cycle
@@ -95,21 +118,20 @@ pub const MasterClock = struct {
     /// Reset clock to power-on state
     /// Used when emulator is reset or ROM is loaded
     ///
-    /// CRITICAL: CPU/PPU phase offset
-    /// Hardware has an arbitrary phase relationship between CPU and PPU clocks.
-    /// CPU ticks every 3 master cycles, but the initial offset varies by console.
-    /// Starting at master_cycles = 0 means CPU ticks when (master % 3 == 0).
-    /// Real hardware might have CPU tick when (master % 3 == 1) or (master % 3 == 2).
+    /// Phase-Independent Reset:
+    /// Resets master_cycles to the configured initial_phase (0, 1, or 2).
+    /// This determines when CPU ticks relative to PPU cycles:
+    /// - Phase 0: CPU ticks at PPU dots 1, 4, 7, 10... (at scanline 241)
+    /// - Phase 1: CPU ticks at PPU dots 2, 5, 8, 11... (at scanline 241)
+    /// - Phase 2: CPU ticks at PPU dots 0, 3, 6, 9...  (at scanline 241)
     ///
-    /// AccuracyCoin tests are sensitive to this phase! Testing different offsets:
-    /// - Phase 0 (master_cycles = 0): CPU at master % 3 == 0
-    /// - Phase 1 (master_cycles = 1): CPU at master % 3 == 1
-    /// - Phase 2 (master_cycles = 2): CPU at master % 3 == 2
+    /// Hardware: Real NES has random phase at power-on.
+    /// Our phase-independent VBlank prevention logic works for ALL phases.
+    ///
+    /// Note: speed_multiplier is NOT reset (user preference persists)
+    /// Note: PPU clock is reset separately via PpuState.init()
     pub fn reset(self: *MasterClock) void {
-        // TODO: Make this configurable or determine correct hardware phase
-        self.master_cycles = 2; // TESTING: Phase 2 to see if it fixes AccuracyCoin
-        // Note: speed_multiplier is NOT reset (user preference persists)
-        // Note: PPU clock is reset separately via PpuState.init()
+        self.master_cycles = self.initial_phase;
     }
 
     /// Set speed multiplier for emulation
@@ -237,9 +259,73 @@ test "MasterClock: reset" {
 
     clock.reset();
 
-    // Reset to phase 2
-    try testing.expectEqual(@as(u64, 2), clock.master_cycles);
+    // Reset to initial_phase (defaults to 0)
+    try testing.expectEqual(@as(u64, 0), clock.master_cycles);
     try testing.expectEqual(@as(f64, 2.0), clock.speed_multiplier); // Speed persists
+}
+
+test "MasterClock: reset with phase configuration" {
+    // Test phase 0
+    var clock0 = MasterClock.initWithPhase(0);
+    clock0.advance();
+    clock0.advance();
+    clock0.reset();
+    try testing.expectEqual(@as(u64, 0), clock0.master_cycles);
+    try testing.expectEqual(@as(u2, 0), clock0.initial_phase);
+
+    // Test phase 1
+    var clock1 = MasterClock.initWithPhase(1);
+    clock1.advance();
+    clock1.advance();
+    clock1.reset();
+    try testing.expectEqual(@as(u64, 1), clock1.master_cycles);
+    try testing.expectEqual(@as(u2, 1), clock1.initial_phase);
+
+    // Test phase 2
+    var clock2 = MasterClock.initWithPhase(2);
+    clock2.advance();
+    clock2.advance();
+    clock2.reset();
+    try testing.expectEqual(@as(u64, 2), clock2.master_cycles);
+    try testing.expectEqual(@as(u2, 2), clock2.initial_phase);
+}
+
+test "MasterClock: phase affects CPU tick timing" {
+    // Phase 0: CPU ticks at 0, 3, 6, 9...
+    var clock0 = MasterClock.initWithPhase(0);
+    try testing.expect(clock0.isCpuTick()); // 0 % 3 == 0 ✓
+    clock0.advance(); // master_cycles = 1
+    try testing.expect(!clock0.isCpuTick()); // 1 % 3 == 1 ✗
+    clock0.advance(); // master_cycles = 2
+    try testing.expect(!clock0.isCpuTick()); // 2 % 3 == 2 ✗
+    clock0.advance(); // master_cycles = 3
+    try testing.expect(clock0.isCpuTick()); // 3 % 3 == 0 ✓
+
+    // Phase 1: CPU ticks at 3, 6, 9... (after starting at 1)
+    var clock1 = MasterClock.initWithPhase(1);
+    try testing.expect(!clock1.isCpuTick()); // 1 % 3 == 1 ✗
+    clock1.advance(); // master_cycles = 2
+    try testing.expect(!clock1.isCpuTick()); // 2 % 3 == 2 ✗
+    clock1.advance(); // master_cycles = 3
+    try testing.expect(clock1.isCpuTick()); // 3 % 3 == 0 ✓
+    clock1.advance(); // master_cycles = 4
+    try testing.expect(!clock1.isCpuTick()); // 4 % 3 == 1 ✗
+    clock1.advance(); // master_cycles = 5
+    try testing.expect(!clock1.isCpuTick()); // 5 % 3 == 2 ✗
+    clock1.advance(); // master_cycles = 6
+    try testing.expect(clock1.isCpuTick()); // 6 % 3 == 0 ✓
+
+    // Phase 2: CPU ticks at 3, 6, 9... (after starting at 2)
+    var clock2 = MasterClock.initWithPhase(2);
+    try testing.expect(!clock2.isCpuTick()); // 2 % 3 == 2 ✗
+    clock2.advance(); // master_cycles = 3
+    try testing.expect(clock2.isCpuTick()); // 3 % 3 == 0 ✓
+    clock2.advance(); // master_cycles = 4
+    try testing.expect(!clock2.isCpuTick()); // 4 % 3 == 1 ✗
+    clock2.advance(); // master_cycles = 5
+    try testing.expect(!clock2.isCpuTick()); // 5 % 3 == 2 ✗
+    clock2.advance(); // master_cycles = 6
+    try testing.expect(clock2.isCpuTick()); // 6 % 3 == 0 ✓
 }
 
 test "MasterClock: speed control" {

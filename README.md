@@ -13,7 +13,24 @@ Cycle-accurate NES emulator written in Zig 0.15.1.
 
 ---
 
-## Recent Fixes (2025-11-02)
+## Recent Fixes (2025-11-03)
+
+### VBlank/NMI Timing Restructuring and IRQ Masking
+
+- ✅ **VBlank Prevention Mechanism:** CPU execution moved BEFORE VBlank timestamp application
+  - **Impact:** VBlank prevention now works correctly - CPU sets `prevent_vbl_set_cycle`, then VBlank checks flag before setting
+  - **Implementation:** `src/emulation/State.zig:tick()` lines 651-774 - CPU executes, then VBlank timestamps applied
+  - **Interrupt Sampling:** Moved to AFTER VBlank timestamps finalized (ensures correct NMI line state)
+  - **Hardware Citation:** Matches Mesen2 NesPpu.cpp:1340-1344 (prevention flag check before VBlank set)
+  - See `sessions/tasks/h-fix-oam-nmi-accuracy.md` for complete details
+
+- ✅ **IRQ Masking During NMI:** Fixed infinite interrupt loop bug
+  - **Issue:** IRQ restoration was overriding NMI during interrupt sequence cycles 0-6
+  - **Fix:** `if (irq_pending_prev and pending_interrupt != .nmi)` preserves NMI priority
+  - **Impact:** AccuracyCoin menu now accessible (first time) - indicates stable interrupt handling
+  - **Hardware Citation:** Per nesdev.org/wiki/NMI, NMI has priority over IRQ
+
+## Previous Fixes (2025-11-02)
 
 ### CPU/PPU Sub-Cycle Execution Order Fix
 

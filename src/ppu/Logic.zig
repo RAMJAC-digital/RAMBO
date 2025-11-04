@@ -113,8 +113,14 @@ pub inline fn readRegister(
 }
 
 /// Write to PPU register (via CPU memory bus)
-pub inline fn writeRegister(state: *PpuState, cart: ?*AnyCartridge, address: u16, value: u8, scanline: i16, dot: u16) void {
-    registers.writeRegister(state, cart, address, value, scanline, dot);
+pub inline fn writeRegister(state: *PpuState, cart: ?*AnyCartridge, address: u16, value: u8) void {
+    registers.writeRegister(state, cart, address, value);
+}
+
+/// Update PPU state at cycle end (deferred state transitions)
+/// Reference: Mesen2 NesPpu.cpp UpdateState()
+pub inline fn updatePpuState(state: *PpuState, scanline: i16, dot: u16) void {
+    registers.updatePpuState(state, scanline, dot);
 }
 
 // ============================================================================
@@ -480,6 +486,12 @@ pub fn tick(
             state.rendering_was_enabled = true;
         }
     }
+
+    // === Deferred State Update (OAM Corruption) ===
+    // Hardware behavior: Register writes set pending flag, actual state changes
+    // occur at cycle end. This creates 1-cycle delay matching hardware.
+    // Reference: Mesen2 NesPpu.cpp Exec() calls UpdateState() at cycle end
+    updatePpuState(state, scanline, dot);
 
     flags.rendering_enabled = rendering_enabled;
     return flags;

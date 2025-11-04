@@ -90,20 +90,21 @@ pub const ScanlineType = enum {
     pre_render,
 
     /// Classify scanline by number
-    pub fn classify(scanline: u16, region: Config.VideoRegion) ScanlineType {
+    /// Accepts both old convention (261/311) and new convention (-1) for pre-render scanline
+    pub fn classify(scanline: i16, region: Config.VideoRegion) ScanlineType {
         return switch (region) {
             .ntsc => blk: {
-                if (scanline <= NTSC.VISIBLE_SCANLINE_END) break :blk .visible;
+                if (scanline >= 0 and scanline <= NTSC.VISIBLE_SCANLINE_END) break :blk .visible;
                 if (scanline == NTSC.POST_RENDER_SCANLINE) break :blk .post_render;
                 if (scanline >= NTSC.VBLANK_SCANLINE_START and scanline <= NTSC.VBLANK_SCANLINE_END) break :blk .vblank;
-                if (scanline == NTSC.PRE_RENDER_SCANLINE) break :blk .pre_render;
+                if (scanline == NTSC.PRE_RENDER_SCANLINE or scanline == 261) break :blk .pre_render;
                 unreachable;
             },
             .pal => blk: {
-                if (scanline <= PAL.VISIBLE_SCANLINE_END) break :blk .visible;
+                if (scanline >= 0 and scanline <= PAL.VISIBLE_SCANLINE_END) break :blk .visible;
                 if (scanline == PAL.POST_RENDER_SCANLINE) break :blk .post_render;
                 if (scanline >= PAL.VBLANK_SCANLINE_START and scanline <= PAL.VBLANK_SCANLINE_END) break :blk .vblank;
-                if (scanline == PAL.PRE_RENDER_SCANLINE) break :blk .pre_render;
+                if (scanline == PAL.PRE_RENDER_SCANLINE or scanline == 311) break :blk .pre_render;
                 unreachable;
             },
         };

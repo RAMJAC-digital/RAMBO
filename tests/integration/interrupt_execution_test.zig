@@ -38,10 +38,11 @@ test "NMI: Complete 7-cycle execution sequence" {
     harness.state.ppu.ctrl.nmi_enable = true;
     harness.state.ppu.warmup_complete = true;
 
-    // Freeze CPU to align precisely on a fetch boundary at VBlank set
+    // PHASE-INDEPENDENT: Seek to just before VBlank, then advance to CPU boundary
+    // This works for phases 0, 1, 2 by letting CPU execute during the race window
     harness.state.cpu.halted = true;
-    // Seek to the exact cycle where VBlank sets (scanline 241, dot 1)
-    harness.seekTo(241, 1);
+    harness.seekTo(240, 340); // End of scanline 240
+    harness.seekToCpuBoundary(241, 0); // First CPU tick of scanline 241
     harness.state.cpu.halted = false;
     // With NMI enabled, the NMI line will be asserted by CPU execution logic
 
@@ -116,11 +117,19 @@ test "NMI: Triggers on VBlank with nmi_enable=true" {
     harness.state.ppu.warmup_complete = true;
     harness.state.cpu.pc = 0x8000;
 
-    // Seek to VBlank set time
-    harness.seekTo(241, 1);
+    // PHASE-INDEPENDENT: Seek before VBlank, advance to CPU boundary
+    harness.seekTo(240, 340);
+    harness.seekToCpuBoundary(241, 0);
 
-    // Step CPU - should detect NMI
-    harness.state.tickCpu();
+    // Advance one full tick cycle (not just CPU) - VBlank will set, NMI will be detected
+    harness.tick(1);
+
+    // On the NEXT CPU tick after VBlank set, NMI should be pending
+    // (following "second-to-last cycle" rule)
+    while (!harness.state.clock.isCpuTick()) {
+        harness.tick(1);
+    }
+
     try expect(harness.state.cpu.pending_interrupt == .nmi);
     try expect(harness.state.cpu.state == .interrupt_sequence);
 }

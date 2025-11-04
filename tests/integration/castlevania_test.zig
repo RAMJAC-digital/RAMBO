@@ -327,11 +327,11 @@ test "Castlevania: PPU rendering initialization" {
                 frame_instructions,
             });
 
-            std.debug.print("  VBlankLedger: set={d} clear={d} read={d} race_cycle={d}\n", .{
+            std.debug.print("  VBlankLedger: set={d} clear={d} read={d} prevent={d}\n", .{
                 state.vblank_ledger.last_set_cycle,
                 state.vblank_ledger.last_clear_cycle,
                 state.vblank_ledger.last_read_cycle,
-                state.vblank_ledger.last_race_cycle,
+                state.vblank_ledger.prevent_vbl_set_cycle,
             });
         }
 

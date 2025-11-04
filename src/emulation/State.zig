@@ -96,6 +96,18 @@ pub const EmulationState = struct {
     /// Memory bus state (RAM, open bus, optional test RAM)
     bus: BusState = .{},
 
+    /// Memory handlers (embedded, zero allocation)
+    /// Parameter-based pattern like mappers - handlers receive state via parameter
+    handlers: struct {
+        open_bus: @import("bus/handlers/OpenBusHandler.zig").OpenBusHandler = .{},
+        ram: @import("bus/handlers/RamHandler.zig").RamHandler = .{},
+        ppu: @import("bus/handlers/PpuHandler.zig").PpuHandler = .{},
+        apu: @import("bus/handlers/ApuHandler.zig").ApuHandler = .{},
+        controller: @import("bus/handlers/ControllerHandler.zig").ControllerHandler = .{},
+        oam_dma: @import("bus/handlers/OamDmaHandler.zig").OamDmaHandler = .{},
+        cartridge: @import("bus/handlers/CartridgeHandler.zig").CartridgeHandler = .{},
+    } = .{},
+
     /// Cartridge (direct ownership)
     /// Supports all mappers via tagged union dispatch
     cart: ?AnyCartridge = null,
@@ -267,179 +279,22 @@ pub const EmulationState = struct {
     /// Routes to appropriate component and updates open bus
     pub inline fn busRead(self: *EmulationState, address: u16) u8 {
         // Capture last read address for DMC corruption (NTSC 2A03 bug)
-        // Pattern: Side effect at entry point (affects all bus reads)
         self.dmc_dma.last_read_address = address;
 
-        const cart_ptr = self.cartPtr();
-
-        // The result of the read. For PPU reads, this will be a struct.
-        var ppu_read_result: ?PpuLogic.PpuReadResult = null;
-        var update_open_bus: bool = true;
-
+        // Dispatch to handlers (parameter-based pattern)
         const value = switch (address) {
-            // RAM + mirrors ($0000-$1FFF)
-            0x0000...0x1FFF => blk: {
-                const ram_addr = address & 0x7FF;
-                break :blk self.bus.ram[ram_addr];
-            },
-
-            // PPU registers + mirrors ($2000-$3FFF)
-            0x2000...0x3FFF => blk: {
-                // Get current PPU position for race detection and read-time masking
-                // Now using PPU's own clock fields instead of deriving from master clock
-                const scanline = self.ppu.scanline;
-                const dot = self.ppu.cycle;
-
-                // Check if this is a $2002 read (PPUSTATUS) for NMI suppression tracking
-                const is_status_read = (address & 0x0007) == 0x0002;
-
-                // Race condition tracking for NMI suppression:
-                // Hardware race window: Reading $2002 at scanline 241, dots 0-2
-                //
-                // Per nesdev.org/wiki/PPU_frame_timing:
-                // - Reading one PPU clock BEFORE (dot 0): Flag doesn't set, NMI doesn't fire
-                // - Reading same clock (dot 1): Flag sets but NMI suppressed
-                // - Reading 1-2 clocks after (dots 2-3): Flag visible, NMI suppressed
-                //
-                // Per Mesen2 NesPpu.cpp:585-594 and lines 290-292:
-                // - Cycle 0 detection prevents flag set at cycle 1
-                // - Cycles 0-2 return VBlank=0 in read value (masking)
-                //
-                // Reference: https://www.nesdev.org/wiki/PPU_frame_timing
-                // Verified by: Mesen2 (reference emulator)
-                if (is_status_read) {
-
-                    // Phase-Independent VBlank Prevention (Post-Master-Clock-Refactor)
-                    //
-                    // VBlank flag is set at scanline 241, dot 1.
-                    // Hardware race window: Reading $2002 during scanline 241, dots 0-2
-                    //
-                    // CRITICAL: This logic must work for ALL CPU/PPU phase offsets (0, 1, 2).
-                    // Master clock refactor enabled phase independence by:
-                    // 1. Master clock advances monotonically (never skips)
-                    // 2. PPU clock (scanline/cycle) is separate from master clock
-                    // 3. CPU ticks determined by (master_cycles % 3 == 0), not by dot position
-                    //
-                    // Phase-Independent Check:
-                    // Instead of checking "if (dot == 1)" (assumes phase 0),
-                    // we check "if (clock.isCpuTick())" (works for ALL phases).
-                    //
-                    // Example timing for different phases:
-                    // - Phase 0: CPU ticks at dots 1, 4, 7, 10... (master_cycles = 0, 3, 6, 9...)
-                    // - Phase 1: CPU ticks at dots 2, 5, 8, 11... (master_cycles = 1, 4, 7, 10...)
-                    // - Phase 2: CPU ticks at dots 0, 3, 6, 9...  (master_cycles = 2, 5, 8, 11...)
-                    //
-                    // By checking isCpuTick(), we detect CPU execution regardless of phase.
-                    //
-                    // Hardware Citation: nesdev.org/wiki/PPU_frame_timing
-                    // Mesen2 Reference: NesPpu.cpp:590-592 (checks _cycle == 0, sets _preventVblFlag)
-                    if (scanline == 241 and dot <= 2 and self.clock.isCpuTick()) {
-                        // PHASE-INDEPENDENT PREVENTION:
-                        // CPU is ticking right now (during race window), so prevent VBlank set.
-                        // Use master_cycles (monotonic) for timestamp comparison.
-                        self.vblank_ledger.prevent_vbl_set_cycle = self.clock.master_cycles;
-                    }
-
-
-                    // Phase-Independent Race Detection for NMI Suppression
-                    //
-                    // Record race when CPU reads $2002 during the race window (scanline 241, dots 0-2).
-                    // This triggers NMI suppression per hasRaceSuppression() check.
-                    //
-                    // Simplified logic: If we're in race window AND CPU is ticking, record race.
-                    // The timestamp used for race detection is the VBlank set cycle (241:1).
-                    if (scanline == 241 and dot <= 2 and self.clock.isCpuTick()) {
-                        // VBlank is set at scanline 241, dot 1.
-                        // We need to record the master_cycles when VBlank WILL BE set (or WAS set).
-                        const vblank_set_cycle = self.vblank_ledger.last_set_cycle;
-
-                        if (vblank_set_cycle > 0) {
-                            // VBlank already set - use existing timestamp
-                            self.vblank_ledger.last_race_cycle = vblank_set_cycle;
-                        } else {
-                            // VBlank not set yet (reading before dot 1).
-                            // Calculate when VBlank WILL BE set at dot 1.
-                            // Since we're at dot <= 2, dot 1 is either:
-                            // - Current cycle (dot == 1)
-                            // - Previous cycle (dot == 2)
-                            // - Next cycle (dot == 0)
-                            const offset_to_dot_1: i64 = 1 - @as(i64, @intCast(dot));
-                            const master_cycles_i64 = @as(i64, @intCast(self.clock.master_cycles));
-                            const predicted_set_cycle = @as(u64, @intCast(master_cycles_i64 + offset_to_dot_1));
-                            self.vblank_ledger.last_race_cycle = predicted_set_cycle;
-                        }
-                    }
-                }
-
-                const result = PpuLogic.readRegister(
-                    &self.ppu,
-                    cart_ptr,
-                    address,
-                    self.vblank_ledger,
-                    scanline,
-                    dot,
-                );
-
-                ppu_read_result = result;
-                break :blk result.value;
-            },
-
-            // APU and I/O registers ($4000-$4017)
-            0x4000...0x4013 => self.bus.open_bus, // APU channels write-only
-            0x4014 => self.bus.open_bus, // OAMDMA write-only
-            0x4015 => blk: {
-                const status = ApuLogic.readStatus(&self.apu);
-                ApuLogic.clearFrameIrq(&self.apu);
-                // Open bus behavior: reading $4015 should NOT update open_bus
-                update_open_bus = false;
-                break :blk status;
-            },
-            0x4016 => self.controller.read1() | (self.bus.open_bus & 0xE0),
-            0x4017 => self.controller.read2() | (self.bus.open_bus & 0xE0),
-
-            // Expansion area ($4020-$5FFF) behaves as open bus on stock boards
-            0x4020...0x5FFF => self.bus.open_bus,
-
-            // Cartridge space ($6000-$FFFF)
-            0x6000...0xFFFF => blk: {
-                if (self.cart) |*cart| {
-                    break :blk cart.cpuRead(address);
-                }
-                if (self.bus.test_ram) |test_ram| {
-                    if (address >= 0x8000) {
-                        break :blk test_ram[address - 0x8000];
-                    } else {
-                        // Provide PRG RAM window for harness cartridges
-                        const prg_ram_offset = @as(usize, @intCast(address - 0x6000));
-                        const base_offset = 16384;
-                        if (test_ram.len > base_offset + prg_ram_offset) {
-                            break :blk test_ram[base_offset + prg_ram_offset];
-                        }
-                    }
-                }
-                break :blk self.bus.open_bus;
-            },
-
-            else => self.bus.open_bus,
+            0x0000...0x1FFF => self.handlers.ram.read(self, address),
+            0x2000...0x3FFF => self.handlers.ppu.read(self, address),
+            0x4000...0x4013 => self.handlers.apu.read(self, address),
+            0x4014 => self.handlers.oam_dma.read(self, address),
+            0x4015 => self.handlers.apu.read(self, address), // Special: does NOT update open bus
+            0x4016, 0x4017 => self.handlers.controller.read(self, address),
+            0x4020...0xFFFF => self.handlers.cartridge.read(self, address),
+            else => self.handlers.open_bus.read(self, address),
         };
 
-        // If a PPU read occurred, update the read cycle timestamp ONLY if flag was visible
-        // Hardware behavior: Reading $2002 only clears the VBlank flag if it's currently set.
-        // If the flag isn't set (e.g., same-cycle read where CPU reads before PPU sets flag),
-        // the read doesn't update the "last read" timestamp and doesn't affect future visibility.
-        if (ppu_read_result) |result| {
-            if (result.read_2002) {
-                // Only record the read if the flag was actually visible and got cleared
-                // This prevents same-cycle reads from affecting subsequent reads
-                if (self.vblank_ledger.isFlagVisible()) {
-                    // Use master_cycles (monotonic) for timestamp, not ppu_cycles (can skip)
-                    self.vblank_ledger.last_read_cycle = self.clock.master_cycles;
-                }
-            }
-        }
-
-        // All reads update the open bus.
-        if (update_open_bus) {
+        // Hardware: All reads update open bus (except $4015)
+        if (address != 0x4015) {
             self.bus.open_bus = value;
         }
 
@@ -476,83 +331,27 @@ pub const EmulationState = struct {
     /// Write to NES memory bus
     /// Routes to appropriate component and updates open bus
     pub inline fn busWrite(self: *EmulationState, address: u16, value: u8) void {
-        const cart_ptr = self.cartPtr();
         // Hardware: All writes update open bus
         self.bus.open_bus = value;
 
+        // Dispatch to handlers (parameter-based pattern)
         switch (address) {
-            // RAM + mirrors ($0000-$1FFF)
-            0x0000...0x1FFF => {
-                const ram_addr = address & 0x7FF;
-                self.bus.ram[ram_addr] = value;
-            },
-
-            // PPU registers + mirrors ($2000-$3FFF)
-            0x2000...0x3FFF => |addr| {
-                const reg = addr & 0x07;
-
-                // Check for NMI edge trigger BEFORE writing register
-                // Reference: https://www.nesdev.org/wiki/PPU_registers#PPUCTRL
-                // If enabling NMI (bit 7) while VBlank flag is already set, trigger immediate NMI
-                if (reg == 0x00) {
-                    const old_nmi_enable = self.ppu.ctrl.nmi_enable;
-                    const new_nmi_enable = (value & 0x80) != 0;
-                    const vblank_flag_visible = self.vblank_ledger.isFlagVisible();
-
-                    // Edge trigger: 0→1 transition while VBlank flag is visible triggers immediate NMI
-                    if (!old_nmi_enable and new_nmi_enable and vblank_flag_visible) {
-                        self.cpu.nmi_line = true;
-                    }
-                }
-
-                PpuLogic.writeRegister(&self.ppu, cart_ptr, reg, value, self.ppu.scanline, self.ppu.cycle);
-            },
-
-            // APU and I/O registers ($4000-$4017)
-            0x4000...0x4003 => |addr| ApuLogic.writePulse1(&self.apu, @intCast(addr & 0x03), value),
-            0x4004...0x4007 => |addr| ApuLogic.writePulse2(&self.apu, @intCast(addr & 0x03), value),
-            0x4008...0x400B => |addr| ApuLogic.writeTriangle(&self.apu, @intCast(addr & 0x03), value),
-            0x400C...0x400F => |addr| ApuLogic.writeNoise(&self.apu, @intCast(addr & 0x03), value),
-            0x4010...0x4013 => |addr| ApuLogic.writeDmc(&self.apu, @intCast(addr & 0x03), value),
-
-            0x4014 => {
-                const cpu_cycle = self.clock.master_cycles / 3;
-                const on_odd_cycle = (cpu_cycle & 1) != 0;
-                self.dma.trigger(value, on_odd_cycle);
-            },
-
-            0x4015 => ApuLogic.writeControl(&self.apu, value),
-
-            0x4016 => {
-                self.controller.writeStrobe(value);
-            },
-
-            0x4017 => ApuLogic.writeFrameCounter(&self.apu, value),
-
-            // Cartridge space ($4020-$FFFF)
+            0x0000...0x1FFF => self.handlers.ram.write(self, address, value),
+            0x2000...0x3FFF => self.handlers.ppu.write(self, address, value), // NMI management now in handler
+            0x4000...0x4013 => self.handlers.apu.write(self, address, value),
+            0x4014 => self.handlers.oam_dma.write(self, address, value),
+            0x4015 => self.handlers.apu.write(self, address, value),
+            0x4016, 0x4017 => self.handlers.controller.write(self, address, value),
             0x4020...0xFFFF => {
-                if (self.cart) |*cart| {
-                    cart.cpuWrite(address, value);
+                self.handlers.cartridge.write(self, address, value);
 
-                    // Sync PPU mirroring after cartridge write
-                    // Some mappers (e.g., Mapper7/AxROM) can change mirroring dynamically
-                    // This ensures the PPU reflects the current mirroring state
+                // Sync PPU mirroring after cartridge write
+                // Some mappers can change mirroring dynamically
+                if (self.cart) |*cart| {
                     self.ppu.mirroring = cart.getMirroring();
-                } else if (self.bus.test_ram) |test_ram| {
-                    if (address >= 0x8000) {
-                        test_ram[address - 0x8000] = value;
-                    } else if (address >= 0x6000) {
-                        // Provide PRG RAM window for harness cartridges (symmetric with busRead)
-                        const prg_ram_offset = @as(usize, @intCast(address - 0x6000));
-                        const base_offset = 16384;
-                        if (test_ram.len > base_offset + prg_ram_offset) {
-                            test_ram[base_offset + prg_ram_offset] = value;
-                        }
-                    }
                 }
             },
-
-            else => {},
+            else => {}, // Unmapped - write ignored
         }
 
         self.debuggerCheckMemoryAccess(address, value, true);
@@ -752,11 +551,11 @@ pub const EmulationState = struct {
         // that triggered it, even if interrupt lines change mid-sequence.
         if (step.cpu_tick and self.cpu.state != .interrupt_sequence) {
             // Compute NMI line from final VBlank state
+            // SIMPLIFIED (BUG #2): Race suppression is redundant - flag clear via
+            // last_read_cycle update (BUG #1 fix) automatically suppresses NMI.
+            // Per Mesen2: ClearNmiFlag() when reading $2002 (NesPpu.cpp:588)
             const vblank_flag_visible = self.vblank_ledger.isFlagVisible();
-            const race_suppression = self.vblank_ledger.hasRaceSuppression();
-            const nmi_line_should_assert = vblank_flag_visible and
-                self.ppu.ctrl.nmi_enable and
-                !race_suppression;
+            const nmi_line_should_assert = vblank_flag_visible and self.ppu.ctrl.nmi_enable;
 
             // Set cpu.nmi_line so checkInterrupts() can read it
             // IRQ line was already set at line 714 before CPU execution
@@ -808,14 +607,12 @@ pub const EmulationState = struct {
             // One-shot: ALWAYS clear prevention flag after checking (match Mesen2 exactly)
             // Per Mesen2 NesPpu.cpp:1344: _preventVblFlag = false (unconditional)
             self.vblank_ledger.prevent_vbl_set_cycle = 0;
-            // DO NOT clear last_race_cycle here - preserve race state across VBlank period
         }
 
         if (result.vblank_clear) {
             // VBlank span ends at scanline 261 dot 1 (pre-render).
             // Use master_cycles (monotonic) for timestamp
             self.vblank_ledger.last_clear_cycle = self.clock.master_cycles;
-            self.vblank_ledger.last_race_cycle = 0;  // Clear race state at VBlank end
         }
     }
 
