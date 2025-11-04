@@ -52,7 +52,7 @@ pub const TimingHelpers = struct {
     pub fn shouldSkipOddFrame(
         odd_frame: bool,
         rendering_enabled: bool,
-        scanline: u16,
+        scanline: i16, // Changed from u16 to match PPU state type
         dot: u16,
     ) bool {
         // Hardware: Odd frame skip jumps from (339,-1) to (0,0) on pre-render scanline
@@ -115,7 +115,7 @@ test "TimingHelpers: shouldSkipOddFrame returns true when all conditions met" {
     const should_skip = TimingHelpers.shouldSkipOddFrame(
         true, // odd frame
         true, // rendering enabled
-        261, // scanline 261
+        -1, // scanline -1 (pre-render scanline)
         339, // dot 339 - skip occurs FROM here
     );
     try testing.expect(should_skip);

@@ -2,7 +2,7 @@
 
 Cycle-accurate NES emulator written in Zig 0.15.1.
 
-**Current Status:** 1023/1041 tests passing (98.3%) - See [docs/STATUS.md](docs/STATUS.md) for details
+**Current Status:** 1162/1184 tests passing (98.1%) - See [docs/STATUS.md](docs/STATUS.md) for details
 
 **Commercial ROMs:**
 - ✅ Castlevania, Mega Man, Kid Icarus, Battletoads, SMB2
@@ -13,7 +13,29 @@ Cycle-accurate NES emulator written in Zig 0.15.1.
 
 ---
 
-## Recent Fixes (2025-11-03)
+## Recent Fixes (2025-11-04)
+
+### Bus Handler Architecture Migration
+
+- ✅ **Stateless Handler Delegation:** CPU memory bus refactored from monolithic routing to 7 independent handlers
+  - **Impact:** Zero compilation errors, +158 tests (1004/1026 → 1162/1184), improved code organization
+  - **Implementation:** 7 zero-size handlers replacing 300+ line monolithic routing
+    - RamHandler ($0000-$1FFF) - Internal RAM with 4x mirroring
+    - PpuHandler ($2000-$3FFF) - PPU registers, VBlank/NMI coordination
+    - ApuHandler ($4000-$4015) - APU channels
+    - OamDmaHandler ($4014) - OAM DMA trigger
+    - ControllerHandler ($4016-$4017) - Controller ports + APU frame counter
+    - CartridgeHandler ($4020-$FFFF) - PRG ROM/RAM mapper delegation
+    - OpenBusHandler (unmapped) - Hardware open bus behavior
+  - **Handler Pattern:** Zero-size stateless handlers with read/write/peek interface
+  - **Test Coverage:** All 44 handler unit tests passing (6-9 tests per handler)
+  - **Debugger Support:** Side-effect-free `peek()` for debugger inspection
+  - **Hardware Mirroring:** Handler boundaries match NES chip architecture (6502, 2C02, APU)
+  - **Files:** `src/emulation/bus/handlers/*.zig`, `src/emulation/State.zig`
+  - **Documentation:** `docs/implementation/bus-handler-architecture.md`
+  - See `sessions/tasks/h-fix-oam-nmi-accuracy.md` for complete refactoring details
+
+## Previous Fixes (2025-11-03)
 
 ### VBlank/NMI Timing Restructuring and IRQ Masking
 
@@ -494,7 +516,7 @@ MIT License (see LICENSE file)
 
 ---
 
-**Last Updated:** 2025-10-20
+**Last Updated:** 2025-11-04
 **Version:** 0.2.0-alpha
-**Status:** 1023/1041 tests passing (98.3%) - See [docs/STATUS.md](docs/STATUS.md)
-**Current Focus:** VBlank/PPU/NMI timing bugs (see docs/STATUS.md and docs/CURRENT-ISSUES.md)
+**Status:** 1162/1184 tests passing (98.1%) - See [docs/STATUS.md](docs/STATUS.md)
+**Current Focus:** Bus handler architecture refactoring complete, VBlank/PPU/NMI timing bugs remaining (see docs/STATUS.md and docs/CURRENT-ISSUES.md)

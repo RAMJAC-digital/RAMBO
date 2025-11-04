@@ -934,7 +934,7 @@ pub fn swap(self: *Mailbox, new_data: *Data) void {
 
 ---
 
-**Version:** 1.1
-**Last Updated:** 2025-11-02
-**Status:** Complete reference for Phase 2 patterns
-**Recent Update:** DMC/OAM DMA time-sharing corrected (only pause during DMC read cycle)
+**Version:** 1.2
+**Last Updated:** 2025-11-04
+**Status:** Complete reference for Phase 2 patterns + Bus Handler Architecture
+**Recent Update:** Bus handler architecture migration complete (2025-11-04) - Zero-size stateless handlers replacing monolithic routing

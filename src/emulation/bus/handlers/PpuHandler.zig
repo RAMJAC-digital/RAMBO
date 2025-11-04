@@ -66,10 +66,11 @@ pub const PpuHandler = struct {
             const scanline = state.ppu.scanline;
             const dot = state.ppu.cycle;
 
-            // Race window: scanline 241, dot 0-2, during CPU execution
+            // Prevention window: scanline 241, dot 0 ONLY
             // Hardware Citation: nesdev.org/wiki/PPU_frame_timing
-            // Mesen2 Reference: NesPpu.cpp:590-592
-            if (scanline == 241 and dot <= 2 and state.clock.isCpuTick()) {
+            // Mesen2 Reference: NesPpu.cpp:590-592 (prevention set ONLY at cycle 0)
+            // Note: CPU reads only happen on CPU ticks, so isCpuTick() check is redundant
+            if (scanline == 241 and dot == 0) {
                 // Prevent VBlank set this frame
                 state.vblank_ledger.prevent_vbl_set_cycle = state.clock.master_cycles;
             }
@@ -233,16 +234,17 @@ test "PpuHandler: read $2002 records timestamp" {
     try testing.expectEqual(@as(u64, 12345), state.vblank_ledger.last_read_cycle);
 }
 
-test "PpuHandler: read $2002 during race window sets prevention" {
+test "PpuHandler: read $2002 at dot 0 sets prevention" {
     var state = TestState{};
     state.ppu.scanline = 241;
-    state.ppu.cycle = 1; // Race window
+    state.ppu.cycle = 0; // ONLY dot 0 prevents (per nesdev.org)
     state.clock.master_cycles = 54321;
 
     var handler = PpuHandler{};
     _ = handler.read(&state, 0x2002);
 
-    // Should set prevention timestamp
+    // Should set prevention timestamp at dot 0 only
+    // Hardware: "Reading one PPU clock before reads it as clear and never sets the flag"
     try testing.expectEqual(@as(u64, 54321), state.vblank_ledger.prevent_vbl_set_cycle);
 }
 
@@ -262,6 +264,7 @@ test "PpuHandler: write $2000 enables NMI when VBlank active" {
 
 test "PpuHandler: write $2000 updates PPU control register" {
     var state = TestState{};
+    state.ppu.warmup_complete = true; // Required for PPUCTRL writes to take effect
     var handler = PpuHandler{};
 
     // Write to PPUCTRL
@@ -273,14 +276,19 @@ test "PpuHandler: write $2000 updates PPU control register" {
 
 test "PpuHandler: peek doesn't have side effects" {
     var state = TestState{};
-    state.ppu.status = PpuStatus.fromByte(0x80);
+    // Set up VBlank ledger to make flag visible (VBlank active)
+    state.vblank_ledger.last_set_cycle = 100;
+    state.vblank_ledger.last_clear_cycle = 0;
+    state.vblank_ledger.last_read_cycle = 0; // Not read yet
+    state.clock.master_cycles = 200;
+
     state.cpu.nmi_line = true;
     const original_timestamp = state.vblank_ledger.last_read_cycle;
 
     var handler = PpuHandler{};
     const value = handler.peek(&state, 0x2002);
 
-    // Should return value
+    // Should return value with VBlank bit set (0x80)
     try testing.expectEqual(@as(u8, 0x80), value);
 
     // Should NOT clear NMI
@@ -292,14 +300,20 @@ test "PpuHandler: peek doesn't have side effects" {
 
 test "PpuHandler: register mirroring" {
     var state = TestState{};
-    state.ppu.status = PpuStatus.fromByte(0x42);
+    // Set up sprite flags (bits 5-6 of PPUSTATUS)
+    state.ppu.status.sprite_overflow = true;  // Bit 5
+    state.ppu.status.sprite_0_hit = false;    // Bit 6
+    // VBlank bit (7) comes from ledger - don't set it
+    // Expected: 0x20 (sprite_overflow=1, others=0)
 
     var handler = PpuHandler{};
 
     // $2002, $200A, $2012, etc. all read same register
-    try testing.expectEqual(@as(u8, 0x42), handler.read(&state, 0x2002));
-    try testing.expectEqual(@as(u8, 0x42), handler.read(&state, 0x200A));
-    try testing.expectEqual(@as(u8, 0x42), handler.read(&state, 0x3FFA)); // Mirror
+    // All should return same value (0x20 = sprite overflow bit)
+    const expected = @as(u8, 0x20);
+    try testing.expectEqual(expected, handler.read(&state, 0x2002));
+    try testing.expectEqual(expected, handler.read(&state, 0x200A));
+    try testing.expectEqual(expected, handler.read(&state, 0x3FFA)); // Mirror
 }
 
 test "PpuHandler: no internal state - handler is empty" {

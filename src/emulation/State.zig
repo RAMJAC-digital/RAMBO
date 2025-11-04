@@ -544,23 +544,20 @@ pub const EmulationState = struct {
         //   dot 1: Apply VBlank → checks prevent_vbl_set_cycle → skip setting flag
         self.applyVBlankTimestamps(ppu_result);
 
-        // Update interrupt lines and sample AFTER VBlank flag is final
-        // This ensures interrupt state reflects correct VBlank state (including prevention)
+        // Update NMI line EVERY cycle after VBlank flag is finalized
+        // This ensures NMI line always reflects current VBlank/PPUCTRL state
+        // BUG FIX: Previously only updated on CPU ticks, causing NMI line to lag
+        // when VBlank sets on non-CPU-tick cycles
+        const vblank_flag_visible = self.vblank_ledger.isFlagVisible();
+        const nmi_line_should_assert = vblank_flag_visible and self.ppu.ctrl.nmi_enable;
+        self.cpu.nmi_line = nmi_line_should_assert;
+
+        // Sample interrupt lines ONLY on CPU ticks (not during interrupt sequence)
+        // This follows the "second-to-last cycle" rule for CPU interrupt polling
         // CRITICAL: Do NOT sample during interrupt sequence!
         // The interrupt sequence (cycles 0-6) must preserve the interrupt type
         // that triggered it, even if interrupt lines change mid-sequence.
         if (step.cpu_tick and self.cpu.state != .interrupt_sequence) {
-            // Compute NMI line from final VBlank state
-            // SIMPLIFIED (BUG #2): Race suppression is redundant - flag clear via
-            // last_read_cycle update (BUG #1 fix) automatically suppresses NMI.
-            // Per Mesen2: ClearNmiFlag() when reading $2002 (NesPpu.cpp:588)
-            const vblank_flag_visible = self.vblank_ledger.isFlagVisible();
-            const nmi_line_should_assert = vblank_flag_visible and self.ppu.ctrl.nmi_enable;
-
-            // Set cpu.nmi_line so checkInterrupts() can read it
-            // IRQ line was already set at line 714 before CPU execution
-            self.cpu.nmi_line = nmi_line_should_assert;
-
             // Sample interrupt lines for next cycle (following "second-to-last cycle" rule)
             // Mesen2 reference: EndCpuCycle() line 306-309
             // checkInterrupts() handles:

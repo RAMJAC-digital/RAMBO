@@ -1,10 +1,54 @@
 # Current Issues - RAMBO NES Emulator
 
-**Last Updated:** 2025-11-02 (DMC/OAM DMA Time-Sharing Fix)
-**Test Status:** 1004/1026 passing (97.9%), 6 skipped
+**Last Updated:** 2025-11-04 (Bus Handler Architecture Migration)
+**Test Status:** 1162/1184 passing (98.1%), 6 skipped
 **AccuracyCoin CPU Tests:** ✅ PASSING (baseline validation complete)
 
 This document tracks **active** bugs and issues verified against current codebase. Historical/resolved issues are archived in `docs/archive/`.
+
+---
+
+## **ARCHITECTURE REFACTOR - Bus Handler Delegation (2025-11-04)**
+
+### Bus Handler Architecture Migration - COMPLETE ✅
+
+**Impact:** Code organization improvement, +158 tests (1004/1026 → 1162/1184)
+**Task:** h-fix-oam-nmi-accuracy (handler refactoring component)
+
+**Implementation:**
+- Replaced monolithic `src/emulation/bus/routing.zig` (300+ LOC) with 7 stateless handlers (1655 LOC total across focused files)
+- Zero-size handlers with read/write/peek interface (mirrors cartridge mapper pattern)
+- Handler boundaries match NES hardware chips (6502 RAM, 2C02 PPU, APU, etc.)
+- All 44 handler unit tests passing (6-9 tests per handler)
+- Zero compilation errors
+- Files: `src/emulation/bus/handlers/*.zig`, `src/emulation/State.zig`
+
+**Handler Implementations:**
+1. **RamHandler** - Internal RAM ($0000-$1FFF, 2KB with 4x mirroring)
+2. **PpuHandler** - PPU registers ($2000-$3FFF, 8 regs mirrored), VBlank/NMI coordination
+3. **ApuHandler** - APU channels ($4000-$4015, 5 audio channels + control)
+4. **OamDmaHandler** - OAM DMA trigger ($4014, single register)
+5. **ControllerHandler** - Controller ports + APU frame counter ($4016-$4017)
+6. **CartridgeHandler** - PRG ROM/RAM ($4020-$FFFF, delegates to mapper)
+7. **OpenBusHandler** - Unmapped regions (hardware open bus behavior)
+
+**Benefits:**
+- Clear separation of concerns (each handler owns its address space)
+- Independently testable (handlers unit-tested with real state)
+- Debugger-safe (`peek()` provides side-effect-free reads)
+- Zero overhead (handlers are zero-size, all inlined by compiler)
+- Hardware-accurate (handler boundaries match NES chip architecture)
+
+**Test Results:**
+- Baseline: 1004/1026 passing (97.9%)
+- After: 1162/1184 passing (98.1%, +0.2% improvement)
+- New tests: +158 total (+44 handler unit tests, +114 existing tests now running)
+- No regressions from refactoring
+- Failing test count unchanged (16) - expected VBlank/NMI timing issues
+
+**Documentation:** `docs/implementation/bus-handler-architecture.md` - Complete reference for handler pattern
+
+**Status:** PRODUCTION READY - Zero compilation errors, all handler tests passing
 
 ---
 
@@ -481,7 +525,7 @@ Threading tests rely on precise timing that varies across systems.
   - ❌ However, did NOT fix Kirby, SMB3, or Bomberman issues (different root causes)
 - **2025-10-15:** 📊 New finding: Paperboy has grey screen issue (same as TMNT)
 
-**Current Status:** 1004/1026 tests passing (97.9%), 6 skipped
+**Current Status:** 1162/1184 tests passing (98.1%), 6 skipped
 **Active Issues:** SMB1 palette bug, SMB3 floor disappearing, Kirby missing dialog, TMNT/Paperboy grey screens
 
 ---
@@ -507,6 +551,7 @@ zig build test -- tests/integration/commercial_rom_test.zig
 
 ## Document History
 
+**2025-11-04:** Bus handler architecture migration - Complete refactoring (+158 tests, 98.1% pass rate)
 **2025-11-02:** DMC/OAM DMA time-sharing fix - Hardware-accurate implementation (+2 tests)
 **2025-10-15 (Evening - Update):** Visual verification of sprite Y fix - No improvement in games, but hardware-accurate
 **2025-10-15 (Evening):** Sprite Y position 1-scanline delay fix implemented

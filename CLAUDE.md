@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **RAMBO** is a cycle-accurate NES emulator written in Zig 0.15.1, targeting hardware-accurate 6502/2C02 emulation with cycle-level precision.
 
-**Current Status:** 1004/1026 tests passing (97.9%) - See [docs/STATUS.md](docs/STATUS.md) for details
+**Current Status:** 1162/1184 tests passing (98.1%) - See [docs/STATUS.md](docs/STATUS.md) for details
 
 **Commercial ROMs Status:**
 - ✅ **Fully Working:** Castlevania, Mega Man, Kid Icarus, Battletoads, SMB2
@@ -684,12 +684,12 @@ git commit -m "type(scope): description"
 
 ## Test Coverage
 
-**Total:** 1004/1026 tests passing (97.9%), 6 skipped, 16 failing
-**Current Focus:** VBlank/PPU/NMI timing bugs (TDD - failing tests identify bugs)
+**Total:** 1162/1184 tests passing (98.1%), 6 skipped, 16 failing
+**Current Focus:** Bus handler architecture refactoring complete, VBlank/PPU/NMI timing bugs remaining
 
 **See [docs/STATUS.md](docs/STATUS.md) for complete test breakdown** and `docs/CURRENT-ISSUES.md` for game compatibility tracking.
 
-**Recent Fix (2025-11-02):** DMC/OAM DMA time-sharing now hardware-accurate (+2 tests passing)
+**Recent Fix (2025-11-04):** Bus handler architecture migration complete - Zero compilation errors, +158 tests total (+44 new handler unit tests, +114 existing tests now running)
 
 ### By Component
 
@@ -774,8 +774,8 @@ See `compiler/README.md` for details.
 **Key Principle:** Hardware accuracy first. Cycle-accurate execution over performance optimization.
 
 **Version:** 0.2.0-alpha
-**Last Updated:** 2025-11-02
-**Status:** 1004/1026 tests passing (97.9%) - See [docs/STATUS.md](docs/STATUS.md)
+**Last Updated:** 2025-11-04
+**Status:** 1162/1184 tests passing (98.1%) - See [docs/STATUS.md](docs/STATUS.md)
 **Documentation:** Up to date - Current issues documented in `docs/STATUS.md` and `docs/CURRENT-ISSUES.md`
-**Current Focus:** VBlank/PPU/NMI timing bugs (TDD approach - failing tests identify bugs to fix)
-**Recent Fix:** DMC/OAM DMA time-sharing now hardware-accurate (2025-11-02)
+**Current Focus:** Bus handler architecture refactoring complete, VBlank/PPU/NMI timing bugs remaining
+**Recent Fix:** Bus handler architecture migration (2025-11-04) - Zero-size stateless handlers with 98.1% pass rate

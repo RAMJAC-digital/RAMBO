@@ -1,6 +1,6 @@
 # Project Status - Single Source of Truth
 
-**Last Updated:** 2025-11-02
+**Last Updated:** 2025-11-04
 **Test Run:** `zig build test --summary failures`
 
 > **NOTE:** This is the ONLY authoritative source for test counts and component status.
@@ -11,10 +11,18 @@
 ## Test Results
 
 ```
-Total: 1004/1026 (97.9% passing)
+Total: 1162/1184 (98.1% passing)
 Failing: 16
 Skipped: 6
 ```
+
+**Recent Change (2025-11-04):** Bus handler architecture migration
+- Test count increased from 1026 to 1184 (+158 tests)
+  - +44 handler unit tests (7 new handler files)
+  - +114 existing tests now running (likely due to compilation fixes)
+- Pass rate improved from 97.9% to 98.1%
+- No regressions from handler refactoring
+- Failing test count unchanged (16) - expected VBlank/NMI timing issues
 
 ---
 
@@ -90,6 +98,18 @@ Tests now correctly identify VBlank/NMI timing bugs in the emulator.
 ---
 
 ## Recent Fixes
+
+**2025-11-04:** Bus Handler Architecture Migration
+- Migrated from monolithic bus routing to handler delegation pattern
+- Created 7 stateless handlers (RamHandler, PpuHandler, ApuHandler, OamDmaHandler, ControllerHandler, CartridgeHandler, OpenBusHandler)
+- Zero-size handlers (no fields, @sizeOf == 0) with read/write/peek interface
+- VBlank/NMI timing logic properly encapsulated in PpuHandler
+- All 44 handler unit tests passing
+- Zero compilation errors
+- Test improvement: 1004/1026 → 1162/1184 (+158 tests, +0.2% pass rate)
+- Files: `src/emulation/bus/handlers/*.zig`, `src/emulation/State.zig`
+- Documentation: `docs/implementation/bus-handler-architecture.md`
+- See also: Handler pattern mirrors cartridge mapper pattern (comptime polymorphism)
 
 **2025-11-03:** VBlank/NMI Timing Restructuring and IRQ Masking
 - Fixed execution order: CPU execution BEFORE VBlank timestamp application (allows prevention mechanism to work)

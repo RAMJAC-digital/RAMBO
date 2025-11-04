@@ -496,3 +496,9 @@ pub fn tick(
     flags.rendering_enabled = rendering_enabled;
     return flags;
 }
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+const testing = @import("std").testing;
