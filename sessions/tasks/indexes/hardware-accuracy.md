@@ -13,6 +13,7 @@ description: Tasks related to fixing hardware timing and behavior accuracy issue
 - `h-verify-vblank-subcycle-timing.md` - Verify RAMBO's CPU/PPU sub-cycle execution order matches Mesen2 reference implementation and hardware spec
 - `h-refactor-ppu-shift-register-rewrite.md` - Rewrite PPU to model cycle-accurate shift register behavior, fixing scanline 0 crash and mid-frame register bugs
 - `h-fix-oam-nmi-accuracy.md` - Fix OAM DMA, NMI, and VBlank timing accuracy (AccuracyCoin tests, hardware spec verification)
+- `h-fix-smb1-nmi-controller-polling.md` - Fix SMB1 NMI controller polling (NMI handler not executing, preventing controller input)
 
 ### Medium Priority
 
