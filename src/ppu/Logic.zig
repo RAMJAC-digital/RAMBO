@@ -113,8 +113,8 @@ pub inline fn readRegister(
 }
 
 /// Write to PPU register (via CPU memory bus)
-pub inline fn writeRegister(state: *PpuState, cart: ?*AnyCartridge, address: u16, value: u8, scanline: i16, master_cycles: u64) void {
-    registers.writeRegister(state, cart, address, value, scanline, master_cycles);
+pub inline fn writeRegister(state: *PpuState, cart: ?*AnyCartridge, address: u16, value: u8, scanline: i16, dot: u16) void {
+    registers.writeRegister(state, cart, address, value, scanline, dot);
 }
 
 // ============================================================================
@@ -355,6 +355,12 @@ pub fn tick(
     // Initialize evaluation at dot 1 (visible scanlines only)
     if (is_visible and rendering_enabled and dot == 1) {
         initSpriteEvaluation(state);
+    }
+
+    // OAM Corruption: Process any pending corruption at start of rendering-enabled scanlines
+    // Reference: Mesen2 NesPpu.cpp ProcessScanlineFirstCycle()
+    if (is_rendering_line and rendering_enabled and dot == 1) {
+        registers.processOamCorruption(state);
     }
 
     // Cycles 65-256: Progressive sprite evaluation (visible scanlines only)

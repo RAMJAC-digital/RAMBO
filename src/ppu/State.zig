@@ -372,10 +372,11 @@ pub const PpuState = struct {
     oam_addr: u8 = 0,
 
     /// OAM Corruption tracking (hardware quirk when rendering disabled mid-scanline)
-    /// Reference: nesdev.org wiki, AccuracyCoin test suite
-    oam_corruption_pending: bool = false,
-    oam_corruption_seed: u8 = 0,
-    oam_corruption_trigger_cycle: u64 = 0,
+    /// Reference: nesdev.org wiki, AccuracyCoin test suite, Mesen2 NesPpu.cpp
+    /// Array of 32 flags (one per OAM row, where each row = 8 bytes)
+    /// Flags are set when rendering is disabled during sprite evaluation cycles
+    /// Corruption is executed when rendering is re-enabled or at scanline start
+    oam_corruption_flags: [32]bool = [_]bool{false} ** 32,
 
     /// PPU Open Bus (data bus latch)
     open_bus: OpenBus = .{},

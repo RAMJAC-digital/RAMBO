@@ -83,11 +83,26 @@ pub fn fetchSprites(state: *PpuState, cart: ?*AnyCartridge, scanline: i16, dot: 
             const oam_offset = sprite_index * 4;
 
             // Secondary OAM address increments during sprite fetch cycles
-            // Hardware reads 4 bytes per sprite (Y, tile, attr, X) over 8 cycles
             // Reference: AccuracyCoin OAM corruption test documentation (lines 12336-12347)
-            if (fetch_cycle >= 1 and fetch_cycle <= 4) {
-                state.sprite_state.secondary_oam_addr = @truncate(oam_offset + (fetch_cycle - 1));
+            // Pattern per 8-cycle loop:
+            // - Cycle 0: Read Y position, increment address
+            // - Cycle 1: Read tile index, increment address
+            // - Cycle 2: Read attributes, increment address
+            // - Cycle 3: Read X position, NO increment
+            // - Cycles 4-6: Pattern fetches, NO increment
+            // - Cycle 7: Setup complete, increment address
+            const base_addr = sprite_index * 4;
+            if (fetch_cycle == 0) {
+                state.sprite_state.secondary_oam_addr = @truncate(base_addr);
+            } else if (fetch_cycle == 1) {
+                state.sprite_state.secondary_oam_addr = @truncate(base_addr + 1);
+            } else if (fetch_cycle == 2) {
+                state.sprite_state.secondary_oam_addr = @truncate(base_addr + 2);
+            } else if (fetch_cycle == 7) {
+                // Increment at end of loop (wraps to next sprite's base)
+                state.sprite_state.secondary_oam_addr = @truncate(base_addr + 4);
             }
+            // Cycles 3-6: No change to secondary_oam_addr
 
             // Check if this sprite slot is valid (secondary OAM not $FF)
             if (state.secondary_oam[oam_offset] != 0xFF) {

@@ -505,7 +505,7 @@ pub const EmulationState = struct {
                     }
                 }
 
-                PpuLogic.writeRegister(&self.ppu, cart_ptr, reg, value, self.ppu.scanline, self.clock.master_cycles);
+                PpuLogic.writeRegister(&self.ppu, cart_ptr, reg, value, self.ppu.scanline, self.ppu.cycle);
             },
 
             // APU and I/O registers ($4000-$4017)
@@ -843,24 +843,6 @@ pub const EmulationState = struct {
     fn stepPpuCycle(self: *EmulationState, scanline: i16, dot: u16) PpuCycleResult {
         var result = PpuCycleResult{};
         const cart_ptr = self.cartPtr();
-
-        // OAM Corruption: Execute pending corruption when trigger cycle reached
-        // Reference: AccuracyCoin OAM corruption test, nesdev.org wiki
-        if (self.ppu.oam_corruption_trigger_cycle > 0 and
-            self.clock.master_cycles >= self.ppu.oam_corruption_trigger_cycle) {
-
-            // Copy OAM row 0 to the corrupted row
-            const row_base = @as(usize, self.ppu.oam_corruption_seed) * 8;
-            if (row_base < 256) {  // Safety check
-                for (0..8) |i| {
-                    self.ppu.oam[row_base + i] = self.ppu.oam[i];
-                }
-            }
-
-            // Clear pending state
-            self.ppu.oam_corruption_pending = false;
-            self.ppu.oam_corruption_trigger_cycle = 0;
-        }
 
         const flags = PpuLogic.tick(&self.ppu, scanline, dot, cart_ptr, self.framebuffer);
 

@@ -51,6 +51,67 @@ pub fn buildStatusByte(
     return result;
 }
 
+/// Set OAM corruption flags when rendering is disabled mid-scanline
+/// Reference: Mesen2 NesPpu.cpp SetOamCorruptionFlags(), AccuracyCoin lines 12320-12349
+///
+/// Hardware behavior: When rendering is disabled during sprite evaluation cycles,
+/// certain OAM rows become "flagged" for corruption. When rendering is later re-enabled,
+/// these flagged rows will have OAM row 0 copied over them.
+///
+/// Cycle ranges:
+/// - Cycles 1-64: Secondary OAM clearing - flag row = cycle >> 1
+/// - Cycles 65-256: Sprite evaluation - flag based on secondary_oam_addr (rounded to multiple of 4)
+/// - Cycles 256-320: Sprite fetching - flag based on sprite fetch pattern
+fn setOamCorruptionFlags(state: *PpuState, dot: u16) void {
+    if (dot >= 1 and dot < 64) {
+        // Secondary OAM clear phase
+        // Hardware increments secondary OAM address every 2 cycles
+        const row = dot >> 1; // Divide by 2
+        if (row < 32) {
+            state.oam_corruption_flags[row] = true;
+        }
+    } else if (dot >= 256 and dot < 320) {
+        // Sprite tile fetching phase
+        // 8 sprites × 8 cycles each = 64 cycles total
+        const base = (dot - 256) >> 3; // Which sprite (0-7)
+        const offset = @min(3, (dot - 256) & 0x07); // Which byte (0-3)
+        const row = base * 4 + offset;
+        if (row < 32) {
+            state.oam_corruption_flags[row] = true;
+        }
+    } else if (dot >= 65 and dot <= 256) {
+        // Sprite evaluation phase
+        // Use secondary_oam_addr, but round up to nearest multiple of 4
+        // Per AccuracyCoin line 12333: "ceilinged to the nearest multiple of 4"
+        const addr = state.sprite_state.secondary_oam_addr;
+        const row = (addr + 3) & ~@as(u8, 3); // Round up to multiple of 4
+        if (row < 32) {
+            state.oam_corruption_flags[row] = true;
+        }
+    }
+}
+
+/// Process OAM corruption by copying OAM row 0 to all flagged rows
+/// Reference: Mesen2 NesPpu.cpp ProcessOamCorruption(), AccuracyCoin lines 12310-12318
+///
+/// Hardware behavior: For each flagged OAM row, copy the 8 bytes from OAM row 0
+/// over that row, then clear the flag. Row 0 itself is never corrupted (no effect).
+pub fn processOamCorruption(state: *PpuState) void {
+    for (0..32) |i| {
+        if (state.oam_corruption_flags[i]) {
+            // Copy OAM row 0 to this row (skip if this IS row 0)
+            if (i > 0) {
+                const row_base = i * 8;
+                for (0..8) |j| {
+                    state.oam[row_base + j] = state.oam[j];
+                }
+            }
+            // Clear the corruption flag
+            state.oam_corruption_flags[i] = false;
+        }
+    }
+}
+
 /// Read from PPU register (via CPU memory bus)
 /// Handles register mirroring and open bus behavior
 ///
@@ -203,7 +264,7 @@ pub fn readRegister(
 
 /// Write to PPU register (via CPU memory bus)
 /// Handles register mirroring and open bus updates
-pub fn writeRegister(state: *PpuState, cart: ?*AnyCartridge, address: u16, value: u8, scanline: i16, master_cycles: u64) void {
+pub fn writeRegister(state: *PpuState, cart: ?*AnyCartridge, address: u16, value: u8, scanline: i16, dot: u16) void {
     // Registers are mirrored every 8 bytes through $3FFF
     const reg = address & 0x0007;
 
@@ -233,28 +294,21 @@ pub fn writeRegister(state: *PpuState, cart: ?*AnyCartridge, address: u16, value
             }
 
             // OAM Corruption: Detect rendering enable/disable during visible/pre-render scanlines
-            // Reference: AccuracyCoin OAM corruption test, nesdev.org wiki
+            // Reference: Mesen2 NesPpu.cpp, AccuracyCoin test suite
             const was_rendering = state.mask.renderingEnabled();
             const new_mask = PpuMask.fromByte(value);
             const is_rendering = new_mask.renderingEnabled();
 
-            // Rendering disabled mid-scanline - record corruption seed
+            // Rendering disabled mid-scanline - set corruption flags
             if (was_rendering and !is_rendering) {
                 if (scanline >= -1 and scanline <= 239) {
-                    state.oam_corruption_pending = true;
-                    state.oam_corruption_seed = state.sprite_state.secondary_oam_addr;
+                    setOamCorruptionFlags(state, dot);
                 }
             }
 
-            // Rendering enabled - schedule corruption if pending
+            // Rendering enabled - process any pending corruption immediately
             if (!was_rendering and is_rendering) {
-                if (state.oam_corruption_pending and scanline >= -1 and scanline <= 239) {
-                    // Compute trigger cycle based on phase (CPU/PPU alignment)
-                    // Phase 0/3: 2 PPU cycles delay, Phase 1/2: 3 PPU cycles delay
-                    const phase = master_cycles % 3;
-                    const delay: u64 = if (phase == 0 or phase == 3) @as(u64, 2) else @as(u64, 3);
-                    state.oam_corruption_trigger_cycle = master_cycles + delay;
-                }
+                processOamCorruption(state);
             }
 
             state.mask = new_mask;
