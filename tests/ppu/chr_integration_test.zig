@@ -187,14 +187,14 @@ test "PPU VRAM: Open bus when no cartridge" {
 
     // No cartridge loaded - accessing CHR region should return open bus value
     // Set open bus to known value via PPU write
-    harness.state.ppu.open_bus.write(0x42);
+    harness.state.ppu.open_bus.setAll(0x42, harness.state.ppu.frame_count);
 
     // Reading CHR with no cartridge should return open bus value
     const value = harness.ppuReadVram(0x0000);
     try testing.expectEqual(@as(u8, 0x42), value);
 
     // Change open bus value
-    harness.state.ppu.open_bus.write(0x99);
+    harness.state.ppu.open_bus.setAll(0x99, harness.state.ppu.frame_count);
 
     // Should return new open bus value
     const value2 = harness.ppuReadVram(0x1000);

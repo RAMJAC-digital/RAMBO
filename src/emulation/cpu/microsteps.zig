@@ -60,7 +60,7 @@ pub fn calcAbsoluteY(state: anytype) bool {
 
     const dummy_addr = (base & 0xFF00) | (state.cpu.effective_address & 0x00FF);
     _ = state.busRead(dummy_addr);
-    state.cpu.temp_value = state.bus.open_bus;
+    state.cpu.temp_value = state.bus.open_bus.get();
     return false;
 }
 
@@ -142,7 +142,7 @@ pub fn addYCheckPage(state: anytype) bool {
     if (!state.cpu.page_crossed) {
         state.cpu.temp_value = dummy_value; // Use the value we just read
     } else {
-        state.cpu.temp_value = state.bus.open_bus; // Page crossed: value discarded, fixHighByte will re-read
+        state.cpu.temp_value = state.bus.open_bus.get(); // Page crossed: value discarded, fixHighByte will re-read
     }
 
     return false;

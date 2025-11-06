@@ -58,7 +58,7 @@ pub const ControllerHandler = struct {
 
         // Combine with open bus bits 5-7
         // Bits 1-4 are always 0 (hardware behavior)
-        return controller_bit | (state.bus.open_bus & 0xE0);
+        return controller_bit | (state.bus.open_bus.get() & 0xE0);
     }
 
     /// Write to controller port
@@ -110,7 +110,7 @@ pub const ControllerHandler = struct {
         else
             state.controller.shift2 & 0x01;
 
-        return controller_bit | (state.bus.open_bus & 0xE0);
+        return controller_bit | (state.bus.open_bus.get() & 0xE0);
     }
 };
 
@@ -119,12 +119,13 @@ pub const ControllerHandler = struct {
 // ============================================================================
 
 const testing = std.testing;
+const CpuOpenBus = @import("../../state/BusState.zig").BusState.OpenBus;
 const ApuState = @import("../../../apu/State.zig").ApuState;
 
 // Test state with minimal controller/bus
 const TestState = struct {
     bus: struct {
-        open_bus: u8 = 0,
+        open_bus: CpuOpenBus = .{},
     } = .{},
     controller: struct {
         shift1: u8 = 0,
@@ -190,7 +191,7 @@ test "ControllerHandler: read $4017 returns controller 2 bit" {
 test "ControllerHandler: read combines with open bus bits 5-7" {
     var state = TestState{};
     state.controller.shift1 = 0x01; // Controller bit 0
-    state.bus.open_bus = 0xE0; // Bits 5-7 set
+    state.bus.open_bus.set(0xE0); // Bits 5-7 set
     var handler = ControllerHandler{};
 
     const value = handler.read(&state, 0x4016);
@@ -264,7 +265,7 @@ test "ControllerHandler: peek doesn't shift register" {
 test "ControllerHandler: peek combines with open bus" {
     var state = TestState{};
     state.controller.shift1 = 0x01;
-    state.bus.open_bus = 0xA0; // Bits 5, 7 set
+    state.bus.open_bus.set(0xA0); // Bits 5, 7 set
     var handler = ControllerHandler{};
 
     const value = handler.peek(&state, 0x4016);

@@ -30,7 +30,7 @@ pub const OpenBusHandler = struct {
     ///
     /// Returns: Current open bus value
     pub fn read(_: *const OpenBusHandler, state: anytype, _: u16) u8 {
-        return state.bus.open_bus;
+        return state.bus.open_bus.get();
     }
 
     /// Write to open bus (unmapped region)
@@ -59,7 +59,7 @@ pub const OpenBusHandler = struct {
     ///
     /// Returns: Current open bus value
     pub fn peek(_: *const OpenBusHandler, state: anytype, _: u16) u8 {
-        return state.bus.open_bus;
+        return state.bus.open_bus.get();
     }
 };
 
@@ -68,11 +68,12 @@ pub const OpenBusHandler = struct {
 // ============================================================================
 
 const testing = std.testing;
+const CpuOpenBus = @import("../../state/BusState.zig").BusState.OpenBus;
 
 // Test state with minimal bus
 const TestState = struct {
     bus: struct {
-        open_bus: u8 = 0,
+        open_bus: CpuOpenBus = .{},
     } = .{},
 };
 
@@ -87,18 +88,18 @@ test "OpenBusHandler: reads current open bus value" {
     var handler = OpenBusHandler{};
 
     // Set bus value
-    state.bus.open_bus = 0x42;
+    state.bus.open_bus.set(0x42);
     try testing.expectEqual(@as(u8, 0x42), handler.read(&state, 0x0000));
 
     // Change bus value
-    state.bus.open_bus = 0xFF;
+    state.bus.open_bus.set(0xFF);
     try testing.expectEqual(@as(u8, 0xFF), handler.read(&state, 0x0000));
 }
 
 test "OpenBusHandler: read() returns same value for all addresses" {
     var state = TestState{};
     var handler = OpenBusHandler{};
-    state.bus.open_bus = 0xAA;
+    state.bus.open_bus.set(0xAA);
 
     // Open bus behavior is address-independent
     try testing.expectEqual(@as(u8, 0xAA), handler.read(&state, 0x0000));
@@ -109,7 +110,7 @@ test "OpenBusHandler: read() returns same value for all addresses" {
 test "OpenBusHandler: peek() same as read()" {
     var state = TestState{};
     var handler = OpenBusHandler{};
-    state.bus.open_bus = 0x55;
+    state.bus.open_bus.set(0x55);
 
     try testing.expectEqual(
         handler.read(&state, 0x1234),
@@ -120,11 +121,11 @@ test "OpenBusHandler: peek() same as read()" {
 test "OpenBusHandler: write() is no-op" {
     var state = TestState{};
     var handler = OpenBusHandler{};
-    state.bus.open_bus = 0x42;
+    state.bus.open_bus.set(0x42);
 
     // Write should not change bus value (bus layer handles that)
     handler.write(&state, 0x1000, 0xFF);
-    try testing.expectEqual(@as(u8, 0x42), state.bus.open_bus);
+    try testing.expectEqual(@as(u8, 0x42), state.bus.open_bus.get());
 }
 
 test "OpenBusHandler: no internal state - handler is empty" {

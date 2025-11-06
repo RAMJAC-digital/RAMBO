@@ -190,7 +190,7 @@ test "Bus Integration: ROM write does not modify cartridge" {
     state.busWrite(0xBFFF, 0x33);
 
     // Open bus should have last written value
-    try testing.expectEqual(@as(u8, 0x33), state.bus.open_bus);
+    try testing.expectEqual(@as(u8, 0x33), state.bus.open_bus.get());
 
     // Reading from ROM without cartridge returns open bus
     const read_val = state.busRead(0x8000);
@@ -204,7 +204,7 @@ test "Bus Integration: ROM write updates open bus" {
     state.busWrite(0x8000, 0x99);
 
     // Open bus should be updated with the written value
-    try testing.expectEqual(@as(u8, 0x99), state.bus.open_bus);
+    try testing.expectEqual(@as(u8, 0x99), state.bus.open_bus.get());
 
     // Reading from unmapped region should return the open bus value
     const unmapped_read = state.busRead(0x5000); // Unmapped expansion region
@@ -239,11 +239,11 @@ test "Bus Integration: Open bus retains last written value" {
 
     // Set open bus value
     state.busWrite(0x0000, 0xAB);
-    try testing.expectEqual(@as(u8, 0xAB), state.bus.open_bus);
+    try testing.expectEqual(@as(u8, 0xAB), state.bus.open_bus.get());
 
     // Additional bus activity should update the open bus accordingly
     state.busWrite(0x0001, 0xCD);
-    try testing.expectEqual(@as(u8, 0xCD), state.bus.open_bus);
+    try testing.expectEqual(@as(u8, 0xCD), state.bus.open_bus.get());
 }
 
 test "Bus Integration: PPU status bits 0-4 are open bus" {
@@ -274,12 +274,12 @@ test "Bus Integration: Sequential reads maintain open bus coherence" {
     state.busWrite(0x0010, 0x11);
     const r1 = state.busRead(0x0010);
     try testing.expectEqual(@as(u8, 0x11), r1);
-    try testing.expectEqual(@as(u8, 0x11), state.bus.open_bus);
+    try testing.expectEqual(@as(u8, 0x11), state.bus.open_bus.get());
 
     state.busWrite(0x0020, 0x22);
     const r2 = state.busRead(0x0020);
     try testing.expectEqual(@as(u8, 0x22), r2);
-    try testing.expectEqual(@as(u8, 0x22), state.bus.open_bus);
+    try testing.expectEqual(@as(u8, 0x22), state.bus.open_bus.get());
 
     // Read from unmapped should return last bus value
     const unmapped = state.busRead(0x5000);

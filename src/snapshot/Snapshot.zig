@@ -105,7 +105,8 @@ pub fn saveBinary(
 
     // Write bus state (RAM and open bus) - now flattened into EmulationState
     try writer.writeAll(state.bus.ram[0..]); // RAM (2048 bytes)
-    try writer.writeByte(state.bus.open_bus); // Open bus value (1 byte)
+    try writer.writeByte(state.bus.open_bus.external); // Open bus external
+    try writer.writeByte(state.bus.open_bus.internal); // Open bus internal
 
     // Timing information is stored in MasterClock (already written via writeClock)
     // No redundant timing fields needed - scanline/dot/frame are derived from ppu_cycles
@@ -193,7 +194,8 @@ pub fn loadBinary(
     // Read bus state (RAM and open bus) - now flattened into EmulationState
     var ram: [2048]u8 = undefined;
     try reader.readNoEof(&ram); // RAM (2048 bytes)
-    const open_bus = try reader.readByte(); // Open bus value (1 byte)
+    const open_bus_external = try reader.readByte(); // Open bus external
+    const open_bus_internal = try reader.readByte(); // Open bus internal
 
     // Timing information is stored in MasterClock (already read via readClock)
     // No redundant timing fields to read - scanline/dot/frame are derived from ppu_cycles
@@ -240,7 +242,10 @@ pub fn loadBinary(
         .apu = .{}, // APU state not yet serialized in snapshots
         .bus = .{
             .ram = ram,
-            .open_bus = open_bus,
+            .open_bus = .{
+                .external = open_bus_external,
+                .internal = open_bus_internal,
+            },
             .test_ram = null,
         },
         .config = config,
@@ -301,7 +306,7 @@ pub fn getMetadata(data: []const u8) !SnapshotMetadata {
 fn getSizeForPpuState() u32 {
     var size: u32 = 0;
     size += 4; // Registers (ctrl, mask, status, oam_addr)
-    size += 3; // Open bus (value + decay_timer)
+    size += 65; // Open bus (value + decay stamps)
     size += 10; // Internal registers (v, t, x, w, read_buffer)
     size += 10; // Background state (shift regs + latches)
     size += 256; // OAM

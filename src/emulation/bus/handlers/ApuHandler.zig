@@ -14,6 +14,7 @@
 
 const std = @import("std");
 const ApuLogic = @import("../../../apu/Logic.zig");
+const CpuOpenBus = @import("../../state/BusState.zig").BusState.OpenBus;
 
 /// Handler for $4000-$4015 (APU registers)
 ///
@@ -60,19 +61,21 @@ pub const ApuHandler = struct {
     /// Returns: APU status (if $4015) or open bus (if $4000-$4013)
     pub fn read(_: *const ApuHandler, state: anytype, address: u16) u8 {
         return switch (address) {
-            0x4000...0x4013 => state.bus.open_bus, // Write-only channels
+            0x4000...0x4013 => state.bus.open_bus.get(), // Write-only channels
 
             0x4015 => blk: {
                 // Read APU status
                 const status = ApuLogic.readStatus(&state.apu);
+                const open_bus_mask = state.bus.open_bus.getInternal(0x20);
+                const result = status | open_bus_mask;
 
                 // Side effect: Clear frame IRQ flag
                 ApuLogic.clearFrameIrq(&state.apu);
 
-                break :blk status;
+                break :blk result;
             },
 
-            else => state.bus.open_bus,
+            else => state.bus.open_bus.get(),
         };
     }
 
@@ -143,9 +146,9 @@ pub const ApuHandler = struct {
     /// Returns: APU status (if $4015) or open bus (if $4000-$4013)
     pub fn peek(_: *const ApuHandler, state: anytype, address: u16) u8 {
         return switch (address) {
-            0x4000...0x4013 => state.bus.open_bus,
+            0x4000...0x4013 => state.bus.open_bus.get(),
             0x4015 => ApuLogic.readStatus(&state.apu), // No side effects
-            else => state.bus.open_bus,
+            else => state.bus.open_bus.get(),
         };
     }
 };
@@ -160,7 +163,7 @@ const ApuState = @import("../../../apu/State.zig").ApuState;
 // Test state with real APU (handlers call real ApuLogic functions)
 const TestState = struct {
     bus: struct {
-        open_bus: u8 = 0,
+        open_bus: CpuOpenBus = .{},
     } = .{},
     apu: ApuState = .{},
 };
@@ -177,7 +180,7 @@ test "ApuHandler: read $4015 returns status (non-zero)" {
 
 test "ApuHandler: read $4000-$4013 returns open bus" {
     var state = TestState{};
-    state.bus.open_bus = 0xAB;
+    state.bus.open_bus.set(0xAB);
 
     var handler = ApuHandler{};
 

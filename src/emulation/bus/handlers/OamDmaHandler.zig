@@ -41,7 +41,7 @@ pub const OamDmaHandler = struct {
     /// Returns: Open bus value
     pub fn read(_: *const OamDmaHandler, state: anytype, _: u16) u8 {
         // Write-only register - return open bus
-        return state.bus.open_bus;
+        return state.bus.open_bus.get();
     }
 
     /// Write to $4014 (trigger OAM DMA)
@@ -81,7 +81,7 @@ pub const OamDmaHandler = struct {
     /// Returns: Open bus value
     pub fn peek(_: *const OamDmaHandler, state: anytype, _: u16) u8 {
         // Same as read() - no side effects
-        return state.bus.open_bus;
+        return state.bus.open_bus.get();
     }
 };
 
@@ -92,10 +92,12 @@ pub const OamDmaHandler = struct {
 const testing = std.testing;
 
 // Test state with minimal DMA/clock
+const CpuOpenBus = @import("../../state/BusState.zig").BusState.OpenBus;
+
 const TestState = struct {
     bus: struct {
-        open_bus: u8 = 0,
-    },
+        open_bus: CpuOpenBus = .{},
+    } = .{},
     dma: struct {
         active: bool = false,
         source_page: u8 = 0,
@@ -117,18 +119,15 @@ const TestState = struct {
 };
 
 test "OamDmaHandler: read returns open bus" {
-    var state = TestState{
-        .bus = .{ .open_bus = 0xAB },
-    };
+    var state = TestState{};
+    state.bus.open_bus.set(0xAB);
 
     var handler = OamDmaHandler{};
     try testing.expectEqual(@as(u8, 0xAB), handler.read(&state, 0x4014));
 }
 
 test "OamDmaHandler: write triggers DMA with correct page" {
-    var state = TestState{
-        .bus = .{ .open_bus = 0 },
-    };
+    var state = TestState{};
     var handler = OamDmaHandler{};
 
     // Write page $03 to $4014
@@ -140,9 +139,7 @@ test "OamDmaHandler: write triggers DMA with correct page" {
 }
 
 test "OamDmaHandler: odd cycle detection (even cycle)" {
-    var state = TestState{
-        .bus = .{ .open_bus = 0 },
-    };
+    var state = TestState{};
     state.clock.ppu_cycles = 0; // CPU cycle 0 (even)
     var handler = OamDmaHandler{};
 
@@ -153,9 +150,7 @@ test "OamDmaHandler: odd cycle detection (even cycle)" {
 }
 
 test "OamDmaHandler: odd cycle detection (odd cycle)" {
-    var state = TestState{
-        .bus = .{ .open_bus = 0 },
-    };
+    var state = TestState{};
     state.clock.ppu_cycles = 3; // CPU cycle 1 (odd)
     var handler = OamDmaHandler{};
 
@@ -166,9 +161,7 @@ test "OamDmaHandler: odd cycle detection (odd cycle)" {
 }
 
 test "OamDmaHandler: odd cycle detection (multiple cycles)" {
-    var state = TestState{
-        .bus = .{ .open_bus = 0 },
-    };
+    var state = TestState{};
     var handler = OamDmaHandler{};
 
     // Test several cycles
@@ -191,9 +184,8 @@ test "OamDmaHandler: odd cycle detection (multiple cycles)" {
 }
 
 test "OamDmaHandler: peek same as read" {
-    var state = TestState{
-        .bus = .{ .open_bus = 0x55 },
-    };
+    var state = TestState{};
+    state.bus.open_bus.set(0x55);
     var handler = OamDmaHandler{};
 
     try testing.expectEqual(
@@ -203,9 +195,7 @@ test "OamDmaHandler: peek same as read" {
 }
 
 test "OamDmaHandler: multiple writes update page" {
-    var state = TestState{
-        .bus = .{ .open_bus = 0 },
-    };
+    var state = TestState{};
     var handler = OamDmaHandler{};
 
     // First write

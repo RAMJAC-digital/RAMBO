@@ -236,7 +236,7 @@ test "Controller: open bus bits 5-7" {
 
     // Set open bus to known value (simulates previous bus activity)
     // In real hardware, this would be from a previous read/write cycle
-    harness.state.bus.open_bus = 0xFF;
+    harness.state.bus.open_bus.set(0xFF);
 
     // Read controller - bit 0 should be button data, bits 5-7 should be open bus
     const value = harness.state.busRead(0x4016);

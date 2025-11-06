@@ -12,6 +12,7 @@
 // - $8000-$FFFF: PRG ROM (cartridge-dependent)
 
 const std = @import("std");
+const CpuOpenBus = @import("../../state/BusState.zig").BusState.OpenBus;
 
 /// Handler for $4020-$FFFF (expansion + cartridge space)
 ///
@@ -69,7 +70,7 @@ pub const CartridgeHandler = struct {
         }
 
         // Priority 3: Open bus (no cartridge or test RAM)
-        return state.bus.open_bus;
+        return state.bus.open_bus.get();
     }
 
     /// Write to cartridge space
@@ -154,7 +155,7 @@ const MockCart = struct {
 // Test state with cartridge/test_ram
 const TestState = struct {
     bus: struct {
-        open_bus: u8 = 0,
+        open_bus: CpuOpenBus = .{},
         test_ram: ?[]u8 = null,
     } = .{},
     cart: ?MockCart = null,
@@ -246,7 +247,7 @@ test "CartridgeHandler: write to test RAM PRG RAM" {
 
 test "CartridgeHandler: read open bus (priority 3)" {
     var state = TestState.init();
-    state.bus.open_bus = 0xEE;
+    state.bus.open_bus.set(0xEE);
 
     var handler = CartridgeHandler{};
     const value = handler.read(&state, 0x8000);
@@ -266,7 +267,7 @@ test "CartridgeHandler: write no-op (priority 3)" {
 
 test "CartridgeHandler: expansion area returns open bus" {
     var state = TestState.init();
-    state.bus.open_bus = 0x77;
+    state.bus.open_bus.set(0x77);
 
     var handler = CartridgeHandler{};
 

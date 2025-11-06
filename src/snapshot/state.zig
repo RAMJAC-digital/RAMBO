@@ -183,7 +183,9 @@ pub fn writePpuState(writer: anytype, ppu: *const PpuState) !void {
 
     // Open bus (3 bytes)
     try writer.writeByte(ppu.open_bus.value);
-    try writer.writeInt(u16, ppu.open_bus.decay_timer, .little);
+    for (ppu.open_bus.decay_stamp) |stamp| {
+        try writer.writeInt(u64, stamp, .little);
+    }
 
     // Internal registers (10 bytes)
     try writer.writeInt(u16, ppu.internal.v, .little);
@@ -231,7 +233,9 @@ pub fn readPpuState(reader: anytype) !PpuState {
 
     // Open bus
     ppu.open_bus.value = try reader.readByte();
-    ppu.open_bus.decay_timer = try reader.readInt(u16, .little);
+    for (&ppu.open_bus.decay_stamp) |*stamp| {
+        stamp.* = try reader.readInt(u64, .little);
+    }
 
     // Internal registers
     ppu.internal.v = try reader.readInt(u16, .little);
@@ -274,8 +278,9 @@ pub fn writeBusState(writer: anytype, bus: *const BusState) !void {
     // RAM (2048 bytes)
     try writer.writeAll(bus.ram[0..]);
 
-    // Open bus (1 byte)
-    try writer.writeByte(bus.open_bus);
+    // Open bus (external + internal)
+    try writer.writeByte(bus.open_bus.external);
+    try writer.writeByte(bus.open_bus.internal);
 
     // Test RAM (optional)
     if (bus.test_ram) |test_mem| {
@@ -295,7 +300,9 @@ pub fn readBusState(reader: anytype) !BusState {
     try reader.readNoEof(bus.ram[0..]);
 
     // Open bus
-    bus.open_bus = try reader.readByte();
+    const external = try reader.readByte();
+    const internal = try reader.readByte();
+    bus.open_bus = .{ .external = external, .internal = internal };
 
     // Test RAM
     const has_test_ram = try reader.readByte() != 0;

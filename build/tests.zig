@@ -785,6 +785,11 @@ pub const specs = [_]TestSpec{
         .path = "tests/ppu/state_test.zig",
     },
     .{
+        .name = "ppu-open-buse",
+        .area = .ppu,
+        .path = "tests/ppu/open_bus_test.zig",
+    },
+    .{
         .name = "helper-pc-debug",
         .area = .helper,
         .path = "tests/unit/pc_debug_test.zig",

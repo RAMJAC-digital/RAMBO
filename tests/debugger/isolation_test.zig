@@ -34,15 +34,15 @@ test "Memory Inspection: readMemory does not affect open bus" {
     var state = test_fixtures.createTestState(&config);
 
     // Set open bus to known value
-    state.bus.open_bus = 0x42;
-    const original_value = state.bus.open_bus;
+    state.bus.open_bus.set(0x42);
+    const original_value = state.bus.open_bus.get();
     // Cycle tracking removed: open_bus is now just u8
 
     // Read memory via debugger (should NOT affect open bus)
     _ = debugger.readMemory(&state, 0x0200);
 
     // ✅ Verify open bus unchanged
-    try testing.expectEqual(original_value, state.bus.open_bus);
+    try testing.expectEqual(original_value, state.bus.open_bus.get());
 }
 
 test "Memory Inspection: readMemoryRange does not affect open bus" {
@@ -55,8 +55,8 @@ test "Memory Inspection: readMemoryRange does not affect open bus" {
     var state = test_fixtures.createTestState(&config);
 
     // Set open bus to known value
-    state.bus.open_bus = 0x99;
-    const original_value = state.bus.open_bus;
+    state.bus.open_bus.set(0x99);
+    const original_value = state.bus.open_bus.get();
     // Cycle tracking removed: open_bus is now just u8
 
     // Read memory range via debugger
@@ -64,7 +64,7 @@ test "Memory Inspection: readMemoryRange does not affect open bus" {
     defer testing.allocator.free(buffer);
 
     // ✅ Verify open bus unchanged after multiple reads
-    try testing.expectEqual(original_value, state.bus.open_bus);
+    try testing.expectEqual(original_value, state.bus.open_bus.get());
 }
 
 test "Memory Inspection: multiple reads preserve state" {
@@ -77,8 +77,8 @@ test "Memory Inspection: multiple reads preserve state" {
     var state = test_fixtures.createTestState(&config);
 
     // Capture initial state
-    state.bus.open_bus = 0xAA;
-    const initial_value = state.bus.open_bus;
+    state.bus.open_bus.set(0xAA);
+    const initial_value = state.bus.open_bus.get();
 
     // Perform 1000 debugger reads
     for (0..1000) |i| {
@@ -86,7 +86,7 @@ test "Memory Inspection: multiple reads preserve state" {
     }
 
     // ✅ Open bus should still be unchanged
-    try testing.expectEqual(initial_value, state.bus.open_bus);
+    try testing.expectEqual(initial_value, state.bus.open_bus.get());
 }
 
 // ============================================================================
@@ -290,7 +290,7 @@ test "TAS Support: ROM write intent tracking" {
     try testing.expectEqual(@as(u8, 0xFF), mods[0].memory_write.value);
 
     // ✅ Data bus is updated even though ROM isn't modified
-    try testing.expectEqual(@as(u8, 0x00), state.bus.open_bus);
+    try testing.expectEqual(@as(u8, 0x00), state.bus.open_bus.get());
 }
 
 test "TAS Support: Stack overflow and underflow edge cases" {
@@ -407,7 +407,7 @@ test "Isolation: Debugger state changes don't affect runtime" {
     const orig_pc = state.cpu.pc;
     const orig_a = state.cpu.a;
     const orig_sp = state.cpu.sp;
-    const orig_bus = state.bus.open_bus;
+    const orig_bus = state.bus.open_bus.get();
 
     // Perform debugger operations (should NOT affect runtime)
     try debugger.addBreakpoint(0x8100, .execute);
@@ -419,7 +419,7 @@ test "Isolation: Debugger state changes don't affect runtime" {
     try testing.expectEqual(orig_pc, state.cpu.pc);
     try testing.expectEqual(orig_a, state.cpu.a);
     try testing.expectEqual(orig_sp, state.cpu.sp);
-    try testing.expectEqual(orig_bus, state.bus.open_bus);
+    try testing.expectEqual(orig_bus, state.bus.open_bus.get());
 
     // Debugger and runtime are COMPLETELY ISOLATED
 }
@@ -578,8 +578,8 @@ test "Isolation: readMemory() const parameter enforces isolation" {
     state.busWrite(0x0200, 0x42);
 
     // Set known open bus value
-    state.bus.open_bus = 0x99;
-    const orig_bus_value = state.bus.open_bus;
+    state.bus.open_bus.set(0x99);
+    const orig_bus_value = state.bus.open_bus.get();
     // Cycle tracking removed: open_bus is now just u8
 
     // ✅ readMemory accepts CONST state (compile-time isolation guarantee)
@@ -590,7 +590,7 @@ test "Isolation: readMemory() const parameter enforces isolation" {
     try testing.expectEqual(@as(u8, 0x42), value);
 
     // ✅ Open bus UNCHANGED (const parameter prevents mutation)
-    try testing.expectEqual(orig_bus_value, state.bus.open_bus);
+    try testing.expectEqual(orig_bus_value, state.bus.open_bus.get());
 
     // COMPILE-TIME ISOLATION: const parameter prevents mutation
     // If readMemory tried to modify state, it would be a compile error
@@ -613,7 +613,7 @@ test "Isolation: shouldBreak() doesn't mutate state" {
     const orig_a = state.cpu.a;
     const orig_pc = state.cpu.pc;
     const orig_sp = state.cpu.sp;
-    const orig_bus = state.bus.open_bus;
+    const orig_bus = state.bus.open_bus.get();
 
     // ✅ shouldBreak() checks breakpoints without mutating state
     const should_break = try debugger.shouldBreak(&state);
@@ -623,7 +623,7 @@ test "Isolation: shouldBreak() doesn't mutate state" {
     try testing.expectEqual(orig_a, state.cpu.a);
     try testing.expectEqual(orig_pc, state.cpu.pc);
     try testing.expectEqual(orig_sp, state.cpu.sp);
-    try testing.expectEqual(orig_bus, state.bus.open_bus);
+    try testing.expectEqual(orig_bus, state.bus.open_bus.get());
 
     // Hook functions operate on READ-ONLY state
     // Future user-defined hooks will receive *const EmulationState

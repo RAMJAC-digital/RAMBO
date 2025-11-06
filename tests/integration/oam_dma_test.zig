@@ -387,7 +387,7 @@ test "OAM DMA: reading $4014 returns open bus" {
     var state = &harness.state;
 
     // Set open bus value
-    state.bus.open_bus = 0x42;
+    state.bus.open_bus.set(0x42);
 
     // Reading $4014 should return open bus (write-only register)
     const value = state.busRead(0x4014);

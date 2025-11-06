@@ -207,7 +207,7 @@ pub const EmulationState = struct {
         self.frame_complete = false;
         self.odd_frame = false;
         self.rendering_enabled = false;
-        self.bus.open_bus = 0;
+        self.bus.open_bus = .{};
         self.dma.reset();
         self.dmc_dma.reset();
         self.controller.reset();
@@ -237,7 +237,7 @@ pub const EmulationState = struct {
         self.frame_complete = false;
         self.odd_frame = false;
         self.rendering_enabled = false;
-        self.bus.open_bus = 0;
+        self.bus.open_bus = .{};
         self.dma.reset();
         self.dmc_dma.reset();
         self.controller.reset();
@@ -295,7 +295,9 @@ pub const EmulationState = struct {
 
         // Hardware: All reads update open bus (except $4015)
         if (address != 0x4015) {
-            self.bus.open_bus = value;
+            self.bus.open_bus.set(value);
+        } else {
+            self.bus.open_bus.setInternal(value);
         }
 
         self.debuggerCheckMemoryAccess(address, value, false);
@@ -332,7 +334,7 @@ pub const EmulationState = struct {
     /// Routes to appropriate component and updates open bus
     pub inline fn busWrite(self: *EmulationState, address: u16, value: u8) void {
         // Hardware: All writes update open bus
-        self.bus.open_bus = value;
+        self.bus.open_bus.set(value);
 
         // Dispatch to handlers (parameter-based pattern)
         switch (address) {
@@ -599,8 +601,9 @@ pub const EmulationState = struct {
             //
             // Solution: Check if prevent_vbl_set_cycle is non-zero (was set this frame).
             // The flag is cleared at frame boundaries, so non-zero means CPU read during race window.
-            const is_prevented = (self.vblank_ledger.prevent_vbl_set_cycle != 0);
-            if (!is_prevented) {
+            const prevent_cycle = self.vblank_ledger.prevent_vbl_set_cycle;
+            const should_prevent = prevent_cycle != 0 and prevent_cycle == self.clock.master_cycles;
+            if (!should_prevent) {
                 self.vblank_ledger.last_set_cycle = self.clock.master_cycles;
             }
             // One-shot: ALWAYS clear prevention flag after checking (match Mesen2 exactly)
@@ -622,6 +625,7 @@ pub const EmulationState = struct {
 
         if (result.frame_complete) {
             self.frame_complete = true;
+            self.vblank_ledger.prevent_vbl_set_cycle = 0;
             // odd_frame is set in stepPpuCycle() based on frame_count (line 862)
             // Don't toggle here - it would conflict with the frame_count-based assignment
         }

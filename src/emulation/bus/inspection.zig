@@ -42,22 +42,22 @@ pub fn peekMemory(state: anytype, address: u16) u8 {
                 2 => @as(u8, @bitCast(state.ppu.status)), // PPUSTATUS
                 3 => state.ppu.oam_addr, // OAMADDR
                 4 => state.ppu.oam[state.ppu.oam_addr], // OAMDATA
-                5 => state.bus.open_bus, // PPUSCROLL (write-only)
-                6 => state.bus.open_bus, // PPUADDR (write-only)
+                5 => state.bus.open_bus.get(), // PPUSCROLL (write-only)
+                6 => state.bus.open_bus.get(), // PPUADDR (write-only)
                 7 => state.ppu.internal.read_buffer, // PPUDATA (return buffer, not live read)
                 else => unreachable,
             };
         },
 
         // APU and I/O registers ($4000-$4017)
-        0x4000...0x4013 => state.bus.open_bus, // APU not implemented
-        0x4014 => state.bus.open_bus, // OAMDMA write-only
-        0x4015 => state.bus.open_bus, // APU status not implemented
-        0x4016 => (state.controller.shift1 & 0x01) | (state.bus.open_bus & 0xE0), // Controller 1 peek (no shift)
-        0x4017 => (state.controller.shift2 & 0x01) | (state.bus.open_bus & 0xE0), // Controller 2 peek (no shift)
+        0x4000...0x4013 => state.bus.open_bus.get(), // APU not implemented
+        0x4014 => state.bus.open_bus.get(), // OAMDMA write-only
+        0x4015 => state.bus.open_bus.get(), // APU status not implemented
+        0x4016 => (state.controller.shift1 & 0x01) | (state.bus.open_bus.get() & 0xE0), // Controller 1 peek (no shift)
+        0x4017 => (state.controller.shift2 & 0x01) | (state.bus.open_bus.get() & 0xE0), // Controller 2 peek (no shift)
 
         // Expansion area ($4020-$5FFF) defaults to open bus
-        0x4020...0x5FFF => state.bus.open_bus,
+        0x4020...0x5FFF => state.bus.open_bus.get(),
 
         // Cartridge space ($6000-$FFFF)
         0x6000...0xFFFF => blk: {
@@ -77,11 +77,11 @@ pub fn peekMemory(state: anytype, address: u16) u8 {
                 }
             }
             // No cartridge or test RAM - open bus
-            break :blk state.bus.open_bus;
+            break :blk state.bus.open_bus.get();
         },
 
         // Unmapped regions - return open bus
-        else => state.bus.open_bus,
+        else => state.bus.open_bus.get(),
     };
     // NO open_bus update - this is the key difference from busRead()
 }

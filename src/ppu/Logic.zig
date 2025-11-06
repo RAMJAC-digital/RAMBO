@@ -77,7 +77,7 @@ pub fn advanceClock(ppu: *PpuState, rendering_enabled: bool) void {
 
 /// Decay open bus value (called once per frame)
 pub fn tickFrame(state: *PpuState) void {
-    state.open_bus.decay();
+    state.open_bus.decay(state.frame_count);
 }
 
 // ============================================================================
@@ -485,6 +485,8 @@ pub fn tick(
         if (rendering_enabled and !state.rendering_was_enabled) {
             state.rendering_was_enabled = true;
         }
+
+        // Reset VBlank prevention at start of new frame (handled in orchestrator)
     }
 
     // === Deferred State Update (OAM Corruption) ===

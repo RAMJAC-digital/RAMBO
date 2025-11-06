@@ -180,7 +180,7 @@ test "Snapshot Integration: Full round-trip with cartridge (reference mode)" {
 
     // Get metadata
     const metadata = try Snapshot.getMetadata(snapshot);
-    try testing.expectEqual(@as(u32, 3), metadata.version);
+    try testing.expectEqual(@as(u32, 4), metadata.version);
     try testing.expect(!metadata.flags.has_framebuffer);
     try testing.expect(!metadata.flags.cartridge_embedded);
 
@@ -352,7 +352,7 @@ test "Snapshot Integration: Metadata inspection" {
     const metadata = try Snapshot.getMetadata(snapshot);
 
     // Verify metadata fields
-    try testing.expectEqual(@as(u32, 3), metadata.version);
+    try testing.expectEqual(@as(u32, 4), metadata.version);
     try testing.expect(metadata.timestamp > 0);
     try testing.expectEqual(@as(u64, snapshot.len), metadata.total_size);
     try testing.expect(metadata.state_size > 0);

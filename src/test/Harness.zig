@@ -131,7 +131,6 @@ pub const Harness = struct {
     pub fn seekToCpuBoundary(self: *Harness, target_scanline: i16, target_dot: u16) void {
         self.seekTo(target_scanline, target_dot);
 
-        // Ensure we're at a CPU tick boundary (may overshoot by 1-2 cycles)
         while (self.state.clock.master_cycles % 3 != 0) {
             self.state.tick();
         }

@@ -72,7 +72,7 @@ pub const PpuHandler = struct {
             // Note: CPU reads only happen on CPU ticks, so isCpuTick() check is redundant
             if (scanline == 241 and dot == 0) {
                 // Prevent VBlank set this frame
-                state.vblank_ledger.prevent_vbl_set_cycle = state.clock.master_cycles;
+                state.vblank_ledger.prevent_vbl_set_cycle = state.clock.master_cycles + 1;
             }
         }
 
@@ -165,12 +165,12 @@ pub const PpuHandler = struct {
                 state.ppu.status.sprite_overflow,
                 state.ppu.status.sprite_0_hit,
                 vblank_flag,
-                state.bus.open_bus,
+                state.bus.open_bus.get(),
             );
         }
 
         // Other registers are write-only - return open bus
-        return state.bus.open_bus;
+        return state.bus.open_bus.get();
     }
 };
 
@@ -179,6 +179,7 @@ pub const PpuHandler = struct {
 // ============================================================================
 
 const testing = std.testing;
+const CpuOpenBus = @import("../../state/BusState.zig").BusState.OpenBus;
 const PpuState = @import("../../../ppu/State.zig").PpuState;
 const PpuStatus = @import("../../../ppu/State.zig").PpuStatus;
 const VBlankLedger = @import("../../VBlankLedger.zig").VBlankLedger;
@@ -187,7 +188,7 @@ const AnyCartridge = @import("../../../cartridge/mappers/registry.zig").AnyCartr
 // Test state with real PPU (handlers call real PpuLogic functions)
 const TestState = struct {
     bus: struct {
-        open_bus: u8 = 0,
+        open_bus: CpuOpenBus = .{},
     } = .{},
     ppu: PpuState = .{},
     vblank_ledger: VBlankLedger = .{},
@@ -247,7 +248,7 @@ test "PpuHandler: read $2002 at dot 0 sets prevention" {
 
     // Should set prevention timestamp at dot 0 only
     // Hardware: "Reading one PPU clock before reads it as clear and never sets the flag"
-    try testing.expectEqual(@as(u64, 54321), state.vblank_ledger.prevent_vbl_set_cycle);
+    try testing.expectEqual(@as(u64, 54322), state.vblank_ledger.prevent_vbl_set_cycle);
 }
 
 test "PpuHandler: write $2000 enables NMI when VBlank active" {

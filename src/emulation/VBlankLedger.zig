@@ -18,10 +18,8 @@ pub const VBlankLedger = struct {
     last_read_cycle: u64 = 0,
 
     /// Master clock cycle when VBlank flag set should be PREVENTED.
-    /// Set when $2002 is read at scanline 241, dot 0 (one cycle before VBlank set).
-    /// When current cycle equals this value, the flag set at 241:1 is skipped.
-    /// Per Mesen2 NesPpu.cpp:590-592, 1340-1344: _preventVblFlag pattern.
-    /// Hardware: "Reading one PPU clock before...never sets the flag" (nesdev.org)
+    /// 0 means no prevention is scheduled. Non-zero values contain the exact
+    /// master cycle that must block the next set.
     prevent_vbl_set_cycle: u64 = 0,
 
     /// Returns true if hardware VBlank is currently active (between set and clear)

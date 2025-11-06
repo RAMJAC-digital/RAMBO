@@ -8,8 +8,11 @@ const testing = std.testing;
 const RAMBO = @import("RAMBO");
 const Harness = RAMBO.TestHarness.Harness;
 
-// Helper to read the VBlank flag from the $2002 PPUSTATUS register
-fn isVBlankSet(h: *Harness) bool {
+fn isFlagVisible(h: *Harness) bool {
+    return h.state.vblank_ledger.isFlagVisible();
+}
+
+fn readVBlankBit(h: *Harness) bool {
     const status_byte = h.state.busRead(0x2002);
     return (status_byte & 0x80) != 0;
 }
@@ -17,7 +20,7 @@ fn isVBlankSet(h: *Harness) bool {
 test "VBlankLedger: Read before VBlank is clear" {
     var h = try Harness.init();
     defer h.deinit();
-    try testing.expect(!isVBlankSet(&h));
+    try testing.expect(!isFlagVisible(&h));
 }
 
 test "VBlankLedger: Flag is set at scanline 241, dot 1" {
@@ -26,20 +29,21 @@ test "VBlankLedger: Flag is set at scanline 241, dot 1" {
 
     // Seek to just before VBlank set
     h.seekTo(241, 0);
-    try testing.expect(!isVBlankSet(&h));
+    try testing.expect(!isFlagVisible(&h));
 
     // Advance past the race window to dot 4 (race window is dots 0-2)
     // VBlank is set at dot 1, but hardware masks bit 7 for dots < 3
     h.seekTo(241, 4);
 
     // Now we're past the race window, flag should be visible
-    try testing.expect(isVBlankSet(&h));
+    try testing.expect(isFlagVisible(&h));
 
     // Verify VBlank was set (last_set_cycle should be non-zero)
     try testing.expect(h.state.vblank_ledger.last_set_cycle > 0);
 
     // Subsequent read clears the flag
-    try testing.expect(!isVBlankSet(&h));  // Second read sees CLEAR (first read cleared it)
+    try testing.expect(readVBlankBit(&h));  // First read sees set (and clears it)
+    try testing.expect(!readVBlankBit(&h)); // Second read sees CLEAR
 }
 
 test "VBlankLedger: First read clears flag, subsequent read sees cleared" {
@@ -50,17 +54,18 @@ test "VBlankLedger: First read clears flag, subsequent read sees cleared" {
     h.seekTo(241, 4);
 
     // Flag should be visible (we're past the race window)
-    try testing.expect(isVBlankSet(&h));
+    try testing.expect(isFlagVisible(&h));
 
     // Reading the visible flag clears it and updates last_read_cycle
+    try testing.expect(readVBlankBit(&h));
     try testing.expect(h.state.vblank_ledger.last_read_cycle > 0);
 
     // Second read should see flag cleared (cleared by first read)
-    try testing.expect(!isVBlankSet(&h));  // Second read sees CLEAR
+    try testing.expect(!readVBlankBit(&h));  // Second read sees CLEAR
 
     // Tick forward - flag stays cleared (no new VBlank set)
     h.tick(1);
-    try testing.expect(!isVBlankSet(&h));  // Still cleared
+    try testing.expect(!isFlagVisible(&h));  // Still cleared
 }
 
 test "VBlankLedger: Flag is cleared at scanline -1, dot 1 (pre-render)" {
@@ -107,14 +112,14 @@ test "VBlankLedger: Race condition - read on same cycle as set" {
     // 1. $2002 read updates last_read_cycle to current cycle
     // 2. isFlagVisible() returns false when last_read_cycle >= last_set_cycle
     // 3. NMI line computation uses isFlagVisible() - no separate race tracking needed
-    const first_read = isVBlankSet(&h);
+    const first_read = readVBlankBit(&h);
     _ = first_read; // Phase-dependent (may be 0 or 1)
 
     // Verify last_read_cycle was updated (BUG #1 fix - unconditional update)
     try testing.expect(h.state.vblank_ledger.last_read_cycle > 0);
 
     // Second read should ALWAYS see flag as cleared (by last_read_cycle timestamp)
-    try testing.expect(!isVBlankSet(&h));
+    try testing.expect(!readVBlankBit(&h));
 }
 
 test "VBlankLedger: SMB polling pattern" {
@@ -125,22 +130,22 @@ test "VBlankLedger: SMB polling pattern" {
     h.seekTo(241, 10);
 
     // 1. First poll reads the flag, it should be set.
-    try testing.expect(isVBlankSet(&h));
+    try testing.expect(readVBlankBit(&h));
 
     // 2. Second poll, a few cycles later. Should be clear because of the first read.
     h.tick(5);
-    try testing.expect(!isVBlankSet(&h));
+    try testing.expect(!readVBlankBit(&h));
 
     // 3. Third poll, a few more cycles later. Should still be clear.
     h.tick(5);
-    try testing.expect(!isVBlankSet(&h));
+    try testing.expect(!readVBlankBit(&h));
 }
 
 test "VBlankLedger: Reset clears all cycle counters" {
     var h = try Harness.init();
     defer h.deinit();
     h.seekTo(241, 10);
-    _ = isVBlankSet(&h); // Perform a read to populate the ledger
+    _ = readVBlankBit(&h); // Perform a read to populate the ledger
 
     try testing.expect(h.state.vblank_ledger.last_set_cycle > 0);
     try testing.expect(h.state.vblank_ledger.last_read_cycle > 0);

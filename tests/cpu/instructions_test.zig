@@ -197,5 +197,5 @@ test "Instructions update open bus correctly" {
     _ = state.tickCpuWithClock(); // Execute (fetch operand) - should update bus
 
     // Open bus should have the operand value
-    try testing.expectEqual(@as(u8, 0x42), state.bus.open_bus);
+    try testing.expectEqual(@as(u8, 0x42), state.bus.open_bus.get());
 }

@@ -46,7 +46,7 @@ test "EmulationState: initialization" {
 
     try testing.expectEqual(@as(u64, 0), state.clock.master_cycles);
     try testing.expect(!state.frame_complete);
-    try testing.expectEqual(@as(u8, 0), state.bus.open_bus);
+    try testing.expectEqual(@as(u8, 0), state.bus.open_bus.get());
     try testing.expect(!state.dma.active);
 }
 

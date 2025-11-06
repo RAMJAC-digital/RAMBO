@@ -5,6 +5,36 @@ const std = @import("std");
 
 /// Memory bus state
 pub const BusState = struct {
+    /// CPU open bus state (tracks external/internal data bus)
+    pub const OpenBus = struct {
+        /// Last value driven on CPU data bus (externally visible)
+        external: u8 = 0,
+
+        /// CPU internal data latch (captures $4015 behaviour)
+        internal: u8 = 0,
+
+        /// Update both external and internal buses (default behaviour)
+        pub fn set(self: *OpenBus, value: u8) void {
+            self.external = value;
+            self.internal = value;
+        }
+
+        /// Update internal bus only (used for $4015 reads)
+        pub fn setInternal(self: *OpenBus, value: u8) void {
+            self.internal = value;
+        }
+
+        /// Read external bus value (for normal open bus behaviour)
+        pub fn get(self: *const OpenBus) u8 {
+            return self.external;
+        }
+
+        /// Read masked internal bus bits (controllers/APU quirks)
+        pub fn getInternal(self: *const OpenBus, mask: u8) u8 {
+            return self.internal & mask;
+        }
+    };
+
     /// Internal RAM: 2KB ($0000-$07FF), mirrored through $0000-$1FFF
     ///
     /// Hardware behavior: NES RAM at power-on contains pseudo-random garbage
@@ -17,7 +47,7 @@ pub const BusState = struct {
     ram: [2048]u8 = initializeRam(),
 
     /// Last value observed on CPU data bus (open bus behaviour)
-    open_bus: u8 = 0,
+    open_bus: OpenBus = .{},
 
     /// Optional external RAM used by tests in lieu of a cartridge
     test_ram: ?[]u8 = null,

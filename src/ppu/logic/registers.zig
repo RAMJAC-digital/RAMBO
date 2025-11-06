@@ -222,7 +222,7 @@ pub fn readRegister(
             state.internal.resetToggle();
 
             // 3. Update open bus with the final status byte (after masking).
-            state.open_bus.write(value);
+            state.open_bus.setAll(value, state.frame_count);
 
             result.value = value;
         },
@@ -236,15 +236,13 @@ pub fn readRegister(
 
             // Attribute bytes have bits 2-4 as open bus
             const is_attribute_byte = (state.oam_addr & 0x03) == 0x02;
-            const oam_result = if (is_attribute_byte)
-                (value & 0xE3) | (state.open_bus.value & 0x1C)
-            else
-                value;
-
-            // Update open bus
-            state.open_bus.write(oam_result);
-
-            result.value = oam_result;
+            if (is_attribute_byte) {
+                const sanitized = value & 0xE3;
+                result.value = state.open_bus.applyMasked(0x1C, sanitized, state.frame_count);
+            } else {
+                state.open_bus.setAll(value, state.frame_count);
+                result.value = value;
+            }
         },
         0x0005 => {
             // $2005 PPUSCROLL - Write-only, return open bus
@@ -273,10 +271,8 @@ pub fn readRegister(
                 // Increment VRAM address after read
                 state.internal.v +%= state.ctrl.vramIncrementAmount();
 
-                // Update open bus
-                state.open_bus.write(palette_value);
-
-                result.value = palette_value;
+                const sanitized = palette_value & 0x3F;
+                result.value = state.open_bus.applyMasked(0xC0, sanitized, state.frame_count);
             } else {
                 // Normal buffered read: return old buffer, update buffer with new value
                 state.internal.read_buffer = memory.readVram(state, cart, addr);
@@ -284,9 +280,7 @@ pub fn readRegister(
                 // Increment VRAM address after read
                 state.internal.v +%= state.ctrl.vramIncrementAmount();
 
-                // Update open bus
-                state.open_bus.write(buffered_value);
-
+                state.open_bus.setAll(buffered_value, state.frame_count);
                 result.value = buffered_value;
             }
         },
@@ -302,7 +296,7 @@ pub fn writeRegister(state: *PpuState, cart: ?*AnyCartridge, address: u16, value
     const reg = address & 0x0007;
 
     // All writes update the open bus
-    state.open_bus.write(value);
+            state.open_bus.setAll(value, state.frame_count);
 
     switch (reg) {
         0x0000 => {

@@ -22,7 +22,7 @@ test "Open Bus: $4000-$4013 return open bus" {
     defer emu.deinit();
 
     // Set open bus to known value
-    emu.bus.open_bus = 0xAB;
+    emu.bus.open_bus.set(0xAB);
 
     // All APU channel registers should return open bus
     try testing.expectEqual(@as(u8, 0xAB), emu.busRead(0x4000)); // Pulse 1 Vol
@@ -54,7 +54,7 @@ test "Open Bus: $4014 (OAMDMA) returns open bus" {
     defer emu.deinit();
 
     // Set open bus to known value
-    emu.bus.open_bus = 0xCD;
+    emu.bus.open_bus.set(0xCD);
 
     try testing.expectEqual(@as(u8, 0xCD), emu.busRead(0x4014));
 }
@@ -64,7 +64,7 @@ test "Open Bus: $4015 read doesn't update open bus" {
     defer emu.deinit();
 
     // Set open bus to known value
-    emu.bus.open_bus = 0x42;
+    emu.bus.open_bus.set(0x42);
 
     // Set some APU status flags
     emu.apu.pulse1_length = 10;
@@ -75,7 +75,18 @@ test "Open Bus: $4015 read doesn't update open bus" {
     try testing.expectEqual(@as(u8, 0x41), status); // Bit 6 (frame IRQ) + Bit 0 (pulse1 active)
 
     // Open bus should NOT have changed
-    try testing.expectEqual(@as(u8, 0x42), emu.bus.open_bus);
+    try testing.expectEqual(@as(u8, 0x42), emu.bus.open_bus.get());
+}
+
+test "Open Bus: $4015 read preserves bus bit 5" {
+    var emu = createTestState();
+    defer emu.deinit();
+
+    // Seed open bus with bit 5 set, all other status bits cleared
+    emu.bus.open_bus.set(0x20);
+
+    const status = emu.busRead(0x4015);
+    try testing.expectEqual(@as(u8, 0x20), status & 0x20);
 }
 
 test "Open Bus: Write to $4000-$4013 updates open bus" {
@@ -84,16 +95,16 @@ test "Open Bus: Write to $4000-$4013 updates open bus" {
 
     // Write to various APU registers
     emu.busWrite(0x4000, 0x55);
-    try testing.expectEqual(@as(u8, 0x55), emu.bus.open_bus);
+    try testing.expectEqual(@as(u8, 0x55), emu.bus.open_bus.get());
 
     emu.busWrite(0x4001, 0x66);
-    try testing.expectEqual(@as(u8, 0x66), emu.bus.open_bus);
+    try testing.expectEqual(@as(u8, 0x66), emu.bus.open_bus.get());
 
     emu.busWrite(0x4008, 0x77);
-    try testing.expectEqual(@as(u8, 0x77), emu.bus.open_bus);
+    try testing.expectEqual(@as(u8, 0x77), emu.bus.open_bus.get());
 
     emu.busWrite(0x4015, 0x88);
-    try testing.expectEqual(@as(u8, 0x88), emu.bus.open_bus);
+    try testing.expectEqual(@as(u8, 0x88), emu.bus.open_bus.get());
 }
 
 test "Open Bus: Write to $4017 updates open bus" {
@@ -102,7 +113,7 @@ test "Open Bus: Write to $4017 updates open bus" {
 
     // Write to frame counter
     emu.busWrite(0x4017, 0x99);
-    try testing.expectEqual(@as(u8, 0x99), emu.bus.open_bus);
+    try testing.expectEqual(@as(u8, 0x99), emu.bus.open_bus.get());
 }
 
 test "Open Bus: Read from other addresses updates open bus" {
@@ -113,12 +124,12 @@ test "Open Bus: Read from other addresses updates open bus" {
     emu.bus.ram[0x100] = 0xAA;
 
     // Set open bus to different value
-    emu.bus.open_bus = 0x00;
+    emu.bus.open_bus.set(0x00);
 
     // Read from RAM - should update open bus
     const value = emu.busRead(0x100);
     try testing.expectEqual(@as(u8, 0xAA), value);
-    try testing.expectEqual(@as(u8, 0xAA), emu.bus.open_bus);
+    try testing.expectEqual(@as(u8, 0xAA), emu.bus.open_bus.get());
 }
 
 test "Open Bus: $4016/$4017 controller reads preserve bits 5-7" {
@@ -126,7 +137,7 @@ test "Open Bus: $4016/$4017 controller reads preserve bits 5-7" {
     defer emu.deinit();
 
     // Set open bus high bits
-    emu.bus.open_bus = 0xE0; // Bits 5-7 set
+    emu.bus.open_bus.set(0xE0); // Bits 5-7 set
 
     // Controller data will be in bit 0, open bus in bits 5-7
     const ctrl1 = emu.busRead(0x4016);

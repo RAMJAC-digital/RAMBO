@@ -133,29 +133,69 @@ pub const OpenBus = struct {
     /// Current value on the data bus
     value: u8 = 0,
 
-    /// Decay timer (in frames)
-    /// Open bus values decay to 0 after ~1 second of no access
-    decay_timer: u16 = 0,
+    /// Per-bit decay stamps (frame number when bit was last driven)
+    decay_stamp: [8]u64 = [_]u64{0} ** 8,
 
-    /// Update the data bus latch (called on any PPU write)
-    pub fn write(self: *OpenBus, value: u8) void {
-        self.value = value;
-        self.decay_timer = 60; // Reset decay timer (60 frames = 1 second)
+    const decay_limit: u64 = 3; // Frames before bit decays to 0
+
+    /// Update open bus bits selected by mask.
+    /// Bits set in `mask` are replaced with corresponding bits from `value`.
+    /// All other bits decay to 0 after `decay_limit` frames.
+    pub fn setMasked(self: *OpenBus, mask: u8, value: u8, frame: u64) void {
+        if (mask == 0xFF) {
+            self.value = value;
+            for (&self.decay_stamp) |*stamp| {
+                stamp.* = frame;
+            }
+            return;
+        }
+
+        var combined = @as(u16, self.value) << 8;
+        var current_mask = mask;
+        var current_value = value;
+
+        for (self.decay_stamp[0..]) |*stamp| {
+            combined >>= 1;
+            if ((current_mask & 0x01) != 0) {
+                if ((current_value & 0x01) != 0) {
+                    combined |= 0x80;
+                } else {
+                    combined &= 0xFF7F;
+                }
+                stamp.* = frame;
+            } else if (frame > stamp.* and frame - stamp.* > decay_limit) {
+                combined &= 0xFF7F;
+            }
+
+            current_mask >>= 1;
+            current_value >>= 1;
+        }
+
+        self.value = @truncate(combined & 0xFF);
+    }
+
+    /// Update entire open bus with new value.
+    pub fn setAll(self: *OpenBus, value: u8, frame: u64) void {
+        self.setMasked(0xFF, value, frame);
+    }
+
+    /// Apply open bus masking (preserve bits set in `mask`)
+    /// Returns combined value after applying preserved bits.
+    pub fn applyMasked(self: *OpenBus, mask: u8, value: u8, frame: u64) u8 {
+        const preserve_mask: u8 = mask;
+        const update_mask: u8 = ~preserve_mask;
+        self.setMasked(update_mask, value, frame);
+        return value | (self.value & preserve_mask);
+    }
+
+    /// Force decay check without updating any bits.
+    pub fn decay(self: *OpenBus, frame: u64) void {
+        self.setMasked(0x00, self.value, frame);
     }
 
     /// Read the data bus latch (called on reads from write-only registers)
     pub fn read(self: *const OpenBus) u8 {
         return self.value;
-    }
-
-    /// Decay the open bus value (called once per frame)
-    pub fn decay(self: *OpenBus) void {
-        if (self.decay_timer > 0) {
-            self.decay_timer -= 1;
-        } else {
-            // Decay to 0 after timeout
-            self.value = 0;
-        }
     }
 };
 
