@@ -96,12 +96,12 @@ pub fn stepCycle(state: anytype) void {
 
     // If CPU is halted (JAM/KIL), do nothing until RESET
     if (state.cpu.halted) {
-        void{};
+        return;
     }
 
     // Check debugger breakpoints/watchpoints (RT-safe, zero allocations)
     if (state.debuggerShouldHalt()) {
-        void{};
+        return;
     }
 
     // DMC completion handling (external state management pattern)
@@ -149,12 +149,12 @@ pub fn stepCycle(state: anytype) void {
     // tickOamDma handles coordination with DMC internally
     if (state.dma.active) {
         state.tickDma();
-        void{};
+        return;
     }
 
     // If we only had DMC (no OAM), return now
     if (dmc_is_active) {
-        void{};
+        return;
     }
 
     // Normal CPU execution

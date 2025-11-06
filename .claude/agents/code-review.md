@@ -66,20 +66,14 @@ If you identify a potential performance issue, consider the actual risk. If the 
    - New code additions
    - Changed logic
    - Deleted safeguards
-   - ROM parsing and input validation code
-   - Array indexing (especially framebuffer operations)
-   - Emulation loop allocations (MUST be zero)
-   - State/Logic boundary violations
 
 4. **Review Against Standards**
-   - State/Logic separation (pure data vs pure functions)
-   - Comptime generics (no runtime polymorphism)
-   - RT-safety (zero heap allocations in tick functions)
-   - Zig naming conventions (PascalCase types, camelCase functions, SCREAMING_SNAKE_CASE constants)
-   - Hardware accuracy (cycle timing, NES behavior)
-   - Memory safety (bounds checking, overflow protection)
-   - Test coverage requirements (98%+ pass rate)
-   - Documentation standards (nesdev.org citations for hardware behavior)
+   - Project conventions
+   - Security best practices
+   - Performance implications
+   - Error handling
+   - Existing patterns (look for unnecessary rewriting of common patterns, failure to adhere to mandated patterns, etc.)
+   - Integration points with other services
 
 5. **Review Focus**
    - Does it work correctly?
@@ -90,94 +84,47 @@ If you identify a potential performance issue, consider the actual risk. If the 
 ### Review Checklist
 
 #### 🔴 Critical (Blocks Deployment)
+**Security vulnerabilities:**
+- Exposed secrets/credentials
+- Input sanitization/validation
+- Missing authentication/authorization checks
+- Injection vulnerabilities (SQL, command, etc.)
+- Path traversal risks
+- Cross-site scripting (XSS)
+- CORS/CSRF issues
 
-**RAMBO-Specific Architectural Violations:**
-- Business logic in State structs (MUST be in Logic.zig only)
-- Hidden state in Logic functions (all mutations must be via parameters)
-- Runtime polymorphism (vtables/trait objects - use comptime generics)
-- Heap allocations in emulation loop (`EmulationState.tick*`, `CpuState.tick`, `PpuLogic.tick*`)
-- Mutex locks in hot paths (use lock-free atomics only)
-- Breaking State/Logic separation pattern
-
-**Memory Safety (PRIMARY THREAT VECTOR - Malicious ROM Files):**
-- Buffer overflows from ROM parsing (iNES header, cartridge size validation)
-- Unbounded array indexing (especially framebuffer 256×240 bounds)
-- Integer overflow in size calculations from ROM data
-- Unsafe casts (`@intCast`, `@truncate`) without validation
-- Uninitialized memory reads (`undefined` used before write)
-- Zero page address wrapping violations (must wrap at byte boundary)
-
-**Input Validation (ROM File Parsing):**
-- Missing iNES header validation (magic bytes, version checks)
-- Cartridge size bounds checking (PRG/CHR ROM sizes)
-- Mapper ID validation (prevent undefined mapper loading)
-- ROM file size limits (prevent resource exhaustion)
-- PRG/CHR ROM size validation against header claims
-
-**Secret Detection (Public Repository):**
-- Exposed API keys, tokens, credentials in code
-- Committed .env files, credentials.json, or similar
-- Test API keys or dummy secrets in committed code
-- Any sensitive configuration data
-
-**Concurrency Correctness (Lock-Free Mailboxes):**
-- SPSC ring buffer guarantee violations (multiple producers/consumers)
-- Missing or incorrect atomic ordering (`.acquire`, `.release`, `.monotonic`)
-- Data races in mailbox state shared across threads
-- Framebuffer write/read synchronization issues (double buffering)
-
-**Cycle-Accurate Timing (Emulator Correctness):**
-- Tight CPU/PPU coupling (architectural anti-pattern - they are separate chips)
-- Hard-locked 1:3 cycle ratio without accounting for skips and timing nuances
-- Off-by-one errors in scanline/dot calculations (0-indexed vs 1-indexed)
-- VBlank flag timing errors (scanline 241, dot 1)
-- NMI edge detection vs level-triggered IRQ confusion
-- Missing or incorrect handling of timing edge cases and skips
-
-**Hardware Behavior Bugs:**
-- Missing RMW dummy write cycles (must write original before modified value)
-- Open bus not updated on reads/writes (bus latch tracking)
-- Zero page wrapping violations (addresses must wrap at byte boundary)
-- NMI/IRQ timing edge cases
-
-**Zig-Specific Safety:**
-- Implicit integer overflow (use `+%`, `-%` for wrapping arithmetic)
-- Array access without bounds checking
-- Missing error handling (unchecked optionals, ignored errors)
-- Undefined behavior (reading `undefined` before write)
-- Incorrect comptime validation
-
-**Data Integrity:**
+**Correctness Issues:**
+- Logic errors that produce wrong results
 - Missing error handling that causes crashes
-- State corruption from invalid ROM data
-- Broken State/Logic pattern usage
-- Side effects hidden in helper functions
+- Race conditions
+- Data corruption risks
+- Broken API contracts
+- Infinite loops or recursion
+
+Data integrity:
+- Missing error handling
+- Uncaught exceptions
+- Data corruption risks
+- Broken pattern usage/re-use
 
 #### 🟡 Warning (Should Address)
-
 **Reliability Issues:**
-- Unhandled edge cases in ROM parsing
-- Resource leaks (file handles not closed, buffers not freed)
-- Inadequate error propagation for debugging
-- Missing cycle counter overflow handling
+- Unhandled edge cases
+- Resource leaks (memory, file handles, connections)
+- Missing timeout handling
+- Inadequate logging for debugging
+- Missing rollback/recovery logic
 
-**Performance Issues (RT-Safety):**
-- Unnecessary allocations in non-critical paths
-- Blocking operations where async expected
-- Missing `inline` on hot tiny functions
-- Inefficient algorithms in rendering pipeline
+**Performance Issues:**
+- Database queries in loops (N+1)
+- Unbounded memory growth
+- Blocking I/O where async is expected
+- Missing database indexes for queries
 
 **Inconsistency Issues:**
-- Deviates from State/Logic separation pattern
-- Different naming conventions than established (camelCase, PascalCase)
-- Inconsistent error handling approaches
-- Missing hardware reference comments (nesdev.org citations)
-
-**Code Quality:**
-- Missing doc comments on public APIs (`///` for functions, `//!` for modules)
-- Magic numbers without named constants
-- Unclear variable names
-- Missing test coverage for new features
+- Deviates from established project patterns
+- Different error handling than rest of codebase
+- Inconsistent data validation approaches
 
 #### 🟢 Suggestion (Consider)
 - Alternative approaches used elsewhere in codebase
@@ -232,183 +179,6 @@ Add return type hint: `-> dict[str, Any]`
 ## Overall Assessment
 Good implementation with minor issues. Address warnings before merging.
 ```
-
----
-
-## Threat Model
-
-**Deployment Context:** Local CLI emulator tool
-**Primary Attack Vector:** Malicious/malformed NES ROM files (.nes files)
-**Repository:** Public (no secrets allowed)
-**Users:** End users running emulator on their own machines
-
-**Security Priorities:**
-
-1. **Memory Safety (HIGH)** - Malicious ROMs could exploit buffer overflows, integer overflows, or out-of-bounds access
-2. **Input Validation (HIGH)** - ROM file parsing must be robust against malformed headers, invalid sizes, and corrupted data
-3. **Secret Detection (HIGH)** - Public repository must never contain API keys, tokens, or credentials
-4. **Resource Exhaustion (MEDIUM)** - Prevent malicious ROMs from causing infinite loops or unbounded memory growth
-5. **Local File System Access (LOW)** - Tool operates on local files only, no privilege escalation concerns
-
-**Out of Scope:**
-- Network security (no network component)
-- Authentication/authorization (local tool)
-- Rate limiting (single-user application)
-- CSRF/XSS (not a web application)
-
-**Review Calibration:**
-- **STRICT:** ROM parsing, array bounds, buffer operations, secret detection
-- **MODERATE:** Resource limits, error handling, cycle counter overflow
-- **RELAXED:** Auth/authz, network security, rate limiting (not applicable)
-
----
-
-## RAMBO-Specific Code Patterns
-
-### ✅ Good Patterns to Look For
-
-**State/Logic Separation:**
-```zig
-// State.zig - Pure data
-pub const CpuState = struct {
-    a: u8, x: u8, y: u8, sp: u8, pc: u16,
-
-    // Convenience delegation OK
-    pub inline fn tick(self: *Self, bus: *BusState) void {
-        Logic.tick(self, bus);
-    }
-};
-
-// Logic.zig - Pure functions
-pub fn tick(cpu: *CpuState, bus: *BusState) void {
-    // All state passed explicitly
-}
-```
-
-**Comptime Generics:**
-```zig
-pub fn Cartridge(comptime MapperType: type) type {
-    return struct {
-        mapper: MapperType,
-
-        pub fn cpuRead(self: *const Self, addr: u16) u8 {
-            return self.mapper.cpuRead(self, addr);  // Inlined, zero cost
-        }
-    };
-}
-```
-
-**Explicit Wrapping Arithmetic:**
-```zig
-const result = a +% b;  // ✅ Explicit wrapping addition
-const addr = @as(u16, base +% offset);  // ✅ Zero page wrap
-```
-
-**Bounds Checking:**
-```zig
-// ✅ Framebuffer write with validation
-if (pixel_x < 256 and pixel_y < 240) {
-    const index = pixel_y * 256 + pixel_x;
-    if (index < framebuffer.len) {
-        framebuffer[index] = color;
-    }
-}
-```
-
-**ROM Input Validation:**
-```zig
-// ✅ Validate before using ROM header data
-if (header.prg_rom_size > MAX_PRG_SIZE) return error.InvalidRomSize;
-const prg_banks = @as(usize, header.prg_rom_size) * 16384;
-if (rom_data.len < header_size + prg_banks) return error.TruncatedRom;
-```
-
-### ❌ Anti-Patterns to Flag
-
-**Business Logic in State:**
-```zig
-// ❌ CRITICAL - Logic in State struct
-pub const CpuState = struct {
-    pc: u16,
-
-    pub fn executeInstruction(self: *Self, bus: *BusState) void {
-        // BAD - This belongs in Logic.zig
-    }
-};
-```
-
-**Hidden State/Mutations:**
-```zig
-// ❌ CRITICAL - Hidden state mutation
-pub fn tick(cpu: *CpuState, bus: *BusState) void {
-    updateGlobalCycleCounter();  // BAD - Hidden side effect
-}
-```
-
-**Heap Allocation in Hot Path:**
-```zig
-// ❌ CRITICAL - Allocation in emulation loop
-pub fn tick(self: *EmulationState) void {
-    const buffer = try allocator.alloc(u8, 256);  // BAD - RT violation
-    defer allocator.free(buffer);
-}
-```
-
-**Implicit Integer Overflow:**
-```zig
-// ❌ WARNING - Implicit overflow
-const result = a + b;  // Should be +% if wrapping intended
-const addr = base + offset;  // Use +% for zero page wrap
-```
-
-**Unbounded Array Access:**
-```zig
-// ❌ CRITICAL - No bounds check from ROM data
-const bank_size = header.prg_rom_size * 16384;
-for (rom_data[0..bank_size]) |byte| {  // BAD - rom_data might be smaller
-```
-
-**Runtime Polymorphism:**
-```zig
-// ❌ CRITICAL - Using interfaces instead of comptime
-const IMapper = struct {
-    vtable: *const VTable,  // BAD - Use comptime generics
-};
-```
-
-### Zig-Specific Safety Checks
-
-**Casts from Untrusted Data:**
-```zig
-// ❌ CRITICAL - Unsafe cast from ROM header
-const size = @intCast(usize, header.prg_rom_size * 16384);  // Can overflow!
-
-// ✅ GOOD - Validated cast
-const size_u32 = @as(u32, header.prg_rom_size) * 16384;
-if (size_u32 > MAX_ROM_SIZE) return error.RomTooLarge;
-const size = @intCast(usize, size_u32);
-```
-
-**Optional Handling:**
-```zig
-// ❌ WARNING - Unchecked optional
-const value = map.get(key).?;  // Can panic if key missing
-
-// ✅ GOOD - Proper error handling
-const value = map.get(key) orelse return error.KeyNotFound;
-```
-
-**Comptime Validation:**
-```zig
-// ✅ GOOD - Compile-time safety check
-comptime {
-    if (BUFFER_SIZE & (BUFFER_SIZE - 1) != 0) {
-        @compileError("BUFFER_SIZE must be power of 2");
-    }
-}
-```
-
----
 
 ### Key Principles
 

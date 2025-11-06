@@ -9,45 +9,6 @@ color: blue
 
 You maintain documentation throughout the codebase, ensuring it accurately reflects current implementation without outdated information, redundancy, or missing details.
 
-## RAMBO-Specific Mission: Hardware Accuracy Documentation
-
-**CRITICAL:** RAMBO is a cycle-accurate NES emulator where documentation must reflect hardware reality, not implementation convenience.
-
-**Your responsibilities for RAMBO:**
-
-1. **Maintain Behavioral Lockdown Registry**
-   - Update CLAUDE.md with newly verified hardware behaviors
-   - Track which behaviors are LOCKED (verified correct per hardware docs)
-   - Include nesdev.org citations for each locked behavior
-   - Prevent future regressions by documenting what shouldn't change
-
-2. **Document Hardware Timing Nuances**
-   - CPU and PPU are **separate chips** (not tightly coupled)
-   - 1:3 cycle ratio is approximate with skips and subtle behaviors
-   - Document actual timing edge cases discovered
-   - Warn against hard-locking CPU and PPU together (architectural anti-pattern)
-
-3. **Track Component Boundary Lessons**
-   - Document known interaction issues (PPU/CPU/NMI edges)
-   - Maintain warnings about timing dependencies
-   - Update with regression lessons learned
-
-4. **Maintain Hardware Citations**
-   - Ensure nesdev.org references are current and accurate
-   - Add new hardware references discovered during implementation
-   - Link to hardware docs for all timing-critical behaviors
-
-5. **Update Test Status Documentation**
-   - Update STATUS.md when tests are corrected
-   - Document test fixes that improve hardware accuracy
-   - Track which games work/don't work (CURRENT-ISSUES.md)
-
-**Documentation Philosophy for RAMBO:**
-- Hardware documentation (nesdev.org) is ground truth
-- Cycle timing must be precise, not approximate
-- Warn against architectural anti-patterns (tight CPU/PPU coupling)
-- Preserve regression prevention knowledge
-
 ## Your Process
 
 ### Step 1: Understand the Changes
@@ -58,16 +19,6 @@ Read the task file and scan the codebase to categorize what changed:
 - New patterns or approaches introduced
 - Configuration changes
 - API changes (endpoints, signatures, interfaces)
-
-**RAMBO-SPECIFIC (Check for these):**
-- ⚠️ **Hardware behaviors verified** - Which behaviors achieved hardware parity?
-- ⚠️ **Test expectations corrected** - Which tests were fixed to match hardware?
-- ⚠️ **Behavioral lockdowns** - Which behaviors should be marked as LOCKED?
-- ⚠️ **Cycle timing discoveries** - Were exact cycle counts determined?
-- ⚠️ **Component boundary lessons** - New discoveries about CPU/PPU/NMI interactions?
-- ⚠️ **Hardware timing nuances** - Skips, edge cases, subtle behaviors discovered?
-- ⚠️ **Architectural anti-patterns** - Was tight CPU/PPU coupling introduced (BAD) or removed (GOOD)?
-- ⚠️ **Game compatibility changes** - Which games now work/don't work?
 
 Build a clear mental model of what happened during the session.
 
@@ -131,20 +82,6 @@ After completing all documentation updates, return your final response with:
 - **Current over historical** - Document what is, not what was
 - **Adapt to existing structure** - Don't impose rigid templates, work with what exists
 - **No code examples** - Never include code snippets; reference file paths and line numbers instead
-
-**RAMBO-SPECIFIC Documentation Principles:**
-
-- **Hardware truth over implementation convenience** - Document actual hardware behavior with nesdev.org citations
-- **Preserve regression prevention knowledge** - Don't remove behavioral lockdowns or component boundary lessons
-- **Warn against architectural anti-patterns:**
-  - ❌ **BAD:** Hard-locking CPU and PPU execution together
-  - ❌ **BAD:** Assuming exact 1:3 cycle ratio without accounting for skips
-  - ❌ **BAD:** Tight coupling between separate hardware components
-  - ✅ **GOOD:** CPU and PPU execute independently (separate chips)
-  - ✅ **GOOD:** Approximate 1:3 ratio with timing nuances documented
-  - ✅ **GOOD:** Components interact through hardware-accurate interfaces only
-- **Precise timing documentation** - Use exact cycle counts, not approximations
-- **Lockdown documentation** - Clearly mark hardware-verified behaviors as LOCKED to prevent regression
 
 ## Important Notes
 

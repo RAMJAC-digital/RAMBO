@@ -455,7 +455,7 @@ pub const EmulationState = struct {
     /// - docs/code-review/clock-advance-refactor-plan.md Section 4.3
     pub fn tick(self: *EmulationState) void {
         if (self.debuggerShouldHalt()) {
-            void{};
+            return {};
         }
 
         // Advance master clock (monotonic counter for timestamps)
@@ -514,7 +514,6 @@ pub const EmulationState = struct {
 
         // Advance PPU clock first (PPU owns its own timing state)
         // Hardware: PPU has independent clock counters (cycle, scanline, frame_count)
-        // Mesen2 reference: NesPpu.cpp Exec() function
         PpuLogic.advanceClock(&self.ppu, self.rendering_enabled);
 
         // Process PPU rendering at the POST-advance position (current PPU clock state)

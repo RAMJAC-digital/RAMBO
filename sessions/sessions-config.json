@@ -20,17 +20,17 @@
     ]
   },
   "git_preferences": {
-    "add_pattern": "all",
+    "add_pattern": "ask",
     "default_branch": "main",
-    "commit_style": "detailed",
-    "auto_merge": true,
+    "commit_style": "conventional",
+    "auto_merge": false,
     "auto_push": false,
     "has_submodules": false
   },
   "environment": {
     "os": "linux",
     "shell": "bash",
-    "developer_name": "Colin"
+    "developer_name": "developer"
   },
   "blocked_actions": {
     "implementation_only_tools": [
@@ -39,13 +39,9 @@
       "MultiEdit",
       "NotebookEdit"
     ],
-    "bash_read_patterns": [
-      "rg",
-      "eza",
-      "tree"
-    ],
+    "bash_read_patterns": [],
     "bash_write_patterns": [],
-    "extrasafe": true
+    "extrasafe": false
   },
   "features": {
     "branch_enforcement": true,
