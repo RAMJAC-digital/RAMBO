@@ -9,7 +9,6 @@ pub const EXPORT_SYMBOLS = [_][]const u8{
     "rambo_shutdown",
     "rambo_reset",
     "rambo_set_controller_state",
-    "rambo_set_heap_bounds",
     "rambo_step_frame",
     "rambo_framebuffer_ptr",
     "rambo_framebuffer_size",

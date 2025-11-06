@@ -27,7 +27,7 @@ const Emulator = struct {
     allocator: std.mem.Allocator,
     config: RAMBO.Config.Config,
     state: RAMBO.EmulationState.EmulationState,
-    framebuffer: []u32,  // Heap-allocated to avoid stack overflow
+    framebuffer: []u32, // Heap-allocated to avoid stack overflow
     controller: ControllerState = .{},
 
     fn init(rom_data: []const u8) !Emulator {
@@ -72,18 +72,9 @@ var g_last_error: ErrorCode = .ok;
 var g_last_alloc_ptr: usize = 0;
 var g_last_alloc_size: usize = 0;
 
-// Heap bounds set by JavaScript after memory creation
-var g_heap_start: usize = 0;
-var g_heap_size: usize = 0;
-
 fn setError(code: ErrorCode) ErrorCode {
     g_last_error = code;
     return code;
-}
-
-pub export fn rambo_set_heap_bounds(heap_start: usize, heap_size: usize) void {
-    g_heap_start = heap_start;
-    g_heap_size = heap_size;
 }
 
 fn getEmulator() ?*Emulator {
@@ -152,7 +143,7 @@ pub export fn rambo_step_frame() u32 {
         emu.controller.controller2.toByte(),
     );
 
-    emu.state.framebuffer = emu.framebuffer[0..];
+    emu.state.framebuffer = emu.framebuffer;
     _ = emu.state.emulateFrame();
     emu.state.framebuffer = null;
 
@@ -162,7 +153,7 @@ pub export fn rambo_step_frame() u32 {
 
 pub export fn rambo_framebuffer_ptr() usize {
     const emu = getEmulator() orelse return 0;
-    return @intFromPtr(emu.framebuffer[0..].ptr);
+    return @intFromPtr(emu.framebuffer.ptr);
 }
 
 pub export fn rambo_framebuffer_size() usize {

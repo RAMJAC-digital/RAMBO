@@ -28,6 +28,8 @@ export class RamboEmulatorClient {
     this.framePixels = FRAME_PIXELS;
     this.frameBuffer = null;
     this.romStagingView = null;
+    this.heapBase = 0;
+    this.heapLimit = 0;
     this.controllerMask = 0;
     this.running = false;
     this.animationHandle = null;
@@ -66,20 +68,23 @@ export class RamboEmulatorClient {
 
     // Import memory into WASM module
     const { instance } = await WebAssembly.instantiate(bytes, {
-      env: { memory: memory }
+      env: { memory }
     });
 
     this.instance = instance;
     this.exports = instance.exports;
     this.memory = memory;
 
-    // Calculate heap bounds: assume data section is first 2MB, rest is heap
-    const dataSize = 2 * 1024 * 1024;  // 2MB for data + stack
-    const heapStart = dataSize;
-    const heapSize = memory.buffer.byteLength - dataSize;
-
-    // Tell WASM where the heap starts
-    this.exports.rambo_set_heap_bounds(heapStart, heapSize);
+    const heapBaseGlobal = this.exports.__heap_base;
+    const heapBaseValue =
+      heapBaseGlobal && typeof heapBaseGlobal === "object" && "value" in heapBaseGlobal
+        ? heapBaseGlobal.value
+        : heapBaseGlobal;
+    const numericBase = typeof heapBaseValue === "bigint"
+      ? Number(heapBaseValue)
+      : Number(heapBaseValue ?? 0);
+    this.heapBase = Number.isFinite(numericBase) ? numericBase : 0;
+    this.heapLimit = this.memory.buffer.byteLength;
 
     return this;
   }
@@ -175,7 +180,7 @@ export class RamboEmulatorClient {
     }
     await this.ensureReady();
 
-    const heapMetric = this.exports.rambo_heap_size_bytes ? () => this.exports.rambo_heap_size_bytes() : () => this.exports.memory.buffer.byteLength;
+    const heapMetric = this.exports.rambo_heap_size_bytes ? () => this.exports.rambo_heap_size_bytes() : () => this.memory ? this.memory.buffer.byteLength : 0;
     const beforeHeap = heapMetric();
 
     const ptr = this.exports.rambo_alloc(bytes.length);
@@ -196,6 +201,12 @@ export class RamboEmulatorClient {
     const freshBuffer = this.memory.buffer;
     const heapBytes = freshBuffer.byteLength;
     const end = ptr + bytes.length;
+    if (ptr < (this.heapBase ?? 0)) {
+      this.exports.rambo_free(ptr, bytes.length);
+      throw new Error(
+        `ROM allocation (${ptr}) is below heap base ${(this.heapBase ?? 0)}`
+      );
+    }
     if (end > heapBytes) {
       this.exports.rambo_free(ptr, bytes.length);
       throw new Error(
@@ -203,6 +214,7 @@ export class RamboEmulatorClient {
       );
     }
 
+    this.heapLimit = heapBytes;
     this.romStagingView = new Uint8Array(freshBuffer, ptr, bytes.length);
     this.romStagingView.set(bytes);
 
