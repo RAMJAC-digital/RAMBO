@@ -4,13 +4,6 @@ Cycle-accurate NES emulator written in Zig 0.15.1.
 
 **Current Status:** 1162/1184 tests passing (98.1%) - See [docs/STATUS.md](docs/STATUS.md) for details
 
-**Commercial ROMs:**
-- ✅ Castlevania, Mega Man, Kid Icarus, Battletoads, SMB2
-- ⚠️ SMB1: Title animates correctly, sprite palette bug (`?` boxes)
-- ⚠️ SMB3: Missing checkered floor on title screen
-- ⚠️ Bomberman: Menu visible, title screen black
-- ❌ TMNT series: Grey screen (not rendering)
-
 ---
 
 ## Recent Fixes (2025-11-04)

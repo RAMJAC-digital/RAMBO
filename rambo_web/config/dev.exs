@@ -7,9 +7,13 @@ import Config
 # watchers to your application. For example, we can use it
 # to bundle .js and .css sources.
 config :rambo_web, RamboWebWeb.Endpoint,
-  # Binding to loopback ipv4 address prevents access from other machines.
-  # Change to `ip: {0, 0, 0, 0}` to allow access from other machines.
-  http: [ip: {127, 0, 0, 1}, port: 5000],
+  # Dual-stack configuration: Bind to IPv6 wildcard address (::)
+  # This accepts both IPv4 and IPv6 connections on systems with dual-stack enabled.
+  # Accessible via:
+  #   - IPv4: http://192.168.1.x:5000, http://localhost:5000
+  #   - IPv6: http://cream.local:5000, http://[ipv6-address]:5000
+  # Format: {0, 0, 0, 0, 0, 0, 0, 0} represents :: in IPv6
+  http: [ip: {0, 0, 0, 0, 0, 0, 0, 0}, port: 5000],
   check_origin: false,
   code_reloader: true,
   debug_errors: true,

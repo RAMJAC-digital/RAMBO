@@ -6,6 +6,7 @@ const Graphics = @import("build/graphics.zig");
 const Modules = @import("build/modules.zig");
 const Diagnostics = @import("build/diagnostics.zig");
 const Tests = @import("build/tests.zig");
+const Wasm = @import("build/wasm.zig");
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
@@ -83,39 +84,11 @@ pub fn build(b: *std.Build) void {
         .single_thread = true,
     });
 
-    const wasm_target = b.resolveTargetQuery(.{
-        .cpu_arch = .wasm32,
-        .os_tag = .freestanding,
-    });
-
-    const wasm_rambo_module = b.createModule(.{
-        .root_source_file = b.path("src/root.zig"),
-        .target = wasm_target,
+    const wasm = Wasm.setup(b, .{
         .optimize = optimize,
-        .imports = &.{
-            .{ .name = "build_options", .module = wasm_build_options.module },
-        },
+        .build_options = wasm_build_options,
     });
-
-    const wasm_root_module = b.createModule(.{
-        .root_source_file = b.path("src/wasm.zig"),
-        .target = wasm_target,
-        .optimize = optimize,
-        .imports = &.{
-            .{ .name = "RAMBO", .module = wasm_rambo_module },
-            .{ .name = "build_options", .module = wasm_build_options.module },
-        },
-    });
-
-    const wasm_exe = b.addExecutable(.{
-        .name = "rambo",
-        .root_module = wasm_root_module,
-    });
-
-    wasm_exe.entry = .disabled;
-
-    b.installArtifact(wasm_exe);
 
     const wasm_step = b.step("wasm", "Build the WebAssembly module");
-    wasm_step.dependOn(&wasm_exe.step);
+    wasm_step.dependOn(&wasm.install.step);
 }

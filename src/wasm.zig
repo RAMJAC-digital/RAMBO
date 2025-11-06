@@ -13,6 +13,7 @@ const ControllerState = struct {
 };
 
 const wasm_allocator = std.heap.wasm_allocator;
+const WASM_PAGE_SIZE: usize = std.wasm.page_size;
 
 const ErrorCode = enum(u32) {
     ok = 0,
@@ -26,7 +27,7 @@ const Emulator = struct {
     allocator: std.mem.Allocator,
     config: RAMBO.Config.Config,
     state: RAMBO.EmulationState.EmulationState,
-    framebuffer: [FRAME_PIXELS]u32 = [_]u32{0} ** FRAME_PIXELS,
+    framebuffer: []u32,  // Heap-allocated to avoid stack overflow
     controller: ControllerState = .{},
 
     fn init(rom_data: []const u8) !Emulator {
@@ -34,6 +35,10 @@ const Emulator = struct {
         errdefer arena.deinit();
 
         const allocator = arena.allocator();
+
+        // Allocate framebuffer on heap (246KB)
+        const framebuffer = try allocator.alloc(u32, FRAME_PIXELS);
+        @memset(framebuffer, 0);
 
         var config = RAMBO.Config.Config.init(allocator);
         errdefer config.deinit();
@@ -50,6 +55,7 @@ const Emulator = struct {
             .allocator = allocator,
             .config = config,
             .state = state,
+            .framebuffer = framebuffer,
         };
     }
 
@@ -63,10 +69,21 @@ const Emulator = struct {
 var g_emulator: ?Emulator = null;
 var g_pending_controller: ControllerState = .{};
 var g_last_error: ErrorCode = .ok;
+var g_last_alloc_ptr: usize = 0;
+var g_last_alloc_size: usize = 0;
+
+// Heap bounds set by JavaScript after memory creation
+var g_heap_start: usize = 0;
+var g_heap_size: usize = 0;
 
 fn setError(code: ErrorCode) ErrorCode {
     g_last_error = code;
     return code;
+}
+
+pub export fn rambo_set_heap_bounds(heap_start: usize, heap_size: usize) void {
+    g_heap_start = heap_start;
+    g_heap_size = heap_size;
 }
 
 fn getEmulator() ?*Emulator {
@@ -157,10 +174,26 @@ pub export fn rambo_frame_dimensions(width: *u32, height: *u32) void {
     height.* = FRAME_HEIGHT;
 }
 
+pub export fn rambo_heap_size_bytes() usize {
+    const pages = @as(usize, @intCast(@wasmMemorySize(0)));
+    return pages * WASM_PAGE_SIZE;
+}
+
+pub export fn rambo_last_alloc_ptr() usize {
+    return g_last_alloc_ptr;
+}
+
+pub export fn rambo_last_alloc_size() usize {
+    return g_last_alloc_size;
+}
+
 pub export fn rambo_alloc(size: usize) usize {
     if (size == 0) return 0;
     const buf = wasm_allocator.alloc(u8, size) catch return 0;
-    return @intFromPtr(buf.ptr);
+    const ptr = @intFromPtr(buf.ptr);
+    g_last_alloc_ptr = ptr;
+    g_last_alloc_size = size;
+    return ptr;
 }
 
 pub export fn rambo_free(ptr: usize, size: usize) void {
@@ -168,4 +201,8 @@ pub export fn rambo_free(ptr: usize, size: usize) void {
     const slice_ptr: [*]u8 = @ptrFromInt(ptr);
     const slice = slice_ptr[0..size];
     wasm_allocator.free(slice);
+    if (ptr == g_last_alloc_ptr and size == g_last_alloc_size) {
+        g_last_alloc_ptr = 0;
+        g_last_alloc_size = 0;
+    }
 }

@@ -47,11 +47,34 @@ pub const NES_PALETTE_RGB = [64]u32{
 /// Vulkan expects VK_FORMAT_B8G8R8A8_UNORM format where alpha is in the high byte
 /// Input:  0x00RRGGBB (NES palette RGB)
 /// Output: 0xAABBGGRR (BGRA with alpha in high byte)
-pub fn rgbToRgba(rgb: u32) u32 {
+pub fn rgbToBgra(rgb: u32) u32 {
     return rgb | 0xFF000000; // Add alpha 0xFF in high byte for BGRA format
 }
 
+/// Convert RGB888 to RGBA8888 (add alpha channel)
+/// JavaScript Canvas ImageData expects RGBA format (red, green, blue, alpha in byte order)
+/// WASM is little-endian: u32 value 0xAABBGGRR is stored as bytes [RR, GG, BB, AA]
+///
+/// Input:  0x00RRGGBB (NES palette RGB)
+/// Output: 0xAABBGGRR (u32 that produces [RR, GG, BB, AA] bytes in little-endian memory)
+///
+/// Example: NES color 0x5C1EE4 (red=0x5C, green=0x1E, blue=0xE4)
+/// - Extract: r=0x5C, g=0x1E, b=0xE4
+/// - Pack: 0x5C | (0x1E << 8) | (0xE4 << 16) | (0xFF << 24) = 0xFFE41E5C
+/// - As little-endian bytes: [5C, 1E, E4, FF] = [R, G, B, A] ✓
+pub fn rgbToRgba(rgb: u32) u32 {
+    const r = (rgb >> 16) & 0xFF;
+    const g = (rgb >> 8) & 0xFF;
+    const b = rgb & 0xFF;
+    return r | (g << 8) | (b << 16) | (0xFF << 24);
+}
+
 /// Get NES color as BGRA8888 for Vulkan rendering
+pub inline fn getNesColorBgra(nes_color_index: u8) u32 {
+    return rgbToBgra(NES_PALETTE_RGB[nes_color_index & 0x3F]);
+}
+
+/// Get NES color as RGBA8888 for Canvas/WASM rendering
 pub inline fn getNesColorRgba(nes_color_index: u8) u32 {
     return rgbToRgba(NES_PALETTE_RGB[nes_color_index & 0x3F]);
 }
@@ -94,11 +117,31 @@ test "NES palette: white color" {
 
 test "NES palette: BGRA conversion" {
     const rgb = 0x123456;
-    const bgra = rgbToRgba(rgb);
-    // BGRA format: alpha in high byte
+    const bgra = rgbToBgra(rgb);
+    // BGRA format: alpha in high byte, RGB unchanged
     // Input:  0x00123456 (RGB)
     // Output: 0xFF123456 (BGRA with alpha=0xFF)
     try testing.expectEqual(@as(u32, 0xFF123456), bgra);
+}
+
+test "NES palette: RGBA conversion" {
+    const rgb = 0x5C1EE4; // red=0x5C, green=0x1E, blue=0xE4 (blue color)
+    const rgba = rgbToRgba(rgb);
+    // RGBA format for little-endian: u32 0xAABBGGRR produces bytes [RR, GG, BB, AA]
+    // Input:  0x005C1EE4 (RGB: R=0x5C, G=0x1E, B=0xE4)
+    // Output: 0xFFE41E5C (u32 that produces bytes [5C, 1E, E4, FF])
+    // As u32: r | (g << 8) | (b << 16) | (a << 24)
+    //         0x5C | (0x1E << 8) | (0xE4 << 16) | (0xFF << 24) = 0xFFE41E5C
+    try testing.expectEqual(@as(u32, 0xFFE41E5C), rgba);
+}
+
+test "NES palette: RGBA gray conversion" {
+    const rgb = 0x545454; // gray (R=G=B)
+    const rgba = rgbToRgba(rgb);
+    // For gray colors, R/B swap doesn't change result
+    // Input:  0x00545454
+    // Output: 0xFF545454
+    try testing.expectEqual(@as(u32, 0xFF545454), rgba);
 }
 
 test "NES palette: color index masking" {
@@ -113,6 +156,12 @@ test "NES palette: color index masking" {
     try testing.expectEqual(
         getNesColorRgba(0x3F),
         getNesColorRgba(0xFF)
+    );
+
+    // Test BGRA function too
+    try testing.expectEqual(
+        getNesColorBgra(0x00),
+        getNesColorBgra(0x40)
     );
 }
 
