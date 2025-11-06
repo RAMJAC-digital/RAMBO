@@ -13,7 +13,11 @@ pub fn build(b: *std.Build) void {
 
     const with_movy = b.option(bool, "with_movy", "Enable movy terminal rendering backend") orelse false;
 
-    const build_options = Options.create(b, with_movy);
+    const build_options = Options.create(b, .{
+        .with_wayland = true,
+        .with_movy = with_movy,
+        .single_thread = false,
+    });
     const deps = Dependencies.resolve(b, target, optimize, with_movy);
 
     const wayland = Wayland.generate(b) catch return;
@@ -25,6 +29,8 @@ pub fn build(b: *std.Build) void {
         .dependencies = deps,
         .build_options = build_options,
         .wayland = wayland,
+        .with_wayland = true,
+        .single_thread = false,
     });
 
     b.getInstallStep().dependOn(&shaders.install_vertex.step);
@@ -66,4 +72,50 @@ pub fn build(b: *std.Build) void {
 
     const tooling_step = b.step("test-tooling", "Run helper/tooling diagnostics");
     for (tests.tooling) |step| tooling_step.dependOn(step);
+
+    // ---------------------------------------------------------------------
+    // WebAssembly single-threaded build target
+    // ---------------------------------------------------------------------
+
+    const wasm_build_options = Options.create(b, .{
+        .with_wayland = false,
+        .with_movy = false,
+        .single_thread = true,
+    });
+
+    const wasm_target = b.resolveTargetQuery(.{
+        .cpu_arch = .wasm32,
+        .os_tag = .freestanding,
+    });
+
+    const wasm_rambo_module = b.createModule(.{
+        .root_source_file = b.path("src/root.zig"),
+        .target = wasm_target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "build_options", .module = wasm_build_options.module },
+        },
+    });
+
+    const wasm_root_module = b.createModule(.{
+        .root_source_file = b.path("src/wasm.zig"),
+        .target = wasm_target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "RAMBO", .module = wasm_rambo_module },
+            .{ .name = "build_options", .module = wasm_build_options.module },
+        },
+    });
+
+    const wasm_exe = b.addExecutable(.{
+        .name = "rambo",
+        .root_module = wasm_root_module,
+    });
+
+    wasm_exe.entry = .disabled;
+
+    b.installArtifact(wasm_exe);
+
+    const wasm_step = b.step("wasm", "Build the WebAssembly module");
+    wasm_step.dependOn(&wasm_exe.step);
 }

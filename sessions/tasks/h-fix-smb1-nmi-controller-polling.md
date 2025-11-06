@@ -1,7 +1,7 @@
 ---
 name: h-fix-smb1-nmi-controller-polling
 branch: fix/h-fix-smb1-nmi-controller-polling
-status: pending
+status: in-progress
 created: 2025-11-04
 ---
 

@@ -548,6 +548,8 @@ pub const EmulationState = struct {
         // This ensures NMI line always reflects current VBlank/PPUCTRL state
         // BUG FIX: Previously only updated on CPU ticks, causing NMI line to lag
         // when VBlank sets on non-CPU-tick cycles
+        // Uses isFlagVisible() because reading $2002 should keep NMI line low
+        // The immediate trigger in PpuHandler uses isActive() for the enable-during-VBlank case
         const vblank_flag_visible = self.vblank_ledger.isFlagVisible();
         const nmi_line_should_assert = vblank_flag_visible and self.ppu.ctrl.nmi_enable;
         self.cpu.nmi_line = nmi_line_should_assert;

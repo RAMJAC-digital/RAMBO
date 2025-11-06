@@ -20,29 +20,15 @@ const ines = @import("ines/mod.zig");
 /// Maximum ROM file size (1MB - reasonable limit for NES ROMs)
 const MAX_ROM_SIZE: usize = 1024 * 1024;
 
-/// Load any supported cartridge from file path (dynamic dispatch)
-///
-/// Reads the iNES header to determine mapper type, then loads the appropriate
-/// cartridge variant into an AnyCartridge union.
-///
-/// Returns error.UnsupportedMapper if the ROM uses a mapper we don't support.
-pub fn loadAnyCartridgeFile(
+/// Load any supported cartridge from memory buffer (dynamic dispatch)
+pub fn loadAnyCartridgeBytes(
     allocator: std.mem.Allocator,
-    path: []const u8,
+    data: []const u8,
 ) !AnyCartridge {
-    // Open file and read data
-    const file = try std.fs.cwd().openFile(path, .{});
-    defer file.close();
-
-    const data = try file.readToEndAlloc(allocator, MAX_ROM_SIZE);
-    defer allocator.free(data);
-
-    // Parse header to determine mapper
     if (data.len < 16) return error.InvalidRomSize;
     const header = try ines.parseHeader(data[0..16]);
     const mapper_num = header.getMapperNumber();
 
-    // Load appropriate cartridge type based on mapper
     return switch (mapper_num) {
         0 => {
             const cart = try Cartridge(Mapper0).loadFromData(allocator, data);
@@ -70,6 +56,26 @@ pub fn loadAnyCartridgeFile(
         },
         else => error.UnsupportedMapper,
     };
+}
+
+/// Load any supported cartridge from file path (dynamic dispatch)
+///
+/// Reads the iNES header to determine mapper type, then loads the appropriate
+/// cartridge variant into an AnyCartridge union.
+///
+/// Returns error.UnsupportedMapper if the ROM uses a mapper we don't support.
+pub fn loadAnyCartridgeFile(
+    allocator: std.mem.Allocator,
+    path: []const u8,
+) !AnyCartridge {
+    // Open file and read data
+    const file = try std.fs.cwd().openFile(path, .{});
+    defer file.close();
+
+    const data = try file.readToEndAlloc(allocator, MAX_ROM_SIZE);
+    defer allocator.free(data);
+
+    return loadAnyCartridgeBytes(allocator, data);
 }
 
 /// Load cartridge from file path (synchronous)

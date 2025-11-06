@@ -5,10 +5,17 @@ pub const BuildOptions = struct {
     module: *std.Build.Module,
 };
 
-pub fn create(b: *std.Build, with_movy: bool) BuildOptions {
+pub const CreateParams = struct {
+    with_wayland: bool = true,
+    with_movy: bool = false,
+    single_thread: bool = false,
+};
+
+pub fn create(b: *std.Build, params: CreateParams) BuildOptions {
     const options = b.addOptions();
-    options.addOption(bool, "with_wayland", true);
-    options.addOption(bool, "with_movy", with_movy);
+    options.addOption(bool, "with_wayland", params.with_wayland);
+    options.addOption(bool, "with_movy", params.with_movy);
+    options.addOption(bool, "single_thread", params.single_thread);
     return .{
         .step = options,
         .module = options.createModule(),

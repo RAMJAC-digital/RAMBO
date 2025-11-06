@@ -117,6 +117,8 @@ cd RAMBO
 # Build executable
 zig build                   # Default build (Vulkan/Wayland backend)
 zig build -Dwith_movy=true  # Build with terminal backend support (enables --backend=terminal)
+zig build wasm              # Build browser-ready WebAssembly module (outputs zig-out/bin/rambo.wasm)
+# Export notes & pitfalls: see docs/web/wasm-export-notes.md
 
 # Run tests
 zig build test
@@ -132,6 +134,17 @@ zig build run
 ./zig-out/bin/RAMBO "path/to/rom.nes" --backend=terminal  # Terminal rendering (requires -Dwith_movy=true)
 ./zig-out/bin/RAMBO "path/to/rom.nes" --backend=wayland  # Vulkan/Wayland rendering (default)
 ./zig-out/bin/RAMBO "path/to/rom.nes" --dump-frame 120   # Dump frame 120 to frame_0120.ppm
+
+# WebAssembly host integration (requires external JS shim to drive the API)
+zig build wasm
+# Produces zig-out/bin/rambo.wasm with exported init/input/frame APIs for browser integration.
+
+# Phoenix LiveView front-end (uploads a ROM and drives the wasm core in the browser)
+zig build wasm                # ensure rambo.wasm is current
+cd rambo_web
+mix setup                     # installs Hex deps and tooling
+mix assets.build              # optional but keeps priv/static fresh
+mix phx.server                # serves the UI on http://localhost:5000
 ```
 
 **Terminal Mode:** For SSH/remote development or visual debugging without GUI:

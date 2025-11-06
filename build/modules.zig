@@ -9,6 +9,8 @@ pub const ModuleConfig = struct {
     dependencies: Dependencies.DependencyModules,
     build_options: Options.BuildOptions,
     wayland: Wayland.WaylandArtifacts,
+    with_wayland: bool,
+    single_thread: bool,
 };
 
 pub const ModuleArtifacts = struct {
@@ -18,20 +20,32 @@ pub const ModuleArtifacts = struct {
 };
 
 pub fn setup(b: *std.Build, config: ModuleConfig) ModuleArtifacts {
-    // Build imports list conditionally including movy if available
-    const base_imports = [_]std.Build.Module.Import{
-        .{ .name = "build_options", .module = config.build_options.module },
-        .{ .name = "wayland_client", .module = config.wayland.module },
-        .{ .name = "xev", .module = config.dependencies.xev },
-        .{ .name = "zli", .module = config.dependencies.zli },
-    };
+    // Build imports list conditionally including platform modules
+    var module_imports: [5]std.Build.Module.Import = undefined;
+    var module_import_count: usize = 0;
 
-    const imports = if (config.dependencies.movy) |movy_module|
-        &(base_imports ++ [_]std.Build.Module.Import{
-            .{ .name = "movy", .module = movy_module },
-        })
-    else
-        &base_imports;
+    module_imports[module_import_count] = .{ .name = "build_options", .module = config.build_options.module };
+    module_import_count += 1;
+
+    if (config.with_wayland) {
+        module_imports[module_import_count] = .{ .name = "wayland_client", .module = config.wayland.module };
+        module_import_count += 1;
+    }
+
+    if (!config.single_thread) {
+        module_imports[module_import_count] = .{ .name = "xev", .module = config.dependencies.xev };
+        module_import_count += 1;
+
+        module_imports[module_import_count] = .{ .name = "zli", .module = config.dependencies.zli };
+        module_import_count += 1;
+    }
+
+    if (config.dependencies.movy) |movy_module| {
+        module_imports[module_import_count] = .{ .name = "movy", .module = movy_module };
+        module_import_count += 1;
+    }
+
+    const imports = module_imports[0..module_import_count];
 
     const mod = b.addModule("RAMBO", .{
         .root_source_file = b.path("src/root.zig"),
@@ -40,20 +54,34 @@ pub fn setup(b: *std.Build, config: ModuleConfig) ModuleArtifacts {
     });
 
     // Build root module imports conditionally including movy
-    const base_root_imports = [_]std.Build.Module.Import{
-        .{ .name = "RAMBO", .module = mod },
-        .{ .name = "xev", .module = config.dependencies.xev },
-        .{ .name = "zli", .module = config.dependencies.zli },
-        .{ .name = "wayland_client", .module = config.wayland.module },
-        .{ .name = "build_options", .module = config.build_options.module },
-    };
+    var root_imports_buf: [6]std.Build.Module.Import = undefined;
+    var root_import_count: usize = 0;
 
-    const root_imports = if (config.dependencies.movy) |movy_module|
-        &(base_root_imports ++ [_]std.Build.Module.Import{
-            .{ .name = "movy", .module = movy_module },
-        })
-    else
-        &base_root_imports;
+    root_imports_buf[root_import_count] = .{ .name = "RAMBO", .module = mod };
+    root_import_count += 1;
+
+    if (!config.single_thread) {
+        root_imports_buf[root_import_count] = .{ .name = "xev", .module = config.dependencies.xev };
+        root_import_count += 1;
+
+        root_imports_buf[root_import_count] = .{ .name = "zli", .module = config.dependencies.zli };
+        root_import_count += 1;
+    }
+
+    if (config.with_wayland) {
+        root_imports_buf[root_import_count] = .{ .name = "wayland_client", .module = config.wayland.module };
+        root_import_count += 1;
+    }
+
+    root_imports_buf[root_import_count] = .{ .name = "build_options", .module = config.build_options.module };
+    root_import_count += 1;
+
+    if (config.dependencies.movy) |movy_module| {
+        root_imports_buf[root_import_count] = .{ .name = "movy", .module = movy_module };
+        root_import_count += 1;
+    }
+
+    const root_imports = root_imports_buf[0..root_import_count];
 
     const root_module = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
@@ -69,9 +97,11 @@ pub fn setup(b: *std.Build, config: ModuleConfig) ModuleArtifacts {
         .root_module = root_module,
     });
 
-    exe.linkSystemLibrary("wayland-client");
-    exe.linkSystemLibrary("xkbcommon");
-    exe.linkSystemLibrary("vulkan");
+    if (config.with_wayland) {
+        exe.linkSystemLibrary("wayland-client");
+        exe.linkSystemLibrary("xkbcommon");
+        exe.linkSystemLibrary("vulkan");
+    }
 
     b.installArtifact(exe);
 

@@ -1,0 +1,29 @@
+<header class="bg-slate-950 text-slate-200">
+  <div class="mx-auto flex max-w-6xl flex-col gap-3 px-4 py-6 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
+    <div class="flex items-center gap-4">
+      <a href="/" class="flex items-center gap-3">
+        <img src={~p"/images/logo.svg"} width="36" alt="RAMBO logo" />
+        <span class="text-xl font-semibold tracking-tight">RAMBO Web Emulator</span>
+      </a>
+    </div>
+    <div class="flex items-center gap-4 text-sm">
+      <span class="rounded-full bg-slate-800 px-3 py-1 font-mono text-slate-300">
+        Phoenix <%= Application.spec(:phoenix, :vsn) %> · wasm preview
+      </span>
+      <a
+        href="https://github.com/colinxe/rambo"
+        class="rounded bg-indigo-600 px-3 py-1 font-medium text-white transition hover:bg-indigo-500"
+      >
+        View Source
+      </a>
+    </div>
+  </div>
+</header>
+<main class="bg-slate-50">
+  <div class="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
+    <div class="mb-6">
+      <.flash_group flash={@flash} />
+    </div>
+    <%= @inner_content %>
+  </div>
+</main>
