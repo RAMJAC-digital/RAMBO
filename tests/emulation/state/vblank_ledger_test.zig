@@ -9,7 +9,7 @@ const RAMBO = @import("RAMBO");
 const Harness = RAMBO.TestHarness.Harness;
 
 fn isFlagVisible(h: *Harness) bool {
-    return h.state.vblank_ledger.isFlagVisible();
+    return h.state.vblank_ledger.isFlagSet();
 }
 
 fn readVBlankBit(h: *Harness) bool {
@@ -80,14 +80,14 @@ test "VBlankLedger: Flag is cleared at scanline -1, dot 1 (pre-render)" {
     h.seekTo(-1, 0);
 
     // At -1,0, VBlank should still be active (hasn't cleared by timing yet)
-    try testing.expect(h.state.vblank_ledger.isActive());
+    try testing.expect(h.state.vblank_ledger.isFlagSet());
 
     // Tick to the exact clear cycle
     h.tick(1);
     try testing.expect(h.state.ppu.scanline == -1 and h.state.ppu.cycle == 1);
 
     // The flag is now cleared by timing
-    try testing.expect(!h.state.vblank_ledger.isActive());
+    try testing.expect(!h.state.vblank_ledger.isFlagSet());
 
     // Verify VBlank was cleared (last_clear_cycle should be non-zero)
     try testing.expect(h.state.vblank_ledger.last_clear_cycle > 0);

@@ -546,15 +546,12 @@ pub const EmulationState = struct {
         //   dot 1: Apply VBlank → checks prevent_vbl_set_cycle → skip setting flag
         self.applyVBlankTimestamps(ppu_result);
 
-        // Update NMI line EVERY cycle after VBlank flag is finalized
-        // This ensures NMI line always reflects current VBlank/PPUCTRL state
-        // BUG FIX: Previously only updated on CPU ticks, causing NMI line to lag
-        // when VBlank sets on non-CPU-tick cycles
-        // Uses isFlagVisible() because reading $2002 should keep NMI line low
-        // The immediate trigger in PpuHandler uses isActive() for the enable-during-VBlank case
-        const vblank_flag_visible = self.vblank_ledger.isFlagVisible();
-        const nmi_line_should_assert = vblank_flag_visible and self.ppu.ctrl.nmi_enable;
-        self.cpu.nmi_line = nmi_line_should_assert;
+        // NMI line is edge-triggered (managed by VBlank events and PPUCTRL writes)
+        // DO NOT update every cycle - destroys edge detection!
+        // NMI line is set/cleared ONLY by:
+        // 1. applyVBlankTimestamps() when VBlank starts (if nmi_enable is true)
+        // 2. PpuHandler.write() when writing to PPUCTRL ($2000)
+        // 3. PpuHandler.read() when reading PPUSTATUS ($2002)
 
         // Sample interrupt lines ONLY on CPU ticks (not during interrupt sequence)
         // This follows the "second-to-last cycle" rule for CPU interrupt polling
@@ -586,9 +583,9 @@ pub const EmulationState = struct {
     /// Apply VBlank timestamps AFTER CPU execution
     /// This ensures prevention flag (set by $2002 reads) is respected.
     fn applyVBlankTimestamps(self: *EmulationState, result: PpuCycleResult) void {
-        // Handle VBlank events by updating the ledger's timestamps.
+        // Handle VBlank events by updating the ledger's flags and timestamps.
         if (result.nmi_signal) {
-            // VBlank flag set at scanline 241 dot 1.
+            // VBlank begins at scanline 241 dot 1.
             // CRITICAL: Check prevention flag before setting
             // Per Mesen2 NesPpu.cpp:1340-1344: if(!_preventVblFlag) { set flag }
             // Hardware: Read during race window (dots 0-2) prevents flag set
@@ -603,8 +600,20 @@ pub const EmulationState = struct {
             // The flag is cleared at frame boundaries, so non-zero means CPU read during race window.
             const prevent_cycle = self.vblank_ledger.prevent_vbl_set_cycle;
             const should_prevent = prevent_cycle != 0 and prevent_cycle == self.clock.master_cycles;
+
+            // VBlank span always activates (hardware timing window)
+            self.vblank_ledger.vblank_span_active = true;
+
             if (!should_prevent) {
+                // Set VBlank flag (readable bit 7 of $2002)
+                self.vblank_ledger.vblank_flag = true;
                 self.vblank_ledger.last_set_cycle = self.clock.master_cycles;
+
+                // Set NMI line if NMI is enabled (hardware behavior)
+                // Per Mesen2 NesPpu.cpp:1338: if(ppuCtrl.nmiOnVBlank) { cpu->SetNmiFlag(); }
+                if (self.ppu.ctrl.nmi_enable) {
+                    self.cpu.nmi_line = true;
+                }
             }
             // One-shot: ALWAYS clear prevention flag after checking (match Mesen2 exactly)
             // Per Mesen2 NesPpu.cpp:1344: _preventVblFlag = false (unconditional)
@@ -612,9 +621,16 @@ pub const EmulationState = struct {
         }
 
         if (result.vblank_clear) {
-            // VBlank span ends at scanline 261 dot 1 (pre-render).
-            // Use master_cycles (monotonic) for timestamp
+            // VBlank ends at scanline 261 dot 1 (pre-render).
+            // Clear both span and flag (hardware timing behavior)
+            self.vblank_ledger.vblank_span_active = false;
+            self.vblank_ledger.vblank_flag = false;
             self.vblank_ledger.last_clear_cycle = self.clock.master_cycles;
+
+            // Clear NMI line when VBlank ends (hardware behavior)
+            // Per Mesen2 NesPpu.cpp:1376: TriggerNmi() checks !_statusFlags.VerticalBlank
+            // When VBlank clears, NMI line should deassert
+            self.cpu.nmi_line = false;
         }
     }
 

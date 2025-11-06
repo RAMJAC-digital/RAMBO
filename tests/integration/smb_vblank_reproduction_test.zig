@@ -95,7 +95,7 @@ test "SMB VBlank Regression: Super Mario Bros initializes rendering" {
             // On first 3 frames, verify VBlank is working correctly
             if (frame_count <= 3) {
                 const delta = last_clear_cycle - last_set_cycle;
-                const last_read = state.vblank_ledger.last_status_read_cycle;
+                const last_read = state.vblank_ledger.last_read_cycle;
 
                 // Check if SMB read $2002 during this frame
                 const read_during_frame = (last_read > cycle_before_frame);
@@ -120,8 +120,8 @@ test "SMB VBlank Regression: Super Mario Bros initializes rendering" {
 
         if (traces_count < traces.len) {
             const ledger = state.vblank_ledger;
-            const last_read_cycle = if (ledger.last_status_read_cycle > cycle_before_frame)
-                ledger.last_status_read_cycle
+            const last_read_cycle = if (ledger.last_read_cycle > cycle_before_frame)
+                ledger.last_read_cycle
             else
                 null;
 
@@ -163,10 +163,10 @@ test "SMB VBlank Regression: Super Mario Bros initializes rendering" {
         std.debug.print("  PPUMASK: 0x{X:0>2}\n", .{@as(u8, @bitCast(state.ppu.mask))});
         std.debug.print("  PPUCTRL: 0x{X:0>2}\n", .{@as(u8, @bitCast(state.ppu.ctrl))});
         std.debug.print("  VBlank ledger:\n", .{});
-        std.debug.print("    span_active: {}\n", .{state.vblank_ledger.span_active});
+        std.debug.print("    span_active: {}\n", .{state.vblank_ledger.vblank_span_active});
         std.debug.print("    last_set_cycle: {}\n", .{state.vblank_ledger.last_set_cycle});
         std.debug.print("    last_clear_cycle: {}\n", .{state.vblank_ledger.last_clear_cycle});
-        std.debug.print("    last_status_read_cycle: {}\n", .{state.vblank_ledger.last_status_read_cycle});
+        std.debug.print("    last_read_cycle: {}\n", .{state.vblank_ledger.last_read_cycle});
 
         std.debug.print("\nFrame trace (first {} frames):\n", .{traces_count});
         for (traces[0..traces_count]) |trace| {

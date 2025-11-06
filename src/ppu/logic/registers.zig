@@ -182,10 +182,9 @@ pub fn readRegister(
         0x0002 => {
             // $2002 PPUSTATUS - Read-only
 
-            // Determine VBlank status from the ledger's timestamps.
-            // A VBlank is active if it was set more recently than it was cleared by timing
-            // AND more recently than it was cleared by a previous read.
-            const vblank_active = vblank_ledger.isFlagVisible();
+            // Determine VBlank status from the ledger's flag state
+            // The flag is managed by VBlankLedger (set at dot 1, cleared by $2002 reads)
+            const vblank_active = vblank_ledger.isFlagSet();
 
             // Build status byte using the computed flag.
             const value = buildStatusByte(

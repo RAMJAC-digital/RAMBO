@@ -171,7 +171,7 @@ test "SMB1 NMI Controller Polling: NMI handler executes and reads controller" {
             std.debug.print("    last_clear_cycle: {}\n", .{state.vblank_ledger.last_clear_cycle});
             std.debug.print("    last_read_cycle: {}\n", .{state.vblank_ledger.last_read_cycle});
             std.debug.print("    prevent_vbl_set_cycle: {}\n", .{state.vblank_ledger.prevent_vbl_set_cycle});
-            std.debug.print("    isFlagVisible(): {}\n", .{state.vblank_ledger.isFlagVisible()});
+            std.debug.print("    isFlagSet(): {}\n", .{state.vblank_ledger.isFlagSet()});
 
             return error.NmiDidNotFire;
         }

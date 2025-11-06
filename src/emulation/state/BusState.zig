@@ -30,8 +30,31 @@ pub const BusState = struct {
         }
 
         /// Read masked internal bus bits (controllers/APU quirks)
+        ///
+        /// MESEN2 BUG DOCUMENTATION:
+        /// Mesen2's OpenBusHandler.h:32-35 contains a copy-paste bug where
+        /// GetInternalOpenBus() incorrectly returns _externalOpenBus instead of _internalOpenBus:
+        ///
+        ///   __forceinline uint8_t GetInternalOpenBus() {
+        ///       return _externalOpenBus;  // ← BUG: should be _internalOpenBus
+        ///   }
+        ///
+        /// This affects $4015 (APU status) reads, which should use the internal latch
+        /// but actually use the external latch in Mesen2.
+        ///
+        /// RAMBO implements this CORRECTLY (returns internal latch).
+        /// This causes test divergence with Mesen2-based test ROMs (e.g., AccuracyCoin's
+        /// "$4015 OPEN BUS" test expects the buggy behavior).
+        ///
+        /// Decision: Keep RAMBO correct. Hardware accuracy > test suite match.
+        ///
+        /// Hardware behavior: $4015 reads update CPU internal latch but NOT external bus.
+        /// Reference: nesdev.org/wiki/APU ($4015 behavior notes)
+        /// Mesen2 bug: /home/colin/Development/Mesen2/Core/NES/OpenBusHandler.h:32-35
+        ///
+        /// TODO: File upstream bug report with Mesen2 project
         pub fn getInternal(self: *const OpenBus, mask: u8) u8 {
-            return self.internal & mask;
+            return self.internal & mask;  // CORRECT - returns internal latch
         }
     };
 

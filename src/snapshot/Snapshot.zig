@@ -108,6 +108,9 @@ pub fn saveBinary(
     try writer.writeByte(state.bus.open_bus.external); // Open bus external
     try writer.writeByte(state.bus.open_bus.internal); // Open bus internal
 
+    // Write VBlankLedger (VBlank flag/span state and timestamps)
+    try state_ser.writeVBlankLedger(writer, &state.vblank_ledger);
+
     // Timing information is stored in MasterClock (already written via writeClock)
     // No redundant timing fields needed - scanline/dot/frame are derived from ppu_cycles
 
@@ -197,6 +200,9 @@ pub fn loadBinary(
     const open_bus_external = try reader.readByte(); // Open bus external
     const open_bus_internal = try reader.readByte(); // Open bus internal
 
+    // Read VBlankLedger (VBlank flag/span state and timestamps)
+    const vblank_ledger = try state_ser.readVBlankLedger(reader);
+
     // Timing information is stored in MasterClock (already read via readClock)
     // No redundant timing fields to read - scanline/dot/frame are derived from ppu_cycles
 
@@ -248,6 +254,7 @@ pub fn loadBinary(
             },
             .test_ram = null,
         },
+        .vblank_ledger = vblank_ledger,
         .config = config,
         .frame_complete = flags.frame_complete,
         .odd_frame = flags.odd_frame,

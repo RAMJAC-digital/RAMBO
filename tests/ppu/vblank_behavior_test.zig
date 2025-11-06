@@ -21,7 +21,7 @@ test "VBlank: Flag sets at scanline 241 dot 1" {
     // Seek to just before VBlank sets
     h.seekTo(241, 0);
     // Check ledger directly to avoid $2002 read side effects (prevention trigger)
-    try testing.expect(!h.state.vblank_ledger.isFlagVisible());
+    try testing.expect(!h.state.vblank_ledger.isFlagSet());
 
     // Tick to the exact cycle where VBlank sets
     h.tick(1);
@@ -31,7 +31,7 @@ test "VBlank: Flag sets at scanline 241 dot 1" {
     // Note: This test calls tick() then checks, so the VBlank timestamp
     // has already been applied. True same-cycle reads (CPU reading during
     // the cycle via actual instruction execution) require integration tests.
-    try testing.expect(h.state.vblank_ledger.isFlagVisible());
+    try testing.expect(h.state.vblank_ledger.isFlagSet());
 
     // Verify reading $2002 returns correct value and clears flag
     const status = h.state.busRead(0x2002);
@@ -39,7 +39,7 @@ test "VBlank: Flag sets at scanline 241 dot 1" {
 
     // One cycle later, flag has been cleared by the previous read
     h.tick(1);
-    try testing.expect(!h.state.vblank_ledger.isFlagVisible());
+    try testing.expect(!h.state.vblank_ledger.isFlagSet());
 }
 
 test "VBlank: Flag clears at scanline -1 dot 1 (pre-render)" {
@@ -54,13 +54,13 @@ test "VBlank: Flag clears at scanline -1 dot 1 (pre-render)" {
     // Now seek to just before VBlank clears (scanline -1, dot 0)
     // Check ledger directly to avoid $2002 read side effects
     h.seekTo(-1, 0);
-    try testing.expect(h.state.vblank_ledger.isFlagVisible()); // Still set at -1,0
+    try testing.expect(h.state.vblank_ledger.isFlagSet()); // Still set at -1,0
 
     // Tick to the exact clear cycle
     h.tick(1);
 
     // VBlank flag MUST be cleared by timing - check ledger directly
-    try testing.expect(!h.state.vblank_ledger.isFlagVisible());
+    try testing.expect(!h.state.vblank_ledger.isFlagSet());
 
     // Verify reading $2002 also shows cleared
     const status = h.state.busRead(0x2002);
@@ -74,10 +74,10 @@ test "VBlank: Flag is not set during visible scanlines" {
 
     // Check a few points during the visible frame - check ledger directly
     h.seekTo(100, 150);
-    try testing.expect(!h.state.vblank_ledger.isFlagVisible());
+    try testing.expect(!h.state.vblank_ledger.isFlagSet());
 
     h.seekTo(200, 50);
-    try testing.expect(!h.state.vblank_ledger.isFlagVisible());
+    try testing.expect(!h.state.vblank_ledger.isFlagSet());
 }
 
 test "VBlank: Multiple frame transitions" {
@@ -89,7 +89,7 @@ test "VBlank: Multiple frame transitions" {
     // FIXED: Check ledger state directly instead of reading $2002
     // Reading $2002 has side effect of clearing the flag, which prevents
     // detecting 0→1 transitions when reading every cycle
-    var last_vblank = h.state.vblank_ledger.isFlagVisible();
+    var last_vblank = h.state.vblank_ledger.isFlagSet();
 
     // Run for 3 frames
     const cycles_per_frame: usize = 89342;
@@ -97,7 +97,7 @@ test "VBlank: Multiple frame transitions" {
     while (cycles < cycles_per_frame * 3) : (cycles += 1) {
         h.tick(1);
         // FIXED: Check ledger directly (no side effects)
-        const current_vblank = h.state.vblank_ledger.isFlagVisible();
+        const current_vblank = h.state.vblank_ledger.isFlagSet();
         if (!last_vblank and current_vblank) {
             vblank_set_count += 1;
         }
@@ -160,7 +160,7 @@ test "VBlank/NMI: last_set_cycle timestamp at exact master_cycle (241:1)" {
     try testing.expectEqual(expected_cycle, h.state.vblank_ledger.last_set_cycle);
 
     // VERIFY: VBlank flag is now visible
-    try testing.expect(h.state.vblank_ledger.isFlagVisible());
+    try testing.expect(h.state.vblank_ledger.isFlagSet());
 }
 
 test "VBlank/NMI: last_clear_cycle timestamp at exact master_cycle (-1:1)" {
@@ -170,7 +170,7 @@ test "VBlank/NMI: last_clear_cycle timestamp at exact master_cycle (-1:1)" {
 
     // Advance through a frame to set VBlank
     h.seekTo(241, 100);
-    try testing.expect(h.state.vblank_ledger.isFlagVisible());
+    try testing.expect(h.state.vblank_ledger.isFlagSet());
 
     // Seek to pre-render scanline dot 0
     h.seekTo(-1, 0);
@@ -186,7 +186,7 @@ test "VBlank/NMI: last_clear_cycle timestamp at exact master_cycle (-1:1)" {
     try testing.expectEqual(expected_cycle, h.state.vblank_ledger.last_clear_cycle);
 
     // VERIFY: VBlank flag is now NOT visible
-    try testing.expect(!h.state.vblank_ledger.isFlagVisible());
+    try testing.expect(!h.state.vblank_ledger.isFlagSet());
 }
 
 test "VBlank/NMI: $2002 read updates last_read_cycle and clears flag" {
@@ -196,7 +196,7 @@ test "VBlank/NMI: $2002 read updates last_read_cycle and clears flag" {
 
     // Seek into VBlank period
     h.seekTo(241, 100);
-    try testing.expect(h.state.vblank_ledger.isFlagVisible());
+    try testing.expect(h.state.vblank_ledger.isFlagSet());
 
     // Record cycles before read
     const cycles_before_read = h.state.clock.master_cycles;
@@ -211,7 +211,7 @@ test "VBlank/NMI: $2002 read updates last_read_cycle and clears flag" {
     try testing.expectEqual(cycles_before_read, h.state.vblank_ledger.last_read_cycle);
 
     // VERIFY: VBlank flag is now NOT visible (cleared by read)
-    try testing.expect(!h.state.vblank_ledger.isFlagVisible());
+    try testing.expect(!h.state.vblank_ledger.isFlagSet());
 
     // VERIFY: Second read sees VBlank clear
     const status2 = h.state.busRead(0x2002);
@@ -239,7 +239,7 @@ test "VBlank/NMI: Prevention window at 241:0 (read before set)" {
     h.tick(1);
 
     // VERIFY: VBlank flag was PREVENTED from setting
-    try testing.expect(!h.state.vblank_ledger.isFlagVisible());
+    try testing.expect(!h.state.vblank_ledger.isFlagSet());
 
     // VERIFY: last_set_cycle was NOT updated (flag was prevented)
     try testing.expect(h.state.vblank_ledger.last_set_cycle < prevention_cycle);
@@ -257,14 +257,14 @@ test "VBlank/NMI: NMI line goes high when VBlank sets with PPUCTRL.7=1" {
     h.seekTo(241, 0);
 
     // VERIFY: VBlank not set yet, NMI line LOW
-    try testing.expect(!h.state.vblank_ledger.isFlagVisible());
+    try testing.expect(!h.state.vblank_ledger.isFlagSet());
     try testing.expect(!h.state.cpu.nmi_line);
 
     // Tick to scanline 241 dot 1 (VBlank sets)
     h.tick(1);
 
     // VERIFY: VBlank flag is now set
-    try testing.expect(h.state.vblank_ledger.isFlagVisible());
+    try testing.expect(h.state.vblank_ledger.isFlagSet());
 
     // VERIFY: NMI line went HIGH (PPUCTRL.7 = 1, VBlank = 1)
     try testing.expect(h.state.cpu.nmi_line);
@@ -282,7 +282,7 @@ test "VBlank/NMI: Reading $2002 clears NMI line immediately" {
     h.seekTo(241, 100);
 
     // VERIFY: VBlank active, NMI line high
-    try testing.expect(h.state.vblank_ledger.isFlagVisible());
+    try testing.expect(h.state.vblank_ledger.isFlagSet());
     try testing.expect(h.state.cpu.nmi_line);
 
     // Read $2002 (PPUSTATUS)
@@ -292,7 +292,7 @@ test "VBlank/NMI: Reading $2002 clears NMI line immediately" {
     try testing.expectEqual(@as(u8, 0x80), status & 0x80);
 
     // VERIFY: VBlank flag cleared IMMEDIATELY after read
-    try testing.expect(!h.state.vblank_ledger.isFlagVisible());
+    try testing.expect(!h.state.vblank_ledger.isFlagSet());
 
     // VERIFY: NMI line cleared IMMEDIATELY after read
     try testing.expect(!h.state.cpu.nmi_line);
@@ -310,7 +310,7 @@ test "VBlank/NMI: PPUCTRL write enables NMI during VBlank" {
     h.seekTo(241, 100);
 
     // VERIFY: VBlank active but NMI line LOW (PPUCTRL.7 = 0)
-    try testing.expect(h.state.vblank_ledger.isFlagVisible());
+    try testing.expect(h.state.vblank_ledger.isFlagSet());
     try testing.expect(!h.state.cpu.nmi_line);
 
     // Enable NMI by writing to PPUCTRL
@@ -353,21 +353,21 @@ test "VBlank/NMI: VBlank clear at -1:1 clears NMI line" {
     h.seekTo(241, 100);
 
     // VERIFY: VBlank active, NMI high
-    try testing.expect(h.state.vblank_ledger.isFlagVisible());
+    try testing.expect(h.state.vblank_ledger.isFlagSet());
     try testing.expect(h.state.cpu.nmi_line);
 
     // Seek to pre-render scanline, just before VBlank clears (scanline -1, dot 0)
     h.seekTo(-1, 0);
 
     // VERIFY: VBlank still active
-    try testing.expect(h.state.vblank_ledger.isFlagVisible());
+    try testing.expect(h.state.vblank_ledger.isFlagSet());
     try testing.expect(h.state.cpu.nmi_line);
 
     // Tick to dot 1 (VBlank clears by timing)
     h.tick(1);
 
     // VERIFY: VBlank cleared
-    try testing.expect(!h.state.vblank_ledger.isFlagVisible());
+    try testing.expect(!h.state.vblank_ledger.isFlagSet());
 
     // VERIFY: NMI line went LOW (VBlank cleared = NMI clears)
     try testing.expect(!h.state.cpu.nmi_line);
@@ -399,7 +399,7 @@ test "VBlank/NMI: Race condition - CPU execution before VBlank timestamp applica
 
     // To test the race condition properly, we need to verify that:
     // 1. VBlank flag IS set (after tick completes)
-    try testing.expect(h.state.vblank_ledger.isFlagVisible());
+    try testing.expect(h.state.vblank_ledger.isFlagSet());
 
     // 2. But if CPU had read DURING this cycle (not after), it would see CLEAR
     //    This is tested by the prevention window test above

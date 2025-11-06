@@ -13,6 +13,7 @@ const PpuCtrl = @import("../ppu/State.zig").PpuCtrl;
 const PpuMask = @import("../ppu/State.zig").PpuMask;
 const PpuStatus = @import("../ppu/State.zig").PpuStatus;
 const BusState = @import("../emulation/State.zig").BusState;
+const VBlankLedger = @import("../emulation/VBlankLedger.zig").VBlankLedger;
 const Cartridge = @import("../cartridge/Cartridge.zig");
 const Mirroring = Cartridge.Mirroring;
 
@@ -316,6 +317,31 @@ pub fn readBusState(reader: anytype) !BusState {
     }
 
     return bus;
+}
+
+/// Write VBlankLedger to binary format
+pub fn writeVBlankLedger(writer: anytype, ledger: *const VBlankLedger) !void {
+    // Boolean flags (2 bytes)
+    try writer.writeByte(@intFromBool(ledger.vblank_flag));
+    try writer.writeByte(@intFromBool(ledger.vblank_span_active));
+
+    // Timestamps (32 bytes - 4 × u64)
+    try writer.writeInt(u64, ledger.last_set_cycle, .little);
+    try writer.writeInt(u64, ledger.last_clear_cycle, .little);
+    try writer.writeInt(u64, ledger.last_read_cycle, .little);
+    try writer.writeInt(u64, ledger.prevent_vbl_set_cycle, .little);
+}
+
+/// Read VBlankLedger from binary format
+pub fn readVBlankLedger(reader: anytype) !VBlankLedger {
+    return .{
+        .vblank_flag = try reader.readByte() != 0,
+        .vblank_span_active = try reader.readByte() != 0,
+        .last_set_cycle = try reader.readInt(u64, .little),
+        .last_clear_cycle = try reader.readInt(u64, .little),
+        .last_read_cycle = try reader.readInt(u64, .little),
+        .prevent_vbl_set_cycle = try reader.readInt(u64, .little),
+    };
 }
 
 /// Write EmulationState flags to binary format
