@@ -9,6 +9,7 @@ description: Tasks related to fixing hardware timing and behavior accuracy issue
 ## Active Tasks
 
 ### High Priority
+- `h-fix-ppu-nmi-remediation.md` - Fix critical CPU/PPU NMI coordination (SMB1 input broken, Tetris grey screen, 8 AccuracyCoin NMI failures)
 - `h-fix-vblank-subcycle-timing.md` - Fix CPU/PPU sub-cycle execution order for VBlank flag timing
 - `h-verify-vblank-subcycle-timing.md` - Verify RAMBO's CPU/PPU sub-cycle execution order matches Mesen2 reference implementation and hardware spec
 - `h-refactor-ppu-shift-register-rewrite.md` - Rewrite PPU to model cycle-accurate shift register behavior, fixing scanline 0 crash and mid-frame register bugs
