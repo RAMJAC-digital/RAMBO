@@ -18,22 +18,8 @@ const std = @import("std");
 /// Timing slot descriptor for one emulation tick
 /// Computed by nextTimingStep() before clock advancement
 pub const TimingStep = struct {
-    /// Scanline position BEFORE clock advancement (0-261)
-    scanline: u16,
-
-    /// Dot position BEFORE clock advancement (0-340)
-    dot: u16,
-
     /// Whether CPU should tick this cycle (every 3rd PPU cycle)
     cpu_tick: bool,
-
-    /// Whether APU should tick this cycle (synchronized with CPU)
-    apu_tick: bool,
-
-    /// Whether this slot should be skipped (odd frame behavior)
-    /// If true, clock advances but NO component work happens
-    /// Hardware: Odd frames skip dot 0 of scanline 0 when rendering enabled
-    skip_slot: bool,
 };
 
 /// Timing helper functions (pure, no state mutation)

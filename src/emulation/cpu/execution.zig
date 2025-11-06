@@ -74,7 +74,7 @@ const CpuCycleResult = CycleResults.CpuCycleResult;
 /// - Mapper IRQ counter tick
 ///
 /// Returns: CpuCycleResult with mapper_irq flag
-pub fn stepCycle(state: anytype) CpuCycleResult {
+pub fn stepCycle(state: anytype) void {
     // Check PPU warm-up period completion (29,658 CPU cycles)
     // Hardware: PPU ignores writes to $2000/$2001/$2005/$2006 during warmup
     // Reference: nesdev.org/wiki/PPU_power_up_state
@@ -96,12 +96,12 @@ pub fn stepCycle(state: anytype) CpuCycleResult {
 
     // If CPU is halted (JAM/KIL), do nothing until RESET
     if (state.cpu.halted) {
-        return .{};
+        void{};
     }
 
     // Check debugger breakpoints/watchpoints (RT-safe, zero allocations)
     if (state.debuggerShouldHalt()) {
-        return .{};
+        void{};
     }
 
     // DMC completion handling (external state management pattern)
@@ -149,20 +149,16 @@ pub fn stepCycle(state: anytype) CpuCycleResult {
     // tickOamDma handles coordination with DMC internally
     if (state.dma.active) {
         state.tickDma();
-        return .{};
+        void{};
     }
 
     // If we only had DMC (no OAM), return now
     if (dmc_is_active) {
-        return .{};
+        void{};
     }
 
     // Normal CPU execution
     executeCycle(state);
-
-    // Mapper IRQ is now polled before CPU execution in State.zig
-    // to ensure CPU sees IRQ line changes in the same cycle
-    return .{};
 }
 
 /// Execute CPU micro-operations for the current cycle.

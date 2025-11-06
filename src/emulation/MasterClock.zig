@@ -106,15 +106,6 @@ pub const MasterClock = struct {
         return (self.master_cycles % 3) == 0;
     }
 
-    /// Check if current cycle is an APU tick
-    /// Hardware: APU is synchronized with CPU (same clock divider)
-    /// - APU ticks whenever CPU ticks
-    ///
-    /// Alias for isCpuTick() for clarity
-    pub fn isApuTick(self: MasterClock) bool {
-        return self.isCpuTick();
-    }
-
     /// Reset clock to power-on state
     /// Used when emulator is reset or ROM is loaded
     ///

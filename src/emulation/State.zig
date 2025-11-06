@@ -423,13 +423,7 @@ pub const EmulationState = struct {
 
         // Build timing step descriptor for CPU/APU coordination
         // skip_slot is always false now (odd frame skip handled in PPU clock)
-        const step = TimingStep{
-            .scanline = 0, // Unused - kept for API compatibility
-            .dot = 0, // Unused - kept for API compatibility
-            .cpu_tick = self.clock.isCpuTick(),
-            .apu_tick = self.clock.isApuTick(),
-            .skip_slot = false, // Odd frame skip handled in PPU clock
-        };
+        const step = TimingStep{ .cpu_tick = self.clock.isCpuTick() };
 
         return step;
     }
@@ -461,13 +455,8 @@ pub const EmulationState = struct {
     /// - docs/code-review/clock-advance-refactor-plan.md Section 4.3
     pub fn tick(self: *EmulationState) void {
         if (self.debuggerShouldHalt()) {
-            return;
+            void{};
         }
-
-        // Advance PPU clock first (PPU owns its own timing state)
-        // Hardware: PPU has independent clock counters (cycle, scanline, frame_count)
-        // Mesen2 reference: NesPpu.cpp Exec() function
-        PpuLogic.advanceClock(&self.ppu, self.rendering_enabled);
 
         // Advance master clock (monotonic counter for timestamps)
         // Master clock always advances by 1 (no skipping - monotonic counter)
@@ -489,32 +478,12 @@ pub const EmulationState = struct {
         //
         // Reference: https://www.nesdev.org/wiki/PPU_frame_timing
 
-        // Process PPU rendering at the POST-advance position (current PPU clock state)
-        // VBlank/frame events happen at specific scanline/dot coordinates
-        // Hardware: Events trigger when clock IS AT the coordinate, not before
-        // PPU processes at (241, 1) to signal VBlank, not at (241, 0)
-        // Now using PPU's own clock fields instead of deriving from master clock
-        const scanline = self.ppu.scanline;
-        const dot = self.ppu.cycle;
-
-        const ppu_result = self.stepPpuCycle(scanline, dot);
-
-        // Note: Odd frame skip now handled in PPU clock (PpuLogic.advanceClock)
-        // Frame completion is detected by PPU when scanline wraps to 0
-        // No special handling needed here - PPU sets frame_complete flag correctly
-
-        // Process APU if this is an APU tick (synchronized with CPU)
-        // IMPORTANT: APU must tick BEFORE CPU to update IRQ state
-        if (step.apu_tick) {
-            const apu_result = self.stepApuCycle();
-            _ = apu_result; // APU updates its own IRQ flags
-        }
-
         // Process CPU if this is a CPU tick
         // CPU execution happens BEFORE VBlank timestamps are applied.
         // This allows CPU to set prevent_vbl_set_cycle flag via $2002 reads,
         // which is then checked when applying VBlank timestamps below.
         if (step.cpu_tick) {
+            self.stepApuCycle();
             // Update IRQ line from all sources (level-triggered, reflects current state)
             // IRQ line is HIGH when ANY source is active
             // Poll mapper IRQ BEFORE CPU execution so CPU sees it this cycle
@@ -524,40 +493,9 @@ pub const EmulationState = struct {
 
             self.cpu.irq_line = apu_frame_irq or apu_dmc_irq or mapper_irq;
 
-            _ = self.stepCpuCycle();
-
-            if (self.debuggerShouldHalt()) {
-                return;
-            }
+            CpuExecution.stepCycle(self);
         }
 
-        // CRITICAL FIX: Apply VBlank timestamps AFTER CPU execution
-        // This ensures prevent_vbl_set_cycle flag (set by $2002 reads) is respected.
-        //
-        // Mesen2 reference: NesPpu.cpp UpdateStatusFlag() (line 590-592)
-        // sets _preventVblFlag when reading $2002 at cycle 0, then at cycle 1
-        // checks if(!_preventVblFlag) before setting VerticalBlank flag (line 1340-1344).
-        //
-        // Our implementation: CPU reads $2002 and sets prevent_vbl_set_cycle,
-        // then we apply VBlank timestamps which checks the prevention flag.
-        //
-        // Race condition timeline:
-        //   dot 0: CPU reads $2002 → sets prevent_vbl_set_cycle
-        //   dot 1: Apply VBlank → checks prevent_vbl_set_cycle → skip setting flag
-        self.applyVBlankTimestamps(ppu_result);
-
-        // NMI line is edge-triggered (managed by VBlank events and PPUCTRL writes)
-        // DO NOT update every cycle - destroys edge detection!
-        // NMI line is set/cleared ONLY by:
-        // 1. applyVBlankTimestamps() when VBlank starts (if nmi_enable is true)
-        // 2. PpuHandler.write() when writing to PPUCTRL ($2000)
-        // 3. PpuHandler.read() when reading PPUSTATUS ($2002)
-
-        // Sample interrupt lines ONLY on CPU ticks (not during interrupt sequence)
-        // This follows the "second-to-last cycle" rule for CPU interrupt polling
-        // CRITICAL: Do NOT sample during interrupt sequence!
-        // The interrupt sequence (cycles 0-6) must preserve the interrupt type
-        // that triggered it, even if interrupt lines change mid-sequence.
         if (step.cpu_tick and self.cpu.state != .interrupt_sequence) {
             // Sample interrupt lines for next cycle (following "second-to-last cycle" rule)
             // Mesen2 reference: EndCpuCycle() line 306-309
@@ -573,6 +511,22 @@ pub const EmulationState = struct {
             // Clear pending for this cycle - will be restored from _prev next cycle
             self.cpu.pending_interrupt = .none;
         }
+
+        // Advance PPU clock first (PPU owns its own timing state)
+        // Hardware: PPU has independent clock counters (cycle, scanline, frame_count)
+        // Mesen2 reference: NesPpu.cpp Exec() function
+        PpuLogic.advanceClock(&self.ppu, self.rendering_enabled);
+
+        // Process PPU rendering at the POST-advance position (current PPU clock state)
+        // VBlank/frame events happen at specific scanline/dot coordinates
+        // Hardware: Events trigger when clock IS AT the coordinate, not before
+        // PPU processes at (241, 1) to signal VBlank, not at (241, 0)
+        // Now using PPU's own clock fields instead of deriving from master clock
+        const scanline = self.ppu.scanline;
+        const dot = self.ppu.cycle;
+
+        const ppu_result = self.stepPpuCycle(scanline, dot);
+        self.applyVBlankTimestamps(ppu_result);
 
         // Apply remaining PPU state changes AFTER CPU execution
         // This ensures rendering_enabled and other state reflects CPU register
@@ -685,10 +639,6 @@ pub const EmulationState = struct {
         return result;
     }
 
-    fn stepCpuCycle(self: *EmulationState) CpuCycleResult {
-        return CpuExecution.stepCycle(self);
-    }
-
     pub fn pollMapperIrq(self: *EmulationState) bool {
         if (self.cart) |*cart| {
             return cart.tickIrq();
@@ -696,29 +646,12 @@ pub const EmulationState = struct {
         return false;
     }
 
-    /// Test helper: execute a single CPU cycle without advancing the master clock.
-    pub fn tickCpu(self: *EmulationState) void {
-        _ = self.stepCpuCycle();
-    }
-
-    fn stepApuCycle(self: *EmulationState) ApuCycleResult {
-        var result = ApuCycleResult{};
-
-        if (ApuLogic.tickFrameCounter(&self.apu)) {
-            result.frame_irq = true;
-        }
-
+    fn stepApuCycle(self: *EmulationState) void {
         const dmc_needs_sample = ApuLogic.tickDmc(&self.apu);
         if (dmc_needs_sample) {
             const address = ApuLogic.getSampleAddress(&self.apu);
             self.dmc_dma.triggerFetch(address);
         }
-
-        if (self.apu.dmc_irq_flag) {
-            result.dmc_irq = true;
-        }
-
-        return result;
     }
 
     /// Execute CPU micro-operations for the current cycle.
