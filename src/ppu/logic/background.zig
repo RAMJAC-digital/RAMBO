@@ -3,6 +3,7 @@
 //! Handles background tile fetching and pixel rendering.
 //! Implements the 8-cycle tile fetch pattern and shift register output.
 
+const builtin = @import("builtin");
 const PpuState = @import("../State.zig").PpuState;
 const AnyCartridge = @import("../../cartridge/mappers/registry.zig").AnyCartridge;
 const memory = @import("memory.zig");
@@ -168,6 +169,11 @@ pub fn getPaletteColor(state: *PpuState, palette_index: u8) u32 {
         nes_color &= 0x30;
     }
 
-    // Convert to RGBA using standard NES palette
-    return palette.getNesColorRgba(nes_color);
+    // Convert to color format based on target architecture
+    // WASM (wasm32) uses RGBA for Canvas ImageData, native uses BGRA for Vulkan/Movy
+    if (builtin.target.cpu.arch == .wasm32) {
+        return palette.getNesColorRgba(nes_color);
+    } else {
+        return palette.getNesColorBgra(nes_color);
+    }
 }

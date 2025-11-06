@@ -27,6 +27,7 @@ export class RamboEmulatorClient {
     this.framePtr = 0;
     this.framePixels = FRAME_PIXELS;
     this.frameBuffer = null;
+    this.romStagingView = null;
     this.controllerMask = 0;
     this.running = false;
     this.animationHandle = null;
@@ -56,10 +57,30 @@ export class RamboEmulatorClient {
       throw new Error(`Failed to fetch wasm module (${response.status})`);
     }
     const bytes = await response.arrayBuffer();
-    const { instance } = await WebAssembly.instantiate(bytes, {});
+
+    // Create WebAssembly memory (256MB max, 16MB initial = 256 pages)
+    const memory = new WebAssembly.Memory({
+      initial: 256,  // 256 pages * 64KB = 16MB
+      maximum: 4096  // 4096 pages * 64KB = 256MB
+    });
+
+    // Import memory into WASM module
+    const { instance } = await WebAssembly.instantiate(bytes, {
+      env: { memory: memory }
+    });
+
     this.instance = instance;
     this.exports = instance.exports;
-    this.memory = this.exports.memory;
+    this.memory = memory;
+
+    // Calculate heap bounds: assume data section is first 2MB, rest is heap
+    const dataSize = 2 * 1024 * 1024;  // 2MB for data + stack
+    const heapStart = dataSize;
+    const heapSize = memory.buffer.byteLength - dataSize;
+
+    // Tell WASM where the heap starts
+    this.exports.rambo_set_heap_bounds(heapStart, heapSize);
+
     return this;
   }
 
@@ -83,9 +104,11 @@ export class RamboEmulatorClient {
     if (!this.memory) {
       return null;
     }
-    if (!this.frameBuffer || this.frameBuffer.buffer !== this.memory.buffer) {
+    // Always use fresh buffer reference in case memory grew
+    const freshBuffer = this.memory.buffer;
+    if (!this.frameBuffer || this.frameBuffer.buffer !== freshBuffer) {
       this.frameBuffer = new Uint8ClampedArray(
-        this.memory.buffer,
+        freshBuffer,
         this.framePtr,
         this.framePixels * 4
       );
@@ -152,12 +175,36 @@ export class RamboEmulatorClient {
     }
     await this.ensureReady();
 
+    const heapMetric = this.exports.rambo_heap_size_bytes ? () => this.exports.rambo_heap_size_bytes() : () => this.exports.memory.buffer.byteLength;
+    const beforeHeap = heapMetric();
+
     const ptr = this.exports.rambo_alloc(bytes.length);
     if (ptr === 0) {
       throw new Error("Failed to allocate ROM buffer");
     }
-    const wasmView = new Uint8Array(this.memory.buffer, ptr, bytes.length);
-    wasmView.set(bytes);
+
+    const afterHeap = heapMetric();
+    const lastPtr = this.exports.rambo_last_alloc_ptr ? this.exports.rambo_last_alloc_ptr() : ptr;
+    const lastSize = this.exports.rambo_last_alloc_size ? this.exports.rambo_last_alloc_size() : bytes.length;
+    console.debug(
+      "[RAMBO] wasm alloc",
+      { request: bytes.length, ptr, heapBefore: beforeHeap, heapAfter: afterHeap, lastPtr, lastSize }
+    );
+
+    // CRITICAL: Use fresh buffer reference after allocation (memory may have grown)
+    // With imported memory, this.memory is the source of truth (not exports)
+    const freshBuffer = this.memory.buffer;
+    const heapBytes = freshBuffer.byteLength;
+    const end = ptr + bytes.length;
+    if (end > heapBytes) {
+      this.exports.rambo_free(ptr, bytes.length);
+      throw new Error(
+        `ROM copy exceeds heap bounds (ptr=${ptr}, len=${bytes.length}, heap=${heapBytes})`
+      );
+    }
+
+    this.romStagingView = new Uint8Array(freshBuffer, ptr, bytes.length);
+    this.romStagingView.set(bytes);
 
     const result = this.exports.rambo_init(ptr, bytes.length);
     this.exports.rambo_free(ptr, bytes.length);
@@ -199,6 +246,7 @@ export class RamboEmulatorClient {
     this.controllerMask = 0;
     this.framePtr = 0;
     this.frameBuffer = null;
+    this.romStagingView = null;
     this.clearCanvas();
   }
 
