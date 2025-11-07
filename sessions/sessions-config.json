@@ -30,7 +30,7 @@
   "environment": {
     "os": "linux",
     "shell": "bash",
-    "developer_name": "developer"
+    "developer_name": "Colin"
   },
   "blocked_actions": {
     "implementation_only_tools": [
@@ -41,7 +41,7 @@
     ],
     "bash_read_patterns": [],
     "bash_write_patterns": [],
-    "extrasafe": false
+    "extrasafe": true
   },
   "features": {
     "branch_enforcement": true,
