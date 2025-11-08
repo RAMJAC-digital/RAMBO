@@ -56,6 +56,10 @@ pub fn toCoreState(state: *const CpuState) CpuCoreState {
 /// - Simple edge detection: if(!_prevNmiFlag && _state.NmiFlag) { _needNmi = true; }
 /// - NO VBlank-based suppression - multiple NMIs allowed per VBlank
 /// - Toggling PPUCTRL.7 during VBlank causes multiple NMIs (AccuracyCoin test 7)
+///
+/// Hardware "second-to-last cycle" rule: Interrupt lines sampled at END of cycle N,
+/// checked at START of cycle N+1. CPU manages this sampling internally.
+/// Reference: nesdev.org/wiki/CPU_interrupts, Mesen2 NesCpu.cpp:311-314
 pub fn checkInterrupts(state: *CpuState) void {
     // NMI has highest priority and is edge-triggered
     // Detect falling edge: was high (nmi_edge_detected=false), now low (nmi_line=true)
@@ -73,6 +77,11 @@ pub fn checkInterrupts(state: *CpuState) void {
     if (state.irq_line and !state.p.interrupt and state.pending_interrupt == .none) {
         state.pending_interrupt = .irq;
     }
+
+    // Sample interrupt states for next cycle (second-to-last cycle rule)
+    // This allows instructions one cycle to complete after register writes
+    state.nmi_pending_prev = (state.pending_interrupt == .nmi);
+    state.irq_pending_prev = (state.pending_interrupt == .irq);
 }
 
 /// Start interrupt sequence (7 cycles total)

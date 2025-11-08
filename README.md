@@ -6,7 +6,43 @@ Cycle-accurate NES emulator written in Zig 0.15.1.
 
 ---
 
-## Recent Fixes (2025-11-04)
+## Recent Refactoring (2025-11-07)
+
+### CPU Table-Driven Execution Architecture
+
+- ✅ **Completed:** CPU execution refactored from nested switches to table-driven dispatch
+  - **Goal:** Eliminate code duplication, reduce complexity, improve maintainability
+  - **Implementation:**
+    - Created `src/cpu/MicrostepTable.zig` (522 lines) - Comptime-built dispatch table
+    - Refactored `src/cpu/Execution.zig` (533 → 281 lines, 47% reduction)
+    - Eliminated 217 lines of nested switch statements
+    - Single source of truth: MICROSTEP_TABLE[256] maps all opcodes to sequences
+    - Early completion pattern for variable-cycle instructions (branches, indexed modes)
+    - Fixed INDEXED_INDIRECT vs INDIRECT_INDEXED microstep aliasing
+  - **Architecture:**
+    - 39 predefined sequences (13 addressing modes × 3 variants: read/write/rmw)
+    - 8 special opcode sequences (JSR, RTS, RTI, BRK, stack operations)
+    - Declarative specification (what microsteps) vs imperative dispatch (how to run)
+  - **Benefit:** Adding new opcode = 1 table entry (not 3+ switch cases), hardware-accurate variable timing
+  - **Impact:** Reduced complexity, eliminated opcode duplication, improved maintainability
+
+### PPU Self-Containment Architecture
+
+- ✅ **Completed:** PPU is now a self-contained black box that owns all its internal state
+  - **Goal:** Eliminate backwards coupling where EmulationState extracts PPU internals (scanline/cycle)
+  - **Implementation:**
+    - Moved VBlankLedger from `emulation/VBlankLedger.zig` to `ppu/VBlank.zig` (type renamed to VBlank)
+    - Added vblank and nmi_line fields to PpuState (PPU owns and outputs these)
+    - PPU Logic.tick() manages VBlank internally (set at scanline 241 dot 1, clear at scanline -1 dot 1)
+    - PPU computes nmi_line internally (vblank_flag AND ctrl.nmi_enable)
+    - Added framebuffer field to PpuState (PPU owns rendering output)
+    - Deleted EmulationState.stepPpuCycle() (no longer extracting PPU internals)
+    - Deleted EmulationState.applyVBlankTimestamps() (PPU manages internally)
+    - EmulationState.tick() simplified to signal wiring: ppu.nmi_line → cpu.nmi_line
+  - **Benefit:** Single location manages VBlank timing logic, co-locates NMI enable bit with flag, eliminates backwards coupling
+  - **Impact:** Cleaner module boundaries, reduced EmulationState complexity
+
+## Previous Fixes (2025-11-04)
 
 ### Bus Handler Architecture Migration
 

@@ -27,14 +27,14 @@ pub fn fetchAbsHigh(state: anytype) bool {
 
 /// Add X index to zero page address (wraps within page 0)
 pub fn addXToZeroPage(state: anytype) bool {
-    _ = state.busRead(@as(u16, state.cpu.operand_low)); // Dummy read
+    state.dummyRead(@as(u16, state.cpu.operand_low));
     state.cpu.effective_address = @as(u16, state.cpu.operand_low +% state.cpu.x);
     return false;
 }
 
 /// Add Y index to zero page address (wraps within page 0)
 pub fn addYToZeroPage(state: anytype) bool {
-    _ = state.busRead(@as(u16, state.cpu.operand_low)); // Dummy read
+    state.dummyRead(@as(u16, state.cpu.operand_low));
     state.cpu.effective_address = @as(u16, state.cpu.operand_low +% state.cpu.y);
     return false;
 }
@@ -49,7 +49,10 @@ pub fn calcAbsoluteX(state: anytype) bool {
     const dummy_addr = (base & 0xFF00) | (state.cpu.effective_address & 0x00FF);
     const dummy_value = state.busRead(dummy_addr);
     state.cpu.temp_value = dummy_value;
-    return false;
+
+    // Early completion when page NOT crossed (4 cycles vs 5)
+    // When page not crossed, dummy_value IS the correct value (hardware behavior)
+    return !state.cpu.page_crossed;
 }
 
 /// Calculate absolute,Y address with page crossing check
@@ -59,8 +62,39 @@ pub fn calcAbsoluteY(state: anytype) bool {
     state.cpu.page_crossed = (base & 0xFF00) != (state.cpu.effective_address & 0xFF00);
 
     const dummy_addr = (base & 0xFF00) | (state.cpu.effective_address & 0x00FF);
+    const dummy_value = state.busRead(dummy_addr);
+    state.cpu.temp_value = dummy_value;
+
+    // Early completion when page NOT crossed (4 cycles vs 5)
+    // When page not crossed, dummy_value IS the correct value (hardware behavior)
+    return !state.cpu.page_crossed;
+}
+
+/// Calculate absolute,X address for WRITE operations (never early completion)
+/// Write operations always take the dummy read cycle regardless of page crossing
+pub fn calcAbsoluteXWrite(state: anytype) bool {
+    const base = (@as(u16, state.cpu.operand_high) << 8) | @as(u16, state.cpu.operand_low);
+    state.cpu.effective_address = base +% state.cpu.x;
+    state.cpu.page_crossed = (base & 0xFF00) != (state.cpu.effective_address & 0xFF00);
+
+    const dummy_addr = (base & 0xFF00) | (state.cpu.effective_address & 0x00FF);
     _ = state.busRead(dummy_addr);
-    state.cpu.temp_value = state.bus.open_bus.get();
+
+    // Writes NEVER complete early (hardware always does dummy read)
+    return false;
+}
+
+/// Calculate absolute,Y address for WRITE operations (never early completion)
+/// Write operations always take the dummy read cycle regardless of page crossing
+pub fn calcAbsoluteYWrite(state: anytype) bool {
+    const base = (@as(u16, state.cpu.operand_high) << 8) | @as(u16, state.cpu.operand_low);
+    state.cpu.effective_address = base +% state.cpu.y;
+    state.cpu.page_crossed = (base & 0xFF00) != (state.cpu.effective_address & 0xFF00);
+
+    const dummy_addr = (base & 0xFF00) | (state.cpu.effective_address & 0x00FF);
+    _ = state.busRead(dummy_addr);
+
+    // Writes NEVER complete early (hardware always does dummy read)
     return false;
 }
 
@@ -87,9 +121,9 @@ pub fn fetchZpBase(state: anytype) bool {
     return false;
 }
 
-/// Add X to base address (with dummy read)
+/// Add X to base address
 pub fn addXToBase(state: anytype) bool {
-    _ = state.busRead(@as(u16, state.cpu.operand_low)); // Dummy read
+    state.dummyRead(@as(u16, state.cpu.operand_low));
     state.cpu.temp_address = @as(u16, state.cpu.operand_low +% state.cpu.x);
     return false;
 }
@@ -145,7 +179,8 @@ pub fn addYCheckPage(state: anytype) bool {
         state.cpu.temp_value = state.bus.open_bus.get(); // Page crossed: value discarded, fixHighByte will re-read
     }
 
-    return false;
+    // Early completion when page NOT crossed (5 cycles vs 6 for indirect_indexed)
+    return !state.cpu.page_crossed;
 }
 
 /// Pull byte from stack (increment SP first)
@@ -191,17 +226,10 @@ pub fn pushStatusBrk(state: anytype) bool {
 }
 
 /// Push status register to stack (for NMI/IRQ - B flag clear)
-/// Hardware interrupts push P with B=0, BRK pushes P with B=1
-/// This allows software to distinguish hardware vs software interrupts
-///
-/// Hardware behavior (nesdev.org/wiki/Status_flags#The_B_flag):
-/// - NMI/IRQ push with B=0, unused=1 (bits 4,5 = 0b01)
-/// - BRK pushes with B=1, unused=1 (bits 4,5 = 0b11)
-/// - RTI can distinguish hardware vs software interrupt by checking bit 4
+/// Reference: nesdev.org/wiki/Status_flags#The_B_flag
 pub fn pushStatusInterrupt(state: anytype) bool {
     const stack_addr = 0x0100 | @as(u16, state.cpu.sp);
-    // Mask off B flag (bit 4), then set unused flag (bit 5)
-    const status = (state.cpu.p.toByte() & ~@as(u8, 0x10)) | 0x20; // B=0, unused=1
+    const status = (state.cpu.p.toByte() & ~@as(u8, 0x10)) | 0x20;
     state.busWrite(stack_addr, status);
     state.cpu.sp -%= 1;
     return false;
@@ -244,15 +272,15 @@ pub fn pullStatus(state: anytype) bool {
 
 /// Increment PC after RTS (PC was pushed as PC-1 by JSR)
 pub fn incrementPcAfterRts(state: anytype) bool {
-    _ = state.busRead(state.cpu.pc); // Dummy read
+    state.dummyRead(state.cpu.pc);
     state.cpu.pc +%= 1;
-    return true; // RTS complete
+    return true;
 }
 
 /// Stack dummy read for JSR cycle 3 (internal operation)
 pub fn jsrStackDummy(state: anytype) bool {
     const stack_addr = 0x0100 | @as(u16, state.cpu.sp);
-    _ = state.busRead(stack_addr);
+    state.dummyRead(stack_addr);
     return false;
 }
 
@@ -379,4 +407,11 @@ pub fn jmpIndirectFetchHigh(state: anytype) bool {
     state.cpu.effective_address = (@as(u16, state.cpu.operand_high) << 8) | @as(u16, state.cpu.operand_low);
 
     return false;
+}
+
+/// Dummy read at PC (used by RTI final cycle)
+/// This is the hardware-accurate dummy read that occurs after PC is restored
+pub fn dummyReadPc(state: anytype) bool {
+    state.dummyRead(state.cpu.pc);
+    return true; // Signal completion
 }

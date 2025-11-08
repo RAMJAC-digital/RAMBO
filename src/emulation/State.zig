@@ -25,27 +25,21 @@ const CartridgeModule = @import("../cartridge/Cartridge.zig");
 const RegistryModule = @import("../cartridge/mappers/registry.zig");
 const AnyCartridge = RegistryModule.AnyCartridge;
 const Debugger = @import("../debugger/Debugger.zig");
-const CpuExecution = @import("cpu/execution.zig");
+const CpuExecution = @import("../cpu/Execution.zig");
 
-// Cycle result structures
-const CycleResults = @import("state/CycleResults.zig");
-const PpuCycleResult = CycleResults.PpuCycleResult;
-const CpuCycleResult = CycleResults.CpuCycleResult;
-const ApuCycleResult = CycleResults.ApuCycleResult;
+// DMA subsystem (black box pattern - consolidated module)
+const DmaModule = @import("../dma/Dma.zig");
+const DmaState = DmaModule.State.DmaState;
+const DmaLogic = DmaModule.Logic;
 
 // Bus state
 const BusState = @import("state/BusState.zig").BusState;
 
 // Peripheral state (re-exported for tests and external use)
-pub const OamDma = @import("state/peripherals/OamDma.zig").OamDma;
-pub const DmcDma = @import("state/peripherals/DmcDma.zig").DmcDma;
 pub const ControllerState = @import("state/peripherals/ControllerState.zig").ControllerState;
 
 // CPU microstep functions
-const CpuMicrosteps = @import("cpu/microsteps.zig");
-
-// DMA logic
-const DmaLogic = @import("dma/logic.zig");
+const CpuMicrosteps = @import("../cpu/Microsteps.zig");
 
 // Bus inspection (debugger-safe memory reads)
 const BusInspection = @import("bus/inspection.zig");
@@ -60,12 +54,6 @@ const Helpers = @import("helpers.zig");
 const Timing = @import("state/Timing.zig");
 const TimingStep = Timing.TimingStep;
 const TimingHelpers = Timing.TimingHelpers;
-
-// VBlank timing ledger (exported for unit tests)
-pub const VBlankLedger = @import("VBlankLedger.zig").VBlankLedger;
-
-// DMA interaction ledger (exported for unit tests)
-pub const DmaInteractionLedger = @import("DmaInteractionLedger.zig").DmaInteractionLedger;
 
 /// Complete emulation state (pure data, no hidden state)
 /// This is the core of the RT emulation loop
@@ -83,15 +71,9 @@ pub const EmulationState = struct {
     ppu: PpuState,
     apu: ApuState,
 
-    /// VBlank timestamp ledger for cycle-accurate NMI edge detection
-    /// Records VBlank set/clear, $2002 reads, PPUCTRL writes with master clock timestamps
-    /// Decouples CPU NMI latch from readable PPU status flag
-    vblank_ledger: VBlankLedger = .{},
-
-    /// DMA interaction ledger for cycle-accurate DMC/OAM DMA conflict tracking
-    /// Records DMC interrupt/completion timestamps, OAM pause/resume, interrupted state
-    /// Enables isolated side effects pattern for complex DMA interactions
-    dma_interaction_ledger: DmaInteractionLedger = .{},
+    /// DMA state (OAM DMA + DMC DMA + interaction tracking + RDY line output)
+    /// Consolidated DMA subsystem following PPU black box pattern
+    dma: DmaState = .{},
 
     /// Memory bus state (RAM, open bus, optional test RAM)
     bus: BusState = .{},
@@ -112,12 +94,6 @@ pub const EmulationState = struct {
     /// Supports all mappers via tagged union dispatch
     cart: ?AnyCartridge = null,
 
-    /// DMA state machine
-    dma: OamDma = .{},
-
-    /// DMC DMA state machine (RDY line / DPCM sample fetch)
-    dmc_dma: DmcDma = .{},
-
     /// Controller state (shift registers, strobe, buttons)
     controller: ControllerState = .{},
 
@@ -130,24 +106,9 @@ pub const EmulationState = struct {
     /// Hardware configuration (immutable during emulation)
     config: *const Config.Config,
 
-    /// Frame completion flag (VBlank start)
-    frame_complete: bool = false,
-
-    /// Odd/even frame tracking (for frame skip behavior)
-    /// Odd frames skip dot 0 of scanline 0 when rendering enabled
-    odd_frame: bool = false,
-
-    /// Rendering enabled flag (PPU $2001 bits 3-4)
-    /// Used to determine if odd frame skip should occur
-    rendering_enabled: bool = false,
-
     /// Enable verbose NMI/VBlank diagnostics (CLI --trace-nmi)
     trace_nmi: bool = false,
     trace_nmi_suppressed_logged: bool = false,
-
-    /// Optional framebuffer for PPU pixel output (256×240 RGBA)
-    /// Set by emulation thread before each frame
-    framebuffer: ?[]u32 = null,
 
     /// Initialize emulation state from configuration
     /// Cartridge can be loaded later with loadCartridge()
@@ -204,14 +165,9 @@ pub const EmulationState = struct {
     /// Loads PC from RESET vector ($FFFC-$FFFD)
     pub fn power_on(self: *EmulationState) void {
         self.clock.reset();
-        self.frame_complete = false;
-        self.odd_frame = false;
-        self.rendering_enabled = false;
         self.bus.open_bus = .{};
         self.dma.reset();
-        self.dmc_dma.reset();
         self.controller.reset();
-        self.vblank_ledger.reset();
 
         const reset_vector = self.busRead16(0xFFFC);
         self.cpu.pc = reset_vector;
@@ -234,14 +190,9 @@ pub const EmulationState = struct {
     /// Loads PC from RESET vector ($FFFC-$FFFD)
     pub fn reset(self: *EmulationState) void {
         self.clock.reset();
-        self.frame_complete = false;
-        self.odd_frame = false;
-        self.rendering_enabled = false;
         self.bus.open_bus = .{};
         self.dma.reset();
-        self.dmc_dma.reset();
         self.controller.reset();
-        self.vblank_ledger.reset();
 
         const reset_vector = self.busRead16(0xFFFC);
         self.cpu.pc = reset_vector;
@@ -279,7 +230,7 @@ pub const EmulationState = struct {
     /// Routes to appropriate component and updates open bus
     pub inline fn busRead(self: *EmulationState, address: u16) u8 {
         // Capture last read address for DMC corruption (NTSC 2A03 bug)
-        self.dmc_dma.last_read_address = address;
+        self.dma.dmc.last_read_address = address;
 
         // Dispatch to handlers (parameter-based pattern)
         const value = switch (address) {
@@ -302,6 +253,12 @@ pub const EmulationState = struct {
 
         self.debuggerCheckMemoryAccess(address, value, false);
         return value;
+    }
+
+    /// Dummy read - hardware-accurate 6502 bus access where value is not used
+    /// The 6502 performs reads during addressing calculations but discards the value
+    pub inline fn dummyRead(self: *EmulationState, address: u16) void {
+        _ = self.busRead(address);
     }
 
     /// Helper to obtain pointer to owned cartridge (if any)
@@ -478,164 +435,65 @@ pub const EmulationState = struct {
         //
         // Reference: https://www.nesdev.org/wiki/PPU_frame_timing
 
-        // Process CPU if this is a CPU tick
-        // CPU execution happens BEFORE VBlank timestamps are applied.
-        // This allows CPU to set prevent_vbl_set_cycle flag via $2002 reads,
-        // which is then checked when applying VBlank timestamps below.
+        // ===================================================================
+        // CPU EXECUTION (Black Box Pattern - Phase 1-5 Refactor Complete)
+        // ===================================================================
+        // Architecture: Signal-based coordination matching PPU pattern
+        // - EmulationState computes input signals from peripheral sources
+        // - EmulationState wires signals to CPU inputs (cpu.rdy_line, cpu.irq_line)
+        // - CPU executes as self-contained black box
+        // - EmulationState reads output signals (instruction_complete, bus_cycle_complete)
+        //
+        // Input Signal Sources:
+        //   cpu.nmi_line: PPU (wired at end of tick - line 508)
+        //   cpu.irq_line: APU frame_irq | APU dmc_irq | Mapper IRQ
+        //   cpu.rdy_line: DMA coordination (DMC DMA | OAM DMA)
+        //
+        // Output Signals (read by debugger/DMA, not by EmulationState currently):
+        //   cpu.instruction_complete: Set when instruction finishes
+        //   cpu.bus_cycle_complete: Set each bus cycle
+        //   cpu.halted: Set when CPU halts (JAM/KIL or DMA)
+        // ===================================================================
         if (step.cpu_tick) {
+            // === Peripheral Coordination ===
             self.stepApuCycle();
-            // Update IRQ line from all sources (level-triggered, reflects current state)
-            // IRQ line is HIGH when ANY source is active
-            // Poll mapper IRQ BEFORE CPU execution so CPU sees it this cycle
+
+            // === DMA (Black Box) ===
+            DmaLogic.tick(&self.dma, self.clock.master_cycles, self, &self.apu);
+
+            // === Input Signal Wiring ===
+            // Wire RDY line from DMA output (low = CPU halted)
+            self.cpu.rdy_line = self.dma.rdy_line;
+
+            // Compute IRQ line from all sources (high = interrupt requested)
             const apu_frame_irq = self.apu.frame_irq_flag;
             const apu_dmc_irq = self.apu.dmc_irq_flag;
             const mapper_irq = self.pollMapperIrq();
-
             self.cpu.irq_line = apu_frame_irq or apu_dmc_irq or mapper_irq;
 
-            CpuExecution.stepCycle(self);
-        }
+            // === CPU Execution (Black Box) ===
+            const debugger_ptr = if (self.debugger) |*dbg| dbg else null;
+            CpuExecution.stepCycle(&self.cpu, self, debugger_ptr);
 
-        if (step.cpu_tick and self.cpu.state != .interrupt_sequence) {
-            // Sample interrupt lines for next cycle (following "second-to-last cycle" rule)
-            // Mesen2 reference: EndCpuCycle() line 306-309
-            // checkInterrupts() handles:
-            // - NMI edge detection (0→1 transition on nmi_line)
-            // - IRQ level detection (high on irq_line with I flag check)
-            CpuLogic.checkInterrupts(&self.cpu);
-
-            // Store interrupt states for next cycle
-            self.cpu.nmi_pending_prev = (self.cpu.pending_interrupt == .nmi);
-            self.cpu.irq_pending_prev = (self.cpu.pending_interrupt == .irq);
-
-            // Clear pending for this cycle - will be restored from _prev next cycle
-            self.cpu.pending_interrupt = .none;
+            // === Post-Execution Interrupt Sampling ===
+            // Hardware "second-to-last cycle" rule: Sample interrupt lines AFTER execution
+            // This gives instructions one cycle to complete after register writes (e.g., STA $2000)
+            // Reference: nesdev.org/wiki/CPU_interrupts, Mesen2 NesCpu.cpp:311-314
+            if (self.cpu.state != .interrupt_sequence) {
+                CpuLogic.checkInterrupts(&self.cpu);
+            }
         }
 
         // Advance PPU clock first (PPU owns its own timing state)
         // Hardware: PPU has independent clock counters (cycle, scanline, frame_count)
-        PpuLogic.advanceClock(&self.ppu, self.rendering_enabled);
+        PpuLogic.advanceClock(&self.ppu);
 
-        // Process PPU rendering at the POST-advance position (current PPU clock state)
-        // VBlank/frame events happen at specific scanline/dot coordinates
-        // Hardware: Events trigger when clock IS AT the coordinate, not before
-        // PPU processes at (241, 1) to signal VBlank, not at (241, 0)
-        // Now using PPU's own clock fields instead of deriving from master clock
-        const scanline = self.ppu.scanline;
-        const dot = self.ppu.cycle;
-
-        const ppu_result = self.stepPpuCycle(scanline, dot);
-        self.applyVBlankTimestamps(ppu_result);
-
-        // Apply remaining PPU state changes AFTER CPU execution
-        // This ensures rendering_enabled and other state reflects CPU register
-        // writes from this cycle (e.g., PPUMASK writes).
-        self.applyPpuRenderingState(ppu_result);
-    }
-
-    /// Apply VBlank timestamps AFTER CPU execution
-    /// This ensures prevention flag (set by $2002 reads) is respected.
-    fn applyVBlankTimestamps(self: *EmulationState, result: PpuCycleResult) void {
-        // Handle VBlank events by updating the ledger's flags and timestamps.
-        if (result.nmi_signal) {
-            // VBlank begins at scanline 241 dot 1.
-            // CRITICAL: Check prevention flag before setting
-            // Per Mesen2 NesPpu.cpp:1340-1344: if(!_preventVblFlag) { set flag }
-            // Hardware: Read during race window (dots 0-2) prevents flag set
-            //
-            // PHASE-INDEPENDENT PREVENTION:
-            // In different phases, CPU ticks at different dots during race window:
-            // - Phase 0: CPU ticks at dot 0 (before VBlank set at dot 1)
-            // - Phase 1: CPU ticks at dot 1 (AT VBlank set)
-            // - Phase 2: CPU ticks at dot 2 (AFTER VBlank set at dot 1)
-            //
-            // Solution: Check if prevent_vbl_set_cycle is non-zero (was set this frame).
-            // The flag is cleared at frame boundaries, so non-zero means CPU read during race window.
-            const prevent_cycle = self.vblank_ledger.prevent_vbl_set_cycle;
-            const should_prevent = prevent_cycle != 0 and prevent_cycle == self.clock.master_cycles;
-
-            // VBlank span always activates (hardware timing window)
-            self.vblank_ledger.vblank_span_active = true;
-
-            if (!should_prevent) {
-                // Set VBlank flag (readable bit 7 of $2002)
-                self.vblank_ledger.vblank_flag = true;
-                self.vblank_ledger.last_set_cycle = self.clock.master_cycles;
-
-                // Set NMI line if NMI is enabled (hardware behavior)
-                // Per Mesen2 NesPpu.cpp:1338: if(ppuCtrl.nmiOnVBlank) { cpu->SetNmiFlag(); }
-                if (self.ppu.ctrl.nmi_enable) {
-                    self.cpu.nmi_line = true;
-                }
-            }
-            // One-shot: ALWAYS clear prevention flag after checking (match Mesen2 exactly)
-            // Per Mesen2 NesPpu.cpp:1344: _preventVblFlag = false (unconditional)
-            self.vblank_ledger.prevent_vbl_set_cycle = 0;
-        }
-
-        if (result.vblank_clear) {
-            // VBlank ends at scanline 261 dot 1 (pre-render).
-            // Clear both span and flag (hardware timing behavior)
-            self.vblank_ledger.vblank_span_active = false;
-            self.vblank_ledger.vblank_flag = false;
-            self.vblank_ledger.last_clear_cycle = self.clock.master_cycles;
-
-            // Clear NMI line when VBlank ends (hardware behavior)
-            // Per Mesen2 NesPpu.cpp:1376: TriggerNmi() checks !_statusFlags.VerticalBlank
-            // When VBlank clears, NMI line should deassert
-            self.cpu.nmi_line = false;
-        }
-    }
-
-    /// Apply PPU rendering state AFTER CPU execution
-    /// This ensures state reflects CPU register writes from this cycle.
-    fn applyPpuRenderingState(self: *EmulationState, result: PpuCycleResult) void {
-        self.rendering_enabled = result.rendering_enabled;
-
-        if (result.frame_complete) {
-            self.frame_complete = true;
-            self.vblank_ledger.prevent_vbl_set_cycle = 0;
-            // odd_frame is set in stepPpuCycle() based on frame_count (line 862)
-            // Don't toggle here - it would conflict with the frame_count-based assignment
-        }
-
-        if (result.a12_rising) {
-            if (self.cart) |*cart| {
-                cart.ppuA12Rising();
-            }
-        }
-    }
-
-    /// Execute one PPU cycle at explicit scanline/dot position
-    /// Post-refactor: All PPU work happens at explicit timing coordinates
-    /// This decouples PPU execution from master clock state
-    fn stepPpuCycle(self: *EmulationState, scanline: i16, dot: u16) PpuCycleResult {
-        var result = PpuCycleResult{};
+        // Process PPU rendering (PPU manages its own state internally)
         const cart_ptr = self.cartPtr();
+        PpuLogic.tick(&self.ppu, self.clock.master_cycles, cart_ptr);
 
-        const flags = PpuLogic.tick(&self.ppu, scanline, dot, cart_ptr, self.framebuffer);
-
-        // A12 edge detection now handled by PpuLogic.tick()
-        result.a12_rising = flags.a12_rising;
-
-        result.rendering_enabled = flags.rendering_enabled;
-        if (flags.frame_complete) {
-            result.frame_complete = true;
-
-            if (self.ppu.frame_count < 300 and flags.rendering_enabled and !self.ppu.rendering_was_enabled) {}
-        }
-
-        if (flags.rendering_enabled and !self.ppu.rendering_was_enabled) {
-            self.ppu.rendering_was_enabled = true;
-        }
-
-        self.odd_frame = (self.ppu.frame_count & 1) == 1;
-
-        // Pass through PPU event signals to emulation state
-        result.nmi_signal = flags.nmi_signal;
-        result.vblank_clear = flags.vblank_clear;
-
-        return result;
+        // Wire PPU NMI output signal to CPU NMI input
+        self.cpu.nmi_line = self.ppu.nmi_line;
     }
 
     pub fn pollMapperIrq(self: *EmulationState) bool {
@@ -646,17 +504,16 @@ pub const EmulationState = struct {
     }
 
     fn stepApuCycle(self: *EmulationState) void {
+        // Tick APU frame counter (drives length counters, envelopes, sweeps at ~120Hz/~240Hz)
+        // Frame IRQ flag is set internally and read at line 469-472
+        ApuLogic.tickFrameCounter(&self.apu);
+
+        // Tick DMC channel (drives sample playback and DMA triggers)
         const dmc_needs_sample = ApuLogic.tickDmc(&self.apu);
         if (dmc_needs_sample) {
             const address = ApuLogic.getSampleAddress(&self.apu);
-            self.dmc_dma.triggerFetch(address);
+            self.dma.dmc.triggerFetch(address);
         }
-    }
-
-    /// Execute CPU micro-operations for the current cycle.
-    /// Caller is responsible for clock management.
-    fn executeCpuCycle(self: *EmulationState) void {
-        CpuExecution.executeCycle(self);
     }
 
     /// Test helper: Tick CPU with clock advancement
@@ -665,28 +522,6 @@ pub const EmulationState = struct {
     /// Delegates to Helpers.tickCpuWithClock()
     pub fn tickCpuWithClock(self: *EmulationState) void {
         Helpers.tickCpuWithClock(self);
-    }
-
-    /// REMOVED: Legacy function that bypassed VBlankLedger
-    ///
-    /// This function was setting cpu.nmi_line directly, bypassing the VBlankLedger's
-    /// edge detection logic. This caused ROMs to never see VBlank because the level
-    /// signal would overwrite the latched edge.
-    ///
-    /// The VBlankLedger is now the ONLY source of truth for NMI state.
-    /// Only stepCycle() (via VBlankLedger.shouldAssertNmiLine()) should set cpu.nmi_line.
-    /// Tick DMA state machine (called every 3 PPU cycles, same as CPU)
-    /// Delegates to DmaLogic.tickOamDma()
-    pub fn tickDma(self: *EmulationState) void {
-        DmaLogic.tickOamDma(self);
-    }
-
-    /// Tick DMC DMA state machine (called every CPU cycle when active)
-    /// Delegates to DmaLogic.tickDmcDma()
-    ///
-    /// Note: Public for testing purposes
-    pub fn tickDmcDma(self: *EmulationState) void {
-        DmaLogic.tickDmcDma(self);
     }
 
     /// Emulate a complete frame (convenience wrapper)

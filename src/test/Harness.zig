@@ -78,11 +78,7 @@ pub const Harness = struct {
     }
 
     pub fn tickPpu(self: *Harness) void {
-        const scanline = self.state.ppu.scanline;
-        const dot = self.state.ppu.cycle;
-        const rendering_enabled = self.state.ppu.mask.renderingEnabled();
-        _ = PpuLogic.tick(&self.state.ppu, scanline, dot, self.cartPtr(), null);
-        PpuLogic.advanceClock(&self.state.ppu, rendering_enabled);
+        _ = PpuLogic.tick(&self.state.ppu, self.state.clock.master_cycles, self.cartPtr());
         self.state.clock.advance();
     }
 
@@ -137,11 +133,8 @@ pub const Harness = struct {
     }
 
     pub fn tickPpuWithFramebuffer(self: *Harness, framebuffer: []u32) void {
-        const scanline = self.state.ppu.scanline;
-        const dot = self.state.ppu.cycle;
-        const rendering_enabled = self.state.ppu.mask.renderingEnabled();
-        _ = PpuLogic.tick(&self.state.ppu, scanline, dot, self.cartPtr(), framebuffer);
-        PpuLogic.advanceClock(&self.state.ppu, rendering_enabled);
+        self.state.ppu.framebuffer = framebuffer;
+        _ = PpuLogic.tick(&self.state.ppu, self.state.clock.master_cycles, self.cartPtr());
         self.state.clock.advance();
     }
 

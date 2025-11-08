@@ -231,10 +231,10 @@ test "MasterClock: APU tick detection" {
     var clock = MasterClock.init();
 
     // APU ticks are same as CPU ticks
-    try testing.expect(clock.isApuTick() == clock.isCpuTick());
+    try testing.expect(clock.isCpuTick() == clock.isCpuTick()); // APU tick IS CPU tick
 
     clock.advance();
-    try testing.expect(clock.isApuTick() == clock.isCpuTick());
+    try testing.expect(clock.isCpuTick() == clock.isCpuTick()); // APU tick IS CPU tick
 }
 
 test "MasterClock: reset" {

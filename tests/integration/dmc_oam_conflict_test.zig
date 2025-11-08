@@ -26,10 +26,10 @@ const EmulationState = RAMBO.EmulationState.EmulationState;
 
 /// Check if OAM DMA is paused (based on functional timestamp comparison)
 fn isDmaPaused(state: *const EmulationState) bool {
-    const dmc_is_active = state.dma_interaction_ledger.last_dmc_active_cycle >
-        state.dma_interaction_ledger.last_dmc_inactive_cycle;
-    const was_paused = state.dma_interaction_ledger.oam_pause_cycle >
-        state.dma_interaction_ledger.oam_resume_cycle;
+    const dmc_is_active = state.dma.interaction.last_dmc_active_cycle >
+        state.dma.interaction.last_dmc_inactive_cycle;
+    const was_paused = state.dma.interaction.oam_pause_cycle >
+        state.dma.interaction.oam_resume_cycle;
     return dmc_is_active and was_paused;
 }
 
@@ -45,7 +45,7 @@ fn fillRamPage(state: *EmulationState, page: u8, pattern: u8) void {
 /// Run until OAM DMA completes (with timeout protection)
 fn runUntilOamDmaComplete(harness: *Harness) void {
     var tick_count: u32 = 0;
-    while (harness.state.dma.active and tick_count < 1000) : (tick_count += 1) {
+    while (harness.state.dma.oam.active and tick_count < 1000) : (tick_count += 1) {
         harness.tickCpu(1);
     }
 }
@@ -53,7 +53,7 @@ fn runUntilOamDmaComplete(harness: *Harness) void {
 /// Run until DMC DMA completes (with timeout protection)
 fn runUntilDmcDmaComplete(harness: *Harness) void {
     var tick_count: u32 = 0;
-    while (harness.state.dmc_dma.rdy_low and tick_count < 100) : (tick_count += 1) {
+    while (harness.state.dma.dmc.rdy_low and tick_count < 100) : (tick_count += 1) {
         harness.tickCpu(1);
     }
 }
@@ -75,7 +75,7 @@ test "MINIMAL: DMC pauses OAM (debug with proper harness)" {
     state.busWrite(0x4014, 0x0A);
 
     // Trigger DMC DMA (this should cause pause when we tick)
-    state.dmc_dma.triggerFetch(0xC000);
+    state.dma.dmc.triggerFetch(0xC000);
 
     // Tick once CPU cycle - OAM should pause
     harness.tickCpu(1);
@@ -98,11 +98,11 @@ test "DEBUG: Trace complete DMC/OAM interaction" {
 
     // Start OAM DMA
     state.busWrite(0x4014, 0x03);
-    try testing.expect(state.dma.active);
+    try testing.expect(state.dma.oam.active);
 
     // Trigger DMC immediately
-    state.dmc_dma.triggerFetch(0xC000);
-    try testing.expect(state.dmc_dma.rdy_low);
+    state.dma.dmc.triggerFetch(0xC000);
+    try testing.expect(state.dma.dmc.rdy_low);
 
     // Tick once - OAM should pause
     harness.tickCpu(1);
@@ -110,11 +110,11 @@ test "DEBUG: Trace complete DMC/OAM interaction" {
 
     // Run DMC to completion
     runUntilDmcDmaComplete(&harness);
-    try testing.expectEqual(false, state.dmc_dma.rdy_low);
+    try testing.expectEqual(false, state.dma.dmc.rdy_low);
 
     // OAM should resume and complete
     runUntilOamDmaComplete(&harness);
-    try testing.expectEqual(false, state.dma.active);
+    try testing.expectEqual(false, state.dma.oam.active);
 }
 
 // ============================================================================
@@ -135,12 +135,12 @@ test "DMC interrupts OAM at byte 0 (start of transfer)" {
 
     // Start OAM DMA from page $03
     state.busWrite(0x4014, 0x03);
-    try testing.expect(state.dma.active);
+    try testing.expect(state.dma.oam.active);
     try testing.expect(!isDmaPaused(state));
 
     // Immediately trigger DMC DMA (interrupt at byte 0)
-    state.dmc_dma.triggerFetch(0xC000);
-    try testing.expect(state.dmc_dma.rdy_low);
+    state.dma.dmc.triggerFetch(0xC000);
+    try testing.expect(state.dma.dmc.rdy_low);
 
     // Tick once CPU cycle - OAM should pause
     harness.tickCpu(1);
@@ -148,11 +148,11 @@ test "DMC interrupts OAM at byte 0 (start of transfer)" {
 
     // Run DMC to completion
     runUntilDmcDmaComplete(&harness);
-    try testing.expect(!state.dmc_dma.rdy_low);
+    try testing.expect(!state.dma.dmc.rdy_low);
 
     // Run OAM to completion
     runUntilOamDmaComplete(&harness);
-    try testing.expect(!state.dma.active);
+    try testing.expect(!state.dma.oam.active);
 
     // Verify OAM data transferred correctly
     // Byte 0 should be in OAM[0] (duplication causes it to also appear in OAM[1])
@@ -179,10 +179,10 @@ test "DMC interrupts OAM at byte 128 (mid-transfer)" {
     harness.tickCpu(256);
 
     // Verify we're at byte 128
-    try testing.expect(state.dma.current_offset == 128);
+    try testing.expect(state.dma.oam.current_offset == 128);
 
     // Trigger DMC DMA (interrupt at byte 128)
-    state.dmc_dma.triggerFetch(0xC000);
+    state.dma.dmc.triggerFetch(0xC000);
 
     // Tick one CPU cycle - OAM should pause
     harness.tickCpu(1);
@@ -193,7 +193,7 @@ test "DMC interrupts OAM at byte 128 (mid-transfer)" {
 
     // Run OAM to completion
     runUntilOamDmaComplete(&harness);
-    try testing.expect(!state.dma.active);
+    try testing.expect(!state.dma.oam.active);
 
     // Verify OAM data transferred correctly
     try testing.expect(state.ppu.oam[127] == 127); // Before interrupt
@@ -219,10 +219,10 @@ test "DMC interrupts OAM at byte 255 (end of transfer)" {
     harness.tickCpu(510);
 
     // Verify we're at byte 255
-    try testing.expect(state.dma.current_offset == 255);
+    try testing.expect(state.dma.oam.current_offset == 255);
 
     // Trigger DMC DMA (interrupt at last byte)
-    state.dmc_dma.triggerFetch(0xC000);
+    state.dma.dmc.triggerFetch(0xC000);
 
     // Tick one CPU cycle to trigger pause, then run to completion
     harness.tickCpu(1);
@@ -231,7 +231,7 @@ test "DMC interrupts OAM at byte 255 (end of transfer)" {
     runUntilOamDmaComplete(&harness);
 
     // Verify transfer completed
-    try testing.expect(!state.dma.active);
+    try testing.expect(!state.dma.oam.active);
     try testing.expect(state.ppu.oam[254] == 254);
     try testing.expect(state.ppu.oam[255] == 255);
 }
@@ -260,10 +260,10 @@ test "OAM resumes correctly after DMC interrupt" {
 
     // Run to byte 100 (200 cycles)
     harness.tickCpu(200);
-    try testing.expect(state.dma.current_offset == 100);
+    try testing.expect(state.dma.oam.current_offset == 100);
 
     // Trigger DMC interrupt
-    state.dmc_dma.triggerFetch(0xC000);
+    state.dma.dmc.triggerFetch(0xC000);
 
     // Run to completion
     runUntilDmcDmaComplete(&harness);
@@ -299,24 +299,24 @@ test "Multiple DMC interrupts during single OAM transfer" {
 
     // Interrupt at byte 50
     harness.tickCpu(100);
-    state.dmc_dma.triggerFetch(0xC000);
+    state.dma.dmc.triggerFetch(0xC000);
     runUntilDmcDmaComplete(&harness);
 
     // Interrupt at byte 150
     harness.tickCpu(100);
-    state.dmc_dma.triggerFetch(0xC100);
+    state.dma.dmc.triggerFetch(0xC100);
     runUntilDmcDmaComplete(&harness);
 
     // Interrupt at byte 250
     harness.tickCpu(100);
-    state.dmc_dma.triggerFetch(0xC200);
+    state.dma.dmc.triggerFetch(0xC200);
     runUntilDmcDmaComplete(&harness);
 
     // Complete OAM transfer
     runUntilOamDmaComplete(&harness);
 
     // Verify transfer completed despite multiple interrupts
-    try testing.expect(!state.dma.active);
+    try testing.expect(!state.dma.oam.active);
     try testing.expect(state.ppu.oam[0] == 0);
     try testing.expect(state.ppu.oam[255] == 255);
 }
@@ -340,18 +340,18 @@ test "Consecutive DMC interrupts (no gap)" {
     harness.tickCpu(128);
 
     // First DMC interrupt
-    state.dmc_dma.triggerFetch(0xC000);
+    state.dma.dmc.triggerFetch(0xC000);
     runUntilDmcDmaComplete(&harness);
 
     // Second DMC interrupt immediately after
-    state.dmc_dma.triggerFetch(0xC100);
+    state.dma.dmc.triggerFetch(0xC100);
     runUntilDmcDmaComplete(&harness);
 
     // Complete OAM
     runUntilOamDmaComplete(&harness);
 
     // Verify completion
-    try testing.expect(!state.dma.active);
+    try testing.expect(!state.dma.oam.active);
 }
 
 // ============================================================================
@@ -381,7 +381,7 @@ test "Cycle count: OAM with DMC interrupt (time-sharing)" {
 
     // Run to byte 64, then interrupt with DMC
     harness.tickCpu(128);
-    state.dmc_dma.triggerFetch(0xC000);
+    state.dma.dmc.triggerFetch(0xC000);
 
     // Run to completion
     runUntilDmcDmaComplete(&harness);
@@ -418,18 +418,18 @@ test "DMC priority verification" {
 
     // Trigger both DMAs simultaneously
     state.busWrite(0x4014, 0x0A); // OAM DMA
-    state.dmc_dma.triggerFetch(0xC000); // DMC DMA
+    state.dma.dmc.triggerFetch(0xC000); // DMC DMA
 
     // DMC should execute first (higher priority)
-    try testing.expect(state.dmc_dma.rdy_low);
-    try testing.expect(state.dma.active);
+    try testing.expect(state.dma.dmc.rdy_low);
+    try testing.expect(state.dma.oam.active);
 
     // Tick one CPU cycle - DMC should tick, OAM should pause
     harness.tickCpu(1);
     try testing.expect(isDmaPaused(state)); // OAM paused by DMC
 
     // DMC should still be active
-    try testing.expect(state.dmc_dma.rdy_low);
+    try testing.expect(state.dma.dmc.rdy_low);
 }
 
 // ============================================================================
@@ -467,14 +467,14 @@ test "DMC DMA: Still works correctly without OAM active" {
     state.apu.dmc_active = true;
 
     // Trigger DMC DMA (no OAM activity)
-    state.dmc_dma.triggerFetch(0xC000);
-    try testing.expect(state.dmc_dma.rdy_low);
+    state.dma.dmc.triggerFetch(0xC000);
+    try testing.expect(state.dma.dmc.rdy_low);
 
     // Run to completion
     runUntilDmcDmaComplete(&harness);
 
     // Verify DMC completed
-    try testing.expect(!state.dmc_dma.rdy_low);
+    try testing.expect(!state.dma.dmc.rdy_low);
 }
 
 // ============================================================================
@@ -498,20 +498,20 @@ test "HARDWARE VALIDATION: OAM continues during DMC dummy/alignment (time-sharin
 
     // Start OAM DMA from page $03
     state.busWrite(0x4014, 0x03);
-    try testing.expect(state.dma.active);
+    try testing.expect(state.dma.oam.active);
 
     // Run to byte 50 (100 CPU cycles = 50 read/write pairs)
     harness.tickCpu(100);
-    try testing.expectEqual(@as(u8, 50), state.dma.current_offset);
+    try testing.expectEqual(@as(u8, 50), state.dma.oam.current_offset);
     try testing.expectEqual(@as(u8, 49), state.ppu.oam[49]); // Byte 49 written
 
     // Record OAM state before DMC interrupt
-    const offset_before = state.dma.current_offset;
+    const offset_before = state.dma.oam.current_offset;
     const oam_addr_before = state.ppu.oam_addr;
 
     // Trigger DMC interrupt at byte 50
-    state.dmc_dma.triggerFetch(0xC000);
-    try testing.expect(state.dmc_dma.rdy_low);
+    state.dma.dmc.triggerFetch(0xC000);
+    try testing.expect(state.dma.dmc.rdy_low);
 
     // According to wiki spec, during DMC's 4-cycle stall:
     // - Cycle 1: DMC halt + alignment
@@ -523,11 +523,11 @@ test "HARDWARE VALIDATION: OAM continues during DMC dummy/alignment (time-sharin
 
     // Run DMC to completion (4 CPU cycles)
     runUntilDmcDmaComplete(&harness);
-    try testing.expectEqual(false, state.dmc_dma.rdy_low);
+    try testing.expectEqual(false, state.dma.dmc.rdy_low);
 
     // CRITICAL: Verify OAM advanced during DMC
     // OAM should have moved forward (time-sharing, not complete pause)
-    const offset_after = state.dma.current_offset;
+    const offset_after = state.dma.oam.current_offset;
     const oam_addr_after = state.ppu.oam_addr;
 
     // This test will FAIL with current implementation (complete pause)
@@ -571,7 +571,7 @@ test "HARDWARE VALIDATION: Exact cycle count overhead from DMC interrupt" {
     harness.tickCpu(200);
 
     // Trigger DMC
-    state.dmc_dma.triggerFetch(0xC000);
+    state.dma.dmc.triggerFetch(0xC000);
 
     // Complete both DMAs
     runUntilDmcDmaComplete(&harness);

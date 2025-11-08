@@ -45,9 +45,9 @@ test "EmulationState: initialization" {
     const state = EmulationState.init(&config);
 
     try testing.expectEqual(@as(u64, 0), state.clock.master_cycles);
-    try testing.expect(!state.frame_complete);
+    try testing.expect(!state.ppu.frame_complete);
     try testing.expectEqual(@as(u8, 0), state.bus.open_bus.get());
-    try testing.expect(!state.dma.active);
+    try testing.expect(!state.dma.oam.active);
 }
 
 test "EmulationState: tick advances master clock" {
@@ -164,13 +164,13 @@ test "EmulationState: odd frame skip when rendering enabled" {
 
     // Emulate first frame (even frame)
     _ = state.emulateFrame();
-    try testing.expect(state.odd_frame); // Should now be odd frame
+    try testing.expect((state.ppu.frame_count & 1) == 1); // Should now be odd frame
 
     // Emulate second frame (odd frame with skip)
     _ = state.emulateFrame();
 
     // Should be back to even frame
-    try testing.expect(!state.odd_frame);
+    try testing.expect((state.ppu.frame_count & 1) == 0);
 
     // Frame count should have incremented twice
     try testing.expectEqual(@as(u64, 2), state.ppu.frame_count);
@@ -191,7 +191,7 @@ test "EmulationState: even frame does not skip dot" {
     // Even frames should be standard length (NTSC frame = 89342 master cycles)
     try testing.expectEqual(@as(u64, timing.NTSC.CYCLES_PER_FRAME), even_frame_cycles);
 
-    try testing.expect(state.odd_frame); // Now odd
+    try testing.expect((state.ppu.frame_count & 1) == 1); // Now odd
 }
 
 test "EmulationState: odd frame without rendering does not skip" {
@@ -208,7 +208,7 @@ test "EmulationState: odd frame without rendering does not skip" {
 
     // Emulate first frame (even, no rendering)
     _ = state.emulateFrame();
-    try testing.expect(state.odd_frame); // Now odd
+    try testing.expect((state.ppu.frame_count & 1) == 1); // Now odd
 
     // Emulate second frame (odd, no rendering - should NOT skip)
     const odd_frame_cycles = state.emulateFrame();
@@ -226,8 +226,8 @@ test "EmulationState: frame toggle at scanline boundary" {
     var state = EmulationState.init(&config);
     state.power_on();
 
-    // Start with even frame (odd_frame = false)
-    try testing.expect(!state.odd_frame);
+    // Start with even frame (frame_count = 0)
+    try testing.expect((state.ppu.frame_count & 1) == 0);
     try testing.expectEqual(@as(u64, 0), state.ppu.frame_count);
 
     // Emulate first frame
@@ -236,12 +236,12 @@ test "EmulationState: frame toggle at scanline boundary" {
     // Frame should have incremented
     try testing.expectEqual(@as(u64, 1), state.ppu.frame_count);
     // Should now be odd frame
-    try testing.expect(state.odd_frame);
+    try testing.expect((state.ppu.frame_count & 1) == 1);
 
     // Emulate second frame
     _ = state.emulateFrame();
 
     // Should be back to even frame
-    try testing.expect(!state.odd_frame);
+    try testing.expect((state.ppu.frame_count & 1) == 0);
     try testing.expectEqual(@as(u64, 2), state.ppu.frame_count);
 }

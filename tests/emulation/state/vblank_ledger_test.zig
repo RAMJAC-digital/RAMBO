@@ -1,7 +1,7 @@
-//! VBlankLedger Integration Tests
+//! VBlank Integration Tests
 //!
 //! Tests the VBlank mechanism via the top-level EmulationState, ensuring
-//! the entire refactored system works correctly.
+//! PPU-owned VBlank state works correctly.
 
 const std = @import("std");
 const testing = std.testing;
@@ -9,7 +9,7 @@ const RAMBO = @import("RAMBO");
 const Harness = RAMBO.TestHarness.Harness;
 
 fn isFlagVisible(h: *Harness) bool {
-    return h.state.vblank_ledger.isFlagSet();
+    return h.state.ppu.vblank.isFlagSet();
 }
 
 fn readVBlankBit(h: *Harness) bool {
@@ -17,7 +17,7 @@ fn readVBlankBit(h: *Harness) bool {
     return (status_byte & 0x80) != 0;
 }
 
-test "VBlankLedger: Read before VBlank is clear" {
+test "VBlank: Read before VBlank is clear" {
     var h = try Harness.init();
     defer h.deinit();
     try testing.expect(!isFlagVisible(&h));
@@ -39,7 +39,7 @@ test "VBlankLedger: Flag is set at scanline 241, dot 1" {
     try testing.expect(isFlagVisible(&h));
 
     // Verify VBlank was set (last_set_cycle should be non-zero)
-    try testing.expect(h.state.vblank_ledger.last_set_cycle > 0);
+    try testing.expect(h.state.ppu.vblank.last_set_cycle > 0);
 
     // Subsequent read clears the flag
     try testing.expect(readVBlankBit(&h));  // First read sees set (and clears it)
@@ -58,7 +58,7 @@ test "VBlankLedger: First read clears flag, subsequent read sees cleared" {
 
     // Reading the visible flag clears it and updates last_read_cycle
     try testing.expect(readVBlankBit(&h));
-    try testing.expect(h.state.vblank_ledger.last_read_cycle > 0);
+    try testing.expect(h.state.ppu.vblank.last_read_cycle > 0);
 
     // Second read should see flag cleared (cleared by first read)
     try testing.expect(!readVBlankBit(&h));  // Second read sees CLEAR
@@ -80,17 +80,17 @@ test "VBlankLedger: Flag is cleared at scanline -1, dot 1 (pre-render)" {
     h.seekTo(-1, 0);
 
     // At -1,0, VBlank should still be active (hasn't cleared by timing yet)
-    try testing.expect(h.state.vblank_ledger.isFlagSet());
+    try testing.expect(h.state.ppu.vblank.isFlagSet());
 
     // Tick to the exact clear cycle
     h.tick(1);
     try testing.expect(h.state.ppu.scanline == -1 and h.state.ppu.cycle == 1);
 
     // The flag is now cleared by timing
-    try testing.expect(!h.state.vblank_ledger.isFlagSet());
+    try testing.expect(!h.state.ppu.vblank.isFlagSet());
 
     // Verify VBlank was cleared (last_clear_cycle should be non-zero)
-    try testing.expect(h.state.vblank_ledger.last_clear_cycle > 0);
+    try testing.expect(h.state.ppu.vblank.last_clear_cycle > 0);
 }
 
 test "VBlankLedger: Race condition - read on same cycle as set" {
@@ -116,7 +116,7 @@ test "VBlankLedger: Race condition - read on same cycle as set" {
     _ = first_read; // Phase-dependent (may be 0 or 1)
 
     // Verify last_read_cycle was updated (BUG #1 fix - unconditional update)
-    try testing.expect(h.state.vblank_ledger.last_read_cycle > 0);
+    try testing.expect(h.state.ppu.vblank.last_read_cycle > 0);
 
     // Second read should ALWAYS see flag as cleared (by last_read_cycle timestamp)
     try testing.expect(!readVBlankBit(&h));
@@ -147,12 +147,12 @@ test "VBlankLedger: Reset clears all cycle counters" {
     h.seekTo(241, 10);
     _ = readVBlankBit(&h); // Perform a read to populate the ledger
 
-    try testing.expect(h.state.vblank_ledger.last_set_cycle > 0);
-    try testing.expect(h.state.vblank_ledger.last_read_cycle > 0);
+    try testing.expect(h.state.ppu.vblank.last_set_cycle > 0);
+    try testing.expect(h.state.ppu.vblank.last_read_cycle > 0);
 
     h.state.reset();
 
-    try testing.expectEqual(@as(u64, 0), h.state.vblank_ledger.last_set_cycle);
-    try testing.expectEqual(@as(u64, 0), h.state.vblank_ledger.last_clear_cycle);
-    try testing.expectEqual(@as(u64, 0), h.state.vblank_ledger.last_read_cycle);
+    try testing.expectEqual(@as(u64, 0), h.state.ppu.vblank.last_set_cycle);
+    try testing.expectEqual(@as(u64, 0), h.state.ppu.vblank.last_clear_cycle);
+    try testing.expectEqual(@as(u64, 0), h.state.ppu.vblank.last_read_cycle);
 }

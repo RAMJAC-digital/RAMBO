@@ -108,14 +108,11 @@ pub fn saveBinary(
     try writer.writeByte(state.bus.open_bus.external); // Open bus external
     try writer.writeByte(state.bus.open_bus.internal); // Open bus internal
 
-    // Write VBlankLedger (VBlank flag/span state and timestamps)
-    try state_ser.writeVBlankLedger(writer, &state.vblank_ledger);
+    // Write VBlank state (VBlank flag/span state and timestamps)
+    try state_ser.writeVBlank(writer, &state.ppu.vblank);
 
     // Timing information is stored in MasterClock (already written via writeClock)
     // No redundant timing fields needed - scanline/dot/frame are derived from ppu_cycles
-
-    // Write EmulationState flags
-    try state_ser.writeEmulationStateFlags(writer, state);
 
     const state_end = buffer.items.len;
 
@@ -192,7 +189,7 @@ pub fn loadBinary(
     // Read component states
     const clock = try state_ser.readClock(reader);
     const cpu = try state_ser.readCpuState(reader);
-    const ppu = try state_ser.readPpuState(reader);
+    var ppu = try state_ser.readPpuState(reader);
 
     // Read bus state (RAM and open bus) - now flattened into EmulationState
     var ram: [2048]u8 = undefined;
@@ -200,13 +197,11 @@ pub fn loadBinary(
     const open_bus_external = try reader.readByte(); // Open bus external
     const open_bus_internal = try reader.readByte(); // Open bus internal
 
-    // Read VBlankLedger (VBlank flag/span state and timestamps)
-    const vblank_ledger = try state_ser.readVBlankLedger(reader);
+    // Read VBlank state (VBlank flag/span state and timestamps)
+    const vblank = try state_ser.readVBlank(reader);
 
     // Timing information is stored in MasterClock (already read via readClock)
     // No redundant timing fields to read - scanline/dot/frame are derived from ppu_cycles
-
-    const flags = try state_ser.readEmulationStateFlags(reader);
 
     // Read cartridge snapshot
     const cart_snapshot = try cartridge_snap.readCartridgeSnapshot(allocator, reader);
@@ -240,6 +235,9 @@ pub fn loadBinary(
         // TODO: Verify cartridge hash matches snapshot hash when cartridge provided
     }
 
+    // Update PPU with VBlank state (PPU owns VBlank now)
+    ppu.vblank = vblank;
+
     // Construct EmulationState
     var emu_state = EmulationState{
         .clock = clock,
@@ -254,11 +252,7 @@ pub fn loadBinary(
             },
             .test_ram = null,
         },
-        .vblank_ledger = vblank_ledger,
         .config = config,
-        .frame_complete = flags.frame_complete,
-        .odd_frame = flags.odd_frame,
-        .rendering_enabled = flags.rendering_enabled,
     };
 
     // Connect cartridge (cartridge is already wrapped in AnyCartridge union)

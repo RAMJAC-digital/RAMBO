@@ -167,11 +167,11 @@ test "SMB1 NMI Controller Polling: NMI handler executes and reads controller" {
             std.debug.print("  PPUCTRL: 0x{X:0>2} (NMI enable: {})\n", .{ @as(u8, @bitCast(state.ppu.ctrl)), state.ppu.ctrl.nmi_enable });
             std.debug.print("  NMI line: {}\n", .{state.cpu.nmi_line});
             std.debug.print("  VBlank ledger:\n", .{});
-            std.debug.print("    last_set_cycle: {}\n", .{state.vblank_ledger.last_set_cycle});
-            std.debug.print("    last_clear_cycle: {}\n", .{state.vblank_ledger.last_clear_cycle});
-            std.debug.print("    last_read_cycle: {}\n", .{state.vblank_ledger.last_read_cycle});
-            std.debug.print("    prevent_vbl_set_cycle: {}\n", .{state.vblank_ledger.prevent_vbl_set_cycle});
-            std.debug.print("    isFlagSet(): {}\n", .{state.vblank_ledger.isFlagSet()});
+            std.debug.print("    last_set_cycle: {}\n", .{state.ppu.vblank.last_set_cycle});
+            std.debug.print("    last_clear_cycle: {}\n", .{state.ppu.vblank.last_clear_cycle});
+            std.debug.print("    last_read_cycle: {}\n", .{state.ppu.vblank.last_read_cycle});
+            std.debug.print("    prevent_vbl_set_cycle: {}\n", .{state.ppu.vblank.prevent_vbl_set_cycle});
+            std.debug.print("    isFlagSet(): {}\n", .{state.ppu.vblank.isFlagSet()});
 
             return error.NmiDidNotFire;
         }

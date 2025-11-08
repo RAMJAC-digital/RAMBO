@@ -18,7 +18,6 @@ const sprites = @import("logic/sprites.zig");
 
 pub const PpuReadResult = registers.PpuReadResult;
 
-/// Initialize PPU state to power-on values
 pub fn init() PpuState {
     return PpuState.init();
 }
@@ -29,53 +28,38 @@ pub fn init() PpuState {
 pub fn reset(state: *PpuState) void {
     state.ctrl = .{};
     state.mask = .{};
-    // Status VBlank bit is random at reset
     state.internal.resetToggle();
     state.internal.x = 0;
     state.internal.v = 0;
     state.internal.t = 0;
-    // RESET skips the warm-up period (PPU already initialized)
-    state.warmup_complete = true;
-    // Reset A12 state (will be recalculated on next tick)
+    state.warmup_complete = true; // RESET skips warm-up (PPU already initialized)
     state.a12_state = false;
 }
 
-/// Advance PPU clock by one cycle
-/// Hardware behavior: PPU has its own clock (341 dots × 262 scanlines)
-/// Mesen2 reference: NesPpu.cpp Exec() function
-///
-/// Implements:
-/// - Cycle increment (0-340)
-/// - Scanline wrap (340→0, scanline++)
-/// - Frame wrap (scanline 261→-1, frame++)
-/// - Odd frame skip (cycle 339→340 when rendering enabled on odd frames)
-///
+/// Advance PPU clock (341 dots × 262 scanlines, odd frame skip on rendering)
 /// Reference: nesdev.org/wiki/PPU_frame_timing
-pub fn advanceClock(ppu: *PpuState, rendering_enabled: bool) void {
+pub fn advanceClock(ppu: *PpuState) void {
     ppu.cycle += 1;
 
-    // Odd frame skip: cycle 339 → 340 (skips cycle 340) when rendering enabled
-    // Hardware: On odd frames with rendering enabled, pre-render scanline is 1 cycle shorter
+    // Odd frame skip: pre-render scanline is 1 cycle shorter when rendering enabled
     // Mesen2: if(_scanline == -1 && _cycle == 339 && (_frameCount & 0x01) && rendering)
+    const rendering_enabled = ppu.mask.renderingEnabled();
     if (ppu.scanline == -1 and ppu.cycle == 339 and (ppu.frame_count & 1) == 1 and rendering_enabled) {
-        ppu.cycle = 340; // Will wrap to 0 on next check
+        ppu.cycle = 340;
     }
 
-    // Scanline wrap: cycle 340 → 0 (advance scanline)
     if (ppu.cycle > 340) {
         ppu.cycle = 0;
         ppu.scanline += 1;
 
-        // Frame wrap: scanline 260 → -1 (pre-render, advance frame)
         // Hardware: 262 scanlines total (scanlines -1, 0-260)
         if (ppu.scanline > 260) {
-            ppu.scanline = -1; // Back to pre-render line
+            ppu.scanline = -1;
             ppu.frame_count += 1;
         }
     }
 }
 
-/// Decay open bus value (called once per frame)
 pub fn tickFrame(state: *PpuState) void {
     state.open_bus.decay(state.frame_count);
 }
@@ -84,12 +68,10 @@ pub fn tickFrame(state: *PpuState) void {
 // Memory Access (delegate to memory.zig)
 // ============================================================================
 
-/// Read from PPU VRAM address space ($0000-$3FFF)
 pub inline fn readVram(state: *PpuState, cart: ?*AnyCartridge, address: u16) u8 {
     return memory.readVram(state, cart, address);
 }
 
-/// Write to PPU VRAM address space ($0000-$3FFF)
 pub inline fn writeVram(state: *PpuState, cart: ?*AnyCartridge, address: u16, value: u8) void {
     memory.writeVram(state, cart, address, value);
 }
@@ -98,26 +80,21 @@ pub inline fn writeVram(state: *PpuState, cart: ?*AnyCartridge, address: u16, va
 // Register I/O (delegate to registers.zig)
 // ============================================================================
 
-/// Read from PPU register (via CPU memory bus)
-/// VBlank Migration (Phase 2): Now requires VBlankLedger
-/// Race Condition Fix: Added scanline/dot for read-time VBlank masking
 pub inline fn readRegister(
     state: *PpuState,
     cart: ?*AnyCartridge,
     address: u16,
-    vblank_ledger: @import("../emulation/VBlankLedger.zig").VBlankLedger,
+    vblank_ledger: @import("VBlank.zig").VBlank,
     scanline: i16,
     dot: u16,
 ) registers.PpuReadResult {
     return registers.readRegister(state, cart, address, vblank_ledger, scanline, dot);
 }
 
-/// Write to PPU register (via CPU memory bus)
 pub inline fn writeRegister(state: *PpuState, cart: ?*AnyCartridge, address: u16, value: u8) void {
     registers.writeRegister(state, cart, address, value);
 }
 
-/// Update PPU state at cycle end (deferred state transitions)
 /// Reference: Mesen2 NesPpu.cpp UpdateState()
 pub inline fn updatePpuState(state: *PpuState, scanline: i16, dot: u16) void {
     registers.updatePpuState(state, scanline, dot);
@@ -127,22 +104,18 @@ pub inline fn updatePpuState(state: *PpuState, scanline: i16, dot: u16) void {
 // Scroll Operations (delegate to scrolling.zig)
 // ============================================================================
 
-/// Increment coarse X scroll (every 8 pixels)
 pub inline fn incrementScrollX(state: *PpuState) void {
     scrolling.incrementScrollX(state);
 }
 
-/// Increment Y scroll (end of scanline)
 pub inline fn incrementScrollY(state: *PpuState) void {
     scrolling.incrementScrollY(state);
 }
 
-/// Copy horizontal scroll bits from t to v
 pub inline fn copyScrollX(state: *PpuState) void {
     scrolling.copyScrollX(state);
 }
 
-/// Copy vertical scroll bits from t to v
 pub inline fn copyScrollY(state: *PpuState) void {
     scrolling.copyScrollY(state);
 }
@@ -151,17 +124,14 @@ pub inline fn copyScrollY(state: *PpuState) void {
 // Background Rendering (delegate to background.zig)
 // ============================================================================
 
-/// Fetch background tile data for current cycle
 pub inline fn fetchBackgroundTile(state: *PpuState, cart: ?*AnyCartridge, dot: u16) void {
     background.fetchBackgroundTile(state, cart, dot);
 }
 
-/// Get background pixel from shift registers
 pub inline fn getBackgroundPixel(state: *PpuState, pixel_x: u16) u8 {
     return background.getBackgroundPixel(state, pixel_x);
 }
 
-/// Get final pixel color from palette
 pub inline fn getPaletteColor(state: *PpuState, palette_index: u8) u32 {
     return background.getPaletteColor(state, palette_index);
 }
@@ -170,63 +140,60 @@ pub inline fn getPaletteColor(state: *PpuState, palette_index: u8) u32 {
 // Sprite Rendering (delegate to sprites.zig)
 // ============================================================================
 
-/// Get sprite pattern address for 8×8 sprites
 pub inline fn getSpritePatternAddress(tile_index: u8, row: u8, bitplane: u1, pattern_table: bool, vertical_flip: bool) u16 {
     return sprites.getSpritePatternAddress(tile_index, row, bitplane, pattern_table, vertical_flip);
 }
 
-/// Get sprite pattern address for 8×16 sprites
 pub inline fn getSprite16PatternAddress(tile_index: u8, row: u8, bitplane: u1, vertical_flip: bool) u16 {
     return sprites.getSprite16PatternAddress(tile_index, row, bitplane, vertical_flip);
 }
 
-/// Fetch sprite pattern data for visible scanline
 pub inline fn fetchSprites(state: *PpuState, cart: ?*AnyCartridge, scanline: i16, dot: u16) void {
     sprites.fetchSprites(state, cart, scanline, dot);
 }
 
-/// Reverse bits in a byte (for horizontal sprite flip)
 pub inline fn reverseBits(byte: u8) u8 {
     return sprites.reverseBits(byte);
 }
 
-/// Get sprite pixel for current position
 pub inline fn getSpritePixel(state: *PpuState, pixel_x: u16) SpritePixel {
     return sprites.getSpritePixel(state, pixel_x);
 }
 
-/// Evaluate sprites for the current scanline (instant evaluation - legacy)
 pub inline fn evaluateSprites(state: *PpuState, scanline: i16) void {
     sprites.evaluateSprites(state, scanline);
 }
 
-/// Initialize sprite evaluation for a new scanline
 pub inline fn initSpriteEvaluation(state: *PpuState) void {
     sprites.initSpriteEvaluation(state);
 }
 
-/// Tick progressive sprite evaluation (called each cycle during dots 65-256)
 pub inline fn tickSpriteEvaluation(state: *PpuState, scanline: i16, cycle: u16) void {
     sprites.tickSpriteEvaluation(state, scanline, cycle);
+}
+
+// ============================================================================
+// PPU Warmup
+// ============================================================================
+
+/// Complete PPU warmup and apply buffered PPUMASK write if present
+/// Hardware: PPU warmup takes ~29658 CPU cycles after power-on
+fn completeWarmup(state: *PpuState) void {
+    state.warmup_complete = true;
+
+    // Apply buffered PPUMASK write if present
+    if (state.warmup_ppumask_buffer) |buffered_value| {
+        state.mask = StateModule.PpuMask.fromByte(buffered_value);
+        state.warmup_ppumask_buffer = null;
+    }
 }
 
 // ============================================================================
 // PPU Orchestration (main tick function)
 // ============================================================================
 
-/// Result flags produced by a single PPU tick
-/// These are EVENT signals (edge-triggered), not level signals
-pub const TickFlags = struct {
-    frame_complete: bool = false,
-    rendering_enabled: bool,
-    nmi_signal: bool = false,      // Scanline 241, dot 1 - NMI edge detection (VBlank starts)
-    vblank_clear: bool = false,    // Scanline 261, dot 1 - VBlank period ends
-    a12_rising: bool = false,      // A12 rising edge (0→1) for MMC3 IRQ timing
-};
-
 /// Advance the PPU by one cycle.
-/// Timing is externally controlled - this function receives current scanline/dot
-/// as read-only parameters and performs pure state updates.
+/// PPU manages its own timing (scanline/dot) internally.
 ///
 /// Hardware correspondence (nesdev.org):
 /// - PPU runs at 5.369318 MHz (NTSC)
@@ -237,18 +204,27 @@ pub const TickFlags = struct {
 /// - Scanlines 241-260: VBlank (20 scanlines)
 /// - Scanline 261: Pre-render
 ///
-/// Returns tick flags indicating frame boundary and rendering state.
+/// Advance the PPU by one cycle, performing rendering and signaling.
+/// All state changes and signals are managed internally.
 pub fn tick(
     state: *PpuState,
-    scanline: i16,
-    dot: u16,
+    master_cycles: u64,
     cart: ?*AnyCartridge,
-    framebuffer: ?[]u32,
-) TickFlags {
-    var flags = TickFlags{
-        .frame_complete = false,
-        .rendering_enabled = state.mask.renderingEnabled(),
-    };
+) void {
+    // Check warmup completion FIRST (before any rendering)
+    // Hardware: PPU warmup takes ~29658 CPU cycles (88974 master cycles)
+    // During warmup, writes to PPUMASK are buffered and applied after warmup
+    if (!state.warmup_complete) {
+        const cpu_cycles = master_cycles / 3;
+        if (cpu_cycles >= 29658) {
+            completeWarmup(state);
+        }
+    }
+
+    // Read timing from PPU state (not passed as parameters)
+    const scanline = state.scanline;
+    const dot = state.cycle;
+    const framebuffer = state.framebuffer;
 
     // === PPUMASK Delay Buffer Advance (Phase 2D) ===
     // Hardware behavior: Rendering enable/disable propagates through 3-4 dot delay
@@ -308,7 +284,8 @@ pub fn tick(
 
         // Only signal mapper on fetch cycles (when CHR bus is actively used)
         if (is_fetch_cycle and rising_condition) {
-            flags.a12_rising = true;
+            // Notify cartridge mapper directly
+            if (cart) |c| c.ppuA12Rising();
         }
     }
 
@@ -446,30 +423,47 @@ pub fn tick(
     // CRITICAL TIMING: PPU sets flag during dot 1, but CPU reads can happen in same cycle
     // Hardware sub-cycle ordering: CPU read executes before PPU flag update in same cycle
 
-    // === VBlank Signal Management ===
-    // VBlank Migration (Phase 3): VBlank flag is now managed by VBlankLedger only
-    // We only signal the events; ledger handles the actual flag state
+    // === VBlank Management ===
+    // PPU owns VBlank state and manages it internally
 
-    // Signal VBlank start (scanline 241 dot 1)
+    // VBlank start (scanline 241 dot 1)
     if (scanline == 241 and dot == 1) {
-        // Signal NMI edge detection to CPU
-        // VBlankLedger.recordVBlankSet() will be called in EmulationState
-        flags.nmi_signal = true;
+        // Check prevention flag (set by $2002 reads during race window)
+        const prevent_cycle = state.vblank.prevent_vbl_set_cycle;
+        const should_prevent = prevent_cycle != 0 and prevent_cycle == master_cycles;
+
+        // VBlank span always activates (hardware timing window)
+        state.vblank.vblank_span_active = true;
+
+        if (!should_prevent) {
+            // Set VBlank flag (readable bit 7 of $2002)
+            state.vblank.vblank_flag = true;
+            state.vblank.last_set_cycle = master_cycles;
+
+            // Compute NMI line (hardware: NMI = vblank_flag AND ctrl.nmi_enable)
+            state.nmi_line = state.ctrl.nmi_enable;
+        }
+
+        // Clear prevention flag (one-shot)
+        state.vblank.prevent_vbl_set_cycle = 0;
     }
 
-    // Clear sprite flags and signal VBlank end (scanline -1 dot 1, pre-render)
+    // VBlank end (scanline -1 dot 1, pre-render)
     if (scanline == -1 and dot == 1) {
-        // Clear sprite flags (these are NOT managed by VBlankLedger)
+        // Clear sprite flags
         state.status.sprite_0_hit = false;
         state.status.sprite_overflow = false;
 
-        // Reset PPU write toggle (w register) - hardware behavior per NESDev spec
-        // The write toggle is cleared at the end of VBlank along with sprite flags
+        // Reset PPU write toggle (w register)
         state.internal.resetToggle();
 
-        // Signal end of VBlank period
-        // VBlankLedger.recordVBlankSpanEnd() will be called in EmulationState
-        flags.vblank_clear = true;
+        // Clear VBlank span and flag
+        state.vblank.vblank_span_active = false;
+        state.vblank.vblank_flag = false;
+        state.vblank.last_clear_cycle = master_cycles;
+
+        // Clear NMI line (vblank_flag is now false)
+        state.nmi_line = false;
     }
 
     // === Frame Complete ===
@@ -479,14 +473,15 @@ pub fn tick(
     // Guard with frame_count > 0 to avoid triggering on power-on initialization
     // Reference: Mesen2 increments _frameCount at scanline 240 (NesPpu.cpp:1417)
     if (scanline == -1 and dot == 0 and state.frame_count > 0) {
-        flags.frame_complete = true;
+        state.frame_complete = true;
 
         // Note: Diagnostic logging moved to EmulationState where frame number is available
         if (rendering_enabled and !state.rendering_was_enabled) {
             state.rendering_was_enabled = true;
         }
 
-        // Reset VBlank prevention at start of new frame (handled in orchestrator)
+        // Reset VBlank prevention at start of new frame
+        state.vblank.prevent_vbl_set_cycle = 0;
     }
 
     // === Deferred State Update (OAM Corruption) ===
@@ -494,9 +489,6 @@ pub fn tick(
     // occur at cycle end. This creates 1-cycle delay matching hardware.
     // Reference: Mesen2 NesPpu.cpp Exec() calls UpdateState() at cycle end
     updatePpuState(state, scanline, dot);
-
-    flags.rendering_enabled = rendering_enabled;
-    return flags;
 }
 
 // ============================================================================

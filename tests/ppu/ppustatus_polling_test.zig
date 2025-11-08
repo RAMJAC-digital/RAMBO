@@ -9,7 +9,7 @@ const RAMBO = @import("RAMBO");
 const Harness = RAMBO.TestHarness.Harness;
 
 fn isFlagVisible(h: *Harness) bool {
-    return h.state.vblank_ledger.isFlagSet();
+    return h.state.ppu.vblank.isFlagSet();
 }
 
 fn readVBlankBit(h: *Harness) bool {

@@ -143,9 +143,9 @@ pub export fn rambo_step_frame() u32 {
         emu.controller.controller2.toByte(),
     );
 
-    emu.state.framebuffer = emu.framebuffer;
+    emu.state.ppu.framebuffer = emu.framebuffer;
     _ = emu.state.emulateFrame();
-    emu.state.framebuffer = null;
+    emu.state.ppu.framebuffer = null;
 
     g_last_error = .ok;
     return @intFromEnum(ErrorCode.ok);

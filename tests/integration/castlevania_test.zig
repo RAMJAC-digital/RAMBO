@@ -176,7 +176,7 @@ test "Castlevania: Emulation runs without crash" {
     // Run for 10 frames without crashing
     var frame: usize = 0;
     while (frame < 10) : (frame += 1) {
-        state.framebuffer = &framebuffer;
+        state.ppu.framebuffer = &framebuffer;
         _ = state.emulateFrame();
     }
 
@@ -282,7 +282,7 @@ test "Castlevania: PPU rendering initialization" {
     defer pc_frequency.deinit();
 
     while (frame < 300) : (frame += 1) {
-        state.framebuffer = &framebuffer;
+        state.ppu.framebuffer = &framebuffer;
         const frame_instructions = state.emulateFrame();
         total_instructions += frame_instructions;
 
@@ -328,10 +328,10 @@ test "Castlevania: PPU rendering initialization" {
             });
 
             std.debug.print("  VBlankLedger: set={d} clear={d} read={d} prevent={d}\n", .{
-                state.vblank_ledger.last_set_cycle,
-                state.vblank_ledger.last_clear_cycle,
-                state.vblank_ledger.last_read_cycle,
-                state.vblank_ledger.prevent_vbl_set_cycle,
+                state.ppu.vblank.last_set_cycle,
+                state.ppu.vblank.last_clear_cycle,
+                state.ppu.vblank.last_read_cycle,
+                state.ppu.vblank.prevent_vbl_set_cycle,
             });
         }
 

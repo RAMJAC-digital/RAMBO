@@ -73,10 +73,6 @@ fn createTestState(config: *const Config) EmulationState {
     state.bus.ram[0x01] = 0xBB;
     state.bus.ram[0xFF] = 0xCC;
 
-    state.frame_complete = true;
-    state.odd_frame = true;
-    state.rendering_enabled = true;
-
     return state;
 }
 
@@ -142,11 +138,6 @@ test "Snapshot Integration: Full round-trip without cartridge" {
     try testing.expectEqual(state.bus.ram[0x00], restored.bus.ram[0x00]);
     try testing.expectEqual(state.bus.ram[0x01], restored.bus.ram[0x01]);
     try testing.expectEqual(state.bus.ram[0xFF], restored.bus.ram[0xFF]);
-
-    // Verify EmulationState flags
-    try testing.expectEqual(state.frame_complete, restored.frame_complete);
-    try testing.expectEqual(state.odd_frame, restored.odd_frame);
-    try testing.expectEqual(state.rendering_enabled, restored.rendering_enabled);
 }
 
 test "Snapshot Integration: Full round-trip with cartridge (reference mode)" {

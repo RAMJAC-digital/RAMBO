@@ -46,7 +46,7 @@ test "SMB: Sprite palette diagnostic (? boxes)" {
     const target_frame: u64 = 500;
     var frames_run: usize = 0;
     while (frames_run < target_frame) {
-        state.framebuffer = &framebuffer;
+        state.ppu.framebuffer = &framebuffer;
         _ = state.emulateFrame();
         frames_run += 1;
     }

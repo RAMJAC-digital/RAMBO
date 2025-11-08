@@ -13,7 +13,7 @@ const PpuCtrl = @import("../ppu/State.zig").PpuCtrl;
 const PpuMask = @import("../ppu/State.zig").PpuMask;
 const PpuStatus = @import("../ppu/State.zig").PpuStatus;
 const BusState = @import("../emulation/State.zig").BusState;
-const VBlankLedger = @import("../emulation/VBlankLedger.zig").VBlankLedger;
+const VBlank = @import("../ppu/VBlank.zig").VBlank;
 const Cartridge = @import("../cartridge/Cartridge.zig");
 const Mirroring = Cartridge.Mirroring;
 
@@ -216,10 +216,11 @@ pub fn writePpuState(writer: anytype, ppu: *const PpuState) !void {
     // Metadata (1 byte)
     try writer.writeByte(@intFromEnum(ppu.mirroring));
 
-    // PPU Clock (18 bytes) - PPU now owns its own timing state
+    // PPU Clock (19 bytes) - PPU now owns its own timing state
     try writer.writeInt(u16, ppu.cycle, .little);
     try writer.writeInt(i16, ppu.scanline, .little);
     try writer.writeInt(u64, ppu.frame_count, .little);
+    try writer.writeByte(@intFromBool(ppu.frame_complete));
 }
 
 /// Read PpuState from binary format
@@ -270,6 +271,7 @@ pub fn readPpuState(reader: anytype) !PpuState {
     ppu.cycle = try reader.readInt(u16, .little);
     ppu.scanline = try reader.readInt(i16, .little);
     ppu.frame_count = try reader.readInt(u64, .little);
+    ppu.frame_complete = try reader.readByte() != 0;
 
     return ppu;
 }
@@ -319,8 +321,8 @@ pub fn readBusState(reader: anytype) !BusState {
     return bus;
 }
 
-/// Write VBlankLedger to binary format
-pub fn writeVBlankLedger(writer: anytype, ledger: *const VBlankLedger) !void {
+/// Write VBlank state to binary format
+pub fn writeVBlank(writer: anytype, ledger: *const VBlank) !void {
     // Boolean flags (2 bytes)
     try writer.writeByte(@intFromBool(ledger.vblank_flag));
     try writer.writeByte(@intFromBool(ledger.vblank_span_active));
@@ -332,8 +334,8 @@ pub fn writeVBlankLedger(writer: anytype, ledger: *const VBlankLedger) !void {
     try writer.writeInt(u64, ledger.prevent_vbl_set_cycle, .little);
 }
 
-/// Read VBlankLedger from binary format
-pub fn readVBlankLedger(reader: anytype) !VBlankLedger {
+/// Read VBlank state from binary format
+pub fn readVBlank(reader: anytype) !VBlank {
     return .{
         .vblank_flag = try reader.readByte() != 0,
         .vblank_span_active = try reader.readByte() != 0,
@@ -341,21 +343,5 @@ pub fn readVBlankLedger(reader: anytype) !VBlankLedger {
         .last_clear_cycle = try reader.readInt(u64, .little),
         .last_read_cycle = try reader.readInt(u64, .little),
         .prevent_vbl_set_cycle = try reader.readInt(u64, .little),
-    };
-}
-
-/// Write EmulationState flags to binary format
-pub fn writeEmulationStateFlags(writer: anytype, state: *const EmulationState) !void {
-    try writer.writeByte(@intFromBool(state.frame_complete));
-    try writer.writeByte(@intFromBool(state.odd_frame));
-    try writer.writeByte(@intFromBool(state.rendering_enabled));
-}
-
-/// Read EmulationState flags from binary format
-pub fn readEmulationStateFlags(reader: anytype) !struct { frame_complete: bool, odd_frame: bool, rendering_enabled: bool } {
-    return .{
-        .frame_complete = try reader.readByte() != 0,
-        .odd_frame = try reader.readByte() != 0,
-        .rendering_enabled = try reader.readByte() != 0,
     };
 }

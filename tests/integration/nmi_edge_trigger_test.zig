@@ -20,7 +20,7 @@ test "NMI immediate trigger: enabling NMI while VBlank=1 triggers NMI" {
     h.state.ppu.warmup_complete = true;
 
     // Manually set VBlank flag (simulate being in VBlank period)
-    h.state.vblank_ledger.vblank_flag = true;
+    h.state.ppu.vblank.vblank_flag = true;
 
     // Ensure NMI is currently disabled
     h.state.ppu.ctrl.nmi_enable = false;
@@ -45,7 +45,7 @@ test "NMI immediate trigger: no trigger when VBlank=0" {
     h.state.ppu.warmup_complete = true;
 
     // VBlank flag is CLEAR
-    h.state.vblank_ledger.vblank_flag = false;
+    h.state.ppu.vblank.vblank_flag = false;
 
     // Ensure NMI disabled
     h.state.ppu.ctrl.nmi_enable = false;
@@ -69,7 +69,7 @@ test "NMI immediate trigger: no trigger when NMI already enabled" {
     h.state.ppu.warmup_complete = true;
 
     // VBlank flag is SET
-    h.state.vblank_ledger.vblank_flag = true;
+    h.state.ppu.vblank.vblank_flag = true;
 
     // NMI is ALREADY enabled
     h.state.ppu.ctrl.nmi_enable = true;
@@ -90,7 +90,7 @@ test "NMI immediate trigger: disabling NMI does not trigger" {
     h.state.ppu.warmup_complete = true;
 
     // VBlank flag is SET
-    h.state.vblank_ledger.vblank_flag = true;
+    h.state.ppu.vblank.vblank_flag = true;
 
     // NMI is currently enabled
     h.state.ppu.ctrl.nmi_enable = true;
@@ -120,14 +120,14 @@ test "NMI immediate trigger: common game pattern" {
     // 4. Enable NMI (should trigger immediately)
 
     // Step 1: VBlank flag cleared by PPUSTATUS read
-    h.state.vblank_ledger.vblank_flag = false;
+    h.state.ppu.vblank.vblank_flag = false;
     h.state.ppu.ctrl.nmi_enable = false;
     h.state.cpu.nmi_line = false;
 
     // Step 2: Game does work...
 
     // Step 3: VBlank starts (PPU sets flag)
-    h.state.vblank_ledger.vblank_flag = true;
+    h.state.ppu.vblank.vblank_flag = true;
 
     // Step 4: Game enables NMI expecting next frame, but...
     h.ppuWriteRegister(0x2000, 0x80);

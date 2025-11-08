@@ -10,14 +10,15 @@
 
 1. [Core Principles](#core-principles)
 2. [State/Logic Separation Pattern](#statelogic-separation-pattern)
-3. [Comptime Generics (Zero-Cost Polymorphism)](#comptime-generics-zero-cost-polymorphism)
-4. [Bus Handler Architecture](#bus-handler-architecture)
-5. [Thread Architecture](#thread-architecture)
-6. [VBlank Pattern (Pure Data Ledgers)](#vblank-pattern-pure-data-ledgers)
-7. [Master Clock and Phase Independence](#master-clock-and-phase-independence)
-8. [DMA Interaction Model](#dma-interaction-model)
-9. [RT-Safety Guidelines](#rt-safety-guidelines)
-10. [Quick Pattern Reference](#quick-pattern-reference)
+3. [Table-Driven Dispatch Pattern (CPU Execution)](#table-driven-dispatch-pattern-cpu-execution)
+4. [Comptime Generics (Zero-Cost Polymorphism)](#comptime-generics-zero-cost-polymorphism)
+5. [Bus Handler Architecture](#bus-handler-architecture)
+6. [Thread Architecture](#thread-architecture)
+7. [VBlank Pattern (Pure Data Ledgers)](#vblank-pattern-pure-data-ledgers)
+8. [Master Clock and Phase Independence](#master-clock-and-phase-independence)
+9. [DMA Interaction Model](#dma-interaction-model)
+10. [RT-Safety Guidelines](#rt-safety-guidelines)
+11. [Quick Pattern Reference](#quick-pattern-reference)
 
 ---
 
@@ -116,6 +117,166 @@ pub fn reset(cpu: *CpuState, bus: *BusState) void {
 3. **Debugging:** State can be inspected without side effects
 4. **Refactoring:** Logic changes don't affect State layout
 5. **RT-Safety:** No hidden heap allocations or locks
+
+---
+
+## Table-Driven Dispatch Pattern (CPU Execution)
+
+**Core Concept:** Replace nested switch statements with comptime-built lookup tables for declarative dispatch logic with zero runtime overhead.
+
+**Implemented in:** CPU execution system (src/cpu/MicrostepTable.zig, src/cpu/Execution.zig)
+
+### Architecture (Refactored 2025-11-07)
+
+**Before (Nested Switches - 533 lines):**
+```zig
+// Opcode dispatch required 3 separate switches:
+// 1. Check if addressing needed (opcode list)
+switch (opcode) {
+    0x20, 0x60, 0x40, 0x00, 0x48, 0x08, 0x68, 0x28 => ...,
+}
+// 2. Dispatch microstep (nested switch on mode + cycle)
+switch (address_mode) {
+    .absolute => switch (instruction_cycle) {
+        0 => fetchAbsLow(bus),
+        1 => fetchAbsHigh(bus),
+    },
+    // ... 12 more modes, 217 lines total
+}
+// 3. Check completion (threshold per mode)
+switch (address_mode) {
+    .absolute => instruction_cycle >= 2,
+    // ... duplication of structure
+}
+```
+
+**After (Table-Driven - 281 lines):**
+```zig
+// Single table lookup
+const sequence = MicrostepTable.MICROSTEP_TABLE[opcode];
+const microstep_idx = sequence.steps[instruction_cycle];
+const early_complete = MicrostepTable.callMicrostep(microstep_idx, bus);
+const addressing_done = (instruction_cycle >= sequence.max_cycles);
+```
+
+### Table Structure
+
+**MicrostepSequence:**
+```zig
+pub const MicrostepSequence = struct {
+    steps: []const u8,           // Microstep indices to execute (e.g., [5, 6, 7, 8])
+    max_cycles: u8,              // Maximum addressing cycles (e.g., 4)
+    operand_source: OperandSource, // How to fetch operand (immediate_pc, temp_value, etc.)
+};
+```
+
+**MICROSTEP_TABLE[256]:**
+- Comptime-built at compile time (zero runtime cost)
+- Maps every opcode to its complete microstep sequence
+- 39 predefined sequences (13 addressing modes × 3 variants: read/write/rmw)
+- 8 special opcode sequences (JSR, RTS, RTI, BRK, PHA, PHP, PLA, PLP)
+
+**Example Entry:**
+```zig
+// Absolute,X read mode (e.g., LDA $1234,X)
+const ABSOLUTE_X_READ_SEQ = MicrostepSequence{
+    .steps = &[_]u8{ 5, 6, 7, 8 }, // fetchAbsLow, fetchAbsHigh, calcAbsoluteX, fixHighByte
+    .max_cycles = 4,               // 2-4 cycles (page cross adds cycle)
+    .operand_source = .temp_value, // Value loaded by microsteps
+};
+```
+
+### Early Completion Pattern
+
+**Problem:** Some instructions complete in fewer cycles based on runtime conditions:
+- Branches: 2 cycles (not taken) vs 3 cycles (taken) vs 4 cycles (taken + page cross)
+- Indexed reads: 3 cycles (no page cross) vs 4 cycles (page crossed)
+
+**Solution:** Microsteps return bool to signal early completion:
+```zig
+pub fn branchFetchOffset(state: anytype) bool {
+    state.cpu.operand_low = state.busRead(state.cpu.pc);
+    state.cpu.pc +%= 1;
+    const should_branch = /* check condition based on opcode */;
+    if (!should_branch) {
+        return true;  // Branch not taken - complete immediately (2 cycles)
+    }
+    return false;  // Branch taken - continue to next microstep (3-4 cycles)
+}
+```
+
+**Execution Loop:**
+```zig
+if (cpu.instruction_cycle < sequence.steps.len) {
+    const microstep_idx = sequence.steps[cpu.instruction_cycle];
+    const early_complete = MicrostepTable.callMicrostep(microstep_idx, bus);
+    if (early_complete) {
+        // Instruction done - advance to next instruction
+        cpu.state = .fetch_opcode;
+        return;
+    }
+}
+```
+
+### Benefits
+
+1. **Single Source of Truth:** Opcode timing defined once in table, not duplicated across 3+ switch sites
+2. **Declarative:** Specify WHAT microsteps to run, not HOW to dispatch them
+3. **Maintainable:** Adding new opcode = add 1 table entry (not edit 3+ switch cases)
+4. **Zero Overhead:** Table built at comptime, no runtime cost vs hand-coded switches
+5. **Hardware Accurate:** Preserves variable cycle counts (branches, indexed modes)
+6. **Reduced Code:** 533 lines → 281 lines (47% reduction in Execution.zig)
+
+### Implementation Notes
+
+**Microstep Dispatcher (Zero-Cost Polymorphism):**
+```zig
+pub fn callMicrostep(idx: u8, bus: anytype) bool {
+    return switch (idx) {
+        0 => CpuMicrosteps.fetchOperandLow(bus),
+        1 => CpuMicrosteps.rmwRead(bus),
+        // ... 37 more microsteps
+        else => unreachable,
+    };
+}
+```
+- Comptime switch preserves inline optimization
+- No VTable or function pointer overhead
+- Duck-typed bus parameter (works with any bus interface)
+
+**Operand Source Enum:**
+```zig
+pub const OperandSource = enum {
+    none,           // Implied/accumulator (no operand)
+    immediate_pc,   // Read from PC (LDA #$42)
+    temp_value,     // Preloaded by microstep (RMW, indexed modes)
+    operand_low,    // Zero page address (LDA $10)
+    effective_addr, // Computed address (LDA $10,X)
+    operand_hl,     // Absolute address (LDA $1234)
+    accumulator,    // Accumulator mode (ASL A)
+};
+```
+- Eliminates nested switch on addressing mode for operand extraction
+- Each sequence declares how to fetch its operand
+
+**Bug Fix (INDEXED_INDIRECT vs INDIRECT_INDEXED):**
+- Previous code incorrectly shared microstep functions between modes
+- (ind,X) now uses: fetchZpBase → addXToBase → fetchIndirectLow/High
+- (ind),Y now uses: fetchZpPointer → fetchPointerLow/High → addYCheckPage
+- Correct hardware behavior for each addressing mode
+
+### When to Use This Pattern
+
+**Good fit:**
+- Dispatch logic with many similar cases (256 opcodes, 13 addressing modes)
+- Behavior defined by sequence of operations (microstep sequences)
+- Need to eliminate code duplication (opcode lists, timing thresholds)
+- Timing precision matters (cycle-accurate emulation)
+
+**Not appropriate:**
+- Small number of cases (use simple switch/if)
+- Behavior requires complex runtime logic (table can't express)
+- Dispatch criteria changes frequently (table rebuild overhead)
 
 ---
 
@@ -267,7 +428,7 @@ pub const PpuHandler = struct {
         // VBlank race detection (CRITICAL TIMING)
         if (reg == 0x02 and state.ppu.scanline == 241 and state.ppu.cycle <= 2) {
             // Prevent VBlank flag from being set this frame
-            state.vblank_ledger.prevent_vbl_set_cycle = state.clock.master_cycles;
+            state.ppu.vblank.prevent_vbl_set_cycle = state.clock.master_cycles;
         }
 
         // Delegate to PPU logic for register read
@@ -275,7 +436,7 @@ pub const PpuHandler = struct {
 
         // $2002 read side effects
         if (result.read_2002) {
-            state.vblank_ledger.last_read_cycle = state.clock.master_cycles;
+            state.ppu.vblank.last_read_cycle = state.clock.master_cycles;
             state.cpu.nmi_line = false;  // Always clear NMI line
         }
 
@@ -289,7 +450,7 @@ pub const PpuHandler = struct {
         if (reg == 0x00) {
             const old_nmi_enable = state.ppu.ctrl.nmi_enable;
             const new_nmi_enable = (value & 0x80) != 0;
-            const vblank_active = state.vblank_ledger.isFlagVisible();
+            const vblank_active = state.ppu.vblank.vblank_flag;
 
             // 0→1 transition while VBlank active: trigger NMI
             if (!old_nmi_enable and new_nmi_enable and vblank_active) {
@@ -429,22 +590,45 @@ pub fn run(self: *EmulationThread) void {
 
 ---
 
-## VBlank Pattern (Pure Data Ledgers)
+## VBlank Pattern (PPU Self-Containment - COMPLETED 2025-11-07)
 
-**Core Concept:** Timestamp-based edge detection with external state management.
+**Core Concept:** PPU owns and manages all VBlank state internally. EmulationState reads output signals only.
 
-### Reference Implementation: VBlankLedger
+### Architecture Changes (2025-11-07)
+
+PPU refactored to self-contained black box:
+- Owns VBlank state in `ppu/VBlank.zig` (renamed from VBlankLedger, moved from emulation/)
+- Owns `nmi_line` output signal (field in PpuState, computed from vblank_flag AND ctrl.nmi_enable)
+- Owns `framebuffer` rendering buffer (field in PpuState)
+- Manages VBlank set/clear internally in PPU Logic.tick()
+
+**Implementation Status (Completed):**
+- [x] VBlank type moved and renamed (ppu/VBlank.zig)
+- [x] nmi_line field added to PpuState
+- [x] framebuffer field added to PpuState
+- [x] VBlank set/clear logic moved to PPU Logic (scanline 241 dot 1, scanline -1 dot 1)
+- [x] NMI line computation moved to PPU (vblank_flag AND ctrl.nmi_enable)
+- [x] EmulationState.stepPpuCycle() deleted (no longer extracting PPU internals)
+- [x] EmulationState.applyVBlankTimestamps() deleted (PPU manages internally)
+- [x] Signal wiring in EmulationState.tick(): ppu.nmi_line → cpu.nmi_line
+
+**Old Pattern (EmulationState-centric):** EmulationState managed VBlankLedger, called applyVBlankTimestamps(), extracted scanline/dot to pass to PPU
+**New Pattern (PPU-centric):** PPU manages VBlank state internally, EmulationState reads ppu.nmi_line output signal
+
+### Reference Implementation: VBlank (in ppu/VBlank.zig)
 
 ```zig
-pub const VBlankLedger = struct {
+pub const VBlank = struct {
     // Pure data fields (timestamps only)
+    vblank_flag: bool = false,
+    vblank_span_active: bool = false,
     last_set_cycle: u64 = 0,
     last_clear_cycle: u64 = 0,
     last_read_cycle: u64 = 0,
-    race_hold: bool = false,
+    prevent_vbl_set_cycle: u64 = 0,
 
     // ONLY mutation method
-    pub fn reset(self: *VBlankLedger) void {
+    pub fn reset(self: *VBlank) void {
         self.* = .{};
     }
 
@@ -456,117 +640,90 @@ pub const VBlankLedger = struct {
 
 ### Key Principles
 
-1. **Pure Data:** Ledger stores only timestamps and flags
-2. **Single Mutation Method:** Only `reset()` method exists
-3. **External State Management:** All mutations happen in EmulationState
-4. **No Business Logic:** Ledger has no decision-making code
-5. **Timestamp-Based Edges:** Detect events by comparing timestamps
+1. **Ownership:** PPU owns VBlank state (not EmulationState)
+2. **Pure Data:** VBlank stores only timestamps and flags
+3. **Single Mutation Method:** Only `reset()` method exists
+4. **Internal Management:** All mutations happen inside PPU (during tick())
+5. **Signal Output:** PPU outputs `nmi_line` signal for CPU to read
 
 ### Usage Pattern
 
+VBlank management is fully internal to PPU module. EmulationState does not manage VBlank at all.
+
 ```zig
-// In EmulationState.zig
-pub fn setVBlankFlag(state: *EmulationState) void {
-    const cycle = state.master_clock.ppu_cycle;
+// In ppu/Logic.zig - VBlank management happens during PPU tick()
+pub fn tick(state: *PpuState, cart: ?*AnyCartridge) void {
+    // VBlank set/clear happens internally based on scanline/cycle
+    // VBlank state stored in state.vblank field (type: VBlank)
 
-    // Direct field assignment (no ledger methods)
-    state.vblank_ledger.last_set_cycle = cycle;
-    state.ppu.status.vblank = true;
-
-    // Check for NMI trigger
-    if (state.ppu.ctrl.nmi_enable) {
-        state.cpu.nmi_line = true;
+    // Scanline 241, dot 1: Set VBlank flag
+    if (state.scanline == 241 and state.cycle == 1) {
+        if (state.vblank.prevent_vbl_set_cycle != master_cycles) {
+            state.vblank.vblank_flag = true;
+            state.vblank.last_set_cycle = master_cycles;
+        }
     }
+
+    // Scanline -1 (pre-render), dot 1: Clear VBlank flag
+    if (state.scanline == -1 and state.cycle == 1) {
+        state.vblank.vblank_flag = false;
+        state.vblank.last_clear_cycle = master_cycles;
+    }
+
+    // Output signal: nmi_line computed from VBlank flag AND NMI enable
+    state.nmi_line = state.vblank.vblank_flag and state.ctrl.nmi_enable;
 }
 
-pub fn clearVBlankFlag(state: *EmulationState) void {
-    const cycle = state.master_clock.ppu_cycle;
-
-    // Direct field assignment (no ledger methods)
-    state.vblank_ledger.last_clear_cycle = cycle;
-    state.ppu.status.vblank = false;
-}
+// In EmulationState.tick() - Only reads output signals
+PpuLogic.tick(&self.ppu, cart_ptr);
+self.cpu.nmi_line = self.ppu.nmi_line;  // Wire PPU NMI signal to CPU
 ```
 
-### Sub-Cycle Execution Order (CRITICAL)
+### Sub-Cycle Execution Order (CRITICAL - Now Handled by PPU)
 
 **LOCKED BEHAVIOR** - Do not modify without hardware justification.
 
 VBlank flag updates must follow hardware-accurate sub-cycle execution order:
 
 **Within a single PPU cycle:**
-1. CPU read operations (if CPU active this cycle)
-2. CPU write operations (if CPU active this cycle)
-3. PPU flag updates (VBlank set, sprite evaluation, etc.)
-4. End of cycle
+1. CPU read operations (if CPU active this cycle) - may set VBlank prevention flag
+2. CPU write operations (if CPU active this cycle) - may change NMI enable
+3. PPU tick() executes - manages VBlank state, respects prevention flags
+4. PPU outputs signals via TickFlags and nmi_line field
 
-**Implementation in EmulationState.tick():**
-```zig
-pub fn tick(self: *EmulationState) void {
-    // Advance clocks
-    PpuLogic.advanceClock(&self.ppu, self.rendering_enabled);
-    self.clock.advance();
-    const step = self.nextTimingStep();
+**Implementation: PPU now owns sub-cycle timing (ppu/Logic.zig:tick)**
 
-    // 1. PPU rendering (pixel output)
-    const ppu_result = self.stepPpuCycle(scanline, dot);
+VBlank management is completely internal to PPU. The tick() function:
+- Reads current scanline/cycle from PpuState (not passed as parameters)
+- Manages VBlank state field (type: VBlank)
+- Updates nmi_line output signal based on VBlank flag + NMI enable
+- Returns TickFlags indicating state changes
 
-    // 2. APU processing (BEFORE CPU for IRQ state)
-    if (step.apu_tick) {
-        const apu_result = self.stepApuCycle();
-    }
+**Critical Implementation Detail (2025-11-07):**
+PPU self-containment prevents timing bugs:
+- VBlank flag state is owned by PPU (not split between emulation state)
+- NMI line is computed from VBlank AND ctrl.nmi_enable (co-located)
+- Race condition handling (prevent_vbl_set_cycle) is internal to PPU
+- One location manages all VBlank logic - reduces coordination bugs
 
-    // 3. CPU execution BEFORE VBlank timestamps
-    //    (allows CPU to set prevention flag via $2002 reads)
-    if (step.cpu_tick) {
-        self.cpu.irq_line = ...;
-        _ = self.stepCpuCycle();  // ← CPU reads $2002, sets prevention flag
-    }
-
-    // 4. VBlank timestamps applied AFTER CPU execution
-    //    (respects prevention flag set by CPU)
-    self.applyVBlankTimestamps(ppu_result);
-
-    // 5. Interrupt sampling AFTER VBlank state is final
-    //    (ensures NMI line reflects correct VBlank state including prevention)
-    if (step.cpu_tick and self.cpu.state != .interrupt_sequence) {
-        self.cpu.nmi_line = ...;  // Set from finalized VBlank state
-        CpuLogic.checkInterrupts(&self.cpu);
-        self.cpu.nmi_pending_prev = ...;
-        self.cpu.irq_pending_prev = ...;
-    }
-
-    // 6. Other PPU state applied AFTER CPU execution
-    //    (reflects CPU register writes from this cycle)
-    self.applyPpuRenderingState(ppu_result);
-}
-```
-
-**Critical Implementation Detail (2025-11-03):**
-CPU execution BEFORE VBlank timestamps allows prevention mechanism to work:
-- CPU reads $2002 at dot 1 → sets `prevent_vbl_set_cycle = master_cycles`
-- `applyVBlankTimestamps()` checks if `master_cycles == prevent_vbl_set_cycle` → skips setting flag if true
-- Interrupt sampling happens AFTER VBlank state is finalized (ensures correct NMI line state)
-- Other PPU state (rendering_enabled, frame_complete) applied AFTER CPU to reflect register writes
-- Reference: Mesen2 NesPpu.cpp:1340-1344 (prevention flag check before VBlank set)
-
-**Critical Race Condition:**
+**Critical Race Condition (Hardware Behavior):**
 When CPU reads $2002 at scanline 241, dot 1 (same cycle VBlank is set):
-- CPU reads $2002 → sees VBlank bit = 0 (flag not set yet), sets prevention flag
-- PPU checks prevention flag → skips setting VBlank (prevented)
+- CPU reads $2002 → sees VBlank bit = 0 (flag not set yet)
+- PPU's VBlank.prevent_vbl_set_cycle is set by handler
+- PPU.tick() checks prevention flag → skips setting VBlank (prevented)
 - Result: VBlank flag never sets (correct hardware behavior)
 
 **Hardware Citation:** https://www.nesdev.org/wiki/PPU_frame_timing
 
 **Files:**
-- `src/emulation/State.zig:tick()` lines 651-774
-- `src/emulation/State.zig:applyVBlankTimestamps()` lines 776-804
-- `src/emulation/State.zig:applyPpuRenderingState()` lines 806-814
-- `src/emulation/VBlankLedger.zig` (pure data ledger)
+- `src/ppu/VBlank.zig` - VBlank state (pure data)
+- `src/ppu/Logic.zig:tick()` - VBlank management logic
+- `src/ppu/State.zig` - PpuState with vblank field and nmi_line output signal
+- `src/emulation/bus/handlers/PpuHandler.zig` - $2000-$3FFF handler sets prevention flag
 
 **Test Coverage:**
-- `tests/emulation/state/vblank_ledger_test.zig` (updated 2025-11-02)
-- `tests/emulation/state_test.zig` (updated 2025-11-02)
+- `tests/ppu/*vblank*` - PPU VBlank tests
+- `tests/integration/*` - Integration tests verifying coordination
 
 ### Anti-Pattern: Business Logic in Ledger
 

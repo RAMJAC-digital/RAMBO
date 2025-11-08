@@ -42,7 +42,7 @@ test "Debug: Super Mario Bros PC investigation" {
 
     // Run exactly 10 frames and watch PC
     var framebuffer = [_]u32{0} ** (256 * 240);
-    state.framebuffer = &framebuffer;
+    state.ppu.framebuffer = &framebuffer;
 
     var frame: usize = 0;
     while (frame < 10) : (frame += 1) {

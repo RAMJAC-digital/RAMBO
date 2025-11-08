@@ -100,7 +100,7 @@ pub fn inspectPpu(emu_state: *const EmulationState) PpuSnapshot {
         .scanline = @intCast(ppu.scanline),
         .dot = ppu.cycle,
         .frame = ppu.frame_count,
-        .rendering_enabled = emu_state.rendering_enabled,
+        .rendering_enabled = ppu.mask.renderingEnabled(),
         .warmup_complete = ppu.warmup_complete,
     };
 }

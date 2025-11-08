@@ -50,7 +50,7 @@ pub const OamDmaHandler = struct {
     /// The written value specifies the source page number.
     ///
     /// Side effects:
-    /// - Sets state.dma.active = true
+    /// - Sets state.dma.oam.active = true
     /// - Calculates odd/even cycle alignment
     /// - Initiates DMA state machine
     ///
@@ -66,7 +66,7 @@ pub const OamDmaHandler = struct {
         const on_odd_cycle = (cpu_cycle & 1) != 0;
 
         // Trigger DMA transfer
-        state.dma.trigger(value, on_odd_cycle);
+        state.dma.oam.trigger(value, on_odd_cycle);
     }
 
     /// Peek $4014 (debugger support)
@@ -99,15 +99,17 @@ const TestState = struct {
         open_bus: CpuOpenBus = .{},
     } = .{},
     dma: struct {
-        active: bool = false,
-        source_page: u8 = 0,
-        needs_alignment: bool = false,
+        oam: struct {
+            active: bool = false,
+            source_page: u8 = 0,
+            needs_alignment: bool = false,
 
-        pub fn trigger(self: *@This(), page: u8, on_odd_cycle: bool) void {
-            self.active = true;
-            self.source_page = page;
-            self.needs_alignment = on_odd_cycle;
-        }
+            pub fn trigger(self: *@This(), page: u8, on_odd_cycle: bool) void {
+                self.active = true;
+                self.source_page = page;
+                self.needs_alignment = on_odd_cycle;
+            }
+        } = .{},
     } = .{},
     clock: struct {
         ppu_cycles: u64 = 0,
@@ -134,8 +136,8 @@ test "OamDmaHandler: write triggers DMA with correct page" {
     handler.write(&state, 0x4014, 0x03);
 
     // Verify DMA was triggered with correct page
-    try testing.expect(state.dma.active);
-    try testing.expectEqual(@as(u8, 0x03), state.dma.source_page);
+    try testing.expect(state.dma.oam.active);
+    try testing.expectEqual(@as(u8, 0x03), state.dma.oam.source_page);
 }
 
 test "OamDmaHandler: odd cycle detection (even cycle)" {
@@ -146,7 +148,7 @@ test "OamDmaHandler: odd cycle detection (even cycle)" {
     handler.write(&state, 0x4014, 0x02);
 
     // Even cycle - no alignment needed
-    try testing.expect(!state.dma.needs_alignment);
+    try testing.expect(!state.dma.oam.needs_alignment);
 }
 
 test "OamDmaHandler: odd cycle detection (odd cycle)" {
@@ -157,7 +159,7 @@ test "OamDmaHandler: odd cycle detection (odd cycle)" {
     handler.write(&state, 0x4014, 0x02);
 
     // Odd cycle - alignment needed
-    try testing.expect(state.dma.needs_alignment);
+    try testing.expect(state.dma.oam.needs_alignment);
 }
 
 test "OamDmaHandler: odd cycle detection (multiple cycles)" {
@@ -179,7 +181,7 @@ test "OamDmaHandler: odd cycle detection (multiple cycles)" {
 
         handler.write(&state, 0x4014, 0x02);
 
-        try testing.expectEqual(tc.expected_odd, state.dma.needs_alignment);
+        try testing.expectEqual(tc.expected_odd, state.dma.oam.needs_alignment);
     }
 }
 
@@ -200,11 +202,11 @@ test "OamDmaHandler: multiple writes update page" {
 
     // First write
     handler.write(&state, 0x4014, 0x02);
-    try testing.expectEqual(@as(u8, 0x02), state.dma.source_page);
+    try testing.expectEqual(@as(u8, 0x02), state.dma.oam.source_page);
 
     // Second write - should update page
     handler.write(&state, 0x4014, 0x07);
-    try testing.expectEqual(@as(u8, 0x07), state.dma.source_page);
+    try testing.expectEqual(@as(u8, 0x07), state.dma.oam.source_page);
 }
 
 test "OamDmaHandler: no internal state - handler is empty" {

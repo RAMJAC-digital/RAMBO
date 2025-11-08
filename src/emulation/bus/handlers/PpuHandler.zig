@@ -37,7 +37,7 @@ const PpuReadResult = PpuLogic.PpuReadResult;
 /// Pattern: Completely stateless - accesses ppu/vblank/cpu/clock via state parameter
 pub const PpuHandler = struct {
     // NO fields - completely stateless!
-    // Accesses state.ppu, state.vblank_ledger, state.cpu, state.clock through parameter
+    // Accesses state.ppu (including vblank), state.cpu, state.clock through parameter
 
     /// Read from PPU register
     ///
@@ -52,7 +52,7 @@ pub const PpuHandler = struct {
     ///
     /// Parameters:
     /// - self: Handler instance (unused - no internal state)
-    /// - state: Emulation state containing ppu, vblank_ledger, cpu, clock, cart
+    /// - state: Emulation state containing ppu (with vblank), cpu, clock, cart
     /// - address: Memory address ($2000-$3FFF)
     ///
     /// Returns: Register value or open bus
@@ -72,7 +72,7 @@ pub const PpuHandler = struct {
             // Note: CPU reads only happen on CPU ticks, so isCpuTick() check is redundant
             if (scanline == 241 and dot == 0) {
                 // Prevent VBlank set this frame
-                state.vblank_ledger.prevent_vbl_set_cycle = state.clock.master_cycles + 1;
+                state.ppu.vblank.prevent_vbl_set_cycle = state.clock.master_cycles + 1;
             }
         }
 
@@ -81,7 +81,7 @@ pub const PpuHandler = struct {
             &state.ppu,
             cart_ptr,
             address,
-            state.vblank_ledger,
+            state.ppu.vblank,
             state.ppu.scanline,
             state.ppu.cycle,
         );
@@ -90,12 +90,12 @@ pub const PpuHandler = struct {
         if (result.read_2002) {
             // ALWAYS record timestamp (hardware behavior)
             // Per Mesen2: UpdateStatusFlag() clears flag unconditionally
-            state.vblank_ledger.last_read_cycle = state.clock.master_cycles;
+            state.ppu.vblank.last_read_cycle = state.clock.master_cycles;
 
             // ALWAYS clear VBlank flag (hardware behavior)
             // Per Mesen2 NesPpu.cpp:587: _statusFlags.VerticalBlank = false
             // Flag can be cleared while span is still active (span ends at pre-render)
-            state.vblank_ledger.vblank_flag = false;
+            state.ppu.vblank.vblank_flag = false;
 
             // ALWAYS clear NMI line (like Mesen2)
             // Per Mesen2: Reading PPUSTATUS clears NMI immediately
@@ -115,36 +115,25 @@ pub const PpuHandler = struct {
     ///
     /// Parameters:
     /// - self: Handler instance (unused - no internal state)
-    /// - state: Emulation state containing ppu, vblank_ledger, cpu, cart
+    /// - state: Emulation state containing ppu (with vblank), cpu, cart
     /// - address: Memory address ($2000-$3FFF)
     /// - value: Byte to write
     pub fn write(_: *PpuHandler, state: anytype, address: u16, value: u8) void {
         const reg = address & 0x07;
         const cart_ptr = if (state.cart) |*cart_ref| cart_ref else null;
 
-        // CRITICAL: Update NMI line IMMEDIATELY on PPUCTRL write
-        // Reference: Mesen2 NesPpu.cpp:546-550
-        // Hardware: Writing PPUCTRL bit 7 updates NMI line immediately
-        // CRITICAL: Check VBlank FLAG (readable state), not span (timing window)
-        // Per Mesen2: checks _statusFlags.VerticalBlank (flag), not scanline (span)
-        if (reg == 0x00) {
-            const old_nmi_enable = state.ppu.ctrl.nmi_enable;
-            const new_nmi_enable = (value & 0x80) != 0;
-            const vblank_flag_set = state.vblank_ledger.isFlagSet();
-
-            // Edge trigger: 0→1 transition while VBlank flag is set
-            if (!old_nmi_enable and new_nmi_enable and vblank_flag_set) {
-                state.cpu.nmi_line = true;
-            }
-
-            // Disable: 1→0 transition clears NMI
-            if (old_nmi_enable and !new_nmi_enable) {
-                state.cpu.nmi_line = false;
-            }
-        }
-
         // Delegate to PPU logic for register write
         PpuLogic.writeRegister(&state.ppu, cart_ptr, address, value);
+
+        // CRITICAL: Recompute NMI line IMMEDIATELY on PPUCTRL write
+        // Reference: Mesen2 NesPpu.cpp:546-550
+        // Hardware: NMI line = vblank_flag AND ctrl.nmi_enable (level signal)
+        // CPU edge detection handles 0→1 transitions to latch NMI
+        if (reg == 0x00) {
+            // Level signal: PPU outputs nmi_line = (vblank_flag AND ctrl.nmi_enable)
+            // CPU latches edges - disabling NMI does NOT suppress already-latched NMI
+            state.ppu.nmi_line = state.ppu.vblank.isFlagSet() and state.ppu.ctrl.nmi_enable;
+        }
     }
 
     /// Peek PPU register (debugger support)
@@ -165,7 +154,7 @@ pub const PpuHandler = struct {
         if (reg == 0x02) {
             // Import buildStatusByte from PpuLogic
             const registers = @import("../../../ppu/logic/registers.zig");
-            const vblank_flag = state.vblank_ledger.isFlagSet();
+            const vblank_flag = state.ppu.vblank.isFlagSet();
             return registers.buildStatusByte(
                 state.ppu.status.sprite_overflow,
                 state.ppu.status.sprite_0_hit,
@@ -187,16 +176,15 @@ const testing = std.testing;
 const CpuOpenBus = @import("../../state/BusState.zig").BusState.OpenBus;
 const PpuState = @import("../../../ppu/State.zig").PpuState;
 const PpuStatus = @import("../../../ppu/State.zig").PpuStatus;
-const VBlankLedger = @import("../../VBlankLedger.zig").VBlankLedger;
 const AnyCartridge = @import("../../../cartridge/mappers/registry.zig").AnyCartridge;
 
 // Test state with real PPU (handlers call real PpuLogic functions)
+// PPU now owns VBlank state via ppu.vblank field
 const TestState = struct {
     bus: struct {
         open_bus: CpuOpenBus = .{},
     } = .{},
     ppu: PpuState = .{},
-    vblank_ledger: VBlankLedger = .{},
     cpu: struct {
         nmi_line: bool = false,
     } = .{},
@@ -239,7 +227,7 @@ test "PpuHandler: read $2002 records timestamp" {
     _ = handler.read(&state, 0x2002);
 
     // Verify timestamp was recorded
-    try testing.expectEqual(@as(u64, 12345), state.vblank_ledger.last_read_cycle);
+    try testing.expectEqual(@as(u64, 12345), state.ppu.vblank.last_read_cycle);
 }
 
 test "PpuHandler: read $2002 at dot 0 sets prevention" {
@@ -253,13 +241,13 @@ test "PpuHandler: read $2002 at dot 0 sets prevention" {
 
     // Should set prevention timestamp at dot 0 only
     // Hardware: "Reading one PPU clock before reads it as clear and never sets the flag"
-    try testing.expectEqual(@as(u64, 54322), state.vblank_ledger.prevent_vbl_set_cycle);
+    try testing.expectEqual(@as(u64, 54322), state.ppu.vblank.prevent_vbl_set_cycle);
 }
 
 test "PpuHandler: write $2000 enables NMI when VBlank active" {
     var state = TestState{};
     // Set VBlank flag
-    state.vblank_ledger.vblank_flag = true;
+    state.ppu.vblank.vblank_flag = true;
 
     var handler = PpuHandler{};
     handler.write(&state, 0x2000, 0x80); // Enable NMI
@@ -283,10 +271,10 @@ test "PpuHandler: write $2000 updates PPU control register" {
 test "PpuHandler: peek doesn't have side effects" {
     var state = TestState{};
     // Set up VBlank flag
-    state.vblank_ledger.vblank_flag = true;
+    state.ppu.vblank.vblank_flag = true;
 
     state.cpu.nmi_line = true;
-    const original_timestamp = state.vblank_ledger.last_read_cycle;
+    const original_timestamp = state.ppu.vblank.last_read_cycle;
 
     var handler = PpuHandler{};
     const value = handler.peek(&state, 0x2002);
@@ -298,7 +286,7 @@ test "PpuHandler: peek doesn't have side effects" {
     try testing.expect(state.cpu.nmi_line);
 
     // Should NOT update timestamp
-    try testing.expectEqual(original_timestamp, state.vblank_ledger.last_read_cycle);
+    try testing.expectEqual(original_timestamp, state.ppu.vblank.last_read_cycle);
 }
 
 test "PpuHandler: register mirroring" {

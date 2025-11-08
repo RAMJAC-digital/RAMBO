@@ -103,7 +103,7 @@ fn timerCallback(
 
     if (write_buffer) |buffer| {
         // Buffer available - render frame directly into mailbox buffer
-        ctx.state.framebuffer = buffer;
+        ctx.state.ppu.framebuffer = buffer;
 
         if (has_cart) {
             // Emulate one frame (cycle-accurate execution)
@@ -143,12 +143,12 @@ fn timerCallback(
         }
 
         // Clear framebuffer reference
-        ctx.state.framebuffer = null;
+        ctx.state.ppu.framebuffer = null;
     } else {
         // Buffer full - still emulate but don't render
         // Game logic continues (CPU/PPU cycles advance) but no framebuffer output
         // This prevents game from freezing when render thread falls behind
-        ctx.state.framebuffer = null;
+        ctx.state.ppu.framebuffer = null;
         if (has_cart) {
             const cycles = ctx.state.emulateFrame();
             ctx.total_cycles += cycles;

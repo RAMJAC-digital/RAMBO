@@ -2,6 +2,7 @@ const std = @import("std");
 const testing = std.testing;
 const RAMBO = @import("RAMBO");
 const Harness = RAMBO.TestHarness.Harness;
+const DmaLogic = @import("../../src/dma/Logic.zig");
 
 test "DMC DMA: RDY line stalls CPU for 4 cycles" {
     var harness = try Harness.init();
@@ -13,24 +14,24 @@ test "DMC DMA: RDY line stalls CPU for 4 cycles" {
     state.apu.dmc_active = true;
 
     // Trigger DMC DMA
-    state.dmc_dma.triggerFetch(0xC000);
+    state.dma.dmc.triggerFetch(0xC000);
 
-    try testing.expect(state.dmc_dma.rdy_low);
-    try testing.expectEqual(@as(u8, 4), state.dmc_dma.stall_cycles_remaining);
+    try testing.expect(state.dma.dmc.rdy_low);
+    try testing.expectEqual(@as(u8, 4), state.dma.dmc.stall_cycles_remaining);
 
     // Tick 4 times
-    state.tickDmcDma();
-    try testing.expectEqual(@as(u8, 3), state.dmc_dma.stall_cycles_remaining);
+    DmaLogic.tickDmcDma(&state.dma, state, &state.apu);
+    try testing.expectEqual(@as(u8, 3), state.dma.dmc.stall_cycles_remaining);
 
-    state.tickDmcDma();
-    try testing.expectEqual(@as(u8, 2), state.dmc_dma.stall_cycles_remaining);
+    DmaLogic.tickDmcDma(&state.dma, state, &state.apu);
+    try testing.expectEqual(@as(u8, 2), state.dma.dmc.stall_cycles_remaining);
 
-    state.tickDmcDma();
-    try testing.expectEqual(@as(u8, 1), state.dmc_dma.stall_cycles_remaining);
+    DmaLogic.tickDmcDma(&state.dma, state, &state.apu);
+    try testing.expectEqual(@as(u8, 1), state.dma.dmc.stall_cycles_remaining);
 
-    state.tickDmcDma();
-    try testing.expectEqual(@as(u8, 0), state.dmc_dma.stall_cycles_remaining);
-    try testing.expectEqual(false, state.dmc_dma.rdy_low);
+    DmaLogic.tickDmcDma(&state.dma, state, &state.apu);
+    try testing.expectEqual(@as(u8, 0), state.dma.dmc.stall_cycles_remaining);
+    try testing.expectEqual(false, state.dma.dmc.rdy_low);
 }
 
 test "DMC DMA: Controller corruption on NTSC" {
@@ -48,20 +49,20 @@ test "DMC DMA: Controller corruption on NTSC" {
     state.controller.latch();
 
     // Record that last CPU read was from controller
-    state.dmc_dma.last_read_address = 0x4016;
+    state.dma.dmc.last_read_address = 0x4016;
 
     // First read (normal)
     const read1 = state.busRead(0x4016);
     try testing.expectEqual(@as(u8, 0), read1 & 0x01); // LSB of pattern
 
     // Trigger DMC DMA while CPU was reading controller
-    state.dmc_dma.triggerFetch(0xC000);
+    state.dma.dmc.triggerFetch(0xC000);
 
     // DMC DMA tick causes extra controller reads (corruption)
-    state.tickDmcDma(); // Idle 1 - extra read
-    state.tickDmcDma(); // Idle 2 - extra read
-    state.tickDmcDma(); // Idle 3 - extra read
-    state.tickDmcDma(); // Fetch - sample loaded
+    DmaLogic.tickDmcDma(&state.dma, state, &state.apu); // Idle 1 - extra read
+    DmaLogic.tickDmcDma(&state.dma, state, &state.apu); // Idle 2 - extra read
+    DmaLogic.tickDmcDma(&state.dma, state, &state.apu); // Idle 3 - extra read
+    DmaLogic.tickDmcDma(&state.dma, state, &state.apu); // Fetch - sample loaded
 
     // Controller shift register advanced extra times = corruption
     const read2 = state.busRead(0x4016);
@@ -82,19 +83,19 @@ test "DMC DMA: No corruption on PAL" {
     // Setup controller
     state.controller.buttons1 = 0b10101010;
     state.controller.latch();
-    state.dmc_dma.last_read_address = 0x4016;
+    state.dma.dmc.last_read_address = 0x4016;
 
     const read1 = state.busRead(0x4016);
     _ = read1; // Acknowledge read1
 
     // Trigger DMC DMA
-    state.dmc_dma.triggerFetch(0xC000);
+    state.dma.dmc.triggerFetch(0xC000);
 
     // PAL: No extra reads during DMA
-    state.tickDmcDma();
-    state.tickDmcDma();
-    state.tickDmcDma();
-    state.tickDmcDma();
+    DmaLogic.tickDmcDma(&state.dma, state, &state.apu);
+    DmaLogic.tickDmcDma(&state.dma, state, &state.apu);
+    DmaLogic.tickDmcDma(&state.dma, state, &state.apu);
+    DmaLogic.tickDmcDma(&state.dma, state, &state.apu);
 
     // Controller should still be in correct state (no corruption on PAL)
     const read2 = state.busRead(0x4016);

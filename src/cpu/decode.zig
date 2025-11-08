@@ -9,7 +9,7 @@
 //! AccuracyCoin tests all opcodes including unofficial ones
 
 const std = @import("std");
-const AddressingMode = @import("Cpu.zig").AddressingMode;
+pub const AddressingMode = @import("Cpu.zig").AddressingMode;
 
 /// Opcode metadata for instruction decoding
 pub const OpcodeInfo = struct {

@@ -190,7 +190,7 @@ pub fn main() !void {
 
         try frame_pcs.append(allocator, state.cpu.pc);
 
-        state.framebuffer = &framebuffer;
+        state.ppu.framebuffer = &framebuffer;
         const cycles = state.emulateFrame();
 
         // Check if PC changed dramatically

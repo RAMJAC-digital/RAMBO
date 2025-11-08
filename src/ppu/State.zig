@@ -468,6 +468,33 @@ pub const PpuState = struct {
     /// Debug flag: Track when rendering first enables (for logging)
     rendering_was_enabled: bool = false,
 
+    // ========================================================================
+    // PPU Outputs (signals to other components)
+    // ========================================================================
+
+    /// VBlank state (flag, span, timestamps)
+    /// Managed internally by PPU, exposed for $2002 reads and debugging
+    vblank: @import("VBlank.zig").VBlank = .{},
+
+    /// NMI line output signal to CPU
+    /// Computed as: vblank.vblank_flag AND ctrl.nmi_enable
+    /// Hardware: PPU outputs NMI line that CPU samples
+    nmi_line: bool = false,
+
+    /// Frame completion signal
+    /// Set at scanline -1, dot 0 (start of pre-render scanline)
+    /// Used by emulation loop to detect frame boundaries
+    frame_complete: bool = false,
+
+    /// Framebuffer for pixel output (256×240 RGBA)
+    /// PPU renders to this buffer, renderer reads from it
+    /// Optional: null when running headless
+    framebuffer: ?[]u32 = null,
+
+    // ========================================================================
+    // PPU Rendering State
+    // ========================================================================
+
     /// Background rendering state (shift registers and latches)
     bg_state: BackgroundState = .{},
 

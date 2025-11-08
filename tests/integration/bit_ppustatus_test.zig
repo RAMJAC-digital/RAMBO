@@ -31,7 +31,7 @@ test "BIT $2002: N flag reflects VBlank state" {
     // Align so BIT's memory read happens exactly at 241.1
     // BIT absolute reads on CPU cycle 4 = +9 PPU cycles from instruction start
     // To read at 241.1 (PPU cycle 82182), start at 82173 = scanline 240, dot 333
-    h.state.vblank_ledger.reset(); // Clean slate for this test
+    h.state.ppu.vblank.reset(); // Clean slate for this test
     h.seekToCpuBoundary(240, 333);
     h.setupCpuExecution(0x0000);
     h.tickCpu(4); // BIT abs takes 4 CPU cycles
@@ -74,7 +74,7 @@ test "BIT $2002 then BPL: Loop should exit when VBlank set" {
     // --- Set VBlank and see if it exits ---
     // Align so BIT's read occurs at 241.1 again
     // BIT absolute reads on CPU cycle 4 = +9 PPU cycles from instruction start
-    h.state.vblank_ledger.reset(); // Clean slate for VBlank test
+    h.state.ppu.vblank.reset(); // Clean slate for VBlank test
     h.seekToCpuBoundary(240, 333);
     h.setupCpuExecution(0x0000);
     h.tickCpu(4); // BIT takes 4 CPU cycles

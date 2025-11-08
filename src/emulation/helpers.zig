@@ -9,6 +9,7 @@
 //! All functions are built on top of EmulationState.tick() and maintain cycle-accurate timing.
 
 const std = @import("std");
+const CpuExecution = @import("../cpu/Execution.zig");
 
 /// Advances master clock by 3 PPU cycles (1 CPU cycle) then ticks CPU
 /// Use this in CPU-only tests instead of calling tickCpu() directly
@@ -23,7 +24,8 @@ pub fn tickCpuWithClock(state: anytype) void {
     state.clock.advance(); // master +1
     state.clock.advance(); // master +1
     // Total: master +3 (1 CPU cycle)
-    state.tickCpu();
+    const debugger_ptr = if (state.debugger) |*dbg| dbg else null;
+    CpuExecution.stepCycle(&state.cpu, state, debugger_ptr);
 }
 
 /// Emulate a complete frame (convenience wrapper)
@@ -44,7 +46,7 @@ pub fn tickCpuWithClock(state: anytype) void {
 pub fn emulateFrame(state: anytype) u64 {
     // Track elapsed master cycles (monotonic counter)
     const start_cycle = state.clock.master_cycles;
-    state.frame_complete = false;
+    state.ppu.frame_complete = false;
 
     if (state.debuggerShouldHalt()) {
         return 0;
@@ -53,7 +55,7 @@ pub fn emulateFrame(state: anytype) u64 {
     // Advance until VBlank (scanline 241, dot 1)
     // NTSC: 89,342 PPU cycles per frame
     // PAL: 106,392 PPU cycles per frame
-    while (!state.frame_complete) {
+    while (!state.ppu.frame_complete) {
         state.tick();
         if (state.debuggerShouldHalt()) {
             break;

@@ -19,7 +19,7 @@ test "PPU Write Toggle: Cleared at scanline -1 dot 1" {
 
     // Set write toggle to 1 by writing to PPUSCROLL once
     harness.state.ppu.internal.w = false; // Start at 0
-    _ = RAMBO.Ppu.Logic.readRegister(&harness.state.ppu, null, 0x2005, harness.state.vblank_ledger, harness.state.ppu.scanline, harness.state.ppu.cycle); // Dummy read
+    _ = RAMBO.Ppu.Logic.readRegister(&harness.state.ppu, null, 0x2005, harness.state.ppu.vblank, harness.state.ppu.scanline, harness.state.ppu.cycle); // Dummy read
     RAMBO.Ppu.Logic.writeRegister(&harness.state.ppu, null, 0x2005, 0x10); // First write (w: 0→1)
 
     // Verify toggle is now 1
@@ -72,7 +72,7 @@ test "PPU Write Toggle: Cleared on $2002 read" {
     try testing.expect(harness.state.ppu.internal.w);
 
     // Read $2002 (PPUSTATUS) - should clear toggle
-    _ = RAMBO.Ppu.Logic.readRegister(&harness.state.ppu, null, 0x2002, harness.state.vblank_ledger, harness.state.ppu.scanline, harness.state.ppu.cycle);
+    _ = RAMBO.Ppu.Logic.readRegister(&harness.state.ppu, null, 0x2002, harness.state.ppu.vblank, harness.state.ppu.scanline, harness.state.ppu.cycle);
 
     // Verify toggle was cleared
     try testing.expect(!harness.state.ppu.internal.w);

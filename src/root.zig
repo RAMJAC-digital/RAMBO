@@ -13,7 +13,7 @@ const std = @import("std");
 pub const Cpu = @import("cpu/Cpu.zig");
 
 /// CPU microstep functions (for testing)
-pub const CpuMicrosteps = @import("emulation/cpu/microsteps.zig");
+pub const CpuMicrosteps = @import("cpu/Microsteps.zig");
 
 /// Cartridge/ROM loader
 pub const Cartridge = @import("cartridge/Cartridge.zig");

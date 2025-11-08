@@ -126,13 +126,11 @@ pub fn main() !void {
 
                 // Profile PPU
                 ppu_section.start();
-                const scanline = state.clock.scanline();
-                const dot = state.clock.dot();
-                var ppu_result = state.stepPpuCycle(scanline, dot);
-                if (step.skip_slot) {
-                    ppu_result.frame_complete = true;
-                }
-                state.applyPpuCycleResult(ppu_result);
+                const PpuLogic = @import("RAMBO").PpuLogic;
+                PpuLogic.advanceClock(&state.ppu);
+                const cart_ptr = if (state.cart) |*cart| cart else null;
+                PpuLogic.tick(&state.ppu, state.clock.master_cycles, cart_ptr);
+                state.cpu.nmi_line = state.ppu.nmi_line;
                 ppu_section.stop();
                 total_ppu_ticks += 1;
 

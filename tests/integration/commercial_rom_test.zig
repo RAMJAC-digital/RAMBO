@@ -119,7 +119,7 @@ fn runRomForFrames(
     var frames_rendered: usize = 0;
 
     while (frames_rendered < num_frames) {
-        state.framebuffer = &framebuffer;
+        state.ppu.framebuffer = &framebuffer;
         const cycles = state.emulateFrame();
         _ = cycles;
 

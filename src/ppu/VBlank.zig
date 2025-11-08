@@ -1,16 +1,16 @@
-//! VBlank Timing Ledger
+//! VBlank State
 //!
-//! Separates VBlank FLAG (readable bit 7 of $2002) from VBlank SPAN (hardware timing window).
+//! PPU VBlank state - separates VBlank FLAG (readable bit 7 of $2002) from VBlank SPAN (hardware timing window).
 //! This distinction is critical for correct NMI behavior:
 //! - VBlank SPAN: scanline 241 → pre-render (hardware timing window)
 //! - VBlank FLAG: readable state, can be cleared by $2002 read while span is active
 //!
 //! Hardware reference: Mesen2 _statusFlags.VerticalBlank (flag) vs scanline range (span)
-//! The EmulationState is responsible for all mutations.
+//! The PPU owns and manages this state internally.
 
 const std = @import("std");
 
-pub const VBlankLedger = struct {
+pub const VBlank = struct {
     /// VBlank flag state (bit 7 of $2002)
     /// Set at scanline 241 dot 1, cleared by $2002 read or pre-render scanline
     /// Matches Mesen2's _statusFlags.VerticalBlank
@@ -41,19 +41,19 @@ pub const VBlankLedger = struct {
     /// Returns true if VBlank flag is set (for $2002 reads and NMI logic)
     /// This is the actual readable flag state, not the timing window
     /// Cleared by $2002 reads, can be false while span is active
-    pub inline fn isFlagSet(self: VBlankLedger) bool {
+    pub inline fn isFlagSet(self: VBlank) bool {
         return self.vblank_flag;
     }
 
     /// Returns true if VBlank span is active (for timing/debugging)
     /// Hardware timing window from scanline 241 → pre-render
     /// Can be true while flag is false (after $2002 read)
-    pub inline fn isSpanActive(self: VBlankLedger) bool {
+    pub inline fn isSpanActive(self: VBlank) bool {
         return self.vblank_span_active;
     }
 
     /// Resets all state to initial values
-    pub fn reset(self: *VBlankLedger) void {
+    pub fn reset(self: *VBlank) void {
         self.vblank_flag = false;
         self.vblank_span_active = false;
         self.last_set_cycle = 0;
@@ -63,18 +63,18 @@ pub const VBlankLedger = struct {
     }
 };
 
-test "VBlankLedger reset" {
-    var ledger: VBlankLedger = .{
+test "VBlank reset" {
+    var vblank: VBlank = .{
         .vblank_flag = true,
         .vblank_span_active = true,
         .last_set_cycle = 123,
         .last_clear_cycle = 456,
         .last_read_cycle = 789,
     };
-    ledger.reset();
-    try std.testing.expect(!ledger.vblank_flag);
-    try std.testing.expect(!ledger.vblank_span_active);
-    try std.testing.expectEqual(@as(u64, 0), ledger.last_set_cycle);
-    try std.testing.expectEqual(@as(u64, 0), ledger.last_clear_cycle);
-    try std.testing.expectEqual(@as(u64, 0), ledger.last_read_cycle);
+    vblank.reset();
+    try std.testing.expect(!vblank.vblank_flag);
+    try std.testing.expect(!vblank.vblank_span_active);
+    try std.testing.expectEqual(@as(u64, 0), vblank.last_set_cycle);
+    try std.testing.expectEqual(@as(u64, 0), vblank.last_clear_cycle);
+    try std.testing.expectEqual(@as(u64, 0), vblank.last_read_cycle);
 }

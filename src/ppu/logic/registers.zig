@@ -8,7 +8,7 @@ const PpuState = @import("../State.zig").PpuState;
 const PpuCtrl = @import("../State.zig").PpuCtrl;
 const PpuMask = @import("../State.zig").PpuMask;
 const AnyCartridge = @import("../../cartridge/mappers/registry.zig").AnyCartridge;
-const VBlankLedger = @import("../../emulation/VBlankLedger.zig").VBlankLedger;
+const VBlankLedger = @import("../VBlank.zig").VBlank;
 const memory = @import("memory.zig");
 
 /// The result of a PPU register read, containing the value and any side-effect signals.

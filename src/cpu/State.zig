@@ -157,12 +157,21 @@ pub const CpuState = struct {
     // The data bus retains the last value read - critical for accuracy
     data_bus: u8 = 0,
 
-    // ===== Interrupt State =====
+    // ===== Signal Interface =====
+    // Input signals (set by coordinator)
+    nmi_line: bool = false,         // NMI input (level signal from PPU)
+    irq_line: bool = false,         // IRQ input (level signal from APU/mapper)
+    rdy_line: bool = true,          // RDY input (level signal from DMA, low = halt)
+
+    // Output signals (computed by CPU, read by coordinator)
+    instruction_complete: bool = false,  // Set when instruction finishes (for debugger)
+    bus_cycle_complete: bool = false,    // Set each bus cycle (for DMA coordination)
+    halted: bool = false,                // CPU halted by JAM/KIL or DMA, only RESET recovers
+
+    // ===== Interrupt State (CPU internal) =====
     pending_interrupt: InterruptType = .none,
-    nmi_line: bool = false,         // NMI input (level)
     nmi_edge_detected: bool = false, // NMI is edge-triggered
     nmi_enable_prev: bool = false,  // Previous PPUCTRL.NMI_ENABLE for edge detection
-    irq_line: bool = false,         // IRQ input (level-triggered)
 
     // Hardware "second-to-last cycle" rule: Interrupt lines sampled at END of cycle N,
     // checked at START of cycle N+1. This gives instructions one cycle to complete
@@ -170,9 +179,6 @@ pub const CpuState = struct {
     // Reference: nesdev.org/wiki/CPU_interrupts, Mesen2 NesCpu.cpp:311-314
     nmi_pending_prev: bool = false,  // NMI pending from previous cycle
     irq_pending_prev: bool = false,  // IRQ pending from previous cycle
-
-    // ===== CPU Halt State (for JAM/KIL unofficial opcodes) =====
-    halted: bool = false,           // CPU halted by JAM/KIL, only RESET recovers
 
     // ===== Temporary Storage =====
     temp_value: u8 = 0,             // For RMW operations and other temporary needs
