@@ -371,7 +371,7 @@ pub const PpuState = struct {
     /// Current dot/cycle within scanline (0-340)
     /// Hardware: PPU renders 341 dots per scanline
     /// Mesen2: _cycle variable
-    cycle: u16 = 0,
+    dot: u16 = 0,
 
     /// Current scanline (-1 = pre-render, 0-239 = visible, 240-260 = vblank)
     /// Hardware: NES has 262 scanlines per frame (-1 through 260)

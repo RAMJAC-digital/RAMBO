@@ -134,7 +134,7 @@ test "SMB3: MMC3 IRQ fires during gameplay" {
                             irq_counter_changes[irq_counter_change_count] = .{
                                 .frame = frame,
                                 .scanline = h.state.ppu.scanline,
-                                .dot = h.state.ppu.cycle,
+                                .dot = h.state.ppu.dot,
                                 .old = prev_irq_counter,
                                 .new = mapper.irq_counter,
                             };
@@ -156,7 +156,7 @@ test "SMB3: MMC3 IRQ fires during gameplay" {
                                     .{
                                         frame,
                                         h.state.ppu.scanline,
-                                        h.state.ppu.cycle,
+                                        h.state.ppu.dot,
                                         mapper.debug_irq_events,
                                     },
                                 );
@@ -198,7 +198,7 @@ test "SMB3: MMC3 IRQ fires during gameplay" {
                                 irq_edge_log[irq_edge_count] = .{
                                     .frame = frame,
                                     .scanline = h.state.ppu.scanline,
-                                    .dot = h.state.ppu.cycle,
+                                    .dot = h.state.ppu.dot,
                                     .counter = mapper.irq_counter,
                                     .latch = mapper.irq_latch,
                                 };
@@ -214,7 +214,7 @@ test "SMB3: MMC3 IRQ fires during gameplay" {
                                 .{
                                     frame,
                                     h.state.ppu.scanline,
-                                    h.state.ppu.cycle,
+                                    h.state.ppu.dot,
                                     delta_events,
                                     mapper.irq_counter,
                                     mapper.irq_enabled,
@@ -228,7 +228,7 @@ test "SMB3: MMC3 IRQ fires during gameplay" {
                                 .{
                                     frame,
                                     h.state.ppu.scanline,
-                                    h.state.ppu.cycle,
+                                    h.state.ppu.dot,
                                     mapper.irq_counter,
                                     mapper.irq_latch,
                                     @intFromBool(h.state.ppu.ctrl.bg_pattern),

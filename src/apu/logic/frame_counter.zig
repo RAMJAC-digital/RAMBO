@@ -125,13 +125,12 @@ fn clockHalfFrame(state: *ApuState) void {
 // ============================================================================
 
 /// Tick frame counter (called every CPU cycle)
-/// Returns true if IRQ should be generated
-pub fn tickFrameCounter(state: *ApuState) bool {
+/// Sets frame_irq_flag internally when IRQ should be generated
+pub fn tickFrameCounter(state: *ApuState) void {
     state.frame_counter_cycles += 1;
 
     const is_5_step = state.frame_counter_mode;
     const cycles = state.frame_counter_cycles;
-    var should_irq = false;
 
     if (!is_5_step) {
         // 4-step mode: Quarter frames at 7457, 14913, 22371
@@ -152,7 +151,6 @@ pub fn tickFrameCounter(state: *ApuState) bool {
         if (cycles >= FRAME_4STEP_IRQ and cycles <= FRAME_4STEP_IRQ + 2) {
             if (!state.irq_inhibit) {
                 state.frame_irq_flag = true;
-                should_irq = true;
             }
         }
 
@@ -176,8 +174,6 @@ pub fn tickFrameCounter(state: *ApuState) bool {
             state.frame_counter_cycles = 0;
         }
     }
-
-    return should_irq;
 }
 
 /// Clock quarter and half frame immediately

@@ -29,6 +29,30 @@ pub fn init() CpuState {
     };
 }
 
+/// Configure CPU for power-on state
+/// Sets PC from reset vector, initializes stack pointer and status flags
+pub fn power_on(state: *CpuState, reset_vector: u16) void {
+    state.pc = reset_vector;
+    state.sp = 0xFD;
+    state.p.interrupt = true;
+    state.state = .fetch_opcode;
+    state.instruction_cycle = 0;
+    state.pending_interrupt = .none;
+    state.halted = false;
+}
+
+/// Configure CPU for reset state
+/// Sets PC from reset vector, initializes stack pointer and status flags
+pub fn reset(state: *CpuState, reset_vector: u16) void {
+    state.pc = reset_vector;
+    state.sp = 0xFD;
+    state.p.interrupt = true;
+    state.state = .fetch_opcode;
+    state.instruction_cycle = 0;
+    state.pending_interrupt = .none;
+    state.halted = false;
+}
+
 /// Convert full CPU state to core CPU state (6502 registers + effective address)
 ///
 /// Pure opcode functions operate on immutable 6502 state plus addressing context.

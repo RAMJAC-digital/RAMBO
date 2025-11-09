@@ -249,7 +249,7 @@ test "Castlevania: PPU rendering initialization" {
                         read_2002_count += 1;
                         const master_cycle = state.clock.master_cycles;
                         const scanline = state.ppu.scanline;
-                        const dot = state.ppu.cycle;
+                        const dot = state.ppu.dot;
                         std.debug.print(" <- PPUSTATUS read! scanline={d} dot={d} master_cycle={d}", .{ scanline, dot, master_cycle });
                     }
                 }

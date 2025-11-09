@@ -67,7 +67,7 @@ pub fn main() !void {
                         // Check for IRQ register writes
                         if (mapper.irq_latch != last_irq_latch) {
                             const scanline = state.ppu.scanline;
-                            const dot = state.ppu.cycle;
+                            const dot = state.ppu.dot;
                             std.debug.print("[Frame {} SL{} Dot{}] IRQ Latch: ${X:0>2} -> ${X:0>2}\n", .{
                                 frame,
                                 scanline,
@@ -80,7 +80,7 @@ pub fn main() !void {
 
                         if (mapper.irq_enabled != last_irq_enabled) {
                             const scanline = state.ppu.scanline;
-                            const dot = state.ppu.cycle;
+                            const dot = state.ppu.dot;
                             std.debug.print("[Frame {} SL{} Dot{}] IRQ Enabled: {} -> {}\n", .{
                                 frame,
                                 scanline,

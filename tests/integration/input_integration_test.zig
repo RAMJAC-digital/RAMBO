@@ -7,7 +7,7 @@ const testing = std.testing;
 
 // Imports will be:
 // const RAMBO = @import("RAMBO");
-// const ButtonState = @import("../../src/input/ButtonState.zig").ButtonState;
+// const ButtonState = @import("../../src/controller/ButtonState.zig").ButtonState;
 // const ControllerInputMailbox = RAMBO.Mailboxes.ControllerInputMailbox;
 // const EmulationState = RAMBO.EmulationState.EmulationState;
 

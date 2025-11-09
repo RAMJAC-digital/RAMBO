@@ -12,7 +12,7 @@
 // - $8000-$FFFF: PRG ROM (cartridge-dependent)
 
 const std = @import("std");
-const CpuOpenBus = @import("../../state/BusState.zig").BusState.OpenBus;
+const CpuOpenBus = @import("../State.zig").State.OpenBus;
 
 /// Handler for $4020-$FFFF (expansion + cartridge space)
 ///

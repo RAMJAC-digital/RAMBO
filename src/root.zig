@@ -38,6 +38,12 @@ pub const PpuPalette = @import("ppu/palette.zig");
 /// APU (Audio Processing Unit)
 pub const Apu = @import("apu/Apu.zig");
 
+/// Bus module (memory routing, handlers)
+pub const Bus = @import("bus/Bus.zig");
+
+/// DMA module (OAM DMA, DMC DMA, RDY line coordination)
+pub const Dma = @import("dma/Dma.zig");
+
 /// Frame timing for V-sync
 pub const FrameTimer = @import("timing/FrameTimer.zig");
 
@@ -66,8 +72,11 @@ pub const Benchmark = @import("benchmark/Benchmark.zig");
 // iNES export removed - parser is internal to Cartridge module
 // Types available via Cartridge.Mirroring, Cartridge.InesHeader
 
+/// NES controller module (State/Logic separation pattern)
+pub const Controller = @import("controller/Controller.zig");
+
 /// NES controller button state (8 buttons packed into 1 byte)
-pub const ButtonState = @import("input/ButtonState.zig").ButtonState;
+pub const ButtonState = Controller.ButtonState;
 
 /// Keyboard mapper (Wayland events → NES buttons)
 pub const KeyboardMapper = @import("input/KeyboardMapper.zig").KeyboardMapper;

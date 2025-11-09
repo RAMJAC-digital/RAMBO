@@ -116,7 +116,7 @@ test "VBlank: First frame completes at correct timing" {
     // Verify starting conditions
     try testing.expectEqual(@as(u64, 0), h.state.ppu.frame_count);
     try testing.expectEqual(@as(i16, -1), h.state.ppu.scanline);
-    try testing.expectEqual(@as(u16, 0), h.state.ppu.cycle);
+    try testing.expectEqual(@as(u16, 0), h.state.ppu.dot);
 
     // Tick through cycles until frame_count changes from 0 to 1
     // First frame should be exactly 89,342 cycles (262 scanlines × 341 dots, no odd frame skip)
@@ -258,7 +258,7 @@ test "VBlank/NMI: NMI line goes high when VBlank sets with PPUCTRL.7=1" {
 
     // VERIFY: VBlank not set yet, NMI line LOW
     try testing.expect(!h.state.ppu.vblank.isFlagSet());
-    try testing.expect(!h.state.cpu.nmi_line);
+    try testing.expect(!h.state.ppu.nmi_line);
 
     // Tick to scanline 241 dot 1 (VBlank sets)
     h.tick(1);
@@ -267,7 +267,7 @@ test "VBlank/NMI: NMI line goes high when VBlank sets with PPUCTRL.7=1" {
     try testing.expect(h.state.ppu.vblank.isFlagSet());
 
     // VERIFY: NMI line went HIGH (PPUCTRL.7 = 1, VBlank = 1)
-    try testing.expect(h.state.cpu.nmi_line);
+    try testing.expect(h.state.ppu.nmi_line);
 }
 
 test "VBlank/NMI: Reading $2002 clears NMI line immediately" {
@@ -283,7 +283,7 @@ test "VBlank/NMI: Reading $2002 clears NMI line immediately" {
 
     // VERIFY: VBlank active, NMI line high
     try testing.expect(h.state.ppu.vblank.isFlagSet());
-    try testing.expect(h.state.cpu.nmi_line);
+    try testing.expect(h.state.ppu.nmi_line);
 
     // Read $2002 (PPUSTATUS)
     const status = h.state.busRead(0x2002);
@@ -295,7 +295,7 @@ test "VBlank/NMI: Reading $2002 clears NMI line immediately" {
     try testing.expect(!h.state.ppu.vblank.isFlagSet());
 
     // VERIFY: NMI line cleared IMMEDIATELY after read
-    try testing.expect(!h.state.cpu.nmi_line);
+    try testing.expect(!h.state.ppu.nmi_line);
 }
 
 test "VBlank/NMI: PPUCTRL write enables NMI during VBlank" {
@@ -311,13 +311,13 @@ test "VBlank/NMI: PPUCTRL write enables NMI during VBlank" {
 
     // VERIFY: VBlank active but NMI line LOW (PPUCTRL.7 = 0)
     try testing.expect(h.state.ppu.vblank.isFlagSet());
-    try testing.expect(!h.state.cpu.nmi_line);
+    try testing.expect(!h.state.ppu.nmi_line);
 
     // Enable NMI by writing to PPUCTRL
     h.state.busWrite(0x2000, 0x80);
 
     // VERIFY: NMI line goes HIGH immediately (0→1 transition with VBlank active)
-    try testing.expect(h.state.cpu.nmi_line);
+    try testing.expect(h.state.ppu.nmi_line);
 }
 
 test "VBlank/NMI: PPUCTRL write disables NMI" {
@@ -332,13 +332,13 @@ test "VBlank/NMI: PPUCTRL write disables NMI" {
     h.seekTo(241, 100);
 
     // VERIFY: NMI line HIGH
-    try testing.expect(h.state.cpu.nmi_line);
+    try testing.expect(h.state.ppu.nmi_line);
 
     // Disable NMI by clearing PPUCTRL.7
     h.state.busWrite(0x2000, 0x00);
 
     // VERIFY: NMI line goes LOW immediately
-    try testing.expect(!h.state.cpu.nmi_line);
+    try testing.expect(!h.state.ppu.nmi_line);
 }
 
 test "VBlank/NMI: VBlank clear at -1:1 clears NMI line" {
@@ -354,14 +354,14 @@ test "VBlank/NMI: VBlank clear at -1:1 clears NMI line" {
 
     // VERIFY: VBlank active, NMI high
     try testing.expect(h.state.ppu.vblank.isFlagSet());
-    try testing.expect(h.state.cpu.nmi_line);
+    try testing.expect(h.state.ppu.nmi_line);
 
     // Seek to pre-render scanline, just before VBlank clears (scanline -1, dot 0)
     h.seekTo(-1, 0);
 
     // VERIFY: VBlank still active
     try testing.expect(h.state.ppu.vblank.isFlagSet());
-    try testing.expect(h.state.cpu.nmi_line);
+    try testing.expect(h.state.ppu.nmi_line);
 
     // Tick to dot 1 (VBlank clears by timing)
     h.tick(1);
@@ -370,7 +370,7 @@ test "VBlank/NMI: VBlank clear at -1:1 clears NMI line" {
     try testing.expect(!h.state.ppu.vblank.isFlagSet());
 
     // VERIFY: NMI line went LOW (VBlank cleared = NMI clears)
-    try testing.expect(!h.state.cpu.nmi_line);
+    try testing.expect(!h.state.ppu.nmi_line);
 }
 
 test "VBlank/NMI: Race condition - CPU execution before VBlank timestamp application" {

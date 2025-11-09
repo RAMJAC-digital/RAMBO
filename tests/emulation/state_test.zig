@@ -140,7 +140,7 @@ test "EmulationState: VBlank timing at scanline 241, dot 1" {
     try testing.expect(state.ppu.scanline == -1 or state.ppu.scanline >= 241);
 
     // Advance to well past VBlank set point (scanline 241, dot 4+) to avoid race window
-    while (state.ppu.scanline < 241 or (state.ppu.scanline == 241 and state.ppu.cycle < 4)) {
+    while (state.ppu.scanline < 241 or (state.ppu.scanline == 241 and state.ppu.dot < 4)) {
         state.tick();
     }
 

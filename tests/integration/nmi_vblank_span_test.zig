@@ -32,7 +32,7 @@ test "NMI does NOT fire when enabled after $2002 read (even during span)" {
     h.state.ppu.vblank.vblank_flag = true;
     h.state.ppu.vblank.vblank_span_active = true;
     h.state.ppu.ctrl.nmi_enable = false;
-    h.state.cpu.nmi_line = false;
+    h.state.ppu.nmi_line = false;
 
     // Verify both flag and span are active
     try testing.expect(h.state.ppu.vblank.isFlagSet());
@@ -48,7 +48,7 @@ test "NMI does NOT fire when enabled after $2002 read (even during span)" {
     // - NMI line was cleared by read
     try testing.expect(h.state.ppu.vblank.isSpanActive()); // Span still active
     try testing.expect(!h.state.ppu.vblank.isFlagSet()); // Flag cleared
-    try testing.expect(!h.state.cpu.nmi_line); // NMI cleared by read
+    try testing.expect(!h.state.ppu.nmi_line); // NMI cleared by read
 
     // Enable NMI while still in VBlank span (but flag is cleared)
     h.ppuWriteRegister(0x2000, 0x80); // PPUCTRL bit 7 = 1 (enable NMI)
@@ -56,7 +56,7 @@ test "NMI does NOT fire when enabled after $2002 read (even during span)" {
     // CRITICAL: NMI should NOT fire because FLAG is cleared (even though span is active)
     // Hardware behavior (per Mesen2): NMI checks _statusFlags.VerticalBlank (FLAG), not span
     // This is correct behavior - FLAG-based triggering
-    try testing.expect(!h.state.cpu.nmi_line);
+    try testing.expect(!h.state.ppu.nmi_line);
 }
 
 test "NMI does NOT fire when enabled with flag cleared" {
@@ -69,7 +69,7 @@ test "NMI does NOT fire when enabled with flag cleared" {
     // Set up: VBlank flag cleared
     h.state.ppu.vblank.vblank_flag = false;
     h.state.ppu.ctrl.nmi_enable = false;
-    h.state.cpu.nmi_line = false;
+    h.state.ppu.nmi_line = false;
 
     // Verify VBlank flag is NOT set
     try testing.expect(!h.state.ppu.vblank.isFlagSet());
@@ -78,7 +78,7 @@ test "NMI does NOT fire when enabled with flag cleared" {
     h.ppuWriteRegister(0x2000, 0x80);
 
     // NMI should NOT fire (flag not set)
-    try testing.expect(!h.state.cpu.nmi_line);
+    try testing.expect(!h.state.ppu.nmi_line);
 }
 
 test "NMI clears when reading $2002 during VBlank" {
@@ -91,13 +91,13 @@ test "NMI clears when reading $2002 during VBlank" {
     // Set up: VBlank flag set, NMI enabled and asserted
     h.state.ppu.vblank.vblank_flag = true;
     h.state.ppu.ctrl.nmi_enable = true;
-    h.state.cpu.nmi_line = true; // NMI currently asserted
+    h.state.ppu.nmi_line = true; // NMI currently asserted
 
     // Read $2002
     _ = h.ppuReadRegister(0x2002);
 
     // NMI line should be cleared by read
-    try testing.expect(!h.state.cpu.nmi_line);
+    try testing.expect(!h.state.ppu.nmi_line);
 }
 
 test "NMI re-asserts if NMI re-enabled with flag still set" {
@@ -110,15 +110,15 @@ test "NMI re-asserts if NMI re-enabled with flag still set" {
     // Start with VBlank flag set and NMI enabled
     h.state.ppu.vblank.vblank_flag = true;
     h.state.ppu.ctrl.nmi_enable = true;
-    h.state.cpu.nmi_line = true;
+    h.state.ppu.nmi_line = true;
 
     // Disable NMI (clears NMI line per PpuHandler.write())
     h.ppuWriteRegister(0x2000, 0x00); // PPUCTRL bit 7 = 0
-    try testing.expect(!h.state.cpu.nmi_line);
+    try testing.expect(!h.state.ppu.nmi_line);
 
     // Re-enable NMI while flag is still set
     h.ppuWriteRegister(0x2000, 0x80); // PPUCTRL bit 7 = 1
 
     // NMI should re-assert (0→1 transition with flag set)
-    try testing.expect(h.state.cpu.nmi_line);
+    try testing.expect(h.state.ppu.nmi_line);
 }

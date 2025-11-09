@@ -6,6 +6,7 @@ const FRAME_HEIGHT: u32 = 240;
 const FRAME_PIXELS: usize = FRAME_WIDTH * FRAME_HEIGHT;
 
 const ButtonState = RAMBO.ButtonState;
+const ControllerLogic = RAMBO.Controller.Logic;
 
 const ControllerState = struct {
     controller1: ButtonState = .{},
@@ -138,7 +139,8 @@ pub export fn rambo_set_controller_state(port: u32, mask: u8) void {
 pub export fn rambo_step_frame() u32 {
     const emu = getEmulator() orelse return @intFromEnum(setError(.not_initialized));
 
-    emu.state.controller.updateButtons(
+    ControllerLogic.updateButtons(
+        &emu.state.controller,
         emu.controller.controller1.toByte(),
         emu.controller.controller2.toByte(),
     );

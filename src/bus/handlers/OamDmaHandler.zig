@@ -61,8 +61,9 @@ pub const OamDmaHandler = struct {
     /// - value: Source page number
     pub fn write(_: *OamDmaHandler, state: anytype, _: u16, value: u8) void {
         // Calculate whether we're on an odd CPU cycle
-        // Use MasterClock's cpuCycles() method to get current CPU cycle
-        const cpu_cycle = state.clock.cpuCycles();
+        // CRITICAL: master_cycles has already been advanced by tick(), so subtract 1
+        // to get the CPU cycle number at the time of this write (not the next cycle)
+        const cpu_cycle = (state.clock.master_cycles - 1) / 3;
         const on_odd_cycle = (cpu_cycle & 1) != 0;
 
         // Trigger DMA transfer
@@ -92,7 +93,7 @@ pub const OamDmaHandler = struct {
 const testing = std.testing;
 
 // Test state with minimal DMA/clock
-const CpuOpenBus = @import("../../state/BusState.zig").BusState.OpenBus;
+const CpuOpenBus = @import("../State.zig").State.OpenBus;
 
 const TestState = struct {
     bus: struct {

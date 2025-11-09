@@ -19,7 +19,7 @@ pub fn createTestState(config: *const Config) EmulationState {
     // Set PPU clock to frame 10, scanline 100
     state.ppu.frame_count = 10;
     state.ppu.scanline = 100;
-    state.ppu.cycle = 0;
+    state.ppu.dot = 0;
 
     return state;
 }

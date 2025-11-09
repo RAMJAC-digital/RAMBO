@@ -131,7 +131,7 @@ test "Snapshot Integration: Full round-trip without cartridge" {
     try testing.expectEqual(state.ppu.mask.show_bg, restored.ppu.mask.show_bg);
     try testing.expectEqual(state.ppu.mask.show_sprites, restored.ppu.mask.show_sprites);
     try testing.expectEqual(state.ppu.scanline, restored.ppu.scanline);
-    try testing.expectEqual(state.ppu.cycle, restored.ppu.cycle);
+    try testing.expectEqual(state.ppu.dot, restored.ppu.dot);
     try testing.expectEqual(state.ppu.frame_count, restored.ppu.frame_count);
 
     // Verify Bus state

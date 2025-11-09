@@ -6,15 +6,95 @@ Cycle-accurate NES emulator written in Zig 0.15.1.
 
 ---
 
-## Recent Refactoring (2025-11-07)
+## Recent Refactoring (2025-11-07 to 2025-11-09)
 
-### CPU Table-Driven Execution Architecture
+### PpuHandler Black Box Refactoring (2025-11-09)
+
+- ✅ **Completed:** PpuHandler refactored from complex orchestration to pure routing (314 → ~100 lines, 68% reduction)
+  - **Goal:** Eliminate cross-module state extraction, move all PPU register side effects into PpuLogic
+  - **Implementation:**
+    - All $2002 read side effects moved from PpuHandler to `PpuLogic.readRegister()`
+      - VBlank flag clear, sprite overflow clear, open bus update, address latch reset
+      - Added hardware citations (nesdev.org PPU registers, PPU scrolling wiki pages)
+    - All $2000 write NMI computation moved from PpuHandler to `PpuLogic.writeRegister()`
+      - NMI line = vblank_flag AND nmi_enable (level-based signal, not edge-based)
+    - Changed `PpuLogic.readRegister()` signature: removed `vblank_ledger`, `scanline`, `dot` parameters
+      - Added `master_cycles` parameter (PPU owns timing internally)
+      - Clean interface: `readRegister(state, cart, address, master_cycles) -> PpuReadResult`
+    - PpuHandler now pure routing - only wires signals across module boundaries (cpu.nmi_line)
+  - **Benefit:** Handler complexity reduced from ⭐⭐⭐⭐⭐ (5/5) to ⭐ (1/5), all PPU logic in PPU module
+  - **Impact:** Follows established black box pattern (PPU/DMA/Controller/Bus), zero backwards coupling
+  - **Pattern:** Handlers delegate to Logic modules, no cross-module state extraction
+
+### DMA Subsystem Consolidation (2025-11-08)
+
+- ✅ **Completed:** DMA logic consolidated into dedicated `src/dma/` module following black box pattern
+  - **Goal:** Self-contained DMA module that owns state and outputs RDY line signal (following PPU pattern)
+  - **Implementation:**
+    - Created `src/dma/State.zig` - Consolidated OAM DMA, DMC DMA, interaction tracking
+    - Created `src/dma/Logic.zig` - DMA execution logic (tickOamDma, tickDmcDma)
+    - Created `src/dma/Dma.zig` - DMA coordination module (tick function, RDY line computation)
+    - DMA owns all internal state, outputs RDY line signal: `dma.rdy_line = !(dmc.rdy_low or oam.active)`
+    - EmulationState wires signal: `cpu.rdy_line = dma.rdy_line`
+  - **Benefit:** Clear separation of DMA concerns, eliminates scattered DMA logic across EmulationState
+  - **Impact:** Matches hardware architecture (DMA is autonomous, halts CPU via RDY line)
+  - **Pattern:** Follows PPU black box pattern (self-contained module with signal-based output)
+
+### Subsystem Lifecycle Functions (2025-11-08 to 2025-11-09)
+
+- ✅ **Completed:** CPU, PPU, APU, and Controller subsystems now expose lifecycle functions (black box principle)
+  - **Goal:** EmulationState delegates initialization instead of directly manipulating subsystem internals
+  - **Implementation:**
+    - **CPU:** Added `CpuLogic.power_on()` and `CpuLogic.reset()` - Hardware-accurate initialization sequences
+    - **PPU:** Added `PpuLogic.power_on()` and `PpuLogic.reset()` - Hardware-accurate PPU initialization
+    - **APU:** Changed `tickFrameCounter()` from `bool` return to `void` - Signal-based interface (matches PPU nmi_line)
+    - **Controller:** Added `ControllerLogic.power_on()` and `ControllerLogic.reset()` - Hardware-accurate 4021 shift register initialization
+  - **Benefit:** Subsystems fully own their initialization logic, EmulationState treats them as black boxes
+  - **Impact:** Resolved 2 of 5 black box violations (interrupt orchestration, direct CPU manipulation)
+
+### Controller Module Consolidation (2025-11-09)
+
+- ✅ **Completed:** Controller logic consolidated into dedicated `src/controller/` module
+  - **Goal:** Self-contained controller module following State/Logic separation pattern
+  - **Implementation:**
+    - Created `src/controller/State.zig` - NES 4021 shift register state (pure data)
+    - Created `src/controller/Logic.zig` - Controller operations (latch, shift, read/write)
+    - Created `src/controller/Controller.zig` - Controller module facade
+    - Moved `src/input/ButtonState.zig` → `src/controller/ButtonState.zig` (improved cohesion)
+    - Added lifecycle functions: `power_on()`, `reset()`
+  - **Benefit:** Controller logic co-located with button state, follows established CPU/PPU/APU/DMA pattern
+  - **Impact:** Clearer module boundaries, EmulationState delegates controller initialization
+
+### Bus Module Extraction (2025-11-09)
+
+- ✅ **Completed:** Bus logic extracted into dedicated `src/bus/` module following black box pattern
+  - **Goal:** Self-contained bus module that owns routing logic and handlers (following PPU/DMA/Controller pattern)
+  - **Implementation:**
+    - Created `src/bus/State.zig` - Bus state (RAM, open bus tracking, handler instances)
+    - Created `src/bus/Logic.zig` - Routing operations (read, write, read16, dummyRead)
+    - Created `src/bus/Inspection.zig` - Debugger-safe inspection (peek without side effects)
+    - Created `src/bus/Bus.zig` - Bus module facade
+    - Moved handlers: `src/emulation/bus/handlers/` → `src/bus/handlers/`
+    - Handlers struct now owned by bus/State.zig (not EmulationState)
+    - EmulationState delegates via inline functions: `BusLogic.read(&self.bus, self, address)`
+  - **Benefit:** Bus routing logic consolidated in dedicated module, handlers ownership transferred
+  - **Impact:** Zero legacy code in emulation/, clearer separation of concerns, follows established black box pattern
+
+### APU Frame Counter Critical Bug Fix (2025-11-08)
+
+- ✅ **Fixed:** APU frame counter was never being ticked, causing all 8 APU tests to fail
+  - **Issue:** stepApuCycle() didn't call ApuLogic.tickFrameCounter() - frame counter never advanced
+  - **Impact:** Length counters never decremented, envelopes never clocked, sweep units never updated, frame IRQ never fired
+  - **Fix:** Added ApuLogic.tickFrameCounter(&self.apu) to stepApuCycle() in EmulationState line 509
+  - **Root Cause:** Documentation described intended architecture but code was incomplete
+
+### CPU Table-Driven Execution Architecture (2025-11-07)
 
 - ✅ **Completed:** CPU execution refactored from nested switches to table-driven dispatch
   - **Goal:** Eliminate code duplication, reduce complexity, improve maintainability
   - **Implementation:**
     - Created `src/cpu/MicrostepTable.zig` (522 lines) - Comptime-built dispatch table
-    - Refactored `src/cpu/Execution.zig` (533 → 281 lines, 47% reduction)
+    - Refactored `src/cpu/Execution.zig` (533 → 279 lines, 48% reduction)
     - Eliminated 217 lines of nested switch statements
     - Single source of truth: MICROSTEP_TABLE[256] maps all opcodes to sequences
     - Early completion pattern for variable-cycle instructions (branches, indexed modes)
@@ -26,7 +106,7 @@ Cycle-accurate NES emulator written in Zig 0.15.1.
   - **Benefit:** Adding new opcode = 1 table entry (not 3+ switch cases), hardware-accurate variable timing
   - **Impact:** Reduced complexity, eliminated opcode duplication, improved maintainability
 
-### PPU Self-Containment Architecture
+### PPU Self-Containment Architecture (2025-11-07)
 
 - ✅ **Completed:** PPU is now a self-contained black box that owns all its internal state
   - **Goal:** Eliminate backwards coupling where EmulationState extracts PPU internals (scanline/cycle)
@@ -192,6 +272,60 @@ zig build -Dwith_movy=true
 - **Zig:** 0.15.1 (check with `zig version`)
 - **System:** Linux with Wayland compositor
 - **GPU:** Vulkan 1.0+ compatible
+
+---
+
+## WebAssembly & Browser Front-End
+
+RAMBO includes a WebAssembly build target and Phoenix LiveView front-end for running the emulator in web browsers.
+
+### Architecture
+
+**WebAssembly Core (`zig build wasm`):**
+- Compiles RAMBO to `wasm32-freestanding` target (256MB max memory)
+- Exports C-compatible API for browser integration (21 exported functions)
+- Imports memory from JavaScript (allows proper heap configuration)
+- Output: `zig-out/bin/rambo.wasm`
+- API: init, shutdown, reset, step_frame, set_controller_state, framebuffer access, memory management
+
+**Phoenix LiveView Front-End (`rambo_web/`):**
+- Elixir/Phoenix web server (Phoenix 1.7.10, LiveView 0.20.1)
+- Serves static `rambo.wasm` artifact to browser
+- JavaScript integration layer drives WebAssembly API
+- ROM upload interface (accepts iNES format)
+- Real-time frame streaming from WASM core
+- Runs at http://localhost:5000 in development
+
+### Quick Start
+
+```bash
+# Build WebAssembly module
+zig build wasm
+
+# Setup and run Phoenix front-end
+cd rambo_web
+mix setup                # Install Hex deps + JS toolchain (Tailwind, esbuild)
+mix phx.server           # Start dev server at http://localhost:5000
+
+# Optional: rebuild static assets after UI changes
+mix assets.build
+```
+
+### Deployment
+
+See rambo_web/README.md for production deployment. Key steps:
+1. Build optimized WASM: `zig build wasm -Doptimize=ReleaseSmall`
+2. Copy `zig-out/bin/rambo.wasm` to `rambo_web/priv/static/`
+3. Compile assets: `cd rambo_web && mix assets.deploy`
+4. Deploy Phoenix app (see [Phoenix deployment guides](https://hexdocs.pm/phoenix/deployment.html))
+
+### Technical Details
+
+- **Build System:** `build/wasm.zig` configures WebAssembly target with export symbols
+- **API Surface:** See `src/wasm.zig` for exported functions (init, reset, frame stepping, controller input)
+- **Memory Model:** JavaScript provides WebAssembly.Memory, Zig uses imported memory (avoids `__heap_base` linker issues)
+- **Frame Format:** 256×240 RGBA framebuffer (NES native resolution)
+- **Integration:** Phoenix serves static WASM, JavaScript calls exported functions, streams frames to canvas
 
 ---
 
@@ -419,9 +553,13 @@ Builds are byte-for-byte verified against canonical test ROMs. See `compiler/REA
 ```
 RAMBO/
 ├── src/
-│   ├── cpu/              # 6502 CPU emulation
-│   ├── ppu/              # 2C02 PPU emulation
-│   ├── apu/              # Audio Processing Unit
+│   ├── cpu/              # 6502 CPU emulation (State, Logic with power_on/reset, Execution, Microsteps, MicrostepTable)
+│   ├── ppu/              # 2C02 PPU emulation (State, Logic with power_on/reset, VBlank - self-contained black box)
+│   ├── apu/              # Audio Processing Unit (State, Logic with void tickFrameCounter, frame counter, channels)
+│   ├── dma/              # DMA subsystem (State, Logic, Dma - self-contained black box, RDY line signal)
+│   ├── bus/              # Memory bus (State, Logic, Inspection - routing, RAM, open bus, handlers)
+│   │   └── handlers/     # 7 zero-size stateless handlers (RAM, PPU, APU, OAM DMA, Controller, Cartridge, Open Bus)
+│   ├── controller/       # Controller subsystem (State, Logic, ButtonState - 4021 shift register)
 │   ├── video/            # Rendering system
 │   │   ├── backends/     # VulkanBackend, MovyBackend
 │   │   └── ...           # Wayland/Vulkan implementation
@@ -430,7 +568,7 @@ RAMBO/
 │   ├── cartridge/        # Cartridge and mapper system
 │   │   ├── ines/         # iNES ROM parser
 │   │   └── mappers/      # Mapper implementations + registry
-│   ├── emulation/        # Emulation coordination (State, Bus)
+│   ├── emulation/        # Emulation coordination (State, clock, helpers)
 │   ├── debugger/         # Debugging system
 │   ├── mailboxes/        # Thread communication
 │   ├── threads/          # EmulationThread, RenderThread
@@ -558,7 +696,7 @@ MIT License (see LICENSE file)
 
 ---
 
-**Last Updated:** 2025-11-04
+**Last Updated:** 2025-11-09
 **Version:** 0.2.0-alpha
 **Status:** 1162/1184 tests passing (98.1%) - See [docs/STATUS.md](docs/STATUS.md)
-**Current Focus:** Bus handler architecture refactoring complete, VBlank/PPU/NMI timing bugs remaining (see docs/STATUS.md and docs/CURRENT-ISSUES.md)
+**Current Focus:** Bus module extraction complete, Controller module consolidated, all major subsystems follow State/Logic black box pattern (CPU, PPU, APU, DMA, Controller, Bus)

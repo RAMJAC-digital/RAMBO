@@ -2,7 +2,7 @@ const std = @import("std");
 const testing = std.testing;
 const RAMBO = @import("RAMBO");
 const Harness = RAMBO.TestHarness.Harness;
-const DmaLogic = @import("../../src/dma/Logic.zig");
+const DmaLogic = RAMBO.Dma.Logic;
 
 test "DMC DMA: RDY line stalls CPU for 4 cycles" {
     var harness = try Harness.init();

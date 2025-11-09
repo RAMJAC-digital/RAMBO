@@ -78,7 +78,7 @@ test "SMB VBlank Regression: Super Mario Bros initializes rendering" {
 
             // Check if frame is complete
             const scanline = state.ppu.scanline;
-            const dot = state.ppu.cycle;
+            const dot = state.ppu.dot;
             if (scanline == 0 and dot == 0) {
                 break;
             }

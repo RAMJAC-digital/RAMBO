@@ -84,7 +84,7 @@ test "VBlankLedger: Flag is cleared at scanline -1, dot 1 (pre-render)" {
 
     // Tick to the exact clear cycle
     h.tick(1);
-    try testing.expect(h.state.ppu.scanline == -1 and h.state.ppu.cycle == 1);
+    try testing.expect(h.state.ppu.scanline == -1 and h.state.ppu.dot == 1);
 
     // The flag is now cleared by timing
     try testing.expect(!h.state.ppu.vblank.isFlagSet());

@@ -62,27 +62,69 @@ zig build run
 - `build/diagnostics.zig` registers developer tools such as the SMB diagnostic runner.
 - `build/wasm.zig` WASM target for use in `rambo_web`.
 
-### PPU Self-Containment (Module Boundary Principle - COMPLETED 2025-11-07)
+### WebAssembly Build Target
 
-The PPU has been refactored to be a self-contained module that owns all its internal state:
+RAMBO includes a WebAssembly build target for browser execution via Phoenix LiveView front-end.
+
+**Build:**
+```bash
+zig build wasm  # Outputs zig-out/bin/rambo.wasm
+```
+
+**Implementation Details:**
+- **Target:** `wasm32-freestanding` (no OS, pure WebAssembly)
+- **Entry Point:** `src/wasm.zig` - C-compatible API for browser integration
+- **Export Symbols:** 21 functions defined in `build/wasm.zig` EXPORT_SYMBOLS array
+  - Lifecycle: `rambo_init`, `rambo_shutdown`, `rambo_reset`
+  - Emulation: `rambo_step_frame`, `rambo_set_controller_state`
+  - Framebuffer: `rambo_framebuffer_ptr`, `rambo_framebuffer_size`, `rambo_frame_dimensions`
+  - Memory: `rambo_alloc`, `rambo_free`, `rambo_heap_size_bytes`
+- **Memory Model:** Imports memory from JavaScript (256MB max)
+  - JavaScript provides `WebAssembly.Memory` with proper configuration
+  - Avoids Zig linker `__heap_base` placement issues
+- **Build Configuration:**
+  - `entry = .disabled` - No `_start` function (library mode)
+  - `export_table = true` - Export function table for JavaScript access
+  - `import_memory = true` - Use JavaScript-provided memory
+
+**Phoenix LiveView Front-End (`rambo_web/`):**
+- **Framework:** Elixir/Phoenix 1.7.10 + LiveView 0.20.1
+- **Setup:** `cd rambo_web && mix setup` (installs Hex deps + JS toolchain)
+- **Run:** `mix phx.server` (http://localhost:5000)
+- **Features:** ROM upload, real-time frame streaming, browser-based emulation
+- **Integration:** JavaScript layer calls exported WASM functions, streams RGBA frames to HTML5 canvas
+- **Asset Pipeline:** Tailwind CSS + esbuild for static assets
+
+**Deployment:**
+```bash
+zig build wasm -Doptimize=ReleaseSmall  # Optimized WASM
+cd rambo_web
+mix assets.deploy                       # Compile + minify assets
+# Deploy Phoenix app (see rambo_web/README.md)
+```
+
+### Black Box Module Pattern (Subsystem Self-Containment)
+
+The emulator follows a "black box" module pattern where subsystems own their state and output signals, eliminating backwards coupling where EmulationState orchestrates internals.
+
+**Pattern Established:** PPU Self-Containment (COMPLETED 2025-11-07), DMA Consolidation (COMPLETED 2025-11-08), Controller Module (COMPLETED 2025-11-09), Bus Module Extraction (COMPLETED 2025-11-09), PpuHandler Refactoring (COMPLETED 2025-11-09)
+
+#### PPU Black Box (COMPLETED 2025-11-07)
 
 **Ownership Boundaries:**
 - **PPU owns:** Timing (scanline/cycle), rendering state, VBlank state, NMI line, framebuffer, OAM, VRAM, registers
 - **PPU outputs:** nmi_line signal (to CPU), framebuffer data (to render system)
 - **EmulationState reads:** ppu.nmi_line, ppu.framebuffer, ppu.frame_complete
 
-**Implementation Status (Completed):**
+**Implementation:**
 - [x] VBlank state moved to ppu/VBlank.zig (type renamed from VBlankLedger)
 - [x] nmi_line field added to PpuState (PPU computes internally)
 - [x] framebuffer field added to PpuState (PPU owns output buffer)
 - [x] PPU Logic.tick() manages VBlank internally (scanline 241 dot 1 set, scanline -1 dot 1 clear)
-- [x] VBlank set/clear logic moved to PPU Logic
 - [x] NMI line computation moved to PPU (vblank_flag AND ctrl.nmi_enable)
-- [x] EmulationState.stepPpuCycle() deleted (no longer extracting PPU internals)
-- [x] EmulationState.applyVBlankTimestamps() deleted (PPU manages internally)
-- [x] Signal wiring in EmulationState.tick(): ppu.nmi_line → cpu.nmi_line
+- [x] EmulationState orchestration functions deleted (stepPpuCycle, applyVBlankTimestamps)
 
-**Current Interface:**
+**Interface:**
 ```zig
 // PPU Logic.tick() - fully self-contained
 pub fn tick(state: *PpuState, cart: ?*AnyCartridge) void {
@@ -97,12 +139,115 @@ PpuLogic.tick(&self.ppu, cart_ptr);
 self.cpu.nmi_line = self.ppu.nmi_line;  // Wire PPU NMI signal to CPU
 ```
 
-**Benefits Achieved:**
-- Eliminated backwards coupling (EmulationState no longer extracts PPU internals)
-- VBlank flag management co-located with NMI enable bit (ppu.ctrl.nmi_enable)
-- Reduced EmulationState tick() complexity (deleted 2 orchestration functions)
-- Enables independent PPU testing
-- Matches hardware architecture (PPU is autonomous chip)
+#### DMA Black Box (COMPLETED 2025-11-08)
+
+**Ownership Boundaries:**
+- **DMA owns:** OAM DMA state, DMC DMA state, interaction tracking, RDY line output signal
+- **DMA outputs:** rdy_line signal (to CPU, halts execution during DMA)
+- **EmulationState reads:** dma.rdy_line, dma.active
+
+**Implementation:**
+- [x] Consolidated DMA state in src/dma/State.zig (OamDma, DmcDma, interaction ledger)
+- [x] Created src/dma/Logic.zig for DMA execution logic
+- [x] Created src/dma/Dma.zig for DMA coordination
+- [x] DMA module follows PPU black box pattern (owns state, outputs signals)
+
+#### Controller Black Box (COMPLETED 2025-11-09)
+
+**Ownership Boundaries:**
+- **Controller owns:** Shift register state, strobe mode, button data
+- **Controller outputs:** Serial data bits (read via bus handlers)
+- **EmulationState reads:** None (bus handlers access controller state directly)
+
+**Implementation:**
+- [x] Consolidated controller logic in src/controller/ (State/Logic separation)
+- [x] Created src/controller/State.zig - 4021 shift register state
+- [x] Created src/controller/Logic.zig - Shift register operations (latch, read, write)
+- [x] Created src/controller/ButtonState.zig - Button data representation (moved from src/input/)
+- [x] Added lifecycle functions: power_on(), reset()
+- [x] EmulationState delegates initialization via ControllerLogic functions
+
+#### Bus Black Box (COMPLETED 2025-11-09)
+
+**Ownership Boundaries:**
+- **Bus owns:** RAM, open bus tracking, handler instances (7 zero-size stateless handlers)
+- **Bus operations:** read(), write(), read16(), dummyRead() routing via BusLogic
+- **EmulationState delegates:** All memory access via inline BusLogic functions
+
+**Implementation:**
+- [x] Extracted bus module in src/bus/ (State/Logic/Inspection separation)
+- [x] Created src/bus/State.zig - RAM, open bus, handler instances (all data)
+- [x] Created src/bus/Logic.zig - Routing operations (read, write, read16, dummyRead)
+- [x] Created src/bus/Inspection.zig - Debugger-safe peek operations
+- [x] Moved handlers from src/emulation/bus/handlers/ to src/bus/handlers/
+- [x] Handlers struct owned by bus/State.zig (not EmulationState)
+- [x] EmulationState delegates via inline functions (busRead, busWrite, etc.)
+
+**Interface:**
+```zig
+// Bus Logic - routing operations
+pub fn read(bus: *BusState, state: anytype, address: u16) u8 {
+    // Dispatch to handlers, update open bus
+}
+
+// EmulationState - simple delegation
+pub inline fn busRead(self: *EmulationState, address: u16) u8 {
+    return BusLogic.read(&self.bus, self, address);
+}
+```
+
+#### PpuHandler Black Box (COMPLETED 2025-11-09)
+
+**Ownership Boundaries:**
+- **PpuHandler owns:** Nothing - zero-size stateless routing struct
+- **PpuHandler delegates to:** PpuLogic.readRegister(), PpuLogic.writeRegister()
+- **PpuLogic owns:** All $2002/$2000 side effects (VBlank clear, NMI computation, address latch reset)
+
+**Implementation:**
+- [x] Moved all $2002 read side effects from PpuHandler to PpuLogic.readRegister()
+- [x] Moved all $2000 write NMI computation from PpuHandler to PpuLogic.writeRegister()
+- [x] Changed PpuLogic.readRegister() signature: removed vblank_ledger, scanline, dot parameters
+- [x] Added master_cycles parameter to PpuLogic.readRegister() (PPU owns timing internally)
+- [x] PpuHandler reduced from 314 lines to ~100 lines (68% reduction)
+- [x] Handler now pure routing - no cross-module state extraction
+
+**Interface:**
+```zig
+// PpuLogic - self-contained register operations
+pub fn readRegister(
+    state: *PpuState,
+    cart: ?*AnyCartridge,
+    address: u16,
+    master_cycles: u64,
+) PpuReadResult {
+    // All side effects managed internally
+    // - VBlank flag clear on $2002 read
+    // - Sprite overflow clear on $2002 read
+    // - Address latch reset on $2002 read
+    // - Open bus update
+    return .{ .value = result, .read_2002 = is_2002 };
+}
+
+// PpuHandler - pure routing
+pub fn read(_: *const PpuHandler, state: anytype, address: u16) u8 {
+    const result = PpuLogic.readRegister(&state.ppu, state.cart, address, state.clock.master_cycles);
+    if (result.read_2002) {
+        state.cpu.nmi_line = false;  // Signal wiring only
+    }
+    return result.value;
+}
+```
+
+**Benefits Achieved (All Subsystems):**
+- Eliminated backwards coupling (EmulationState no longer extracts subsystem internals)
+- State management co-located with signal generation (vblank+nmi_enable, dma_state+rdy_line)
+- Reduced EmulationState tick() complexity (deleted orchestration functions)
+- Bus routing logic consolidated in dedicated module (not embedded in EmulationState)
+- Handlers ownership transferred to bus module (clearer separation of concerns)
+- PpuHandler refactored to pure routing - all side effects moved to PpuLogic
+- Zero legacy code - complete extraction from emulation/
+- Enables independent subsystem testing
+- Matches hardware architecture (autonomous chips communicating via signals)
 
 ### Comptime Generics (Zero-Cost Polymorphism)
 
@@ -142,7 +287,7 @@ const NromCart = Cartridge(Mapper0);  // Zero runtime overhead
 - `DebugCommandMailbox` / `DebugEventMailbox` - Bidirectional debugging
 - `XdgInputEventMailbox` / `XdgWindowEventMailbox` - Input events → Main
 
-## Module Reorganization (2025-11-07)
+## Module Reorganization (2025-11-07 to 2025-11-08)
 
 ### Files Moved (Architectural Cleanup)
 
@@ -156,35 +301,104 @@ const NromCart = Cartridge(Mapper0);  // Zero runtime overhead
 - Type renamed: `VBlankLedger` → `VBlank` (reflects new ownership)
 - Module documentation updated: "The PPU owns and manages this state internally"
 
+**DMA Subsystem Consolidation (2025-11-08):**
+- Created `src/dma/State.zig` - Consolidated DMA state (OAM DMA, DMC DMA, interaction tracking)
+- Created `src/dma/Logic.zig` - DMA execution logic
+- Created `src/dma/Dma.zig` - DMA coordination module
+- Follows PPU black box pattern: DMA owns state, outputs RDY line signal to CPU
+
+**Controller Module Consolidation (2025-11-09):**
+- Created `src/controller/State.zig` - NES 4021 shift register state
+- Created `src/controller/Logic.zig` - Controller operations (latch, shift, read/write)
+- Created `src/controller/Controller.zig` - Controller module facade
+- `src/input/ButtonState.zig` → `src/controller/ButtonState.zig` (moved to controller module)
+- Follows State/Logic separation pattern used by CPU/PPU/APU/DMA
+
+**Bus Module Extraction (2025-11-09):**
+- Created `src/bus/State.zig` - Bus state (RAM, open bus tracking, handler instances)
+- Created `src/bus/Logic.zig` - Bus routing operations (read, write, read16, dummyRead)
+- Created `src/bus/Inspection.zig` - Debugger-safe bus inspection (peek without side effects)
+- Created `src/bus/Bus.zig` - Bus module facade
+- Moved handlers: `src/emulation/bus/handlers/` → `src/bus/handlers/`
+- Follows State/Logic separation pattern used by CPU/PPU/APU/DMA/Controller
+
 **Rationale:**
 - CPU execution logic belongs in cpu module, not emulation/cpu subdirectory
 - VBlank state is PPU hardware behavior, should live in ppu module
+- DMA logic deserves dedicated module (not scattered across EmulationState)
+- Controller logic belongs with controller state (ButtonState moved from input/)
+- Bus routing logic deserves dedicated module (not embedded in EmulationState)
+- Handlers ownership moved to bus module (not EmulationState)
 - Table-driven dispatch eliminates opcode duplication and nested switches
 - Improves module cohesion and separation of concerns
 
-### Interface Changes (VBlank Ownership)
+### Interface Changes (Subsystem Cleanup Sessions 5-7)
 
-**Deleted from EmulationState:**
+**VBlank Ownership (Session 5):**
+
+Deleted from EmulationState:
 - `vblank_ledger` field (moved to PpuState.vblank)
 - `stepPpuCycle()` function (PPU now self-contained)
 - `applyVBlankTimestamps()` function (PPU manages VBlank internally)
 
-**Added to PpuState:**
+Added to PpuState:
 - `vblank: VBlank` field (PPU owns VBlank state)
 - `nmi_line: bool` field (PPU output signal computed from vblank_flag AND ctrl.nmi_enable)
 - `framebuffer: ?[]u32` field (PPU owns rendering output)
 
-**Signal Wiring:**
+Signal wiring:
 - EmulationState.tick() wires `ppu.nmi_line → cpu.nmi_line` (simple signal passing)
+
+**CPU Lifecycle Functions (Session 7):**
+
+Added to CpuLogic:
+- `power_on(state: *CpuState, reset_vector: u16)` - Hardware-accurate power-on sequence
+- `reset(state: *CpuState, reset_vector: u16)` - Hardware-accurate reset sequence
+- EmulationState now delegates instead of directly manipulating CPU registers
+
+**PPU Lifecycle Functions (Session 7):**
+
+Added to PpuLogic:
+- `power_on(state: *PpuState)` - Hardware-accurate PPU power-on state
+- `reset(state: *PpuState)` - Hardware-accurate PPU reset sequence
+- EmulationState delegates instead of directly setting PPU fields
+
+**APU Signal Interface (Session 7):**
+
+Changed in ApuLogic:
+- `tickFrameCounter(state: *ApuState) void` - Changed from `bool` return to `void`
+- Communicates frame IRQ via `state.frame_irq_flag` field only (matches PPU nmi_line pattern)
+- Eliminates dual return/mutation interface
+
+**Controller Lifecycle Functions (Session 9):**
+
+Added to ControllerLogic:
+- `power_on(state: *ControllerState)` - Hardware-accurate power-on state
+- `reset(state: *ControllerState)` - Hardware-accurate reset sequence
+- EmulationState delegates instead of directly manipulating controller fields
+
+**PPU Register Interface Simplification (Session 10):**
+
+Changed in PpuLogic:
+- `readRegister(state, cart, address, master_cycles)` - Signature simplified from 6 parameters to 4
+- Removed: `vblank_ledger`, `scanline`, `dot` parameters (PPU owns this internally)
+- All $2002 read side effects moved from PpuHandler to PpuLogic.readRegister()
+  - VBlank flag clear, sprite overflow clear, open bus update, address latch reset
+- All $2000 write NMI computation moved from PpuHandler to PpuLogic.writeRegister()
+  - NMI line = vblank_flag AND nmi_enable (level-based signal computation)
+- Result: PpuHandler reduced from 314 lines to ~100 lines (68% reduction), now pure routing
+- Pattern: Handlers delegate to Logic modules, no cross-module state extraction
 
 ### Import Path Changes (Completed)
 - All files importing from `emulation/VBlankLedger` updated to `ppu/VBlank`
 - Files affected: emulation/State.zig, ppu/Logic.zig, bus/handlers/PpuHandler.zig, snapshot/state.zig, ppu/logic/registers.zig
 - All references to `vblank_ledger` updated to `ppu.vblank`
+- All files importing ButtonState from `input/ButtonState` updated to `controller/ButtonState`
+- Files affected: input/KeyboardMapper.zig, mailboxes/ControllerInputMailbox.zig, various test files
 
 ### CPU Table-Driven Execution (Refactor Completed 2025-11-07)
 
-The CPU execution system was refactored from nested switch statements to a table-driven dispatch pattern, reducing Execution.zig from 533 lines to 281 lines (47% reduction).
+The CPU execution system was refactored from nested switch statements to a table-driven dispatch pattern, reducing Execution.zig from 533 lines to 279 lines (48% reduction).
 
 **Architecture:**
 
@@ -195,7 +409,7 @@ The CPU execution system was refactored from nested switch statements to a table
    - 8 special sequences (JSR, RTS, RTI, BRK, PHA, PHP, PLA, PLP)
    - callMicrostep() - Runtime dispatcher for 39 microstep function indices
 
-2. **Execution.zig** - State machine executor (281 lines, down from 533)
+2. **Execution.zig** - State machine executor (279 lines, down from 533, 48% reduction)
    - 4-state machine: interrupt_sequence, fetch_opcode, fetch_operand_low, execute
    - Table lookup replaces 217 lines of nested switches
    - Early completion pattern for variable-cycle instructions (branches, indexed modes)

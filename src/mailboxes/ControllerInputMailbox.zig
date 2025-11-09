@@ -15,8 +15,8 @@
 
 const std = @import("std");
 
-/// Button state imported from unified input system
-pub const ButtonState = @import("../input/ButtonState.zig").ButtonState;
+/// Button state imported from controller module
+pub const ButtonState = @import("../controller/ButtonState.zig").ButtonState;
 
 /// Controller input state (2 controllers)
 pub const ControllerInput = struct {

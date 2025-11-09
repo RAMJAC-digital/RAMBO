@@ -19,14 +19,14 @@ test "PPU Write Toggle: Cleared at scanline -1 dot 1" {
 
     // Set write toggle to 1 by writing to PPUSCROLL once
     harness.state.ppu.internal.w = false; // Start at 0
-    _ = RAMBO.Ppu.Logic.readRegister(&harness.state.ppu, null, 0x2005, harness.state.ppu.vblank, harness.state.ppu.scanline, harness.state.ppu.cycle); // Dummy read
+    _ = RAMBO.Ppu.Logic.readRegister(&harness.state.ppu, null, 0x2005, harness.state.ppu.vblank, harness.state.ppu.scanline, harness.state.ppu.dot); // Dummy read
     RAMBO.Ppu.Logic.writeRegister(&harness.state.ppu, null, 0x2005, 0x10); // First write (w: 0→1)
 
     // Verify toggle is now 1
     try testing.expect(harness.state.ppu.internal.w);
 
     // Advance to scanline -1 dot 0 (just before clear)
-    while (harness.state.ppu.scanline < -1 or harness.state.ppu.cycle < 1) {
+    while (harness.state.ppu.scanline < -1 or harness.state.ppu.dot < 1) {
         harness.state.tick();
     }
 
@@ -47,7 +47,7 @@ test "PPU Write Toggle: PPUSCROLL consistency across frames" {
     try testing.expect(!harness.state.ppu.internal.w);
 
     // Advance to next frame (scanline 0 of frame 2)
-    while (harness.state.ppu.scanline != 0 or harness.state.ppu.cycle < 1) {
+    while (harness.state.ppu.scanline != 0 or harness.state.ppu.dot < 1) {
         harness.state.tick();
         if (harness.state.ppu.scanline > 260) break; // Wrapped to frame 2
     }
@@ -72,7 +72,7 @@ test "PPU Write Toggle: Cleared on $2002 read" {
     try testing.expect(harness.state.ppu.internal.w);
 
     // Read $2002 (PPUSTATUS) - should clear toggle
-    _ = RAMBO.Ppu.Logic.readRegister(&harness.state.ppu, null, 0x2002, harness.state.ppu.vblank, harness.state.ppu.scanline, harness.state.ppu.cycle);
+    _ = RAMBO.Ppu.Logic.readRegister(&harness.state.ppu, null, 0x2002, harness.state.ppu.vblank, harness.state.ppu.scanline, harness.state.ppu.dot);
 
     // Verify toggle was cleared
     try testing.expect(!harness.state.ppu.internal.w);
@@ -87,7 +87,7 @@ test "PPU Write Toggle: PPUADDR sequence across frame boundary" {
     try testing.expect(harness.state.ppu.internal.w); // Toggle at 1
 
     // Advance to next frame
-    while (harness.state.ppu.scanline != 0 or harness.state.ppu.cycle < 1) {
+    while (harness.state.ppu.scanline != 0 or harness.state.ppu.dot < 1) {
         harness.state.tick();
         if (harness.state.ppu.scanline > 261) break;
     }
@@ -116,7 +116,7 @@ test "PPU Write Toggle: Mixed PPUSCROLL and PPUADDR across frames" {
     try testing.expect(harness.state.ppu.internal.w);
 
     // Advance to next frame
-    while (harness.state.ppu.scanline != 0 or harness.state.ppu.cycle < 1) {
+    while (harness.state.ppu.scanline != 0 or harness.state.ppu.dot < 1) {
         harness.state.tick();
         if (harness.state.ppu.scanline > 261) break;
     }

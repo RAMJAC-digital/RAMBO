@@ -98,7 +98,7 @@ pub fn inspectPpu(emu_state: *const EmulationState) PpuSnapshot {
         .fine_x = ppu.internal.x,
         .write_toggle = ppu.internal.w,
         .scanline = @intCast(ppu.scanline),
-        .dot = ppu.cycle,
+        .dot = ppu.dot,
         .frame = ppu.frame_count,
         .rendering_enabled = ppu.mask.renderingEnabled(),
         .warmup_complete = ppu.warmup_complete,

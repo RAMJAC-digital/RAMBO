@@ -24,14 +24,14 @@ test "NMI immediate trigger: enabling NMI while VBlank=1 triggers NMI" {
 
     // Ensure NMI is currently disabled
     h.state.ppu.ctrl.nmi_enable = false;
-    h.state.cpu.nmi_line = false;
+    h.state.ppu.nmi_line = false;
 
     // Write to PPUCTRL ($2000) to enable NMI (bit 7 = 1)
     const ppuctrl_value: u8 = 0x80; // Enable NMI, all other bits 0
     h.ppuWriteRegister(0x2000, ppuctrl_value);
 
-    // NMI line should now be set (immediate trigger)
-    try testing.expect(h.state.cpu.nmi_line);
+    // PPU NMI output line should now be set (immediate trigger)
+    try testing.expect(h.state.ppu.nmi_line);
 
     // Verify PPUCTRL was updated
     try testing.expect(h.state.ppu.ctrl.nmi_enable);
@@ -49,13 +49,13 @@ test "NMI immediate trigger: no trigger when VBlank=0" {
 
     // Ensure NMI disabled
     h.state.ppu.ctrl.nmi_enable = false;
-    h.state.cpu.nmi_line = false;
+    h.state.ppu.nmi_line = false;
 
     // Enable NMI
     h.ppuWriteRegister(0x2000, 0x80);
 
-    // NMI should NOT trigger (VBlank not set)
-    try testing.expect(!h.state.cpu.nmi_line);
+    // PPU NMI line should NOT trigger (VBlank not set)
+    try testing.expect(!h.state.ppu.nmi_line);
 
     // But PPUCTRL should still be updated
     try testing.expect(h.state.ppu.ctrl.nmi_enable);
@@ -73,13 +73,13 @@ test "NMI immediate trigger: no trigger when NMI already enabled" {
 
     // NMI is ALREADY enabled
     h.state.ppu.ctrl.nmi_enable = true;
-    h.state.cpu.nmi_line = false;
+    h.state.ppu.nmi_line = false;
 
     // Write to PPUCTRL with NMI still enabled (no 0→1 transition)
     h.ppuWriteRegister(0x2000, 0x80);
 
     // NMI should NOT trigger (already enabled, no edge)
-    try testing.expect(!h.state.cpu.nmi_line);
+    try testing.expect(!h.state.ppu.nmi_line);
 }
 
 test "NMI immediate trigger: disabling NMI does not trigger" {
@@ -94,13 +94,13 @@ test "NMI immediate trigger: disabling NMI does not trigger" {
 
     // NMI is currently enabled
     h.state.ppu.ctrl.nmi_enable = true;
-    h.state.cpu.nmi_line = false;
+    h.state.ppu.nmi_line = false;
 
     // Disable NMI (write 0 to bit 7)
     h.ppuWriteRegister(0x2000, 0x00);
 
     // NMI should NOT trigger (1→0 transition, not 0→1)
-    try testing.expect(!h.state.cpu.nmi_line);
+    try testing.expect(!h.state.ppu.nmi_line);
 
     // Verify NMI was disabled
     try testing.expect(!h.state.ppu.ctrl.nmi_enable);
@@ -122,7 +122,7 @@ test "NMI immediate trigger: common game pattern" {
     // Step 1: VBlank flag cleared by PPUSTATUS read
     h.state.ppu.vblank.vblank_flag = false;
     h.state.ppu.ctrl.nmi_enable = false;
-    h.state.cpu.nmi_line = false;
+    h.state.ppu.nmi_line = false;
 
     // Step 2: Game does work...
 
@@ -133,5 +133,5 @@ test "NMI immediate trigger: common game pattern" {
     h.ppuWriteRegister(0x2000, 0x80);
 
     // Should trigger IMMEDIATELY because VBlank is already set!
-    try testing.expect(h.state.cpu.nmi_line);
+    try testing.expect(h.state.ppu.nmi_line);
 }

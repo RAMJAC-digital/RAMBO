@@ -32,17 +32,19 @@ const DmaModule = @import("../dma/Dma.zig");
 const DmaState = DmaModule.State.DmaState;
 const DmaLogic = DmaModule.Logic;
 
-// Bus state
-const BusState = @import("state/BusState.zig").BusState;
+// Bus module (black box pattern - consolidated module)
+const BusModule = @import("../bus/Bus.zig");
+const BusState = BusModule.State.State;
+const BusLogic = BusModule.Logic;
+const BusInspection = BusModule.Inspection;
 
-// Peripheral state (re-exported for tests and external use)
-pub const ControllerState = @import("state/peripherals/ControllerState.zig").ControllerState;
+// Controller module (black box pattern - consolidated module)
+const ControllerModule = @import("../controller/Controller.zig");
+const ControllerState = ControllerModule.State.ControllerState;
+const ControllerLogic = ControllerModule.Logic;
 
 // CPU microstep functions
 const CpuMicrosteps = @import("../cpu/Microsteps.zig");
-
-// Bus inspection (debugger-safe memory reads)
-const BusInspection = @import("bus/inspection.zig");
 
 // Debugger integration (breakpoints, watchpoints, pause management)
 const DebugIntegration = @import("debug/integration.zig");
@@ -75,20 +77,9 @@ pub const EmulationState = struct {
     /// Consolidated DMA subsystem following PPU black box pattern
     dma: DmaState = .{},
 
-    /// Memory bus state (RAM, open bus, optional test RAM)
+    /// Memory bus state (RAM, open bus, handlers, optional test RAM)
+    /// Bus module owns routing logic following black box pattern
     bus: BusState = .{},
-
-    /// Memory handlers (embedded, zero allocation)
-    /// Parameter-based pattern like mappers - handlers receive state via parameter
-    handlers: struct {
-        open_bus: @import("bus/handlers/OpenBusHandler.zig").OpenBusHandler = .{},
-        ram: @import("bus/handlers/RamHandler.zig").RamHandler = .{},
-        ppu: @import("bus/handlers/PpuHandler.zig").PpuHandler = .{},
-        apu: @import("bus/handlers/ApuHandler.zig").ApuHandler = .{},
-        controller: @import("bus/handlers/ControllerHandler.zig").ControllerHandler = .{},
-        oam_dma: @import("bus/handlers/OamDmaHandler.zig").OamDmaHandler = .{},
-        cartridge: @import("bus/handlers/CartridgeHandler.zig").CartridgeHandler = .{},
-    } = .{},
 
     /// Cartridge (direct ownership)
     /// Supports all mappers via tagged union dispatch
@@ -167,19 +158,12 @@ pub const EmulationState = struct {
         self.clock.reset();
         self.bus.open_bus = .{};
         self.dma.reset();
-        self.controller.reset();
+        ControllerLogic.power_on(&self.controller);
 
         const reset_vector = self.busRead16(0xFFFC);
-        self.cpu.pc = reset_vector;
-        self.cpu.sp = 0xFD;
-        self.cpu.p.interrupt = true;
-        self.cpu.state = .fetch_opcode;
-        self.cpu.instruction_cycle = 0;
-        self.cpu.pending_interrupt = .none;
-        self.cpu.halted = false;
+        CpuLogic.power_on(&self.cpu, reset_vector);
 
-        PpuLogic.reset(&self.ppu);
-        self.ppu.warmup_complete = false; // Hardware-accurate: warmup period required after power-on
+        PpuLogic.power_on(&self.ppu);
 
         ApuLogic.reset(&self.apu);
         self.cpu.nmi_line = false;
@@ -192,19 +176,12 @@ pub const EmulationState = struct {
         self.clock.reset();
         self.bus.open_bus = .{};
         self.dma.reset();
-        self.controller.reset();
+        ControllerLogic.reset(&self.controller);
 
         const reset_vector = self.busRead16(0xFFFC);
-        self.cpu.pc = reset_vector;
-        self.cpu.sp = 0xFD;
-        self.cpu.p.interrupt = true;
-        self.cpu.state = .fetch_opcode;
-        self.cpu.instruction_cycle = 0;
-        self.cpu.pending_interrupt = .none;
-        self.cpu.halted = false;
+        CpuLogic.reset(&self.cpu, reset_vector);
 
         PpuLogic.reset(&self.ppu);
-        self.ppu.warmup_complete = true;
 
         ApuLogic.reset(&self.apu);
         self.cpu.nmi_line = false;
@@ -212,53 +189,19 @@ pub const EmulationState = struct {
     }
 
     // =========================================================================
-    // Test Helper Functions
-    // =========================================================================
-    // These functions coordinate VBlank flag changes with the VBlankLedger
-    // to ensure tests properly simulate hardware behavior
-
-    /// TEST HELPER: Set PPUCTRL NMI enable
-    pub fn testSetNmiEnable(self: *EmulationState, enabled: bool) void {
-        self.ppu.ctrl.nmi_enable = enabled;
-    }
-
-    // =========================================================================
     // Bus Routing (inline logic - no separate abstraction)
     // =========================================================================
 
     /// Read from NES memory bus
-    /// Routes to appropriate component and updates open bus
+    /// Delegates to Bus module
     pub inline fn busRead(self: *EmulationState, address: u16) u8 {
-        // Capture last read address for DMC corruption (NTSC 2A03 bug)
-        self.dma.dmc.last_read_address = address;
-
-        // Dispatch to handlers (parameter-based pattern)
-        const value = switch (address) {
-            0x0000...0x1FFF => self.handlers.ram.read(self, address),
-            0x2000...0x3FFF => self.handlers.ppu.read(self, address),
-            0x4000...0x4013 => self.handlers.apu.read(self, address),
-            0x4014 => self.handlers.oam_dma.read(self, address),
-            0x4015 => self.handlers.apu.read(self, address), // Special: does NOT update open bus
-            0x4016, 0x4017 => self.handlers.controller.read(self, address),
-            0x4020...0xFFFF => self.handlers.cartridge.read(self, address),
-            else => self.handlers.open_bus.read(self, address),
-        };
-
-        // Hardware: All reads update open bus (except $4015)
-        if (address != 0x4015) {
-            self.bus.open_bus.set(value);
-        } else {
-            self.bus.open_bus.setInternal(value);
-        }
-
-        self.debuggerCheckMemoryAccess(address, value, false);
-        return value;
+        return BusLogic.read(&self.bus, self, address);
     }
 
     /// Dummy read - hardware-accurate 6502 bus access where value is not used
-    /// The 6502 performs reads during addressing calculations but discards the value
+    /// Delegates to Bus module
     pub inline fn dummyRead(self: *EmulationState, address: u16) void {
-        _ = self.busRead(address);
+        BusLogic.dummyRead(&self.bus, self, address);
     }
 
     /// Helper to obtain pointer to owned cartridge (if any)
@@ -288,70 +231,21 @@ pub const EmulationState = struct {
     }
 
     /// Write to NES memory bus
-    /// Routes to appropriate component and updates open bus
+    /// Delegates to Bus module
     pub inline fn busWrite(self: *EmulationState, address: u16, value: u8) void {
-        // Hardware: All writes update open bus
-        self.bus.open_bus.set(value);
-
-        // Dispatch to handlers (parameter-based pattern)
-        switch (address) {
-            0x0000...0x1FFF => self.handlers.ram.write(self, address, value),
-            0x2000...0x3FFF => self.handlers.ppu.write(self, address, value), // NMI management now in handler
-            0x4000...0x4013 => self.handlers.apu.write(self, address, value),
-            0x4014 => self.handlers.oam_dma.write(self, address, value),
-            0x4015 => self.handlers.apu.write(self, address, value),
-            0x4016, 0x4017 => self.handlers.controller.write(self, address, value),
-            0x4020...0xFFFF => {
-                self.handlers.cartridge.write(self, address, value);
-
-                // Sync PPU mirroring after cartridge write
-                // Some mappers can change mirroring dynamically
-                if (self.cart) |*cart| {
-                    self.ppu.mirroring = cart.getMirroring();
-                }
-            },
-            else => {}, // Unmapped - write ignored
-        }
-
-        self.debuggerCheckMemoryAccess(address, value, true);
+        BusLogic.write(&self.bus, self, address, value);
     }
 
     /// Read 16-bit value (little-endian)
-    /// Used for reading interrupt vectors and 16-bit operands
+    /// Delegates to Bus module
     pub inline fn busRead16(self: *EmulationState, address: u16) u16 {
-        const low = self.busRead(address);
-        const high = self.busRead(address +% 1);
-        return (@as(u16, high) << 8) | @as(u16, low);
-    }
-
-    /// Read 16-bit value with JMP indirect page wrap bug
-    /// The 6502 has a bug where JMP ($xxFF) wraps within the page
-    pub inline fn busRead16Bug(self: *EmulationState, address: u16) u16 {
-        const low_addr = address;
-        const high_addr = if ((address & 0x00FF) == 0x00FF)
-            address & 0xFF00
-        else
-            address +% 1;
-
-        const low = self.busRead(low_addr);
-        const high = self.busRead(high_addr);
-        return (@as(u16, high) << 8) | @as(u16, low);
+        return BusLogic.read16(&self.bus, self, address);
     }
 
     /// Peek memory without side effects (for debugging/inspection)
-    /// Does NOT update open bus - safe for debugger inspection
-    ///
-    /// This is distinct from busRead() which updates open bus (hardware behavior).
-    /// Use this for debugger inspection where side effects are undesirable.
-    ///
-    /// Parameters:
-    ///   - address: 16-bit CPU address to read from
-    ///
-    /// Returns: Byte value at address (or open bus value if unmapped)
-    ///
-    /// Delegates to BusInspection.peekMemory()
+    /// Delegates to Bus module
     pub inline fn peekMemory(self: *const EmulationState, address: u16) u8 {
-        return BusInspection.peekMemory(self, address);
+        return BusInspection.peek(&self.bus, self, address);
     }
 
     /// Compute next timing step and advance master clock
@@ -371,8 +265,7 @@ pub const EmulationState = struct {
     /// Returns: TimingStep with pre-advance scanline/dot and skip flag
     ///
     /// References:
-    /// - docs/code-review/clock-advance-refactor-plan.md Section 4.2
-    /// - nesdev.org/wiki/PPU_frame_timing (odd frame skip)
+    /// - [PPU Odd Frame Skip](https://nesdev.org/wiki/PPU_frame_timing)
     inline fn nextTimingStep(self: *EmulationState) TimingStep {
         // Note: Clock advancement now happens in tick() BEFORE this function is called
         // PPU clock advances via PpuLogic.advanceClock() (handles odd frame skip internally)
@@ -414,86 +307,50 @@ pub const EmulationState = struct {
         if (self.debuggerShouldHalt()) {
             return {};
         }
-
-        // Advance master clock (monotonic counter for timestamps)
-        // Master clock always advances by 1 (no skipping - monotonic counter)
-        self.clock.advance();
-
-        // Compute next timing step (determines CPU/APU tick flags)
+        PpuLogic.advanceClock(&self.ppu, self.clock.master_cycles);
+        // Compute timing step (determines CPU/APU tick flags)
         const step = self.nextTimingStep();
 
         // HARDWARE SUB-CYCLE EXECUTION ORDER:
-        // PPU rendering executes first (pixel output, sprite evaluation, etc.)
-        // CPU memory operations execute second (reads/writes including $2002)
-        // PPU state updates execute last (VBlank flag set, event timestamps)
-        //
+        // Components execute on current cycle before clock advances
         // This matches NES hardware behavior where within a single PPU cycle:
         //   1. CPU Read Operations (if CPU is active this cycle)
         //   2. CPU Write Operations (if CPU is active this cycle)
         //   3. PPU Events (VBlank flag set, sprite evaluation, etc.)
-        //   4. End of cycle
+        //   4. End of cycle (clock advances)
         //
         // Reference: https://www.nesdev.org/wiki/PPU_frame_timing
 
-        // ===================================================================
-        // CPU EXECUTION (Black Box Pattern - Phase 1-5 Refactor Complete)
-        // ===================================================================
-        // Architecture: Signal-based coordination matching PPU pattern
-        // - EmulationState computes input signals from peripheral sources
-        // - EmulationState wires signals to CPU inputs (cpu.rdy_line, cpu.irq_line)
-        // - CPU executes as self-contained black box
-        // - EmulationState reads output signals (instruction_complete, bus_cycle_complete)
-        //
-        // Input Signal Sources:
-        //   cpu.nmi_line: PPU (wired at end of tick - line 508)
-        //   cpu.irq_line: APU frame_irq | APU dmc_irq | Mapper IRQ
-        //   cpu.rdy_line: DMA coordination (DMC DMA | OAM DMA)
-        //
-        // Output Signals (read by debugger/DMA, not by EmulationState currently):
-        //   cpu.instruction_complete: Set when instruction finishes
-        //   cpu.bus_cycle_complete: Set each bus cycle
-        //   cpu.halted: Set when CPU halts (JAM/KIL or DMA)
-        // ===================================================================
+        // CPU coordination (APU, DMA, signal wiring, CPU execution)
         if (step.cpu_tick) {
-            // === Peripheral Coordination ===
-            self.stepApuCycle();
-
-            // === DMA (Black Box) ===
-            DmaLogic.tick(&self.dma, self.clock.master_cycles, self, &self.apu);
-
-            // === Input Signal Wiring ===
-            // Wire RDY line from DMA output (low = CPU halted)
-            self.cpu.rdy_line = self.dma.rdy_line;
-
-            // Compute IRQ line from all sources (high = interrupt requested)
-            const apu_frame_irq = self.apu.frame_irq_flag;
-            const apu_dmc_irq = self.apu.dmc_irq_flag;
-            const mapper_irq = self.pollMapperIrq();
-            self.cpu.irq_line = apu_frame_irq or apu_dmc_irq or mapper_irq;
-
-            // === CPU Execution (Black Box) ===
-            const debugger_ptr = if (self.debugger) |*dbg| dbg else null;
-            CpuExecution.stepCycle(&self.cpu, self, debugger_ptr);
-
-            // === Post-Execution Interrupt Sampling ===
-            // Hardware "second-to-last cycle" rule: Sample interrupt lines AFTER execution
-            // This gives instructions one cycle to complete after register writes (e.g., STA $2000)
-            // Reference: nesdev.org/wiki/CPU_interrupts, Mesen2 NesCpu.cpp:311-314
-            if (self.cpu.state != .interrupt_sequence) {
-                CpuLogic.checkInterrupts(&self.cpu);
-            }
+            self.tickCpu();
         }
-
-        // Advance PPU clock first (PPU owns its own timing state)
-        // Hardware: PPU has independent clock counters (cycle, scanline, frame_count)
-        PpuLogic.advanceClock(&self.ppu);
 
         // Process PPU rendering (PPU manages its own state internally)
         const cart_ptr = self.cartPtr();
-        PpuLogic.tick(&self.ppu, self.clock.master_cycles, cart_ptr);
+        PpuLogic.updatePPU(&self.ppu, self.clock.master_cycles, cart_ptr);
 
-        // Wire PPU NMI output signal to CPU NMI input
-        self.cpu.nmi_line = self.ppu.nmi_line;
+        // Signal routing (updates NMI from PPU output)
+        self.wireSignals();
+
+        // Advance master clock last (components execute on current cycle, then advance)
+        self.clock.advance();
+    }
+
+    /// CPU coordination: APU, DMA, signal wiring, and CPU execution
+    fn tickCpu(self: *EmulationState) void {
+        // APU frame counter and DMC
+        self.tickApu();
+
+        // DMA coordination
+        self.tickDma();
+
+        // Signal routing (RDY, IRQ, NMI)
+        self.wireSignals();
+
+        // CPU execution (handles interrupt sampling internally)
+        const debugger_ptr = if (self.debugger) |*dbg| dbg else null;
+        CpuExecution.stepCycle(&self.cpu, self, debugger_ptr);
     }
 
     pub fn pollMapperIrq(self: *EmulationState) bool {
@@ -503,9 +360,9 @@ pub const EmulationState = struct {
         return false;
     }
 
-    fn stepApuCycle(self: *EmulationState) void {
+    /// APU frame counter and DMC coordination
+    fn tickApu(self: *EmulationState) void {
         // Tick APU frame counter (drives length counters, envelopes, sweeps at ~120Hz/~240Hz)
-        // Frame IRQ flag is set internally and read at line 469-472
         ApuLogic.tickFrameCounter(&self.apu);
 
         // Tick DMC channel (drives sample playback and DMA triggers)
@@ -514,6 +371,26 @@ pub const EmulationState = struct {
             const address = ApuLogic.getSampleAddress(&self.apu);
             self.dma.dmc.triggerFetch(address);
         }
+    }
+
+    /// DMA coordination (OAM DMA and DMC DMA)
+    fn tickDma(self: *EmulationState) void {
+        DmaLogic.tick(&self.dma, self.clock.master_cycles, self, &self.apu);
+    }
+
+    /// Signal routing between subsystems
+    fn wireSignals(self: *EmulationState) void {
+        // Wire RDY line from DMA output (low = CPU halted)
+        self.cpu.rdy_line = self.dma.rdy_line;
+
+        // Compute and wire IRQ line from all sources (high = interrupt requested)
+        const apu_frame_irq = self.apu.frame_irq_flag;
+        const apu_dmc_irq = self.apu.dmc_irq_flag;
+        const mapper_irq = self.pollMapperIrq();
+        self.cpu.irq_line = apu_frame_irq or apu_dmc_irq or mapper_irq;
+
+        // Wire NMI line from PPU output
+        self.cpu.nmi_line = self.ppu.nmi_line;
     }
 
     /// Test helper: Tick CPU with clock advancement

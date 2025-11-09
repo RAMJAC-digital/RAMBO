@@ -21,10 +21,10 @@ test "Frame IRQ: Flag set at cycle 29829" {
     apu.frame_counter_cycles = 29828;
 
     // Tick to cycle 29829
-    const should_irq = ApuLogic.tickFrameCounter(&apu);
+    ApuLogic.tickFrameCounter(&apu);
 
     try testing.expect(apu.frame_irq_flag);
-    try testing.expect(should_irq);
+    // APU now communicates via frame_irq_flag field (checked above)
     try testing.expectEqual(@as(u32, 29829), apu.frame_counter_cycles);
 }
 
@@ -37,10 +37,10 @@ test "Frame IRQ: Flag stays set at cycle 29830" {
     apu.frame_counter_cycles = 29829;
 
     // Tick to cycle 29830
-    const should_irq = ApuLogic.tickFrameCounter(&apu);
+    ApuLogic.tickFrameCounter(&apu);
 
     try testing.expect(apu.frame_irq_flag);
-    try testing.expect(should_irq);
+    // APU now communicates via frame_irq_flag field (checked above)
     try testing.expectEqual(@as(u32, 29830), apu.frame_counter_cycles);
 }
 
@@ -53,10 +53,10 @@ test "Frame IRQ: Flag stays set at cycle 29831" {
     apu.frame_counter_cycles = 29830;
 
     // Tick to cycle 29831
-    const should_irq = ApuLogic.tickFrameCounter(&apu);
+    ApuLogic.tickFrameCounter(&apu);
 
     try testing.expect(apu.frame_irq_flag);
-    try testing.expect(should_irq);
+    // APU now communicates via frame_irq_flag field (checked above)
     try testing.expectEqual(@as(u32, 29831), apu.frame_counter_cycles);
 }
 
@@ -79,9 +79,9 @@ test "Frame IRQ: Flag re-set after reading $4015 at cycle 29829" {
     try testing.expect(!apu.frame_irq_flag); // Flag cleared by read
 
     // Tick to cycle 29830 - RE-SETS flag (edge case)
-    const should_irq = ApuLogic.tickFrameCounter(&apu);
+    ApuLogic.tickFrameCounter(&apu);
     try testing.expect(apu.frame_irq_flag); // Flag re-set!
-    try testing.expect(should_irq);
+    // APU now communicates via frame_irq_flag field (checked above)
 }
 
 test "Frame IRQ: Flag re-set after reading $4015 at cycle 29830" {
@@ -108,9 +108,9 @@ test "Frame IRQ: Flag re-set after reading $4015 at cycle 29830" {
     try testing.expect(!apu.frame_irq_flag);
 
     // Tick to cycle 29831 - RE-SETS flag again
-    const should_irq = ApuLogic.tickFrameCounter(&apu);
+    ApuLogic.tickFrameCounter(&apu);
     try testing.expect(apu.frame_irq_flag);
-    try testing.expect(should_irq);
+    // APU now communicates via frame_irq_flag field (checked above)
 }
 
 test "Frame IRQ: Flag cleared successfully after cycle 29832" {
@@ -123,7 +123,7 @@ test "Frame IRQ: Flag cleared successfully after cycle 29832" {
     apu.frame_irq_flag = true;
 
     // Tick to cycle 29832 - resets frame, no longer sets IRQ
-    const should_irq = ApuLogic.tickFrameCounter(&apu);
+    ApuLogic.tickFrameCounter(&apu);
     try testing.expect(!should_irq); // Frame reset, cycles now at 0
 
     // Read $4015 - clears flag
@@ -146,7 +146,7 @@ test "Frame IRQ: IRQ inhibit prevents flag setting" {
 
     // Tick through cycles 29829-29831
     for (0..3) |_| {
-        const should_irq = ApuLogic.tickFrameCounter(&apu);
+        ApuLogic.tickFrameCounter(&apu);
         try testing.expect(!apu.frame_irq_flag);
         try testing.expect(!should_irq);
     }
@@ -161,7 +161,7 @@ test "Frame IRQ: Cycle 29828 doesn't set flag" {
     apu.frame_counter_cycles = 29827;
 
     // Tick to cycle 29828
-    const should_irq = ApuLogic.tickFrameCounter(&apu);
+    ApuLogic.tickFrameCounter(&apu);
 
     try testing.expect(!apu.frame_irq_flag);
     try testing.expect(!should_irq);
@@ -178,7 +178,7 @@ test "Frame IRQ: 5-step mode never sets IRQ flag" {
 
     // Tick through cycles 29829-29831
     for (0..3) |_| {
-        const should_irq = ApuLogic.tickFrameCounter(&apu);
+        ApuLogic.tickFrameCounter(&apu);
         try testing.expect(!apu.frame_irq_flag);
         try testing.expect(!should_irq);
     }

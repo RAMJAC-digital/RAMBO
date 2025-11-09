@@ -24,6 +24,7 @@ const Config = RAMBO.Config.Config;
 const NromCart = RAMBO.CartridgeType;
 const AnyCartridge = RAMBO.AnyCartridge;
 const ButtonState = RAMBO.ButtonState;
+const ControllerLogic = RAMBO.Controller.Logic;
 
 
 test "SMB1 NMI Controller Polling: NMI handler executes and reads controller" {
@@ -81,7 +82,7 @@ test "SMB1 NMI Controller Polling: NMI handler executes and reads controller" {
     // Run for maximum 30 frames (SMB1 might not poll controllers during early boot)
     while (frame_count < 30) {
         // Update controller input at start of each frame (simulates mailbox poll)
-        state.controller.updateButtons(button_input.toByte(), 0x00);
+        ControllerLogic.updateButtons(&state.controller,button_input.toByte(), 0x00);
 
         // Get NMI vector address ONCE before loop
         const nmi_vector = state.busRead16(0xFFFA);
@@ -105,7 +106,7 @@ test "SMB1 NMI Controller Polling: NMI handler executes and reads controller" {
 
             // Track scanline/dot for VBlank detection
             const scanline = state.ppu.scanline;
-            const dot = state.ppu.cycle;
+            const dot = state.ppu.dot;
 
             // Check if we're in VBlank with NMI enabled
             if (scanline == 241 and dot > 1 and state.ppu.ctrl.nmi_enable) {
@@ -369,7 +370,7 @@ test "SMB1 NMI Controller Polling: Minimal reproduction without ROM" {
         .left = false,
         .right = false,
     };
-    state.controller.updateButtons(button_input.toByte(), 0x00);
+    ControllerLogic.updateButtons(&state.controller,button_input.toByte(), 0x00);
 
     // Run until NMI fires (maximum 2 frames)
     var nmi_fired = false;
@@ -377,7 +378,7 @@ test "SMB1 NMI Controller Polling: Minimal reproduction without ROM" {
 
     for (0..2) |_| {
         // Run one frame
-        while (!(state.ppu.scanline == 0 and state.ppu.cycle == 0)) {
+        while (!(state.ppu.scanline == 0 and state.ppu.dot == 0)) {
             state.tick();
 
             // Check if NMI handler wrote to $20 (our marker)

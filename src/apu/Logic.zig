@@ -113,9 +113,9 @@ pub inline fn clockLinearCounter(state: *ApuState) void {
 }
 
 /// Tick frame counter (called every CPU cycle)
-/// Returns true if IRQ should be generated
-pub inline fn tickFrameCounter(state: *ApuState) bool {
-    return frame_counter.tickFrameCounter(state);
+/// Sets frame_irq_flag internally when IRQ should be generated
+pub inline fn tickFrameCounter(state: *ApuState) void {
+    frame_counter.tickFrameCounter(state);
 }
 
 // ============================================================================

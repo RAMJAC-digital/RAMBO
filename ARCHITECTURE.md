@@ -103,12 +103,28 @@ pub fn tick(cpu: *CpuState, bus: *BusState) void {
     // All mutations explicit
 }
 
-pub fn reset(cpu: *CpuState, bus: *BusState) void {
-    cpu.pc = bus.read16(0xFFFC);
-    cpu.sp = 0xFD;
-    cpu.p = StatusRegister.init(.{ .i = true });
+pub fn power_on(state: *CpuState, reset_vector: u16) void {
+    // Hardware-accurate power-on sequence
+    // EmulationState delegates instead of direct manipulation
+    state.pc = reset_vector;
+    state.sp = 0xFD;
+    state.p = StatusRegister.init(.{ .i = true });
+}
+
+pub fn reset(state: *CpuState, reset_vector: u16) void {
+    // Hardware-accurate reset sequence
+    // Similar to power_on but preserves some state
+    state.pc = reset_vector;
+    state.sp -%= 3;  // Decrement stack pointer by 3
+    state.p.i = true;  // Set interrupt disable flag
 }
 ```
+
+**Lifecycle Functions:**
+- CPU: `power_on()`, `reset()` - Hardware-accurate initialization sequences
+- PPU: `power_on()`, `reset()` - Hardware-accurate PPU initialization
+- APU: Similar lifecycle functions for APU initialization
+- Eliminates direct state manipulation from EmulationState (black box principle)
 
 ### Benefits
 
@@ -150,7 +166,7 @@ switch (address_mode) {
 }
 ```
 
-**After (Table-Driven - 281 lines):**
+**After (Table-Driven - 279 lines):**
 ```zig
 // Single table lookup
 const sequence = MicrostepTable.MICROSTEP_TABLE[opcode];
@@ -225,7 +241,7 @@ if (cpu.instruction_cycle < sequence.steps.len) {
 3. **Maintainable:** Adding new opcode = add 1 table entry (not edit 3+ switch cases)
 4. **Zero Overhead:** Table built at comptime, no runtime cost vs hand-coded switches
 5. **Hardware Accurate:** Preserves variable cycle counts (branches, indexed modes)
-6. **Reduced Code:** 533 lines → 281 lines (47% reduction in Execution.zig)
+6. **Reduced Code:** 533 lines → 279 lines (48% reduction in Execution.zig)
 
 ### Implementation Notes
 
@@ -340,7 +356,22 @@ pub const AnyCartridge = union(enum) {
 
 ## Bus Handler Architecture
 
-**Core Concept:** Stateless handler delegation pattern for CPU memory bus, mirroring the cartridge mapper pattern.
+**Core Concept:** Self-contained bus module with stateless handler delegation pattern, following State/Logic separation established by CPU/PPU/APU/DMA/Controller modules.
+
+### Module Structure (Extracted 2025-11-09)
+
+**Bus Module Files:**
+- `src/bus/State.zig` - Bus state (RAM, open bus tracking, handler instances)
+- `src/bus/Logic.zig` - Routing operations (read, write, read16, dummyRead)
+- `src/bus/Inspection.zig` - Debugger-safe inspection (peek without side effects)
+- `src/bus/Bus.zig` - Module facade
+- `src/bus/handlers/` - 7 zero-size stateless handlers
+
+**Black Box Pattern:**
+- Bus owns all bus-related state (RAM, open bus, handlers)
+- Bus Logic provides routing operations (not embedded in EmulationState)
+- EmulationState delegates via inline functions (busRead, busWrite, etc.)
+- Follows same pattern established for PPU/DMA/Controller subsystems
 
 ### Handler Interface Pattern
 
@@ -369,111 +400,126 @@ pub const HandlerName = struct {
 | Handler | Address Range | Complexity | Hardware Chip |
 |---------|---------------|------------|---------------|
 | `RamHandler` | $0000-$1FFF | ⭐ (1/5) | 6502 internal RAM (2KB, 4x mirrored) |
-| `PpuHandler` | $2000-$3FFF | ⭐⭐⭐⭐⭐ (5/5) | 2C02 PPU registers (8 regs, mirrored) |
+| `PpuHandler` | $2000-$3FFF | ⭐ (1/5) | 2C02 PPU registers (8 regs, mirrored) |
 | `ApuHandler` | $4000-$4015 | ⭐⭐⭐ (3/5) | 2A03 APU channels |
 | `OamDmaHandler` | $4014 | ⭐⭐ (2/5) | 2C02 OAM DMA trigger |
 | `ControllerHandler` | $4016-$4017 | ⭐⭐ (2/5) | Controller ports + APU frame counter |
 | `CartridgeHandler` | $4020-$FFFF | ⭐⭐ (2/5) | Cartridge mapper delegation |
 | `OpenBusHandler` | unmapped | ⭐ (1/5) | Hardware open bus behavior |
 
-### Integration in EmulationState
+### Integration in EmulationState (Post-Bus-Extraction 2025-11-09)
 
+**Before (handlers owned by EmulationState):**
 ```zig
 pub const EmulationState = struct {
     handlers: struct {
         open_bus: OpenBusHandler = .{},
         ram: RamHandler = .{},
-        ppu: PpuHandler = .{},
-        apu: ApuHandler = .{},
-        controller: ControllerHandler = .{},
-        oam_dma: OamDmaHandler = .{},
-        cartridge: CartridgeHandler = .{},
+        // ... 5 more handlers
     } = .{},
 
     pub fn busRead(self: *EmulationState, address: u16) u8 {
+        // Routing logic embedded in EmulationState
         const value = switch (address) {
             0x0000...0x1FFF => self.handlers.ram.read(self, address),
-            0x2000...0x3FFF => self.handlers.ppu.read(self, address),
-            // ... other ranges ...
-            else => self.handlers.open_bus.read(self, address),
+            // ...
         };
-
-        // Open bus capture (hardware behavior)
-        if (address != 0x4015) {  // $4015 doesn't update open bus
-            self.bus.open_bus = value;
-        }
-
+        self.bus.open_bus = value;
         return value;
     }
 };
 ```
 
-### Example: PpuHandler (Most Complex)
+**After (handlers owned by bus module):**
+```zig
+// Bus owns handlers (src/bus/State.zig)
+pub const State = struct {
+    ram: [2048]u8,
+    open_bus: OpenBus,
+    handlers: struct {
+        open_bus: OpenBusHandler = .{},
+        ram: RamHandler = .{},
+        // ... 5 more handlers
+    } = .{},
+};
+
+// Bus Logic handles routing (src/bus/Logic.zig)
+pub fn read(bus: *BusState, state: anytype, address: u16) u8 {
+    const value = switch (address) {
+        0x0000...0x1FFF => bus.handlers.ram.read(state, address),
+        // ...
+    };
+    if (address != 0x4015) bus.open_bus.set(value);
+    return value;
+}
+
+// EmulationState delegates (src/emulation/State.zig)
+pub const EmulationState = struct {
+    bus: BusState = .{},
+
+    pub inline fn busRead(self: *EmulationState, address: u16) u8 {
+        return BusLogic.read(&self.bus, self, address);
+    }
+};
+```
+
+### Example: PpuHandler (Pure Routing)
 
 **Responsibilities:**
-- PPU register reads/writes ($2000-$3FFF, 8 registers mirrored)
-- VBlank race detection (scanline 241, dot 0-2)
-- NMI line management (PPUCTRL bit 7 changes)
-- $2002 read side effects (clear VBlank flag, clear NMI line)
+- Route CPU memory accesses ($2000-$3FFF) to PPU subsystem
+- Pure delegation to PpuLogic for all register operations
+- Zero internal state - completely stateless routing struct
 
 **Implementation:**
 ```zig
-// src/emulation/bus/handlers/PpuHandler.zig
+// src/bus/handlers/PpuHandler.zig
 pub const PpuHandler = struct {
     // NO fields - completely stateless!
 
     pub fn read(_: *const PpuHandler, state: anytype, address: u16) u8 {
-        const reg = address & 0x07;  // Mirror to 8 registers
+        const cart_ptr = if (state.cart) |*cart_ref| cart_ref else null;
 
-        // VBlank race detection (CRITICAL TIMING)
-        if (reg == 0x02 and state.ppu.scanline == 241 and state.ppu.cycle <= 2) {
-            // Prevent VBlank flag from being set this frame
-            state.ppu.vblank.prevent_vbl_set_cycle = state.clock.master_cycles;
-        }
-
-        // Delegate to PPU logic for register read
-        const result = PpuLogic.readRegister(&state.ppu, ...);
-
-        // $2002 read side effects
-        if (result.read_2002) {
-            state.ppu.vblank.last_read_cycle = state.clock.master_cycles;
-            state.cpu.nmi_line = false;  // Always clear NMI line
-        }
+        // Delegate to PPU logic - PPU handles ALL side effects internally
+        const result = PpuLogic.readRegister(
+            &state.ppu,
+            cart_ptr,
+            address,
+            state.clock.master_cycles,
+        );
 
         return result.value;
     }
 
     pub fn write(_: *PpuHandler, state: anytype, address: u16, value: u8) void {
-        const reg = address & 0x07;
+        const cart_ptr = if (state.cart) |*cart_ref| cart_ref else null;
 
-        // PPUCTRL write: Update NMI line IMMEDIATELY
-        if (reg == 0x00) {
-            const old_nmi_enable = state.ppu.ctrl.nmi_enable;
-            const new_nmi_enable = (value & 0x80) != 0;
-            const vblank_active = state.ppu.vblank.vblank_flag;
-
-            // 0→1 transition while VBlank active: trigger NMI
-            if (!old_nmi_enable and new_nmi_enable and vblank_active) {
-                state.cpu.nmi_line = true;
-            }
-
-            // 1→0 transition: clear NMI
-            if (old_nmi_enable and !new_nmi_enable) {
-                state.cpu.nmi_line = false;
-            }
-        }
-
-        // Delegate to PPU logic for register write
-        PpuLogic.writeRegister(&state.ppu, ...);
+        // Delegate to PPU logic - PPU handles ALL side effects internally
+        PpuLogic.writeRegister(&state.ppu, cart_ptr, address, value);
     }
 
     pub fn peek(_: *const PpuHandler, state: anytype, address: u16) u8 {
         // No side effects - safe for debugger
         const reg = address & 0x07;
-        return state.ppu.registers[reg];
+        if (reg == 0x02) {
+            const registers = @import("../../ppu/logic/registers.zig");
+            const vblank_flag = state.ppu.vblank.isFlagSet();
+            return registers.buildStatusByte(
+                state.ppu.status.sprite_overflow,
+                state.ppu.status.sprite_0_hit,
+                vblank_flag,
+                state.bus.open_bus.get(),
+            );
+        }
+        return state.bus.open_bus.get();
     }
 };
 ```
+
+**Key Characteristics:**
+- Zero-size handler (no fields, verified by unit tests)
+- All PPU register side effects implemented in ppu/logic/registers.zig
+- Handler contains zero PPU hardware logic - pure routing only
+- Follows same pattern as other 6 bus handlers
 
 ### Design Principles
 
@@ -513,12 +559,20 @@ pub const GoodHandler = struct {
 };
 ```
 
+### Benefits of Bus Module Extraction (2025-11-09)
+
+1. **Clear Ownership:** Bus module owns all bus-related state (not scattered in EmulationState)
+2. **Consistent Pattern:** Follows State/Logic separation used by CPU/PPU/APU/DMA/Controller
+3. **Reduced Coupling:** EmulationState delegates to BusLogic (doesn't embed routing logic)
+4. **Module Cohesion:** All bus concerns (routing, handlers, open bus) in single module
+5. **Zero Legacy Code:** Complete extraction from emulation/ directory
+
 ### See Also
 
-- `src/emulation/bus/handlers/` - All handler implementations
-- `src/emulation/bus/inspection.zig` - Debugger-safe bus inspection (uses handler `peek()`)
+- `src/bus/` - Bus module (State, Logic, Inspection, handlers)
+- `src/bus/handlers/` - All handler implementations (7 zero-size stateless handlers)
 - `src/cartridge/` - Cartridge mapper pattern (same delegation approach)
-- `src/emulation/State.zig` - EmulationState bus routing integration
+- `src/emulation/State.zig` - EmulationState bus delegation integration
 
 ---
 
@@ -719,7 +773,7 @@ When CPU reads $2002 at scanline 241, dot 1 (same cycle VBlank is set):
 - `src/ppu/VBlank.zig` - VBlank state (pure data)
 - `src/ppu/Logic.zig:tick()` - VBlank management logic
 - `src/ppu/State.zig` - PpuState with vblank field and nmi_line output signal
-- `src/emulation/bus/handlers/PpuHandler.zig` - $2000-$3FFF handler sets prevention flag
+- `src/bus/handlers/PpuHandler.zig` - $2000-$3FFF handler (pure routing, refactored 2025-11-09)
 
 **Test Coverage:**
 - `tests/ppu/*vblank*` - PPU VBlank tests
@@ -854,9 +908,22 @@ Tests should use `clock.isCpuTick()` instead of hardcoded dot values to be phase
 
 ---
 
-## DMA Interaction Model
+## DMA Interaction Model (Consolidated 2025-11-08)
 
-**Core Concept:** Hardware-accurate DMC/OAM DMA time-sharing with functional pattern.
+**Core Concept:** Hardware-accurate DMC/OAM DMA time-sharing with self-contained DMA module following black box pattern.
+
+### Module Structure (Consolidated 2025-11-08)
+
+**DMA Subsystem Files:**
+- `src/dma/State.zig` - Consolidated DMA state (OamDma, DmcDma, interaction ledger)
+- `src/dma/Logic.zig` - DMA execution logic (tickOamDma, tickDmcDma)
+- `src/dma/Dma.zig` - DMA coordination module (tick function, signal output)
+
+**Black Box Architecture:**
+- DMA owns all internal state (OAM DMA, DMC DMA, interaction tracking)
+- DMA outputs RDY line signal to CPU: `dma.rdy_line = !(dmc.rdy_low or oam.active)`
+- EmulationState wires signal: `cpu.rdy_line = dma.rdy_line`
+- Follows same black box pattern as PPU subsystem (self-contained module with signal output)
 
 ### Time-Sharing Behavior
 
@@ -879,22 +946,50 @@ When DMC triggers during OAM:
 
 ### Implementation Pattern
 
+**State Structure (src/dma/State.zig):**
+```zig
+// OAM DMA state
+pub const OamDma = struct {
+    active: bool = false,
+    source_page: u8 = 0,
+    current_offset: u8 = 0,
+    current_cycle: u16 = 0,
+    needs_alignment: bool = false,
+    temp_value: u8 = 0,
+
+    pub fn trigger(self: *OamDma, page: u8, on_odd_cycle: bool) void { }
+    pub fn reset(self: *OamDma) void { }
+};
+
+// DMC DMA state
+pub const DmcDma = struct {
+    active: bool = false,
+    address: u16 = 0,
+    stall_cycles_remaining: u8 = 0,
+    rdy_low: bool = false,
+
+    pub fn triggerFetch(self: *DmcDma, address: u16) void { }
+    pub fn reset(self: *DmcDma) void { }
+};
+```
+
+**Logic Execution (src/dma/Logic.zig):**
 ```zig
 // Functional edge detection (no state machine)
-pub fn tickOamDma(state: *EmulationState) void {
+pub fn tickOamDma(state: *DmaState, bus: anytype) void {
     // Check if DMC is stalling OAM
     // Hardware time-sharing: OAM continues during halt/dummy/alignment,
     // only pauses during actual DMC read cycle
-    const dmc_is_stalling_oam = state.dmc_dma.rdy_low and
-        state.dmc_dma.stall_cycles_remaining == 1;  // Only DMC read cycle
+    const dmc_is_stalling_oam = state.dmc.rdy_low and
+        state.dmc.stall_cycles_remaining == 1;  // Only DMC read cycle
 
     if (dmc_is_stalling_oam) {
         return;  // Pause OAM during DMC read cycle only
     }
 
     // Check if post-DMC alignment cycle needed
-    if (state.dma_interaction_ledger.needs_alignment_after_dmc) {
-        state.dma_interaction_ledger.needs_alignment_after_dmc = false;
+    if (state.needs_alignment_after_dmc) {
+        state.needs_alignment_after_dmc = false;
         return;  // Consume alignment cycle
     }
 
@@ -903,34 +998,34 @@ pub fn tickOamDma(state: *EmulationState) void {
 }
 ```
 
-### DMA Ledger Pattern
-
-```zig
-pub const DmaInteractionLedger = struct {
-    // Pure timestamps (VBlank pattern)
-    dmc_active_cycle: u64 = 0,
-    dmc_inactive_cycle: u64 = 0,
-    oam_pause_cycle: u64 = 0,
-    oam_resume_cycle: u64 = 0,
-
-    // State preservation (no business logic)
-    interrupted_state: OamInterruptedState = .{},
-    duplication_pending: bool = false,
-
-    // ONLY mutation method
-    pub fn reset(self: *DmaInteractionLedger) void {
-        self.* = .{};
-    }
-};
-```
-
 ### Key Points
 
-1. **No State Machine:** Use functional edge detection instead
-2. **Time-Sharing:** OAM continues during DMC cycles 2 and 3
-3. **Pure Ledger:** Timestamps only, no business logic
-4. **External Mutations:** All state changes in EmulationState
+1. **Self-Contained Module:** DMA logic consolidated in src/dma/ (not scattered across EmulationState)
+2. **Black Box Pattern:** DMA owns state, outputs RDY line signal
+3. **No State Machine:** Use functional edge detection instead
+4. **Time-Sharing:** OAM continues during DMC cycles 2 and 3
 5. **Hardware Accurate:** Matches nesdev.org specification exactly
+
+### Migration from Old Pattern
+
+**Before (2025-11-07):**
+- DMA state scattered across EmulationState
+- OamDma in `src/emulation/state/peripherals/OamDma.zig`
+- DmcDma in `src/emulation/state/peripherals/DmcDma.zig`
+- Interaction ledger in `src/emulation/DmaInteractionLedger.zig`
+- EmulationState orchestrated DMA execution
+
+**After (2025-11-08):**
+- All DMA state consolidated in `src/dma/State.zig`
+- DMA logic in `src/dma/Logic.zig` (tickOamDma, tickDmcDma)
+- DMA coordination in `src/dma/Dma.zig` (tick function, RDY line computation)
+- EmulationState reads DMA signals: `cpu.rdy_line = dma.rdy_line`
+
+**Architecture Benefits:**
+- DMA logic no longer scattered across EmulationState
+- Clear separation between OAM DMA (PPU sprite upload) and DMC DMA (APU sample fetch)
+- Self-contained module following established black box pattern
+- Signal-based interface matches PPU nmi_line pattern
 
 ---
 
@@ -1091,7 +1186,7 @@ pub fn swap(self: *Mailbox, new_data: *Data) void {
 
 ---
 
-**Version:** 1.2
-**Last Updated:** 2025-11-04
-**Status:** Complete reference for Phase 2 patterns + Bus Handler Architecture
-**Recent Update:** Bus handler architecture migration complete (2025-11-04) - Zero-size stateless handlers replacing monolithic routing
+**Version:** 1.4
+**Last Updated:** 2025-11-09
+**Status:** Complete reference for Phase 2 patterns + Black Box Subsystems
+**Recent Update:** Bus module extraction complete (2025-11-09), follows State/Logic pattern, handlers ownership transferred to bus module

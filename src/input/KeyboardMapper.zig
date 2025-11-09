@@ -11,7 +11,7 @@
 //! - Right Shift   → Select
 //! - Enter/KP_Enter→ Start
 
-const ButtonState = @import("ButtonState.zig").ButtonState;
+const ButtonState = @import("../controller/ButtonState.zig").ButtonState;
 
 /// Maps Wayland keyboard events to NES controller buttons
 pub const KeyboardMapper = struct {

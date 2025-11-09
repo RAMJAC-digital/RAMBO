@@ -446,7 +446,7 @@ test "Isolation: Runtime execution doesn't corrupt debugger state" {
     state.cpu.pc = 0x8050;
     state.busWrite(0x0200, 0xFF);
     state.ppu.scanline = 200; // Scanline 200
-    state.ppu.cycle = 0;
+    state.ppu.dot = 0;
 
     // ✅ Verify debugger state UNCHANGED
     try testing.expectEqual(@as(usize, 1), debugger.state.breakpoint_count);

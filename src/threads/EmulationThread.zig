@@ -18,6 +18,7 @@ const FrameMailbox = @import("../mailboxes/FrameMailbox.zig");
 const EmulationCommand = @import("../mailboxes/EmulationCommandMailbox.zig").EmulationCommand;
 const DebugCommand = @import("../mailboxes/DebugCommandMailbox.zig").DebugCommand;
 const CpuSnapshot = @import("../mailboxes/DebugEventMailbox.zig").CpuSnapshot;
+const ControllerLogic = @import("../controller/Logic.zig").Logic;
 
 /// Context passed to timer callback
 /// Contains all state needed for emulation loop
@@ -93,7 +94,7 @@ fn timerCallback(
 
     // Poll controller input mailbox and update controller state
     const input = ctx.mailboxes.controller_input.getInput();
-    ctx.state.controller.updateButtons(input.controller1.toByte(), input.controller2.toByte());
+    ControllerLogic.updateButtons(&ctx.state.controller, input.controller1.toByte(), input.controller2.toByte());
 
     // Get write buffer for PPU frame output (may be null if buffer full)
     const write_buffer = ctx.mailboxes.frame.getWriteBuffer();

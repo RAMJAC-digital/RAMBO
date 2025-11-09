@@ -52,7 +52,7 @@ test "CPU-PPU Integration: VBlank flag race window per CPU phase" {
         h.seekTo(240, 340); // Position at end of scanline 240
         h.seekToCpuBoundary(241, 0); // Advance to first CPU tick of scanline 241
 
-        const dot = h.state.ppu.cycle;
+        const dot = h.state.ppu.dot;
         const status = h.state.busRead(0x2002);
 
         try testing.expect(dot == 0 or dot == 1 or dot == 2);

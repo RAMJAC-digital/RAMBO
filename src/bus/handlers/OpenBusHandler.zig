@@ -68,7 +68,7 @@ pub const OpenBusHandler = struct {
 // ============================================================================
 
 const testing = std.testing;
-const CpuOpenBus = @import("../../state/BusState.zig").BusState.OpenBus;
+const CpuOpenBus = @import("../State.zig").State.OpenBus;
 
 // Test state with minimal bus
 const TestState = struct {

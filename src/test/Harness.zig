@@ -59,7 +59,7 @@ pub const Harness = struct {
     pub fn setPpuTiming(self: *Harness, scanline: i16, dot: u16) void {
         // Directly set PPU's clock state (PPU owns its own timing now)
         self.state.ppu.scanline = scanline;
-        self.state.ppu.cycle = dot;
+        self.state.ppu.dot = dot;
     }
 
     /// Set PPU position directly without advancing emulation
@@ -74,7 +74,7 @@ pub const Harness = struct {
     ///   seekTo(241, 1) - Advance TO VBlank set point, flag IS set (tick completed)
     pub fn setPpuPosition(self: *Harness, scanline: i16, dot: u16) void {
         self.state.ppu.scanline = scanline;
-        self.state.ppu.cycle = dot;
+        self.state.ppu.dot = dot;
     }
 
     pub fn tickPpu(self: *Harness) void {
@@ -116,7 +116,7 @@ pub const Harness = struct {
     ///
     /// For positioning WITHOUT side effects, use setPpuPosition() instead.
     pub fn seekTo(self: *Harness, target_scanline: i16, target_dot: u16) void {
-        while (self.state.ppu.scanline != target_scanline or self.state.ppu.cycle != target_dot) {
+        while (self.state.ppu.scanline != target_scanline or self.state.ppu.dot != target_dot) {
             self.state.tick();
         }
     }
@@ -184,7 +184,7 @@ pub const Harness = struct {
 
         while (cycles < max_cycles) : (cycles += 1) {
             const current_sl = self.state.ppu.scanline;
-            const current_dot = self.state.ppu.cycle;
+            const current_dot = self.state.ppu.dot;
 
             if (current_sl == target_scanline and current_dot == target_dot) {
                 return; // Exact position reached
@@ -236,7 +236,7 @@ pub const Harness = struct {
 
     /// Helper: Get current dot
     pub fn getDot(self: *const Harness) u16 {
-        return self.state.ppu.cycle;
+        return self.state.ppu.dot;
     }
 
     /// Helper: Setup CPU to execute from a specific address

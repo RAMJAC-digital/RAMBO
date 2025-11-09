@@ -593,7 +593,7 @@ pub const Debugger = struct {
     /// Dot 0-340 represent the 341 PPU cycles in a scanline.
     pub inline fn getCurrentDot(self: *const Debugger, state: *const EmulationState) u16 {
         _ = self;
-        return state.ppu.cycle;
+        return state.ppu.dot;
     }
 
     // ========================================================================

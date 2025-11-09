@@ -146,25 +146,25 @@ pub fn updatePpuState(state: *PpuState, scanline: i16, dot: u16) void {
 }
 
 /// Read from PPU register (via CPU memory bus)
-/// Handles register mirroring and open bus behavior
+/// Handles register mirroring, open bus behavior, and side effects.
 ///
-/// VBlank Refactor (Phase 4): This function is now pure regarding the VBlankLedger.
-/// It accepts the ledger by value, computes the VBlank status, and returns a
-/// `PpuReadResult` to signal a $2002 read to the orchestrator (EmulationState).
+/// Hardware Citations:
+/// - nesdev.org/wiki/PPU_registers#PPUSTATUS - $2002 read behavior
+/// - nesdev.org/wiki/PPU_frame_timing#VBlank_Flag - VBlank race condition
+/// - nesdev.org/wiki/NMI - NMI generation timing
 ///
-/// Race Condition Fix: Added scanline/dot parameters for read-time VBlank masking.
-/// Per Mesen2 and nesdev.org, reading $2002 during scanline 241, dots 0-2 returns
-/// VBlank bit = 0 even if flag is set internally.
+/// $2002 Read Side Effects (ALL handled in this function):
+/// 1. VBlank race detection (scanline 241, dot 0 prevents flag set)
+/// 2. Clear VBlank flag
+/// 3. Clear NMI line (PPU output signal)
+/// 4. Reset write toggle
+/// 5. Record timestamp
 pub fn readRegister(
     state: *PpuState,
     cart: ?*AnyCartridge,
     address: u16,
-    vblank_ledger: VBlankLedger,
-    scanline: i16,
-    dot: u16,
+    master_cycles: u64,
 ) PpuReadResult {
-    _ = scanline; // Race window prevention handled in State.zig
-    _ = dot; // Race window prevention handled in State.zig
     // Registers are mirrored every 8 bytes through $3FFF
     const reg = address & 0x0007;
 
@@ -181,12 +181,18 @@ pub fn readRegister(
         },
         0x0002 => {
             // $2002 PPUSTATUS - Read-only
+            // Hardware Citations:
+            // - nesdev.org/wiki/PPU_registers#PPUSTATUS
+            // - nesdev.org/wiki/PPU_frame_timing#VBlank_Flag (race condition)
 
-            // Determine VBlank status from the ledger's flag state
-            // The flag is managed by VBlankLedger (set at dot 1, cleared by $2002 reads)
-            const vblank_active = vblank_ledger.isFlagSet();
+            // Side Effect 1: VBlank race detection
+            // If reading during scanline 241, dot 0, prevent VBlank flag from being set this frame
+            if (state.scanline == 241 and state.dot == 0) {
+                state.vblank.prevent_vbl_set_cycle = master_cycles;
+            }
 
-            // Build status byte using the computed flag.
+            // Build status byte from current VBlank flag state
+            const vblank_active = state.vblank.isFlagSet();
             const value = buildStatusByte(
                 state.status.sprite_overflow,
                 state.status.sprite_0_hit,
@@ -194,35 +200,24 @@ pub fn readRegister(
                 state.open_bus.value,
             );
 
-            // CRITICAL: NO race window masking in hardware reads!
-            // Hardware behavior per nesdev.org/wiki/PPU_frame_timing:
-            // "Reading on the same PPU clock or one later reads it as set,
-            //  clears it, and suppresses the NMI for that frame."
-            //
-            // Mesen2 NesPpu.cpp ReadRam (line 332-348):
-            // - Reads actual flag value (no masking)
-            // - Calls UpdateStatusFlag() to clear it
-            // - Race window masking ONLY in PeekRam (debugger), not ReadRam!
-            //
-            // Race window behavior:
-            // - Dot 0: Prevents flag from being set (handled in State.zig)
-            // - Dot 1-2: Returns actual flag (1 if set), clears it, suppresses NMI
-            //
-            // Previous bug: We were masking to 0 (copied from Mesen2 PeekRam by mistake)
-            // This caused subsequent reads to see flag as already cleared.
-            //
-            // Reference: nesdev.org/wiki/PPU_frame_timing, Mesen2 NesPpu.cpp:332-348
+            // Side Effect 2: Record timestamp (hardware behavior, always)
+            state.vblank.last_read_cycle = master_cycles;
 
-            // Side effects handled locally or signaled upwards:
-            // 1. Signal that a $2002 read occurred. EmulationState will update the ledger.
-            result.read_2002 = true;
+            // Side Effect 3: Clear VBlank flag (hardware behavior, always)
+            // Per nesdev.org: Reading $2002 clears bit 7 (VBlank flag)
+            state.vblank.vblank_flag = false;
 
-            // 2. Reset write toggle (local PPU state).
+            // Side Effect 4: Clear NMI line (PPU output signal)
+            // Per nesdev.org/wiki/NMI: Reading $2002 clears the NMI line
+            state.nmi_line = false;
+
+            // Side Effect 5: Reset write toggle (local PPU state)
             state.internal.resetToggle();
 
-            // 3. Update open bus with the final status byte (after masking).
+            // Side Effect 6: Update open bus with status byte
             state.open_bus.setAll(value, state.frame_count);
 
+            result.read_2002 = true; // Signal that $2002 was read
             result.value = value;
         },
         0x0003 => {
@@ -310,6 +305,12 @@ pub fn writeRegister(state: *PpuState, cart: ?*AnyCartridge, address: u16, value
             // Update t register bits 10-11 (nametable select)
             state.internal.t = (state.internal.t & 0xF3FF) |
                 (@as(u16, value & 0x03) << 10);
+
+            // Recompute NMI line IMMEDIATELY on PPUCTRL write
+            // Hardware Citation: nesdev.org/wiki/NMI
+            // NMI line is a level signal: vblank_flag AND ctrl.nmi_enable
+            // CPU edge detection handles 0→1 transitions to latch NMI
+            state.nmi_line = state.vblank.isFlagSet() and state.ctrl.nmi_enable;
         },
         0x0001 => {
             // $2001 PPUMASK

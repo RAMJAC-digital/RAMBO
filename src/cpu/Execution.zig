@@ -39,20 +39,18 @@ pub fn stepCycle(cpu: *CpuState, bus: anytype, debugger: ?*Debugger) void {
     cpu.halted = false;
 
     executeCycle(cpu, bus, debugger);
+
+    // Sample interrupt lines after execution (second-to-last cycle rule)
+    // Hardware samples interrupt lines at END of cycle N, checked at START of cycle N+1
+    // This gives instructions one cycle to complete after register writes (e.g., STA $2000)
+    // Reference: nesdev.org/wiki/CPU_interrupts, Mesen2 NesCpu.cpp:311-314
+    if (cpu.state != .interrupt_sequence) {
+        CpuLogic.checkInterrupts(cpu);
+    }
 }
 
 /// Execute CPU micro-operations for the current cycle
 fn executeCycle(cpu: *CpuState, bus: anytype, debugger: ?*Debugger) void {
-    // Restore interrupt state from previous cycle (hardware "second-to-last cycle" rule)
-    // Reference: nesdev.org/wiki/CPU_interrupts
-    if (cpu.state != .interrupt_sequence) {
-        if (cpu.nmi_pending_prev) {
-            cpu.pending_interrupt = .nmi;
-        } else if (cpu.irq_pending_prev and !cpu.p.interrupt) {
-            cpu.pending_interrupt = .irq;
-        }
-    }
-
     if (cpu.state == .fetch_opcode) {
         if (cpu.pending_interrupt != .none and cpu.pending_interrupt != .reset) {
             bus.dummyRead(cpu.pc);

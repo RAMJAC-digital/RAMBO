@@ -1,20 +1,22 @@
 //! Bus Inspection Logic - Debugger Memory Reads Without Side Effects
 //!
-//! This module provides read-only memory inspection for debugging purposes.
-//! Unlike busRead(), these functions do NOT trigger hardware side effects:
+//! Provides read-only memory inspection for debugging purposes.
+//! Unlike read(), these functions do NOT trigger hardware side effects:
 //! - No PPU register read side effects ($2002 VBlank clear, $2007 buffering)
 //! - No open bus value updates
 //! - No controller shift register advances
 //!
 //! All functions are safe to call from debuggers, watchpoints, and memory viewers.
 
+const BusState = @import("State.zig").State;
+
 /// Peek at memory without triggering side effects (debugger-safe read)
 ///
-/// Differences from busRead():
+/// Differences from Logic.read():
 /// - No open_bus value update
 /// - No PPU register read side effects
 /// - No controller shift advance
-/// - Always const self (read-only)
+/// - Always const state (read-only)
 ///
 /// Use cases:
 /// - Debugger memory viewer
@@ -22,42 +24,41 @@
 /// - State inspection
 ///
 /// Parameters:
-///   - state: Const pointer to emulation state (read-only)
+///   - bus: Const bus state (read-only)
+///   - state: Const emulation state (read-only)
 ///   - address: 16-bit CPU address to read from
 ///
 /// Returns: Byte value at address (or open bus value if unmapped)
-pub fn peekMemory(state: anytype, address: u16) u8 {
+pub fn peek(bus: *const BusState, state: anytype, address: u16) u8 {
     return switch (address) {
         // RAM + mirrors ($0000-$1FFF)
-        0x0000...0x1FFF => state.bus.ram[address & 0x7FF],
+        0x0000...0x1FFF => bus.ram[address & 0x7FF],
 
         // PPU registers + mirrors ($2000-$3FFF)
-        // Note: PPU register reads have side effects, but for debugging we return the raw value
+        // Return raw PPU state without side effects
         0x2000...0x3FFF => blk: {
-            // For debugging, return raw PPU state without side effects
-            // This is safe because we're not triggering PPU read logic
             break :blk switch (address & 0x07) {
                 0 => @as(u8, @bitCast(state.ppu.ctrl)), // PPUCTRL
                 1 => @as(u8, @bitCast(state.ppu.mask)), // PPUMASK
                 2 => @as(u8, @bitCast(state.ppu.status)), // PPUSTATUS
                 3 => state.ppu.oam_addr, // OAMADDR
                 4 => state.ppu.oam[state.ppu.oam_addr], // OAMDATA
-                5 => state.bus.open_bus.get(), // PPUSCROLL (write-only)
-                6 => state.bus.open_bus.get(), // PPUADDR (write-only)
+                5 => bus.open_bus.get(), // PPUSCROLL (write-only)
+                6 => bus.open_bus.get(), // PPUADDR (write-only)
                 7 => state.ppu.internal.read_buffer, // PPUDATA (return buffer, not live read)
                 else => unreachable,
             };
         },
 
         // APU and I/O registers ($4000-$4017)
-        0x4000...0x4013 => state.bus.open_bus.get(), // APU not implemented
-        0x4014 => state.bus.open_bus.get(), // OAMDMA write-only
-        0x4015 => state.bus.open_bus.get(), // APU status not implemented
-        0x4016 => (state.controller.shift1 & 0x01) | (state.bus.open_bus.get() & 0xE0), // Controller 1 peek (no shift)
-        0x4017 => (state.controller.shift2 & 0x01) | (state.bus.open_bus.get() & 0xE0), // Controller 2 peek (no shift)
+        0x4000...0x4013 => bus.open_bus.get(),
+        0x4014 => bus.open_bus.get(), // OAMDMA write-only
+        0x4015 => bus.open_bus.get(),
+        0x4016 => (state.controller.shift1 & 0x01) | (bus.open_bus.get() & 0xE0), // Controller 1 peek (no shift)
+        0x4017 => (state.controller.shift2 & 0x01) | (bus.open_bus.get() & 0xE0), // Controller 2 peek (no shift)
 
         // Expansion area ($4020-$5FFF) defaults to open bus
-        0x4020...0x5FFF => state.bus.open_bus.get(),
+        0x4020...0x5FFF => bus.open_bus.get(),
 
         // Cartridge space ($6000-$FFFF)
         0x6000...0xFFFF => blk: {
@@ -65,7 +66,7 @@ pub fn peekMemory(state: anytype, address: u16) u8 {
                 break :blk cart.cpuRead(address);
             }
             // No cartridge - check test RAM
-            if (state.bus.test_ram) |test_ram| {
+            if (bus.test_ram) |test_ram| {
                 if (address >= 0x8000) {
                     break :blk test_ram[address - 0x8000];
                 } else {
@@ -77,11 +78,11 @@ pub fn peekMemory(state: anytype, address: u16) u8 {
                 }
             }
             // No cartridge or test RAM - open bus
-            break :blk state.bus.open_bus.get();
+            break :blk bus.open_bus.get();
         },
 
         // Unmapped regions - return open bus
-        else => state.bus.open_bus.get(),
+        else => bus.open_bus.get(),
     };
-    // NO open_bus update - this is the key difference from busRead()
+    // NO open_bus update - this is the key difference from Logic.read()
 }

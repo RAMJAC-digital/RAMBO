@@ -1,10 +1,12 @@
-//! Memory bus state owned by emulation runtime
-//! Stores all data required to service CPU/PPU bus accesses
+//! Bus State - Memory bus data and handlers
+//!
+//! Owns all bus-related state including RAM, open bus tracking, and handler instances.
+//! Follows State/Logic separation pattern established by CPU/PPU/APU/DMA/Controller modules.
 
 const std = @import("std");
 
-/// Memory bus state
-pub const BusState = struct {
+/// Bus state
+pub const State = struct {
     /// CPU open bus state (tracks external/internal data bus)
     pub const OpenBus = struct {
         /// Last value driven on CPU data bus (externally visible)
@@ -54,7 +56,7 @@ pub const BusState = struct {
         ///
         /// TODO: File upstream bug report with Mesen2 project
         pub fn getInternal(self: *const OpenBus, mask: u8) u8 {
-            return self.internal & mask;  // CORRECT - returns internal latch
+            return self.internal & mask; // CORRECT - returns internal latch
         }
     };
 
@@ -74,6 +76,17 @@ pub const BusState = struct {
 
     /// Optional external RAM used by tests in lieu of a cartridge
     test_ram: ?[]u8 = null,
+
+    /// Bus handlers (zero-size stateless, owned by bus module)
+    handlers: struct {
+        open_bus: @import("handlers/OpenBusHandler.zig").OpenBusHandler = .{},
+        ram: @import("handlers/RamHandler.zig").RamHandler = .{},
+        ppu: @import("handlers/PpuHandler.zig").PpuHandler = .{},
+        apu: @import("handlers/ApuHandler.zig").ApuHandler = .{},
+        controller: @import("handlers/ControllerHandler.zig").ControllerHandler = .{},
+        oam_dma: @import("handlers/OamDmaHandler.zig").OamDmaHandler = .{},
+        cartridge: @import("handlers/CartridgeHandler.zig").CartridgeHandler = .{},
+    } = .{},
 
     /// Initialize RAM with hardware-accurate pseudo-random pattern
     /// Uses compile-time evaluation for zero runtime overhead

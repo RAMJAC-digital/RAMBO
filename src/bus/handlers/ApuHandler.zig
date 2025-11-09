@@ -13,8 +13,8 @@
 // IMPORTANT: $4015 read does NOT update open bus (hardware quirk)
 
 const std = @import("std");
-const ApuLogic = @import("../../../apu/Logic.zig");
-const CpuOpenBus = @import("../../state/BusState.zig").BusState.OpenBus;
+const ApuLogic = @import("../../apu/Logic.zig");
+const CpuOpenBus = @import("../State.zig").State.OpenBus;
 
 /// Handler for $4000-$4015 (APU registers)
 ///
@@ -158,7 +158,7 @@ pub const ApuHandler = struct {
 // ============================================================================
 
 const testing = std.testing;
-const ApuState = @import("../../../apu/State.zig").ApuState;
+const ApuState = @import("../../apu/State.zig").ApuState;
 
 // Test state with real APU (handlers call real ApuLogic functions)
 const TestState = struct {

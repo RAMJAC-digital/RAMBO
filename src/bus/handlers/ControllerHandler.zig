@@ -11,7 +11,8 @@
 // - nesdev.org/wiki/APU_Frame_Counter
 
 const std = @import("std");
-const ApuLogic = @import("../../../apu/Logic.zig");
+const ApuLogic = @import("../../apu/Logic.zig");
+const ControllerLogic = @import("../../controller/Logic.zig").Logic;
 
 /// Handler for $4016-$4017 (controller ports)
 ///
@@ -52,9 +53,9 @@ pub const ControllerHandler = struct {
 
         // Read controller data (bit 0 only)
         const controller_bit = if (reg == 0)
-            state.controller.read1()
+            ControllerLogic.read1(&state.controller)
         else
-            state.controller.read2();
+            ControllerLogic.read2(&state.controller);
 
         // Combine with open bus bits 5-7
         // Bits 1-4 are always 0 (hardware behavior)
@@ -82,7 +83,7 @@ pub const ControllerHandler = struct {
 
         if (reg == 0) {
             // $4016: Controller strobe
-            state.controller.writeStrobe(value);
+            ControllerLogic.writeStrobe(&state.controller, value);
         } else {
             // $4017: APU frame counter
             ApuLogic.writeFrameCounter(&state.apu, value);
@@ -119,50 +120,16 @@ pub const ControllerHandler = struct {
 // ============================================================================
 
 const testing = std.testing;
-const CpuOpenBus = @import("../../state/BusState.zig").BusState.OpenBus;
-const ApuState = @import("../../../apu/State.zig").ApuState;
+const CpuOpenBus = @import("../State.zig").State.OpenBus;
+const ApuState = @import("../../apu/State.zig").ApuState;
+const ControllerState = @import("../../controller/State.zig").ControllerState;
 
 // Test state with minimal controller/bus
 const TestState = struct {
     bus: struct {
         open_bus: CpuOpenBus = .{},
     } = .{},
-    controller: struct {
-        shift1: u8 = 0,
-        shift2: u8 = 0,
-        buttons1: u8 = 0,
-        buttons2: u8 = 0,
-        strobe: bool = false,
-
-        pub fn read1(self: *@This()) u8 {
-            if (self.strobe) {
-                return self.buttons1 & 0x01;
-            } else {
-                const bit = self.shift1 & 0x01;
-                self.shift1 = (self.shift1 >> 1) | 0x80;
-                return bit;
-            }
-        }
-
-        pub fn read2(self: *@This()) u8 {
-            if (self.strobe) {
-                return self.buttons2 & 0x01;
-            } else {
-                const bit = self.shift2 & 0x01;
-                self.shift2 = (self.shift2 >> 1) | 0x80;
-                return bit;
-            }
-        }
-
-        pub fn writeStrobe(self: *@This(), value: u8) void {
-            const new_strobe = (value & 0x01) != 0;
-            self.strobe = new_strobe;
-            if (new_strobe) {
-                self.shift1 = self.buttons1;
-                self.shift2 = self.buttons2;
-            }
-        }
-    } = .{},
+    controller: ControllerState = .{},
     apu: ApuState = .{},
 };
 
